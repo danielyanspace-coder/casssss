@@ -1154,8 +1154,8 @@ select.seed-input {
 /* ---------- Компактная карточка ---------- */
 
 .shelf-row .case-card {
-  flex: 0 0 152px;
-  width: 152px;
+  flex: 0 0 178px;
+  width: 178px;
   min-height: 0;
   padding: 0 0 12px;
   border-radius: 18px;
@@ -1169,8 +1169,10 @@ select.seed-input {
 .shelf-row .case-card:active { transform: scale(0.95); }
 .shelf-row .case-card::after { display: none; }
 
+/* Обложка вытянутая, а не квадратная: 178x74 — это 2.4:1, близко к пропорции
+   самого рисунка (340x130), поэтому сундук не обрезается по бокам. */
 .shelf-row .case-cover {
-  height: 92px;
+  height: 74px;
   margin: 0 0 10px;
   border-radius: 16px 16px 0 0;
 }
@@ -1206,11 +1208,11 @@ select.seed-input {
 }
 
 /* Бейджи на маленькой обложке компактнее */
-.shelf-row .cover-badges { top: 7px; left: 7px; right: 7px; }
-.shelf-row .cover-badge { font-size: 8.5px; padding: 3px 7px; border-width: 1px; }
-.shelf-row .cover-top { font-size: 9.5px; bottom: 6px; left: 9px; }
+.shelf-row .cover-badges { top: 6px; left: 7px; right: 7px; }
+.shelf-row .cover-badge { font-size: 8px; padding: 2px 6px; border-width: 1px; }
+.shelf-row .cover-top { font-size: 9px; bottom: 5px; left: 9px; }
 
 @media (min-width: 620px) {
-  .shelf-row .case-card { flex-basis: 176px; width: 176px; }
-  .shelf-row .case-cover { height: 106px; }
+  .shelf-row .case-card { flex-basis: 208px; width: 208px; }
+  .shelf-row .case-cover { height: 86px; }
 }
