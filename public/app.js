@@ -18,7 +18,6 @@ const tg = window.Telegram?.WebApp;
 const state = {
   config: null,
   user: null,
-  activeCategory: null,
   openingCaseId: null,
   busy: false,
   crash: null,
@@ -182,63 +181,86 @@ function applyUser(user) {
    КЕЙСЫ
    ============================================================ */
 
-function renderCategories() {
-  const tabs = document.getElementById('categoryTabs');
-  tabs.innerHTML = state.config.categories
-    .map((c) => `<button class="tab ${c.id === state.activeCategory ? 'active' : ''}" data-cat="${c.id}">${c.name}</button>`)
-    .join('');
+/**
+ * Полки кейсов: ряды по цене, каждый листается вбок.
+ *
+ * Границы подобраны так, чтобы в ряду выходило 6–9 кейсов: полка короче
+ * выглядит куцей, длиннее — заставляет листать слишком долго ради последнего.
+ */
+const SHELVES = [
+  { title: 'Первые шаги', hint: 'С них начинают', max: 200 },
+  { title: 'Разогрев', hint: 'Уже интереснее', max: 800 },
+  { title: 'Средние ставки', hint: 'Золотая середина', max: 1800 },
+  { title: 'Серьёзные', hint: 'Ставки покрупнее', max: 3500 },
+  { title: 'Крупные', hint: 'Для уверенных', max: 8000 },
+  { title: 'Премиум', hint: 'Лучший RTP в игре', max: 18000 },
+  { title: 'Элита', hint: 'Здесь считают тысячами', max: 40000 },
+  { title: 'Максимум', hint: 'Дороже в игре нет', max: Infinity },
+];
 
-  tabs.querySelectorAll('.tab').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      state.activeCategory = btn.dataset.cat;
-      haptic('light');
-      renderCategories();
-      renderCases();
-    });
-  });
+function caseCardHtml(c, vouchers) {
+  const color = CATEGORY_COLORS[c.category] || '#a020ff';
+  const freeCount = vouchers.get(c.id) || 0;
+  const x2 = state.user.x2CaseId === c.id;
+
+  let badge = '';
+  if (freeCount) badge = `<span class="cover-badge perk">БЕСПЛАТНО ×${freeCount}</span>`;
+  else if (x2) badge = '<span class="cover-badge perk">×2</span>';
+  else if (c.hasPerks) badge = '<span class="cover-badge perk">ПЛЮШКИ</span>';
+  // Пустой span держит RTP прижатым вправо, когда плюшек у кейса нет.
+  else badge = '<span></span>';
+
+  return `<div class="case-card ${freeCount ? 'free-ready' : ''}" data-case="${c.id}"
+      style="--cat-color:${color}">
+    <div class="case-cover">
+      ${caseCover(c)}
+      <div class="cover-badges">${badge}
+        <span class="cover-badge rtp">${(c.rtp * 100).toFixed(1)}%</span></div>
+      <div class="cover-top">до ${fmt(c.topValue)}</div>
+    </div>
+    <div class="case-name">${esc(c.name)}</div>
+    <div class="case-foot">
+      <span class="case-price">${freeCount ? 'ПОДАРОК' : fmt(c.price)}</span>
+      <span class="case-max">${c.maxMultiplier}x</span>
+    </div>
+  </div>`;
 }
 
 function renderCases() {
-  const grid = document.getElementById('caseGrid');
-  if (!grid) return;
+  const root = document.getElementById('caseShelves');
+  if (!root) return;
 
-  const list = state.config.cases.filter((c) => c.category === state.activeCategory);
   const vouchers = new Map((state.user.vouchers || []).map((v) => [v.case_id, v.count]));
+  const sorted = [...state.config.cases].sort((a, b) => a.price - b.price);
 
-  grid.innerHTML = list.map((c) => {
-    const color = CATEGORY_COLORS[c.category] || '#a020ff';
-    const freeCount = vouchers.get(c.id) || 0;
-    const x2 = state.user.x2CaseId === c.id;
+  let from = 0;
+  const blocks = [];
 
-    const badges = [];
-    if (freeCount) badges.push(`<span class="cover-badge perk">БЕСПЛАТНО ×${freeCount}</span>`);
-    else if (x2) badges.push(`<span class="cover-badge perk">×2 АКТИВЕН</span>`);
-    else if (c.hasPerks) badges.push(`<span class="cover-badge perk">С ПЛЮШКАМИ</span>`);
-    else badges.push('<span></span>');
-    badges.push(`<span class="cover-badge rtp">RTP ${(c.rtp * 100).toFixed(1)}%</span>`);
+  for (const shelf of SHELVES) {
+    const items = sorted.filter((c) => c.price > from && c.price <= shelf.max);
+    from = shelf.max;
+    if (!items.length) continue;
 
-    return `<div class="case-card ${freeCount ? 'free-ready' : ''}" data-case="${c.id}" style="--cat-color:${color}">
-      <div class="case-cover">
-        ${caseCover(c)}
-        <div class="cover-badges">${badges.join('')}</div>
-        <div class="cover-top">до ${fmt(c.topValue)}</div>
-      </div>
-      <div class="case-info">
-        <div class="case-name">${esc(c.name)}</div>
-        <div class="case-tagline">${esc(c.tagline)}</div>
-      </div>
-      <div class="case-bottom">
-        <div class="case-price-tag">
-          <b>${freeCount ? '0' : fmt(c.price)}</b><i>${freeCount ? 'ПОДАРОК' : 'ЕД.'}</i>
+    const lo = items[0].price;
+    const hi = items[items.length - 1].price;
+
+    blocks.push(`<section class="shelf">
+      <div class="shelf-head">
+        <div>
+          <h2 class="shelf-title">${shelf.title}</h2>
+          <div class="shelf-hint">${shelf.hint}</div>
         </div>
-        <div class="case-stats">
-          <div class="case-stat max">макс <b>${c.maxMultiplier}x</b></div>
-        </div>
+        <div class="shelf-range">${fmt(lo)}${hi !== lo ? ` – ${fmt(hi)}` : ''} ед.</div>
       </div>
-    </div>`;
-  }).join('');
+      <div class="shelf-row">
+        ${items.map((c) => caseCardHtml(c, vouchers)).join('')}
+      </div>
+    </section>`);
+  }
 
-  grid.querySelectorAll('.case-card').forEach((card) => {
+  root.innerHTML = blocks.join('');
+
+  root.querySelectorAll('.case-card').forEach((card) => {
     card.addEventListener('click', () => openSheet(card.dataset.case));
   });
 }
@@ -1167,9 +1189,6 @@ async function init() {
 
     state.config = config;
     state.user = me.user;
-    state.activeCategory = config.categories[0].id;
-
-    renderCategories();
     renderColorPicker();
     renderRouletteReel(2);
     applyUser(me.user);
