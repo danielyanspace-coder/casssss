@@ -9,7 +9,10 @@
     "bot": "node server/bot.js",
     "dev": "DEV_MODE=true node server/app.js",
     "verify": "node server/verify.js",
-    "demo": "node build-standalone.mjs"
+    "demo": "node build-standalone.mjs",
+    "test:api": "node test/api.mjs",
+    "test:ui": "node test/ui.mjs",
+    "test": "npm run verify && npm run test:api && npm run test:ui"
   },
   "engines": {
     "node": ">=18"
@@ -19,5 +22,8 @@
     "dotenv": "^16.4.5",
     "express": "^4.21.0",
     "grammy": "^1.30.0"
+  },
+  "devDependencies": {
+    "playwright": "^1.48.0"
   }
 }

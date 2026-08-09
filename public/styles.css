@@ -649,7 +649,6 @@ main { position: relative; z-index: 2; padding: 18px; }
   padding: 20px;
 }
 .opener-inner { width: 100%; max-width: 580px; }
-.opener-case { text-align: center; font-size: 15px; font-weight: 700; color: var(--muted); margin-bottom: 20px; }
 
 .reel-wrap {
   position: relative;
@@ -663,8 +662,6 @@ main { position: relative; z-index: 2; padding: 18px; }
 .reel { display: flex; gap: 10px; padding: 12px 0; height: 100%; will-change: transform; }
 
 .reel-tile {
-  flex: 0 0 128px;
-  width: 128px;
   border-radius: 14px;
   background: linear-gradient(160deg, var(--tier-color) -35%, var(--card) 58%);
   border: 2px solid var(--line);
@@ -1086,7 +1083,6 @@ main { position: relative; z-index: 2; padding: 18px; }
 .case-bottom { margin-top: 0; }
 
 .item-ico { width: 26px; height: 26px; flex: 0 0 auto; }
-.tile-icon { width: 30px; height: 30px; }
 
 /* Монеты фона — теперь SVG, размер задаётся инлайном */
 .money-drop { font-size: 0; }

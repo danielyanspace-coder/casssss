@@ -337,10 +337,26 @@ document.getElementById('sheetBackdrop').addEventListener('click', (e) => {
   if (e.target.id === 'sheetBackdrop') closeSheet();
 });
 
-const TILE_WIDTH = 128;
-const TILE_STEP = TILE_WIDTH + 10;
 const STRIP_LENGTH = 62;
 const WINNER_INDEX = 54;
+
+/**
+ * Ширина плитки и шаг берутся из разметки, а не задаются числом.
+ *
+ * Раньше это были константы, продублированные в CSS. Стоило поменять размер
+ * плитки в стилях — и лента доезжала не до той позиции: под маркером
+ * оказывался один предмет, а в результате приходил другой. Измерение из DOM
+ * убирает саму возможность такого расхождения.
+ */
+function measureReel(reel) {
+  const tiles = reel.children;
+  if (!tiles.length) return { tileW: 0, step: 0 };
+  const first = tiles[0].getBoundingClientRect();
+  const step = tiles.length > 1
+    ? tiles[1].getBoundingClientRect().left - first.left
+    : first.width;
+  return { tileW: first.width, step };
+}
 
 function weightedSample(items) {
   const r = Math.random();
@@ -418,8 +434,11 @@ async function startOpening(caseId) {
   void reel.offsetWidth;
 
   const viewport = reel.parentElement.clientWidth;
-  const jitter = (Math.random() - 0.5) * (TILE_WIDTH * 0.55);
-  const target = WINNER_INDEX * TILE_STEP + TILE_WIDTH / 2 - viewport / 2 + jitter;
+  const { tileW, step } = measureReel(reel);
+  // Сдвиг внутри плитки, но с запасом от краёв: иначе маркер может встать
+  // на границу и визуально «зацепить» соседнюю.
+  const jitter = (Math.random() - 0.5) * (tileW * 0.5);
+  const target = WINNER_INDEX * step + tileW / 2 - viewport / 2 + jitter;
 
   requestAnimationFrame(() => {
     // Кривая с плавным разгоном: прежняя стартовала на полной скорости,
@@ -694,8 +713,16 @@ const crashEl = {
   rocket: () => document.getElementById('crashRocket'),
 };
 
-const GRAPH_W = 300;
-const GRAPH_H = 140;
+/**
+ * Система координат графика берётся из самого SVG. Держать её числом в коде
+ * означало бы третью копию тех же размеров — ровно так лента кейса и разошлась
+ * с разметкой.
+ */
+const [GRAPH_W, GRAPH_H] = (() => {
+  const vb = document.getElementById('crashGraph')?.getAttribute('viewBox');
+  const parts = (vb || '0 0 300 140').split(/\s+/).map(Number);
+  return [parts[2], parts[3]];
+})();
 
 function drawCrashGraph(elapsedMs, multiplier) {
   const growth = state.config.crash.growth;
@@ -890,8 +917,6 @@ function pushRecent(game, value) {
    РУЛЕТКА
    ============================================================ */
 
-const ROUL_TILE = 84;
-const ROUL_STEP = ROUL_TILE + 10;
 const ROUL_LOOPS = 6;
 const ROUL_WINNER_LOOP = 4;
 
@@ -924,7 +949,8 @@ function renderRouletteReel(offsetTiles = 0) {
   }
   reel.innerHTML = html;
   reel.style.transition = 'none';
-  reel.style.transform = `translateX(${-offsetTiles * ROUL_STEP}px)`;
+  const { step } = measureReel(reel);
+  reel.style.transform = `translateX(${-offsetTiles * step}px)`;
 }
 
 async function spinRoulette() {
@@ -961,8 +987,9 @@ async function spinRoulette() {
 
   const winnerIndex = ROUL_WINNER_LOOP * wheelLen + data.slot;
   const viewport = reel.parentElement.clientWidth;
-  const jitter = (Math.random() - 0.5) * (ROUL_TILE * 0.5);
-  const target = winnerIndex * ROUL_STEP + ROUL_TILE / 2 - viewport / 2 + jitter;
+  const { tileW, step } = measureReel(reel);
+  const jitter = (Math.random() - 0.5) * (tileW * 0.45);
+  const target = winnerIndex * step + tileW / 2 - viewport / 2 + jitter;
 
   requestAnimationFrame(() => {
     reel.style.transition = 'transform 5.4s cubic-bezier(0.32, 0, 0.1, 1)';

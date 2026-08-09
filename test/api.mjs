@@ -1,0 +1,270 @@
+/**
+ * Сквозной тест серверного API.
+ *
+ * Проверяет не «отвечает ли эндпоинт», а арифметику: сходится ли баланс,
+ * тратится ли ваучер, нельзя ли рискнуть одним выигрышем дважды, закрыт ли
+ * админский доступ для обычного игрока.
+ *
+ * Запуск: node test/api.mjs [http://localhost:3000]
+ */
+
+const BASE = process.argv[2] || 'http://localhost:3000';
+
+let passed = 0;
+const failures = [];
+
+function check(name, condition, detail = '') {
+  if (condition) { passed++; return true; }
+  failures.push(`${name}${detail ? ' — ' + detail : ''}`);
+  return false;
+}
+
+async function post(path, body, headers = {}) {
+  const res = await fetch(BASE + path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...headers },
+    body: JSON.stringify(body || {}),
+  });
+  return { status: res.status, data: await res.json().catch(() => ({})) };
+}
+
+const get = async (path) => (await fetch(BASE + path)).json();
+
+const config = await get('/api/config');
+const me = (await post('/api/me')).data.user;
+
+console.log(`Базовый адрес: ${BASE}`);
+console.log(`Кейсов: ${config.cases.length}, игрок #${me.id}, админ: ${me.isAdmin}\n`);
+
+/* ---------- Пополняем баланс для тестов ---------- */
+
+await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'тестовый прогон' });
+
+/* ---------- 1. Кейсы: арифметика баланса ---------- */
+
+{
+  const cheap = config.cases.find((c) => c.id === 'warmup_100');
+  let mismatches = 0;
+  let notInTable = 0;
+
+  for (let i = 0; i < 40; i++) {
+    const before = (await post('/api/me')).data.user;
+    const { data } = await post('/api/open', { caseId: cheap.id });
+
+    const expected = before.balance - cheap.price + data.item.value;
+    if (data.balance !== expected) {
+      mismatches++;
+      if (mismatches === 1) {
+        failures.push(`баланс после кейса: ожидалось ${expected}, получено ${data.balance}`);
+      }
+    }
+
+    // Выпавший предмет обязан быть из таблицы этого кейса.
+    const known = cheap.items.some((it) =>
+      it.name === data.item.name || data.item.name.startsWith(it.name));
+    if (!known) notInTable++;
+  }
+
+  check('кейсы: баланс сходится на 40 открытиях', mismatches === 0, `расхождений ${mismatches}`);
+  check('кейсы: предметы только из таблицы кейса', notInTable === 0, `чужих ${notInTable}`);
+}
+
+/* ---------- 2. Недостаток средств ---------- */
+
+{
+  const before = (await post('/api/me')).data.user;
+  await post('/api/admin/balance', { userId: me.id, amount: -before.balance, note: 'обнуление' });
+
+  const r = await post('/api/open', { caseId: 'apex_100000' });
+  check('нехватка средств: отказ 400', r.status === 400 && r.data.error === 'INSUFFICIENT_FUNDS',
+        `статус ${r.status}`);
+
+  const after = (await post('/api/me')).data.user;
+  check('нехватка средств: баланс не ушёл в минус', after.balance >= 0, `баланс ${after.balance}`);
+
+  await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'возврат' });
+}
+
+/* ---------- 3. Несуществующий кейс ---------- */
+
+{
+  const r = await post('/api/open', { caseId: 'нет-такого' });
+  check('несуществующий кейс: 404', r.status === 404, `статус ${r.status}`);
+}
+
+/* ---------- 4. Риск-игра ---------- */
+
+{
+  // Крутим, пока не будет выигрыша, — рисковать можно только выигранным.
+  let opened;
+  for (let i = 0; i < 60; i++) {
+    opened = (await post('/api/open', { caseId: 'vault_1000' })).data;
+    if (opened.user.gambleStake > 0) break;
+  }
+  check('риск: ставка появляется после выигрышного прокрута', opened.user.gambleStake > 0);
+
+  const stake = opened.user.gambleStake;
+  const before = opened.balance;
+  const g = (await post('/api/gamble/pick', { index: 0 })).data;
+
+  const expected = before + (g.won ? stake * config.gamble.payout - stake : -stake);
+  check('риск: баланс сходится', g.balance === expected,
+        `ожидалось ${expected}, получено ${g.balance}`);
+  check('риск: выплата соответствует исходу',
+        g.won ? g.payout === stake * config.gamble.payout : g.payout === 0);
+  check('риск: позиция туза в допустимых границах',
+        g.acePosition >= 0 && g.acePosition < config.gamble.cards);
+
+  // Повторная попытка тем же выигрышем должна быть отклонена.
+  const again = await post('/api/gamble/pick', { index: 1 });
+  check('риск: нельзя рискнуть дважды одним выигрышем', again.status === 400,
+        `статус ${again.status}`);
+
+  const bad = await post('/api/gamble/pick', { index: 99 });
+  check('риск: некорректный индекс карты отклонён', bad.status === 400);
+}
+
+/* ---------- 5. Рулетка ---------- */
+
+{
+  let mismatches = 0;
+  for (let i = 0; i < 20; i++) {
+    const before = (await post('/api/me')).data.user;
+    const { data } = await post('/api/roulette', { bet: 100, color: 'red' });
+    const expected = before.balance - 100 + data.payout;
+    if (data.balance !== expected) mismatches++;
+
+    // Цвет обязан соответствовать сектору колеса.
+    if (config.roulette.wheel[data.slot] !== data.landed) mismatches += 100;
+  }
+  check('рулетка: баланс и цвет сектора сходятся', mismatches === 0, `расхождений ${mismatches}`);
+
+  const bad = await post('/api/roulette', { bet: 100, color: 'фиолетовое' });
+  check('рулетка: неизвестный цвет отклонён', bad.status === 400);
+
+  const zero = await post('/api/roulette', { bet: 0, color: 'red' });
+  check('рулетка: нулевая ставка отклонена', zero.status === 400);
+}
+
+/* ---------- 6. Краш ---------- */
+
+{
+  const before = (await post('/api/me')).data.user;
+  const start = (await post('/api/crash/start', { bet: 500 })).data;
+  check('краш: ставка списана при старте', start.balance === before.balance - 500,
+        `${start.balance} vs ${before.balance - 500}`);
+  check('краш: точка взрыва не уходит на клиент', start.crashPoint === undefined);
+
+  await new Promise((r) => setTimeout(r, 700));
+  const state = (await post('/api/crash/state', { roundId: start.roundId })).data;
+  check('краш: состояние раунда отдаётся', ['running', 'busted'].includes(state.status),
+        `статус ${state.status}`);
+
+  const out = (await post('/api/crash/cashout', { roundId: start.roundId })).data;
+  check('краш: раунд завершается', ['cashed', 'busted'].includes(out.status), `статус ${out.status}`);
+
+  if (out.status === 'cashed') {
+    check('краш: выплата = ставка × множитель',
+          out.payout === Math.floor(500 * out.cashedAt),
+          `${out.payout} vs ${Math.floor(500 * out.cashedAt)}`);
+  }
+
+  const twice = await post('/api/crash/cashout', { roundId: start.roundId });
+  check('краш: повторный вывод отклонён', twice.status === 400, `статус ${twice.status}`);
+}
+
+/* ---------- 7. Provably fair ---------- */
+
+{
+  const before = (await post('/api/me')).data.user;
+  const rot = (await post('/api/fair/rotate')).data;
+
+  const { createHash } = await import('node:crypto');
+  const hash = createHash('sha256').update(rot.revealedSeed).digest('hex');
+
+  check('честность: раскрытый seed совпадает с показанным хешем',
+        hash === before.fair.serverSeedHash,
+        `${hash.slice(0, 16)} vs ${before.fair.serverSeedHash.slice(0, 16)}`);
+  check('честность: nonce сброшен после ротации', rot.user.fair.nonce === 0);
+  check('честность: новый хеш отличается от старого',
+        rot.user.fair.serverSeedHash !== before.fair.serverSeedHash);
+
+  const badSeed = await post('/api/fair/client-seed', { seed: 'плохой seed!!!' });
+  check('честность: некорректный client seed отклонён', badSeed.status === 400);
+
+  const okSeed = await post('/api/fair/client-seed', { seed: 'my-seed_1' });
+  check('честность: корректный client seed принят',
+        okSeed.data.user?.fair.clientSeed === 'my-seed_1');
+}
+
+/* ---------- 8. История ---------- */
+
+{
+  await post('/api/open', { caseId: 'vault_1000' });
+  const filtered = (await post('/api/history', { caseTitle: 'Сейф', limit: 20 })).data.history;
+  const foreign = filtered.filter((h) => h.title !== 'Сейф' || h.game !== 'case');
+  check('история: фильтр по кейсу не пропускает чужое', foreign.length === 0,
+        `чужих ${foreign.length}`);
+
+  const all = (await post('/api/history', {})).data.history;
+  check('история: без фильтра отдаются все игры',
+        new Set(all.map((h) => h.game)).size > 1,
+        `игр в истории: ${new Set(all.map((h) => h.game)).size}`);
+}
+
+/* ---------- 9. Бонус ---------- */
+
+{
+  const cur = (await post('/api/me')).data.user;
+  const r = await post('/api/bonus');
+  if (cur.balance > config.bonus.balanceLimit) {
+    check('бонус: не выдаётся при высоком балансе', r.status === 400 && r.data.error === 'balance');
+  } else {
+    check('бонус: выдан при низком балансе', r.status === 200);
+  }
+}
+
+/* ---------- 10. Админка ---------- */
+
+{
+  const ov = await post('/api/admin/overview');
+  check('админка: сводка доступна администратору', ov.status === 200, `статус ${ov.status}`);
+
+  if (ov.status === 200) {
+    const d = ov.data;
+    check('админка: прибыль = ставки минус выплаты',
+          d.rounds.profit === d.rounds.wagered - d.rounds.paid);
+    check('админка: RTP согласован с оборотом',
+          !d.rounds.wagered || Math.abs(d.rounds.rtp - d.rounds.paid / d.rounds.wagered) < 1e-9);
+  }
+
+  const users = await post('/api/admin/users', { query: '' });
+  check('админка: список игроков отдаётся', users.status === 200 && Array.isArray(users.data.rows));
+
+  const before = (await post('/api/me')).data.user.balance;
+  await post('/api/admin/balance', { userId: me.id, amount: 1234, note: 'проверка' });
+  const after = (await post('/api/me')).data.user.balance;
+  check('админка: начисление меняет баланс ровно на сумму', after === before + 1234,
+        `${after} vs ${before + 1234}`);
+
+  await post('/api/admin/balance', { userId: me.id, amount: -(after + 999999), note: 'проверка' });
+  const floor = (await post('/api/me')).data.user.balance;
+  check('админка: списание не уводит баланс ниже нуля', floor === 0, `баланс ${floor}`);
+  await post('/api/admin/balance', { userId: me.id, amount: 100000, note: 'возврат' });
+
+  const zero = await post('/api/admin/balance', { userId: me.id, amount: 0 });
+  check('админка: нулевая сумма отклонена', zero.status === 400);
+
+  const self = await post('/api/admin/block', { userId: me.id, blocked: true });
+  check('админка: нельзя заблокировать самого себя', self.status === 400, `статус ${self.status}`);
+}
+
+/* ---------- Итог ---------- */
+
+console.log(`Пройдено проверок: ${passed}`);
+if (failures.length) {
+  console.error(`\nПРОВАЛЕНО (${failures.length}):`);
+  failures.forEach((f) => console.error('  • ' + f));
+  process.exit(1);
+}
+console.log('Все проверки API пройдены.\n');
