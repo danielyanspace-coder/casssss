@@ -8,7 +8,8 @@
     "start": "node server/app.js",
     "bot": "node server/bot.js",
     "dev": "DEV_MODE=true node server/app.js",
-    "verify": "node server/verify.js"
+    "verify": "node server/verify.js",
+    "demo": "node build-standalone.mjs"
   },
   "engines": {
     "node": ">=18"
