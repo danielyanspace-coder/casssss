@@ -1,0 +1,22 @@
+{
+  "name": "case-simulator-miniapp",
+  "version": "1.0.0",
+  "description": "Telegram Mini App: симулятор открытия кейсов на условных единицах",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "node server/app.js",
+    "bot": "node server/bot.js",
+    "dev": "DEV_MODE=true node server/app.js",
+    "verify": "node server/verify.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.3.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.0",
+    "grammy": "^1.30.0"
+  }
+}
