@@ -3,62 +3,149 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>Кейсы — симулятор</title>
+  <title>КЕЙСЫ · КРАШ · РУЛЕТКА</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
 
-  <div class="glow glow-1"></div>
-  <div class="glow glow-2"></div>
+  <div class="bg-glow bg-glow-1"></div>
+  <div class="bg-glow bg-glow-2"></div>
+  <div class="bg-glow bg-glow-3"></div>
+  <div class="money-rain" id="moneyRain"></div>
 
   <header class="topbar">
     <div class="brand">
-      <div class="brand-mark">◆</div>
-      <div>
-        <div class="brand-name">КЕЙСЫ</div>
+      <div class="brand-mark">💎</div>
+      <div class="brand-text">
+        <div class="brand-name">LUCKY<span>BOX</span></div>
         <div class="brand-sub">симулятор</div>
       </div>
     </div>
     <div class="balance-chip" id="balanceChip">
+      <span class="balance-ico">💰</span>
       <span class="balance-value" id="balanceValue">—</span>
-      <span class="balance-unit">ед.</span>
     </div>
   </header>
 
   <main id="app">
 
-    <!-- ВКЛАДКА: КЕЙСЫ -->
+    <!-- ══════════ КЕЙСЫ ══════════ -->
     <section class="view active" id="view-cases">
-      <div class="notice">
-        Баланс — условные единицы. Реальных денег, платежей и вывода здесь нет.
-      </div>
-
       <div class="bonus-row" id="bonusRow" hidden>
         <div class="bonus-text">
-          <strong>Баланс на нуле?</strong>
+          <strong>Баланс на нуле!</strong>
           <span id="bonusHint"></span>
         </div>
-        <button class="btn btn-bonus" id="bonusBtn">Получить бонус</button>
+        <button class="btn btn-bonus" id="bonusBtn">Забрать</button>
       </div>
 
       <nav class="tabs" id="categoryTabs"></nav>
-
       <div class="case-grid" id="caseGrid"></div>
+
+      <div class="notice">
+        Баланс — условные единицы. Реальных денег, платежей и вывода здесь нет.
+      </div>
     </section>
 
-    <!-- ВКЛАДКА: ИСТОРИЯ -->
+    <!-- ══════════ КРАШ ══════════ -->
+    <section class="view" id="view-crash">
+      <div class="game-head">
+        <h1 class="game-title">КРАШ</h1>
+        <p class="game-sub">Забирай до взрыва. Ждёшь дольше — рискуешь больше.</p>
+      </div>
+
+      <div class="crash-stage" id="crashStage">
+        <svg class="crash-graph" id="crashGraph" viewBox="0 0 300 140" preserveAspectRatio="none">
+          <defs>
+            <linearGradient id="crashFill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="var(--pink)" stop-opacity="0.55"/>
+              <stop offset="100%" stop-color="var(--pink)" stop-opacity="0"/>
+            </linearGradient>
+          </defs>
+          <polygon class="crash-area" id="crashArea" points=""/>
+          <polyline class="crash-line" id="crashLine" points=""/>
+        </svg>
+
+        <div class="crash-center">
+          <div class="crash-multiplier" id="crashMultiplier">1.00x</div>
+          <div class="crash-status" id="crashStatus">Сделайте ставку</div>
+        </div>
+
+        <div class="crash-rocket" id="crashRocket">🚀</div>
+      </div>
+
+      <div class="crash-recent" id="crashRecent"></div>
+
+      <div class="bet-panel">
+        <div class="bet-row">
+          <input class="bet-input" id="crashBet" type="number" inputmode="numeric" min="1" value="100">
+          <div class="bet-quick">
+            <button class="chip" data-crash-bet="half">½</button>
+            <button class="chip" data-crash-bet="double">×2</button>
+            <button class="chip" data-crash-bet="max">Max</button>
+          </div>
+        </div>
+        <div class="bet-chips">
+          <button class="chip chip-val" data-crash-add="50">+50</button>
+          <button class="chip chip-val" data-crash-add="100">+100</button>
+          <button class="chip chip-val" data-crash-add="500">+500</button>
+          <button class="chip chip-val" data-crash-add="1000">+1000</button>
+        </div>
+        <button class="btn btn-huge btn-crash" id="crashActionBtn">ПОСТАВИТЬ</button>
+      </div>
+    </section>
+
+    <!-- ══════════ РУЛЕТКА ══════════ -->
+    <section class="view" id="view-roulette">
+      <div class="game-head">
+        <h1 class="game-title">РУЛЕТКА</h1>
+        <p class="game-sub">15 секторов. У всех ставок одинаковый RTP.</p>
+      </div>
+
+      <div class="reel-wrap roulette-wrap">
+        <div class="reel-marker"></div>
+        <div class="reel-fade reel-fade-l"></div>
+        <div class="reel-fade reel-fade-r"></div>
+        <div class="reel" id="rouletteReel"></div>
+      </div>
+
+      <div class="roulette-result" id="rouletteResult"></div>
+      <div class="crash-recent" id="rouletteRecent"></div>
+
+      <div class="color-picker" id="colorPicker"></div>
+
+      <div class="bet-panel">
+        <div class="bet-row">
+          <input class="bet-input" id="rouletteBet" type="number" inputmode="numeric" min="1" value="100">
+          <div class="bet-quick">
+            <button class="chip" data-roul-bet="half">½</button>
+            <button class="chip" data-roul-bet="double">×2</button>
+            <button class="chip" data-roul-bet="max">Max</button>
+          </div>
+        </div>
+        <div class="bet-chips">
+          <button class="chip chip-val" data-roul-add="50">+50</button>
+          <button class="chip chip-val" data-roul-add="100">+100</button>
+          <button class="chip chip-val" data-roul-add="500">+500</button>
+          <button class="chip chip-val" data-roul-add="1000">+1000</button>
+        </div>
+        <button class="btn btn-huge btn-roulette" id="rouletteSpinBtn">КРУТИТЬ</button>
+      </div>
+    </section>
+
+    <!-- ══════════ ИСТОРИЯ ══════════ -->
     <section class="view" id="view-history">
       <div class="stats-grid" id="statsGrid"></div>
-      <h2 class="section-title">Последние открытия</h2>
+      <h2 class="section-title">Последние раунды</h2>
       <div class="history-list" id="historyList"></div>
     </section>
 
-    <!-- ВКЛАДКА: ЧЕСТНОСТЬ -->
+    <!-- ══════════ ЧЕСТНОСТЬ ══════════ -->
     <section class="view" id="view-fair">
       <h2 class="section-title">Provably fair</h2>
       <p class="fair-intro">
-        Результат каждого открытия считается заранее заданной формулой, а не
+        Результат каждого раунда считается заранее заданной формулой, а не
         «на усмотрение сервера». Хеш серверного seed вы видите до игры —
         подменить seed задним числом невозможно, хеш не сойдётся.
       </p>
@@ -70,10 +157,10 @@
         <label class="fair-label">Ваш client seed</label>
         <div class="seed-row">
           <input class="seed-input" id="clientSeedInput" maxlength="64" placeholder="любая строка">
-          <button class="btn btn-sm" id="saveSeedBtn">Сохранить</button>
+          <button class="btn btn-sm" id="saveSeedBtn">ОК</button>
         </div>
 
-        <label class="fair-label">Nonce (номер открытия)</label>
+        <label class="fair-label">Nonce (номер раунда)</label>
         <div class="mono-box" id="nonceBox">—</div>
 
         <button class="btn btn-outline btn-wide" id="rotateBtn">
@@ -93,8 +180,9 @@
         <pre class="code-block">roll = HMAC_SHA256(serverSeed, "clientSeed:nonce")
 число = первые 8 hex-символов / 2^32</pre>
         <p class="fair-note">
-          Полученное число попадает в интервал предмета по таблице шансов —
-          она открыта в карточке каждого кейса.
+          <strong>Кейс:</strong> число попадает в интервал предмета по таблице шансов.<br>
+          <strong>Краш:</strong> точка взрыва = 0.95 / (1 − число), округлённая вниз до сотых.<br>
+          <strong>Рулетка:</strong> сектор = ⌊число × 15⌋.
         </p>
       </div>
     </section>
@@ -102,18 +190,14 @@
   </main>
 
   <nav class="bottom-nav">
-    <button class="nav-btn active" data-view="cases">
-      <span class="nav-ico">◆</span><span>Кейсы</span>
-    </button>
-    <button class="nav-btn" data-view="history">
-      <span class="nav-ico">≡</span><span>История</span>
-    </button>
-    <button class="nav-btn" data-view="fair">
-      <span class="nav-ico">✦</span><span>Честность</span>
-    </button>
+    <button class="nav-btn active" data-view="cases"><span class="nav-ico">🎁</span><span>Кейсы</span></button>
+    <button class="nav-btn" data-view="crash"><span class="nav-ico">🚀</span><span>Краш</span></button>
+    <button class="nav-btn" data-view="roulette"><span class="nav-ico">🎯</span><span>Рулетка</span></button>
+    <button class="nav-btn" data-view="history"><span class="nav-ico">📊</span><span>История</span></button>
+    <button class="nav-btn" data-view="fair"><span class="nav-ico">🔐</span><span>Честность</span></button>
   </nav>
 
-  <!-- ШТОРКА КЕЙСА -->
+  <!-- Шторка кейса -->
   <div class="sheet-backdrop" id="sheetBackdrop" hidden>
     <div class="sheet" id="caseSheet">
       <div class="sheet-handle"></div>
@@ -121,18 +205,16 @@
     </div>
   </div>
 
-  <!-- ЭКРАН ОТКРЫТИЯ -->
+  <!-- Экран открытия кейса -->
   <div class="opener" id="opener" hidden>
     <div class="opener-inner">
       <div class="opener-case" id="openerCaseName"></div>
-
       <div class="reel-wrap">
         <div class="reel-marker"></div>
         <div class="reel-fade reel-fade-l"></div>
         <div class="reel-fade reel-fade-r"></div>
         <div class="reel" id="reel"></div>
       </div>
-
       <div class="result" id="result" hidden>
         <div class="result-tier" id="resultTier"></div>
         <div class="result-name" id="resultName"></div>

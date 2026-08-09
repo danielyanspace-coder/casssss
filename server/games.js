@@ -1,0 +1,146 @@
+/**
+ * Математика краша и рулетки.
+ *
+ * Обе игры используют тот же provably fair ролл, что и кейсы: число из [0, 1),
+ * полученное из HMAC(serverSeed, "clientSeed:nonce"). Разница только в том, как
+ * это число превращается в результат.
+ */
+
+/* ============================================================
+   КРАШ
+   ============================================================ */
+
+/** Доля, которую забирает заведение. RTP краша = 1 - EDGE. */
+const CRASH_EDGE = 0.05;
+
+/** Потолок множителя — иначе редкий раунд может тянуться минутами. */
+const CRASH_MAX = 1000;
+
+/** Скорость роста множителя: m(t) = e^(GROWTH * t), t в секундах. */
+const CRASH_GROWTH = 0.22;
+
+export const CRASH_CONFIG = {
+  edge: CRASH_EDGE,
+  rtp: 1 - CRASH_EDGE,
+  maxMultiplier: CRASH_MAX,
+  growth: CRASH_GROWTH,
+};
+
+/**
+ * Точка краша из ролла.
+ *
+ * Формула: crash = (1 - edge) / (1 - u).
+ *
+ * Почему RTP получается ровно 1 - edge при ЛЮБОЙ цели вывода c:
+ *   P(crash >= c) = P((1-e)/(1-u) >= c) = (1-e)/c
+ *   EV = c * P(дожили до c) = c * (1-e)/c = 1-e
+ * То есть выбор момента вывода не меняет матожидание — можно играть
+ * осторожно или жадно, ожидание одинаковое. Меняется только дисперсия.
+ *
+ * При u < edge формула даёт меньше единицы — это мгновенный краш на 1.00x.
+ */
+export function crashPointFromRoll(roll) {
+  const raw = (1 - CRASH_EDGE) / (1 - roll);
+  const floored = Math.floor(raw * 100) / 100;
+  return Math.max(1, Math.min(floored, CRASH_MAX));
+}
+
+/** Множитель в момент времени elapsedMs от старта раунда. */
+export function crashMultiplierAt(elapsedMs) {
+  const t = Math.max(0, elapsedMs) / 1000;
+  return Math.exp(CRASH_GROWTH * t);
+}
+
+/** Сколько миллисекунд нужно, чтобы множитель дорос до m. */
+export function crashTimeToReach(multiplier) {
+  if (multiplier <= 1) return 0;
+  return (Math.log(multiplier) / CRASH_GROWTH) * 1000;
+}
+
+/* ============================================================
+   РУЛЕТКА
+   ============================================================ */
+
+/**
+ * Колесо на 15 секторов: 1 зелёный, 7 красных, 7 чёрных.
+ *
+ * Выплаты подобраны так, что RTP одинаков для любой ставки:
+ *   красное/чёрное: (7/15) * 2  = 14/15 = 93.33%
+ *   зелёное:        (1/15) * 14 = 14/15 = 93.33%
+ * Поэтому «зелёное» — не ловушка с худшими шансами, а та же игра
+ * с другой дисперсией.
+ */
+export const ROULETTE_WHEEL = [
+  'green',
+  'red', 'black', 'red', 'black', 'red', 'black', 'red',
+  'black', 'red', 'black', 'red', 'black', 'red', 'black',
+];
+
+export const ROULETTE_PAYOUTS = { red: 2, black: 2, green: 14 };
+
+export const ROULETTE_COLORS = [
+  { id: 'red', label: 'Красное', payout: 2, slots: 7 },
+  { id: 'green', label: 'Зелёное', payout: 14, slots: 1 },
+  { id: 'black', label: 'Чёрное', payout: 2, slots: 7 },
+];
+
+export const ROULETTE_CONFIG = {
+  slots: ROULETTE_WHEEL.length,
+  payouts: ROULETTE_PAYOUTS,
+  colors: ROULETTE_COLORS,
+  rtp: (7 / 15) * 2,
+};
+
+/** Номер выпавшего сектора из ролла. */
+export function rouletteSlotFromRoll(roll) {
+  const slot = Math.floor(roll * ROULETTE_WHEEL.length);
+  // Страховка от roll, равного 1 из-за ошибок округления.
+  return Math.min(slot, ROULETTE_WHEEL.length - 1);
+}
+
+export function rouletteColorOf(slot) {
+  return ROULETTE_WHEEL[slot];
+}
+
+/* ============================================================
+   ПРОВЕРКА ИНВАРИАНТОВ
+   ============================================================ */
+
+export function validateGames() {
+  // Рулетка: RTP всех ставок обязан совпадать.
+  const rtps = ROULETTE_COLORS.map((c) => (c.slots / ROULETTE_WHEEL.length) * c.payout);
+  const first = rtps[0];
+  for (const r of rtps) {
+    if (Math.abs(r - first) > 1e-9) {
+      throw new Error(`Рулетка: RTP ставок разошёлся — ${rtps.join(', ')}`);
+    }
+  }
+  if (first >= 1) {
+    throw new Error(`Рулетка: RTP ${first} >= 1, игра убыточна для заведения`);
+  }
+
+  const totalSlots = ROULETTE_COLORS.reduce((s, c) => s + c.slots, 0);
+  if (totalSlots !== ROULETTE_WHEEL.length) {
+    throw new Error(`Рулетка: секторов ${ROULETTE_WHEEL.length}, в описании ${totalSlots}`);
+  }
+
+  for (const c of ROULETTE_COLORS) {
+    const actual = ROULETTE_WHEEL.filter((x) => x === c.id).length;
+    if (actual !== c.slots) {
+      throw new Error(`Рулетка: ${c.id} — на колесе ${actual}, в описании ${c.slots}`);
+    }
+  }
+
+  // Краш: точка краша никогда не выходит за границы.
+  for (const u of [0, 0.0001, 0.049, 0.05, 0.5, 0.9, 0.999, 0.99999, 0.9999999]) {
+    const p = crashPointFromRoll(u);
+    if (p < 1 || p > CRASH_MAX) {
+      throw new Error(`Краш: ролл ${u} дал точку ${p} вне [1, ${CRASH_MAX}]`);
+    }
+  }
+
+  return {
+    crashRtp: 1 - CRASH_EDGE,
+    rouletteRtp: first,
+  };
+}
