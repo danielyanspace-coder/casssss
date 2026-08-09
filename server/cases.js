@@ -1,302 +1,322 @@
 /**
- * Описание кейсов и математика выпадений.
+ * Кейсы: описание, математика выпадений и «плюшки».
  *
- * Главный принцип: содержимое кейса задаётся НЕ абсолютными числами, а
- * множителями от цены кейса. Поэтому предмет физически не может стоить
- * непропорционально дорого — в кейсе за 100 единиц максимум ограничен
- * maxMultiplier, и предмета на 100000 там не появится по построению.
+ * ТРИ ПРИНЦИПА, на которых держится вся экономика.
  *
- * Второй принцип: RTP (return to player) задаётся точно. Вес самого дешёвого
- * предмета не задаётся вручную, а вычисляется так, чтобы матожидание выигрыша
- * равнялось price * rtp с точностью до плавающей точки.
+ * 1. Содержимое задаётся МНОЖИТЕЛЯМИ от цены кейса, а не абсолютными числами.
+ *    Поэтому в кейсе за 100 не может оказаться предмета на 100000: разброс
+ *    всегда пропорционален стоимости открытия, по построению.
+ *
+ * 2. RTP задаётся ТОЧНО. Вероятность самого дешёвого предмета не выставляется
+ *    руками, а решается уравнением так, чтобы матожидание в точности равнялось
+ *    price * rtp.
+ *
+ * 3. Плюшки (x2, подарочный кейс, бонус на баланс) задаются не вероятностью, а
+ *    ДОЛЕЙ В МАТОЖИДАНИИ. Плюшка с долей 0.06 забирает ровно 6% ожидаемой
+ *    отдачи кейса, а её вероятность вычисляется из этой доли и её ценности.
+ *    Так подарок в дорогом кейсе автоматически становится редким, и добавить
+ *    «приятную мелочь», случайно уведя кейс в минус для заведения, невозможно.
  */
 
-/**
- * Уровни редкости: подпись и цвет для интерфейса.
- *
- * Подписи подобраны под реальные шансы, а не «на вырост»: предмет с шансом
- * 14% называется редким, а не эпическим. Раздувать названия — значит вводить
- * игрока в заблуждение о том, насколько ценно выпадение.
- */
+import { THEMES } from './themes.js';
+
 export const TIERS = [
-  { id: 'common', label: 'Обычный', color: '#8a94a6' },
-  { id: 'uncommon', label: 'Стандартный', color: '#4b74ff' },
-  { id: 'rare', label: 'Хороший', color: '#8b5cf6' },
-  { id: 'epic', label: 'Редкий', color: '#c026d3' },
-  { id: 'legendary', label: 'Эпический', color: '#f43f5e' },
-  { id: 'mythic', label: 'Легендарный', color: '#f59e0b' },
-  { id: 'unique', label: 'Мифический', color: '#ffd700' },
+  { id: 'common', label: 'Обычный', color: '#9d8bb0' },
+  { id: 'uncommon', label: 'Стандартный', color: '#00d4ff' },
+  { id: 'rare', label: 'Хороший', color: '#a855f7' },
+  { id: 'epic', label: 'Редкий', color: '#ff2e8a' },
+  { id: 'legendary', label: 'Эпический', color: '#ff2d55' },
+  { id: 'mythic', label: 'Легендарный', color: '#ff8c00' },
+  { id: 'unique', label: 'Мифический', color: '#ffd60a' },
 ];
 
-/**
- * Множители стоимости предмета относительно цены кейса.
- * Индекс 0 — «филлер», его вес вычисляется решателем.
- */
-const STANDARD_MULTIPLIERS = [0.2, 0.5, 0.9, 1.5, 3, 7, null];
-const RISK_MULTIPLIERS = [0.1, 0.35, 0.8, 1.6, 4, 12, null];
-
-/** Профили весов. Индекс 0 всегда null — вычисляется. */
-const STANDARD_WEIGHTS = [null, 300, 250, 120, 40, 8, 1.5];
-const RISK_WEIGHTS = [null, 340, 90, 60, 40, 12, 2];
-
-const TIER_IDS = ['common', 'uncommon', 'rare', 'epic', 'legendary', 'mythic', 'unique'];
+const TIER_IDS = TIERS.map((t) => t.id);
 
 /**
- * Решает вес филлера так, чтобы EV == price * rtp.
- *
- * EV = (w0*v0 + A) / (w0 + S), где A и S — сумма (вес*цена) и сумма весов
- * остальных предметов. Отсюда w0 = (T*S - A) / (v0 - T), где T = price * rtp.
- *
- * Решение существует и положительно, когда v0 < T < среднее по остальным.
+ * Профили разброса. Первый множитель — «филлер», его вероятность решается;
+ * последний берётся из maxMultiplier кейса.
  */
-function solveFillerWeight(values, weights, target) {
-  let S = 0;
-  let A = 0;
-  for (let i = 1; i < values.length; i++) {
-    S += weights[i];
-    A += weights[i] * values[i];
+const PROFILES = {
+  soft:   { mult: [0.2, 0.5, 0.9, 1.5, 3, 7],     w: [300, 250, 120, 40, 8, 1.5] },
+  normal: { mult: [0.15, 0.45, 0.85, 1.6, 3.5, 8], w: [300, 230, 110, 42, 9, 1.6] },
+  risky:  { mult: [0.1, 0.35, 0.8, 1.6, 4, 12],    w: [340, 90, 60, 40, 12, 2] },
+  wild:   { mult: [0.05, 0.25, 0.7, 1.8, 5, 15],   w: [380, 70, 45, 30, 10, 2.2] },
+};
+
+export const CATEGORIES = [
+  { id: 'start', name: 'Старт', description: 'Дешёвые кейсы с мягким разбросом' },
+  { id: 'classic', name: 'Классика', description: 'Средние ставки, сбалансированный разброс' },
+  { id: 'themed', name: 'Тематические', description: 'Коллекции на любой вкус' },
+  { id: 'premium', name: 'Премиум', description: 'Дорогие кейсы, лучший RTP' },
+  { id: 'elite', name: 'Элита', description: 'Самые крупные ставки в игре' },
+  { id: 'risk', name: 'Риск', description: 'Редкие, но огромные множители' },
+  { id: 'bonus', name: 'Бонусные', description: 'С плюшками: x2, подарки, бонусы' },
+];
+
+/* ============================================================
+   ОПИСАНИЕ КЕЙСОВ
+   ============================================================ */
+
+/**
+ * Плюшки:
+ *   { type: 'credits', amount }    — мгновенный бонус на баланс
+ *   { type: 'x2' }                 — следующее открытие ЭТОГО кейса удваивает выплату
+ *   { type: 'voucher', caseId }    — бесплатное открытие указанного кейса
+ * share — доля матожидания кейса, которую забирает плюшка.
+ */
+const SPECS = [
+  // ── Старт ───────────────────────────────────────────────
+  ['dust_25', 'Пыль', 'Дешевле некуда', 'start', 25, 0.95, 12, 'soft', 'forge'],
+  ['spark_50', 'Искра', 'С чего-то надо начинать', 'start', 50, 0.95, 15, 'soft', 'neon'],
+  ['copper_75', 'Медяк', 'Мелочь, а приятно', 'start', 75, 0.95, 15, 'soft', 'steampunk'],
+  ['warmup_100', 'Разогрев', 'Тот самый кейс на сотку', 'start', 100, 0.95, 20, 'soft', 'casino'],
+  ['alley_150', 'Подворотня', 'Что-то да найдётся', 'start', 150, 0.95, 18, 'soft', 'street'],
+  ['frost_300', 'Мерзлота', 'Холодный расчёт', 'start', 300, 0.95, 20, 'soft', 'arctic'],
+  ['rune_250', 'Первая руна', 'Начало пути', 'start', 250, 0.95, 20, 'soft', 'rune'],
+
+  // ── Классика ────────────────────────────────────────────
+  ['deck_400', 'Колода', 'Раздача пошла', 'classic', 400, 0.95, 22, 'normal', 'casino'],
+  ['neon_500', 'Неоновый', 'Свет большого города', 'classic', 500, 0.95, 22, 'normal', 'neon'],
+  ['mirage_600', 'Мираж', 'Не всё то золото', 'classic', 600, 0.95, 24, 'normal', 'desert'],
+  ['forge_750', 'Горн', 'Куётся под давлением', 'classic', 750, 0.952, 24, 'normal', 'forge'],
+  ['pit_800', 'Пит-стоп', 'Три секунды на всё', 'classic', 800, 0.952, 24, 'normal', 'racing'],
+  ['vault_1000', 'Сейф', 'Что внутри — то ваше', 'classic', 1000, 0.955, 25, 'normal', 'vault'],
+  ['chapito_1200', 'Шапито', 'Представление начинается', 'classic', 1200, 0.955, 25, 'normal', 'circus'],
+  ['blade_1500', 'Путь меча', 'Одно движение', 'classic', 1500, 0.955, 26, 'normal', 'samurai'],
+  ['board_1800', 'Абордаж', 'На абордаж!', 'classic', 1800, 0.955, 26, 'normal', 'pirate'],
+  ['temple_2000', 'Зелёный храм', 'Глубоко в джунглях', 'classic', 2000, 0.955, 26, 'normal', 'jungle'],
+  ['noir_2500', 'Ночное дело', 'Без лишних свидетелей', 'classic', 2500, 0.955, 26, 'normal', 'noir'],
+
+  // ── Тематические ────────────────────────────────────────
+  ['hack_3000', 'Взлом', 'Доступ разрешён', 'themed', 3000, 0.955, 26, 'normal', 'cyber'],
+  ['cut_3500', 'Огранка', 'Каждая грань считается', 'themed', 3500, 0.956, 27, 'normal', 'crystal'],
+  ['steam_4000', 'Паровая', 'Механика не подводит', 'themed', 4000, 0.956, 27, 'normal', 'steampunk'],
+  ['mariana_6000', 'Марианская', 'Одиннадцать километров вниз', 'themed', 6000, 0.958, 28, 'normal', 'deepsea'],
+  ['shogun_8000', 'Сёгун', 'Власть в одних руках', 'themed', 8000, 0.958, 28, 'normal', 'samurai'],
+  ['crypt_12000', 'Склеп', 'Не буди спящих', 'themed', 12000, 0.96, 30, 'normal', 'vampire'],
+  ['quarantine_18000', 'Карантин', 'Вход только в костюме', 'themed', 18000, 0.96, 32, 'normal', 'toxic'],
+  ['ash_25000', 'Пепел', 'Из пепла — заново', 'themed', 25000, 0.962, 34, 'normal', 'phoenix'],
+  ['hoard_35000', 'Сокровищница', 'Дракон не делится', 'themed', 35000, 0.962, 36, 'normal', 'dragon'],
+  ['diamond_60000', 'Алмазный фонд', 'Только чистая вода', 'themed', 60000, 0.965, 40, 'normal', 'crystal'],
+
+  // ── Премиум ─────────────────────────────────────────────
+  ['regalia_5000', 'Регалии', 'По праву рождения', 'premium', 5000, 0.957, 28, 'normal', 'royal'],
+  ['tomb_7500', 'Гробница', 'Проклятие прилагается', 'premium', 7500, 0.958, 30, 'normal', 'pharaoh'],
+  ['orbit_10000', 'Орбита', 'Выше только вакуум', 'premium', 10000, 0.96, 32, 'normal', 'orbit'],
+  ['lair_15000', 'Логово', 'Тише. Он спит', 'premium', 15000, 0.96, 35, 'normal', 'dragon'],
+  ['depo_20000', 'Депозитарий', 'До 800 000 за одно открытие', 'premium', 20000, 0.962, 40, 'normal', 'vault'],
+
+  // ── Элита ───────────────────────────────────────────────
+  ['galaxy_30000', 'Галактика', 'Масштаб другой', 'elite', 30000, 0.963, 38, 'normal', 'galaxy'],
+  ['rebirth_40000', 'Возрождение', 'Всегда возвращается', 'elite', 40000, 0.965, 40, 'normal', 'phoenix'],
+  ['abyss_50000', 'Бездна', 'Смотрит в ответ', 'elite', 50000, 0.965, 42, 'normal', 'deepsea'],
+  ['empire_75000', 'Империя', 'Всё и сразу', 'elite', 75000, 0.968, 44, 'normal', 'royal'],
+  ['apex_100000', 'Вершина', 'Дороже в игре нет', 'elite', 100000, 0.97, 45, 'normal', 'galaxy'],
+
+  // ── Риск ────────────────────────────────────────────────
+  ['allin_500', 'Ва-банк', 'Чаще пусто, реже густо', 'risk', 500, 0.94, 40, 'risky', 'casino'],
+  ['redonly_1000', 'Красное или ничего', 'Полумер не бывает', 'risk', 1000, 0.94, 45, 'risky', 'casino'],
+  ['crater_2500', 'Жерло', 'Горячо во всех смыслах', 'risk', 2500, 0.94, 45, 'risky', 'volcano'],
+  ['reactor_5000', 'Реактор', 'Стержни на пределе', 'risk', 5000, 0.94, 50, 'wild', 'toxic'],
+  ['shadow_10000', 'Тень', 'Никто не узнает', 'risk', 10000, 0.94, 55, 'wild', 'shadow'],
+  ['midnight_20000', 'Полночь', 'Ставки после заката', 'risk', 20000, 0.94, 55, 'wild', 'vampire'],
+  ['nopoint_50000', 'Точка невозврата', 'Обратно дороги нет', 'risk', 50000, 0.94, 60, 'wild', 'galaxy'],
+
+  // ── Бонусные (с плюшками) ───────────────────────────────
+  ['lucky_200', 'Счастливый', 'Иногда просто везёт', 'bonus', 200, 0.95, 18, 'soft', 'casino',
+    [{ type: 'credits', amount: 1500, share: 0.07 }]],
+  ['double_500', 'Удвоитель', 'Следующий прокрут — вдвойне', 'bonus', 500, 0.95, 22, 'normal', 'neon',
+    [{ type: 'x2', share: 0.09 }]],
+  ['gift_1000', 'Подарочный', 'С подарком внутри', 'bonus', 1000, 0.95, 24, 'normal', 'circus',
+    [{ type: 'voucher', caseId: 'neon_500', share: 0.06 }]],
+  ['chain_2000', 'Цепная реакция', 'Одно тянет другое', 'bonus', 2000, 0.95, 26, 'normal', 'toxic',
+    [{ type: 'x2', share: 0.07 }, { type: 'voucher', caseId: 'vault_1000', share: 0.05 }]],
+  ['jackpot_5000', 'Джекпот', 'Или пусто, или очень', 'bonus', 5000, 0.95, 30, 'normal', 'casino',
+    [{ type: 'credits', amount: 120000, share: 0.08 }]],
+  ['ticket_7000', 'Золотой билет', 'Проход в дорогое', 'bonus', 7000, 0.955, 30, 'normal', 'circus',
+    [{ type: 'voucher', caseId: 'steam_4000', share: 0.07 }]],
+  ['stake_10000', 'Двойная ставка', 'Удваивает следующий прокрут', 'bonus', 10000, 0.955, 32, 'normal', 'casino',
+    [{ type: 'x2', share: 0.1 }]],
+  ['treasure_15000', 'Клад', 'Кто нашёл — того и есть', 'bonus', 15000, 0.958, 34, 'normal', 'pirate',
+    [{ type: 'credits', amount: 400000, share: 0.07 }]],
+  ['megabox_25000', 'Мегабокс', 'Подарок и удвоение', 'bonus', 25000, 0.96, 36, 'normal', 'royal',
+    [{ type: 'voucher', caseId: 'orbit_10000', share: 0.06 }, { type: 'x2', share: 0.06 }]],
+  ['infinity_50000', 'Бесконечность', 'Не заканчивается', 'bonus', 50000, 0.962, 40, 'normal', 'galaxy',
+    [{ type: 'x2', share: 0.08 }, { type: 'credits', amount: 1200000, share: 0.06 }]],
+  ['legend_100000', 'Легенда', 'Вершина коллекции', 'bonus', 100000, 0.965, 45, 'normal', 'dragon',
+    [{ type: 'voucher', caseId: 'apex_100000', share: 0.07 }, { type: 'x2', share: 0.06 }]],
+  ['sultan_40000', 'Три желания', 'Джинн не обманет', 'bonus', 40000, 0.96, 38, 'normal', 'desert',
+    [{ type: 'voucher', caseId: 'lair_15000', share: 0.06 }, { type: 'credits', amount: 900000, share: 0.05 }]],
+];
+
+/* ============================================================
+   СБОРКА
+   ============================================================ */
+
+const PERK_LABELS = {
+  x2: 'Удвоитель ×2',
+  voucher: 'Подарочный кейс',
+  credits: 'Бонус на баланс',
+};
+
+/**
+ * Собирает кейс: считает цены предметов, ценность и вероятность плюшек,
+ * затем решает вероятность филлера так, чтобы EV точно равнялось price * rtp.
+ *
+ * Работа идёт сразу в вероятностях, а не в весах: вероятность плюшки жёстко
+ * задана её долей в матожидании, и подмешивать её к весовой схеме было бы
+ * лишним кругом вычислений.
+ */
+function buildCase(spec, builtById) {
+  const [id, name, tagline, category, price, rtp, maxMultiplier, profileId, themeId, perkSpecs = []] = spec;
+
+  const profile = PROFILES[profileId];
+  const theme = THEMES[themeId];
+  const target = price * rtp;
+
+  const values = [
+    ...profile.mult.map((m) => Math.round(price * m)),
+    Math.round(price * maxMultiplier),
+  ];
+
+  // Плюшки, не выдающие единицы сразу (x2 и подарок), забирают долю
+  // матожидания в обход мгновенной выплаты — отсюда и считается ожидаемая
+  // выплата единицами, на которую опирается x2.
+  const deferredShare = perkSpecs
+    .filter((p) => p.type !== 'credits')
+    .reduce((s, p) => s + p.share, 0);
+  const creditEv = target * (1 - deferredShare);
+
+  const perkItems = perkSpecs.map((p, i) => {
+    let evValue;
+    let payout = 0;
+    let label;
+
+    if (p.type === 'credits') {
+      evValue = p.amount;
+      payout = p.amount;
+      label = `Бонус +${p.amount.toLocaleString('ru-RU')}`;
+    } else if (p.type === 'x2') {
+      // Удваивается только выплата единицами следующего открытия этого кейса.
+      evValue = creditEv;
+      label = 'Удвоитель ×2';
+    } else if (p.type === 'voucher') {
+      const targetCase = builtById.get(p.caseId);
+      if (!targetCase) {
+        throw new Error(`[${id}] подарочный кейс ${p.caseId} не найден или собран позже`);
+      }
+      // Бесплатное открытие даёт игроку ВСЁ, что даёт тот кейс, — полное EV.
+      evValue = targetCase.price * targetCase.rtp;
+      label = `Кейс «${targetCase.name}» бесплатно`;
+    } else {
+      throw new Error(`[${id}] неизвестный тип плюшки: ${p.type}`);
+    }
+
+    if (evValue <= 0) throw new Error(`[${id}] плюшка ${p.type} имеет нулевую ценность`);
+
+    return {
+      id: `${id}_perk${i}`,
+      name: label,
+      kind: 'perk',
+      perk: p.type === 'voucher' ? { type: 'voucher', caseId: p.caseId }
+          : p.type === 'credits' ? { type: 'credits', amount: p.amount }
+          : { type: 'x2', caseId: id },
+      perkLabel: PERK_LABELS[p.type],
+      value: payout,
+      evValue,
+      // Доля матожидания задана — отсюда вероятность.
+      probability: (p.share * target) / evValue,
+      tier: 'unique',
+      multiplier: Number((evValue / price).toFixed(3)),
+    };
+  });
+
+  const perkProbability = perkItems.reduce((s, it) => s + it.probability, 0);
+  if (perkProbability >= 0.4) {
+    throw new Error(`[${id}] плюшки занимают ${(perkProbability * 100).toFixed(1)}% вероятности`);
   }
-  const w0 = (target * S - A) / (values[0] - target);
-  if (!Number.isFinite(w0) || w0 <= 0) {
+
+  // Относительные веса обычных предметов, кроме филлера.
+  const restWeights = profile.w;
+  const restSum = restWeights.reduce((a, b) => a + b, 0);
+  const restValues = values.slice(1);
+  const avgRest = restValues.reduce((s, v, i) => s + (restWeights[i] / restSum) * v, 0);
+
+  // EV = p0*v0 + q*avgRest + (доли плюшек) = target.
+  // Плюшки по построению дают ровно target * Σshare, отсюда:
+  const perkEv = perkItems.reduce((s, it) => s + it.probability * it.evValue, 0);
+  const v0 = values[0];
+  const q = (target - perkEv - (1 - perkProbability) * v0) / (avgRest - v0);
+  const p0 = 1 - perkProbability - q;
+
+  if (!(q > 0) || !(p0 > 0)) {
     throw new Error(
-      `Невозможно подобрать вес филлера: target=${target}, v0=${values[0]}, ` +
-        `среднее по остальным=${(A / S).toFixed(2)}. ` +
-        `Нужно, чтобы v0 < target < среднее по остальным.`
+      `[${id}] не удалось свести математику: q=${q.toFixed(4)}, p0=${p0.toFixed(4)}. ` +
+      `Филлер ${v0} должен быть дешевле цели ${target.toFixed(0)}, ` +
+      `а средняя по остальным (${avgRest.toFixed(0)}) — дороже.`
     );
   }
-  return w0;
-}
 
-/**
- * Собирает готовый кейс: считает цены предметов, вес филлера, вероятности.
- */
-function buildCase(spec) {
-  const { multipliers, weights: rawWeights, price, rtp, maxMultiplier, itemNames } = spec;
-
-  const values = multipliers.map((m, i) =>
-    Math.round(price * (i === multipliers.length - 1 ? maxMultiplier : m))
-  );
-
-  const weights = rawWeights.slice();
-  weights[0] = solveFillerWeight(values, weights, price * rtp);
-
-  const totalWeight = weights.reduce((a, b) => a + b, 0);
-
-  const items = values.map((value, i) => ({
-    id: `${spec.id}_${i}`,
-    name: itemNames[i],
+  const normalItems = values.map((value, i) => ({
+    id: `${id}_${i}`,
+    name: theme.items[i],
+    kind: 'item',
     value,
+    evValue: value,
     multiplier: Number((value / price).toFixed(3)),
     tier: TIER_IDS[i],
-    probability: weights[i] / totalWeight,
+    probability: i === 0 ? p0 : q * (restWeights[i - 1] / restSum),
   }));
 
-  // Кумулятивные границы для розыгрыша — считаем один раз при загрузке.
+  const items = [...normalItems, ...perkItems];
+
   let acc = 0;
   for (const item of items) {
     acc += item.probability;
     item.cumulative = acc;
   }
-  // Страхуем последний предмет от ошибок округления вниз.
   items[items.length - 1].cumulative = 1;
 
-  const ev = items.reduce((sum, it) => sum + it.probability * it.value, 0);
+  const ev = items.reduce((s, it) => s + it.probability * it.evValue, 0);
+  const cashEv = items.reduce((s, it) => s + it.probability * it.value, 0);
 
   return {
-    id: spec.id,
-    name: spec.name,
-    category: spec.category,
-    tagline: spec.tagline,
-    price,
-    rtp,
-    maxMultiplier,
+    id, name, category, tagline, price, rtp, maxMultiplier,
+    theme: themeId,
+    palette: theme.palette,
     items,
+    hasPerks: perkItems.length > 0,
     ev,
+    cashEv,
     actualRtp: ev / price,
   };
 }
 
-export const CATEGORIES = [
-  { id: 'start', name: 'Старт', description: 'Дешёвые кейсы с мягким разбросом' },
-  { id: 'classic', name: 'Классика', description: 'Средние ставки, сбалансированный разброс' },
-  { id: 'highroll', name: 'Хай-ролл', description: 'Дорогие кейсы, лучший RTP' },
-  { id: 'risk', name: 'Риск', description: 'Редкие, но крупные множители' },
-];
+// Кейсы без подарочных плюшек собираются первыми: подарок ссылается на
+// уже посчитанный кейс.
+const builtById = new Map();
+const withVoucher = [];
 
-const SPECS = [
-  {
-    id: 'first_step',
-    name: 'Первый шаг',
-    category: 'start',
-    tagline: 'С чего-то надо начинать',
-    price: 50,
-    rtp: 0.95,
-    maxMultiplier: 15,
-    multipliers: STANDARD_MULTIPLIERS,
-    weights: STANDARD_WEIGHTS,
-    itemNames: [
-      'Ржавый болт',
-      'Медный жетон',
-      'Латунный ключ',
-      'Стальной компас',
-      'Кварцевый резонатор',
-      'Серебряный сердечник',
-      'Золотой пропуск',
-    ],
-  },
-  {
-    id: 'warmup',
-    name: 'Разогрев',
-    category: 'start',
-    tagline: 'Тот самый кейс на сотку',
-    price: 100,
-    rtp: 0.95,
-    maxMultiplier: 20,
-    multipliers: STANDARD_MULTIPLIERS,
-    weights: STANDARD_WEIGHTS,
-    itemNames: [
-      'Стёртая шестерня',
-      'Медный конденсатор',
-      'Плазменный резак',
-      'Кобальтовый привод',
-      'Импульсный модулятор',
-      'Ядро реактора',
-      'Платиновый ключ доступа',
-    ],
-  },
-  {
-    id: 'classic',
-    name: 'Классика',
-    category: 'classic',
-    tagline: 'Ровно посередине',
-    price: 250,
-    rtp: 0.95,
-    maxMultiplier: 22,
-    multipliers: STANDARD_MULTIPLIERS,
-    weights: STANDARD_WEIGHTS,
-    itemNames: [
-      'Треснувшая линза',
-      'Оптический прицел',
-      'Титановый корпус',
-      'Гравитационный стабилизатор',
-      'Квантовый чип',
-      'Кристалл памяти',
-      'Реликвия архива',
-    ],
-  },
-  {
-    id: 'city_legend',
-    name: 'Городская легенда',
-    category: 'classic',
-    tagline: 'Слухи ходят не зря',
-    price: 500,
-    rtp: 0.955,
-    maxMultiplier: 25,
-    multipliers: STANDARD_MULTIPLIERS,
-    weights: STANDARD_WEIGHTS,
-    itemNames: [
-      'Пыльный картридж',
-      'Неоновая вывеска',
-      'Голографический пропуск',
-      'Куртка курьера',
-      'Прототип импланта',
-      'Ключ от подземки',
-      'Артефакт основателя',
-    ],
-  },
-  {
-    id: 'vault',
-    name: 'Хранилище',
-    category: 'highroll',
-    tagline: 'Дорого, но честно',
-    price: 1000,
-    rtp: 0.96,
-    maxMultiplier: 28,
-    multipliers: STANDARD_MULTIPLIERS,
-    weights: STANDARD_WEIGHTS,
-    itemNames: [
-      'Пустой сейф',
-      'Слиток вольфрама',
-      'Банковский модуль',
-      'Криптографический жетон',
-      'Чёрная карта',
-      'Печать хранителя',
-      'Ключ от главного зала',
-    ],
-  },
-  {
-    id: 'orbit',
-    name: 'Орбита',
-    category: 'highroll',
-    tagline: 'Максимальный RTP в игре',
-    price: 2500,
-    rtp: 0.965,
-    maxMultiplier: 30,
-    multipliers: STANDARD_MULTIPLIERS,
-    weights: STANDARD_WEIGHTS,
-    itemNames: [
-      'Обломок обшивки',
-      'Солнечная панель',
-      'Навигационный блок',
-      'Ионный двигатель',
-      'Криокапсула',
-      'Ядро станции',
-      'Чёрный ящик «Орбиты»',
-    ],
-  },
-  {
-    id: 'all_in',
-    name: 'Ва-банк',
-    category: 'risk',
-    tagline: 'Чаще пусто, реже густо',
-    price: 500,
-    rtp: 0.94,
-    maxMultiplier: 40,
-    multipliers: RISK_MULTIPLIERS,
-    weights: RISK_WEIGHTS,
-    itemNames: [
-      'Пустая гильза',
-      'Погнутая монета',
-      'Счастливый жетон',
-      'Красная фишка',
-      'Золотая фишка',
-      'Бриллиантовая фишка',
-      'Джекпот-жетон',
-    ],
-  },
-  {
-    id: 'singularity',
-    name: 'Сингулярность',
-    category: 'risk',
-    tagline: 'Самый большой разброс',
-    price: 1000,
-    rtp: 0.94,
-    maxMultiplier: 50,
-    multipliers: RISK_MULTIPLIERS,
-    weights: RISK_WEIGHTS,
-    itemNames: [
-      'Космическая пыль',
-      'Осколок кометы',
-      'Тёмная материя',
-      'Квантовая петля',
-      'Червоточина',
-      'Горизонт событий',
-      'Сингулярность',
-    ],
-  },
-];
-
-export const CASES = SPECS.map(buildCase);
-
-const CASE_BY_ID = new Map(CASES.map((c) => [c.id, c]));
-
-export function getCase(id) {
-  return CASE_BY_ID.get(id);
+for (const spec of SPECS) {
+  const perks = spec[9] || [];
+  if (perks.some((p) => p.type === 'voucher')) withVoucher.push(spec);
+  else {
+    const built = buildCase(spec, builtById);
+    builtById.set(built.id, built);
+  }
+}
+for (const spec of withVoucher) {
+  const built = buildCase(spec, builtById);
+  builtById.set(built.id, built);
 }
 
-/**
- * Переводит число [0,1) в выпавший предмет по кумулятивным вероятностям.
- */
+// Порядок как в SPECS, а не как в порядке сборки.
+export const CASES = SPECS.map((s) => builtById.get(s[0]));
+
+export function getCase(id) {
+  return builtById.get(id);
+}
+
 export function pickItem(caseData, roll) {
   for (const item of caseData.items) {
     if (roll < item.cumulative) return item;
@@ -304,60 +324,67 @@ export function pickItem(caseData, roll) {
   return caseData.items[caseData.items.length - 1];
 }
 
-/**
- * Проверка инвариантов. Запускается при старте сервера — если математика
- * поехала, сервер падает сразу, а не отдаёт игрокам кривые шансы.
- */
+/* ============================================================
+   ПРОВЕРКА ИНВАРИАНТОВ
+   ============================================================ */
+
 export function validateCases(cases = CASES) {
   const report = [];
+  const seen = new Set();
 
   for (const c of cases) {
+    if (seen.has(c.id)) throw new Error(`Дубликат id кейса: ${c.id}`);
+    seen.add(c.id);
+
     const sumP = c.items.reduce((s, it) => s + it.probability, 0);
     if (Math.abs(sumP - 1) > 1e-9) {
       throw new Error(`[${c.id}] сумма вероятностей = ${sumP}, ожидалась 1`);
     }
 
     if (Math.abs(c.actualRtp - c.rtp) > 1e-9) {
-      throw new Error(
-        `[${c.id}] RTP = ${c.actualRtp.toFixed(6)}, ожидался ${c.rtp}`
-      );
+      throw new Error(`[${c.id}] RTP = ${c.actualRtp.toFixed(8)}, ожидался ${c.rtp}`);
     }
 
-    const maxValue = Math.max(...c.items.map((it) => it.value));
+    // Ни один предмет не может стоить больше заявленного потолка.
+    const maxValue = Math.max(...c.items.filter((i) => i.kind === 'item').map((i) => i.value));
     if (maxValue > c.price * c.maxMultiplier + 0.5) {
-      throw new Error(
-        `[${c.id}] максимальный предмет ${maxValue} превышает лимит ` +
-          `${c.price * c.maxMultiplier}`
-      );
+      throw new Error(`[${c.id}] предмет ${maxValue} превышает потолок ${c.price * c.maxMultiplier}`);
     }
 
-    // Матожидание обязано быть ниже цены — иначе кейс бесконечно доходен.
-    if (c.ev >= c.price) {
-      throw new Error(`[${c.id}] EV ${c.ev} >= цены ${c.price}`);
-    }
+    // Кейс обязан быть убыточен для игрока, иначе его можно крутить в плюс.
+    if (c.ev >= c.price) throw new Error(`[${c.id}] EV ${c.ev} >= цены ${c.price}`);
 
     for (const it of c.items) {
-      if (it.probability <= 0 || it.probability >= 1) {
+      if (!(it.probability > 0) || !(it.probability < 1)) {
         throw new Error(`[${c.id}] предмет ${it.id} имеет вероятность ${it.probability}`);
+      }
+    }
+
+    // Подарочный кейс не должен быть дороже того, который его выдаёт, —
+    // иначе выгоднее крутить дешёвый ради подарка.
+    for (const it of c.items) {
+      if (it.perk?.type === 'voucher') {
+        const gift = builtById.get(it.perk.caseId);
+        if (gift.price > c.price) {
+          throw new Error(`[${c.id}] дарит более дорогой кейс ${gift.id} (${gift.price} > ${c.price})`);
+        }
       }
     }
 
     report.push({
       id: c.id,
-      name: c.name,
-      price: c.price,
-      ev: Number(c.ev.toFixed(4)),
+      название: c.name,
+      цена: c.price,
       rtp: Number(c.actualRtp.toFixed(6)),
-      maxValue,
-      maxMultiplier: Number((maxValue / c.price).toFixed(2)),
-      topChance: c.items[c.items.length - 1].probability,
+      максимум: maxValue,
+      'x макс': Number((maxValue / c.price).toFixed(1)),
+      плюшки: c.items.filter((i) => i.kind === 'perk').length || '',
     });
   }
 
   return report;
 }
 
-/** Публичный вид кейса — то, что уходит на клиент. */
 export function publicCase(c) {
   return {
     id: c.id,
@@ -367,12 +394,19 @@ export function publicCase(c) {
     price: c.price,
     rtp: Number(c.actualRtp.toFixed(4)),
     maxMultiplier: c.maxMultiplier,
+    theme: c.theme,
+    palette: c.palette,
+    hasPerks: c.hasPerks,
+    topValue: Math.max(...c.items.filter((i) => i.kind === 'item').map((i) => i.value)),
     items: c.items.map((it) => ({
       id: it.id,
       name: it.name,
+      kind: it.kind,
       value: it.value,
+      evValue: it.evValue,
       multiplier: it.multiplier,
       tier: it.tier,
+      perkLabel: it.perkLabel,
       probability: it.probability,
     })),
   };

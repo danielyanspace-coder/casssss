@@ -35,28 +35,39 @@ let failures = 0;
 
 for (const c of CASES) {
   let payout = 0;
-  const counts = new Map(c.items.map((it) => [it.id, 0]));
 
   for (let n = 1; n <= ROUNDS; n++) {
-    const roll = computeRoll(serverSeed, clientSeed, n);
-    const item = pickItem(c, roll);
-    payout += item.value;
-    counts.set(item.id, counts.get(item.id) + 1);
+    // Свой client seed на каждый кейс. С общей последовательностью роллов
+    // отклонения кейсов одного профиля становятся одинаковыми, и один
+    // неудачный прогон «заваливает» сразу всю группу — это корреляция теста,
+    // а не свойство математики.
+    const roll = computeRoll(serverSeed, `case:${c.id}`, n);
+    payout += pickItem(c, roll).value;
   }
 
+  // Сравнивать надо с ожидаемой выплатой ЕДИНИЦАМИ: у бонусных кейсов часть
+  // отдачи приходится на ×2 и подарки, которые единиц сразу не приносят.
+  // Полное EV этих кейсов проверяется отдельной симуляцией цепочек ниже.
+  const expected = c.cashEv / c.price;
   const empiricalRtp = payout / (ROUNDS * c.price);
-  const drift = Math.abs(empiricalRtp - c.actualRtp);
+  const drift = Math.abs(empiricalRtp - expected);
 
-  // Допуск 1.5% — на таком числе раундов дисперсия редких предметов ещё заметна.
-  const ok = drift < 0.015;
+  // Допуск от стандартной ошибки: дисперсия кейса задаётся его же таблицей
+  // шансов, поэтому у кейса с потолком 60x разброс закономерно шире, чем
+  // у кейса с потолком 12x, и единый порог ругался бы на нормальные прогоны.
+  const variance = c.items.reduce((s, it) => s + it.probability * it.value ** 2, 0)
+    - c.cashEv ** 2;
+  const se = Math.sqrt(variance / ROUNDS) / c.price;
+  const ok = drift < 4 * se;
   if (!ok) failures++;
 
   results.push({
     кейс: c.name,
     цена: c.price,
-    'RTP теория': c.actualRtp.toFixed(4),
-    'RTP факт': empiricalRtp.toFixed(4),
-    'отклонение': drift.toFixed(4),
+    'ожидается': expected.toFixed(4),
+    'факт': empiricalRtp.toFixed(4),
+    'откл.': drift.toFixed(4),
+    'допуск ±4σ': (4 * se).toFixed(4),
     статус: ok ? 'ок' : 'РАСХОЖДЕНИЕ',
   });
 }
@@ -75,6 +86,60 @@ for (const c of CASES) {
       'вклад в EV': (it.probability * it.value).toFixed(2),
     }))
   );
+}
+
+console.log('\n=== Кейсы с плюшками: симуляция цепочек ===\n');
+
+{
+  // Здесь проверяется самое хрупкое место экономики. Плюшки не выдают единицы
+  // напрямую: ×2 действует на СЛЕДУЮЩЕЕ открытие, а подарок даёт бесплатный
+  // прокрут другого кейса. Симуляция проигрывает эти цепочки как в игре и
+  // сверяет фактическую отдачу с заявленным RTP.
+  const perkCases = CASES.filter((c) => c.hasPerks);
+  const rows = [];
+
+  for (const c of perkCases) {
+    let spent = 0;
+    let received = 0;
+    let x2 = false;
+    let perkHits = 0;
+
+    for (let n = 1; n <= ROUNDS; n++) {
+      spent += c.price;
+      const roll = computeRoll(serverSeed, `perk:${c.id}`, n);
+      const item = pickItem(c, roll);
+
+      // ×2 удваивает только выплату единицами — плюшки не удваиваются.
+      received += item.value * (x2 && item.value > 0 ? 2 : 1);
+      x2 = false;
+
+      if (item.kind === 'perk') {
+        perkHits++;
+        if (item.perk.type === 'x2') x2 = true;
+        if (item.perk.type === 'voucher') {
+          // Бесплатное открытие стоит игроку 0, а приносит полное EV кейса.
+          const gift = CASES.find((g) => g.id === item.perk.caseId);
+          received += gift.price * gift.rtp;
+        }
+      }
+    }
+
+    const empirical = received / spent;
+    const drift = Math.abs(empirical - c.rtp);
+    const ok = drift < 0.02;
+    if (!ok) failures++;
+
+    rows.push({
+      кейс: c.name,
+      цена: c.price,
+      'RTP заявлен': c.rtp.toFixed(4),
+      'RTP факт': empirical.toFixed(4),
+      'плюшек выпало': `${((perkHits / ROUNDS) * 100).toFixed(2)}%`,
+      статус: ok ? 'ок' : 'РАСХОЖДЕНИЕ',
+    });
+  }
+
+  console.table(rows);
 }
 
 console.log('\n=== Краш ===\n');

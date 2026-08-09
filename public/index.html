@@ -16,14 +16,14 @@
 
   <header class="topbar">
     <div class="brand">
-      <div class="brand-mark">💎</div>
+      <div class="brand-mark" data-ico="bolt"></div>
       <div class="brand-text">
         <div class="brand-name">LUCKY<span>BOX</span></div>
         <div class="brand-sub">симулятор</div>
       </div>
     </div>
     <div class="balance-chip" id="balanceChip">
-      <span class="balance-ico">💰</span>
+      <span class="balance-ico" data-ico="coin"></span>
       <span class="balance-value" id="balanceValue">—</span>
     </div>
   </header>
@@ -32,6 +32,17 @@
 
     <!-- ══════════ КЕЙСЫ ══════════ -->
     <section class="view active" id="view-cases">
+
+      <div class="hero">
+        <picture>
+          <source srcset="/assets/hero.webp" type="image/webp">
+          <img src="/assets/hero.jpg" alt="Лучший проект Las Vegas 2026" class="hero-img">
+        </picture>
+        <div class="hero-fade"></div>
+      </div>
+
+      <div class="perk-bar" id="perkBar" hidden></div>
+
       <div class="bonus-row" id="bonusRow" hidden>
         <div class="bonus-text">
           <strong>Баланс на нуле!</strong>
@@ -72,7 +83,7 @@
           <div class="crash-status" id="crashStatus">Сделайте ставку</div>
         </div>
 
-        <div class="crash-rocket" id="crashRocket">🚀</div>
+        <div class="crash-rocket" id="crashRocket" data-ico="bolt"></div>
       </div>
 
       <div class="crash-recent" id="crashRecent"></div>
@@ -187,14 +198,38 @@
       </div>
     </section>
 
+    <!-- ══════════ АДМИНКА ══════════ -->
+    <section class="view" id="view-admin">
+      <div class="admin-tabs">
+        <button class="tab active" data-admin-tab="overview">Сводка</button>
+        <button class="tab" data-admin-tab="users">Игроки</button>
+        <button class="tab" data-admin-tab="feed">Лента</button>
+      </div>
+
+      <div class="admin-pane active" id="admin-overview"></div>
+
+      <div class="admin-pane" id="admin-users">
+        <div class="admin-search">
+          <input class="seed-input" id="adminSearch" placeholder="ник, имя или Telegram ID">
+          <button class="btn btn-sm" id="adminSearchBtn">Найти</button>
+        </div>
+        <div id="adminUserList"></div>
+      </div>
+
+      <div class="admin-pane" id="admin-feed"></div>
+
+      <div class="admin-detail" id="adminDetail" hidden></div>
+    </section>
+
   </main>
 
   <nav class="bottom-nav">
-    <button class="nav-btn active" data-view="cases"><span class="nav-ico">🎁</span><span>Кейсы</span></button>
-    <button class="nav-btn" data-view="crash"><span class="nav-ico">🚀</span><span>Краш</span></button>
-    <button class="nav-btn" data-view="roulette"><span class="nav-ico">🎯</span><span>Рулетка</span></button>
-    <button class="nav-btn" data-view="history"><span class="nav-ico">📊</span><span>История</span></button>
-    <button class="nav-btn" data-view="fair"><span class="nav-ico">🔐</span><span>Честность</span></button>
+    <button class="nav-btn active" data-view="cases"><span class="nav-ico" data-ico="cases"></span><span>Кейсы</span></button>
+    <button class="nav-btn" data-view="crash"><span class="nav-ico" data-ico="crash"></span><span>Краш</span></button>
+    <button class="nav-btn" data-view="roulette"><span class="nav-ico" data-ico="roulette"></span><span>Рулетка</span></button>
+    <button class="nav-btn" data-view="history"><span class="nav-ico" data-ico="history"></span><span>История</span></button>
+    <button class="nav-btn" data-view="fair"><span class="nav-ico" data-ico="fair"></span><span>Честность</span></button>
+    <button class="nav-btn nav-admin" data-view="admin" id="navAdmin" hidden><span class="nav-ico" data-ico="admin"></span><span>Админ</span></button>
   </nav>
 
   <!-- Шторка кейса -->
@@ -230,6 +265,6 @@
 
   <div class="toast" id="toast" hidden></div>
 
-  <script src="/app.js"></script>
+  <script type="module" src="/app.js"></script>
 </body>
 </html>

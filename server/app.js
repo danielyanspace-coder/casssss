@@ -32,16 +32,32 @@ import {
   getHistory,
   getOrCreateUser,
   getUserById,
+  playCaseRound,
   playInstantRound,
   rotateServerSeed,
   setClientSeed,
   startCrashRound,
+  getVouchers,
+  syncAdmins,
+  adminOverview,
+  adminUsers,
+  adminUserDetail,
+  adminAdjustBalance,
+  adminSetBlocked,
+  adminGrantVoucher,
+  adminRecentRounds,
 } from './db.js';
 import { resolveUser } from './auth.js';
 
 // Если математика поехала — падаем на старте, до первого игрока.
 const caseReport = validateCases();
 const gameReport = validateGames();
+
+// Администраторы задаются Telegram ID через настройки — не через базу,
+// чтобы права нельзя было получить, дописав себе строку в таблицу.
+const ADMIN_TG_IDS = String(process.env.ADMIN_TG_IDS || '')
+  .split(',').map((s) => s.trim()).filter(Boolean);
+syncAdmins(ADMIN_TG_IDS);
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -52,7 +68,27 @@ app.use(express.static(join(__dirname, '..', 'public'), { maxAge: '1h' }));
 function auth(req, res, next) {
   const result = resolveUser(req);
   if (!result.ok) return res.status(401).json({ error: result.error });
-  req.player = getOrCreateUser(result.user);
+  const player = getOrCreateUser(result.user);
+
+  // Права админа берутся из настроек при каждом запросе: убрали ID из
+  // ADMIN_TG_IDS — доступ пропал сразу, без перезапуска чужих сессий.
+  const shouldBeAdmin = ADMIN_TG_IDS.includes(String(player.tg_id));
+  if (!!player.is_admin !== shouldBeAdmin) {
+    syncAdmins(ADMIN_TG_IDS);
+    req.player = getUserById(player.id);
+  } else {
+    req.player = player;
+  }
+
+  if (req.player.is_blocked) {
+    return res.status(403).json({ error: 'Аккаунт заблокирован' });
+  }
+  next();
+}
+
+/** Пропускает дальше только администратора. */
+function adminOnly(req, res, next) {
+  if (!req.player.is_admin) return res.status(403).json({ error: 'Недостаточно прав' });
   next();
 }
 
@@ -62,6 +98,9 @@ function publicUser(user) {
     username: user.username,
     firstName: user.first_name,
     balance: user.balance,
+    isAdmin: !!user.is_admin,
+    x2CaseId: user.x2_case_id,
+    vouchers: getVouchers(user.id),
     stats: {
       rounds: user.total_rounds,
       spent: user.total_spent,
@@ -135,40 +174,42 @@ app.post('/api/open', auth, (req, res) => {
   if (!caseData) return res.status(404).json({ error: 'Кейс не найден' });
 
   const user = req.player;
-  if (user.balance < caseData.price) {
+  const hasVoucher = getVouchers(user.id).some((v) => v.case_id === caseData.id);
+  if (!hasVoucher && user.balance < caseData.price) {
     return sendInsufficient(res, caseData.price - user.balance);
   }
 
   let result;
   try {
-    result = playInstantRound(user.id, caseData.price, (serverSeed, clientSeed, nonce) => {
+    result = playCaseRound(user.id, caseData, (serverSeed, clientSeed, nonce) => {
       const roll = computeRoll(serverSeed, clientSeed, nonce);
-      const item = pickItem(caseData, roll);
-      return {
-        game: 'case',
-        title: caseData.name,
-        subtitle: item.name,
-        payout: item.value,
-        tier: item.tier,
-        roll,
-        item,
-      };
+      return { item: pickItem(caseData, roll), roll };
     });
   } catch (err) {
     if (err.code === 'INSUFFICIENT_FUNDS') return sendInsufficient(res, caseData.price - user.balance);
     throw err;
   }
 
+  const spent = result.free ? 0 : caseData.price;
+
   res.json({
     item: {
       id: result.item.id,
       name: result.item.name,
-      value: result.item.value,
+      kind: result.item.kind,
+      value: result.payout,
       tier: result.item.tier,
-      multiplier: Number((result.item.value / caseData.price).toFixed(2)),
+      perkLabel: result.item.perkLabel,
+      multiplier: Number((result.payout / caseData.price).toFixed(2)),
     },
+    granted: result.granted.map((g) => ({
+      ...g,
+      caseName: g.caseId ? getCase(g.caseId)?.name : undefined,
+    })),
+    free: result.free,
+    x2Applied: result.x2Applied,
     balance: result.balance,
-    net: result.item.value - caseData.price,
+    net: result.payout - spent,
     fair: { roll: result.roll, nonce: result.nonce },
     user: publicUser(getUserById(user.id)),
   });
@@ -376,6 +417,77 @@ app.post('/api/fair/client-seed', auth, (req, res) => {
 app.post('/api/fair/rotate', auth, (req, res) => {
   const result = rotateServerSeed(req.player.id);
   res.json({ ...result, user: publicUser(getUserById(req.player.id)) });
+});
+
+/* ============================================================
+   АДМИНКА
+   ============================================================ */
+
+app.post('/api/admin/overview', auth, adminOnly, (req, res) => {
+  res.json({ ...adminOverview(), recent: adminRecentRounds(30) });
+});
+
+app.post('/api/admin/users', auth, adminOnly, (req, res) => {
+  const query = String(req.body?.query || '').slice(0, 64);
+  const limit = Math.min(100, Math.max(1, Number(req.body?.limit) || 30));
+  const offset = Math.max(0, Number(req.body?.offset) || 0);
+  res.json(adminUsers({ query, limit, offset }));
+});
+
+app.post('/api/admin/user', auth, adminOnly, (req, res) => {
+  const detail = adminUserDetail(Number(req.body?.userId));
+  if (!detail) return res.status(404).json({ error: 'Игрок не найден' });
+  res.json(detail);
+});
+
+app.post('/api/admin/balance', auth, adminOnly, (req, res) => {
+  const targetId = Number(req.body?.userId);
+  const amount = Math.trunc(Number(req.body?.amount));
+
+  if (!Number.isFinite(amount) || amount === 0) {
+    return res.status(400).json({ error: 'Укажите ненулевую сумму' });
+  }
+  if (Math.abs(amount) > 100_000_000) {
+    return res.status(400).json({ error: 'Слишком большая сумма' });
+  }
+
+  try {
+    const result = adminAdjustBalance(
+      req.player.id, targetId, amount, String(req.body?.note || '').slice(0, 200)
+    );
+    res.json(result);
+  } catch (err) {
+    if (err.code === 'NOT_FOUND') return res.status(404).json({ error: err.message });
+    throw err;
+  }
+});
+
+app.post('/api/admin/block', auth, adminOnly, (req, res) => {
+  const targetId = Number(req.body?.userId);
+  if (targetId === req.player.id) {
+    return res.status(400).json({ error: 'Нельзя заблокировать самого себя' });
+  }
+  try {
+    res.json(adminSetBlocked(req.player.id, targetId, !!req.body?.blocked));
+  } catch (err) {
+    if (err.code === 'NOT_FOUND') return res.status(404).json({ error: err.message });
+    throw err;
+  }
+});
+
+app.post('/api/admin/voucher', auth, adminOnly, (req, res) => {
+  const targetId = Number(req.body?.userId);
+  const caseId = String(req.body?.caseId || '');
+  const count = Math.min(100, Math.max(1, Math.trunc(Number(req.body?.count) || 1)));
+
+  if (!getCase(caseId)) return res.status(400).json({ error: 'Кейс не найден' });
+
+  try {
+    res.json({ vouchers: adminGrantVoucher(req.player.id, targetId, caseId, count) });
+  } catch (err) {
+    if (err.code === 'NOT_FOUND') return res.status(404).json({ error: err.message });
+    throw err;
+  }
 });
 
 app.use((err, req, res, next) => {

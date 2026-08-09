@@ -34,6 +34,9 @@ db.exec(`
     total_won         INTEGER NOT NULL DEFAULT 0,
     best_multiplier   REAL    NOT NULL DEFAULT 0,
     last_bonus_at     INTEGER NOT NULL DEFAULT 0,
+    is_admin          INTEGER NOT NULL DEFAULT 0,
+    is_blocked        INTEGER NOT NULL DEFAULT 0,
+    x2_case_id        TEXT,
     created_at        INTEGER NOT NULL
   );
 
@@ -47,6 +50,7 @@ db.exec(`
     payout       INTEGER NOT NULL,
     multiplier   REAL    NOT NULL,
     tier         TEXT    NOT NULL,
+    free         INTEGER NOT NULL DEFAULT 0,
     roll         REAL    NOT NULL,
     nonce        INTEGER NOT NULL,
     server_hash  TEXT    NOT NULL,
@@ -55,6 +59,7 @@ db.exec(`
   );
 
   CREATE INDEX IF NOT EXISTS idx_rounds_user ON rounds(user_id, id DESC);
+  CREATE INDEX IF NOT EXISTS idx_rounds_created ON rounds(created_at DESC);
 
   -- Активные раунды краша. Точка краша лежит здесь и на клиент не уходит,
   -- иначе игрок всегда забирал бы выигрыш за мгновение до взрыва.
@@ -73,6 +78,25 @@ db.exec(`
   );
 
   CREATE INDEX IF NOT EXISTS idx_crash_user ON crash_rounds(user_id, id DESC);
+
+  -- Подарочные кейсы: сколько бесплатных открытий каждого кейса накоплено.
+  CREATE TABLE IF NOT EXISTS vouchers (
+    user_id  INTEGER NOT NULL REFERENCES users(id),
+    case_id  TEXT    NOT NULL,
+    count    INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, case_id)
+  );
+
+  -- Журнал действий администратора: любое изменение баланса извне видно.
+  CREATE TABLE IF NOT EXISTS admin_log (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    admin_id   INTEGER NOT NULL,
+    target_id  INTEGER NOT NULL,
+    action     TEXT    NOT NULL,
+    amount     INTEGER,
+    note       TEXT,
+    created_at INTEGER NOT NULL
+  );
 `);
 
 // Переезд со старой схемы: история кейсов из openings в общую таблицу rounds.
@@ -99,6 +123,23 @@ const userColumns = db.prepare('PRAGMA table_info(users)').all().map((c) => c.na
 if (userColumns.includes('total_opened') && !userColumns.includes('total_rounds')) {
   db.exec('ALTER TABLE users RENAME COLUMN total_opened TO total_rounds;');
 }
+
+/**
+ * CREATE TABLE IF NOT EXISTS не добавляет колонки в уже существующую таблицу,
+ * поэтому новые поля досыпаем вручную — иначе база игрока со старой версии
+ * уронит сервер на первом же запросе.
+ */
+function ensureColumn(table, column, definition) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
+  if (!cols.includes(column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition};`);
+  }
+}
+
+ensureColumn('users', 'is_admin', 'INTEGER NOT NULL DEFAULT 0');
+ensureColumn('users', 'is_blocked', 'INTEGER NOT NULL DEFAULT 0');
+ensureColumn('users', 'x2_case_id', 'TEXT');
+ensureColumn('rounds', 'free', 'INTEGER NOT NULL DEFAULT 0');
 
 const STARTING_BALANCE = Number(process.env.STARTING_BALANCE || 1000);
 
@@ -368,3 +409,252 @@ export const BONUS_CONFIG = {
   cooldownMs: BONUS_COOLDOWN_MS,
   balanceLimit: BONUS_BALANCE_LIMIT,
 };
+
+/* ============================================================
+   ПЛЮШКИ: ×2, подарочные кейсы, бонусы
+   ============================================================ */
+
+export function getVouchers(userId) {
+  return db.prepare('SELECT case_id, count FROM vouchers WHERE user_id = ? AND count > 0')
+    .all(userId);
+}
+
+function addVoucher(userId, caseId, delta = 1) {
+  db.prepare(`
+    INSERT INTO vouchers (user_id, case_id, count) VALUES (?, ?, ?)
+    ON CONFLICT(user_id, case_id) DO UPDATE SET count = count + excluded.count
+  `).run(userId, caseId, delta);
+}
+
+/**
+ * Открытие кейса целиком: списание либо расход ваучера, розыгрыш, применение
+ * ×2, выдача плюшек, запись истории. Одной транзакцией — параллельные запросы
+ * не смогут потратить один ваучер дважды или уйти в минус по балансу.
+ *
+ * resolve(serverSeed, clientSeed, nonce) должен вернуть выпавший предмет.
+ */
+export const playCaseRound = db.transaction((userId, caseData, resolve) => {
+  const before = getUserById(userId);
+
+  // Бесплатное открытие тратит ваучер и не трогает баланс.
+  const voucher = db.prepare('SELECT count FROM vouchers WHERE user_id = ? AND case_id = ?')
+    .get(userId, caseData.id);
+  const isFree = !!voucher && voucher.count > 0;
+
+  if (!isFree && before.balance < caseData.price) {
+    throw Object.assign(new Error('Недостаточно средств'), { code: 'INSUFFICIENT_FUNDS' });
+  }
+
+  const nonce = bumpNonce(userId);
+  const user = getUserById(userId);
+  const { item, roll } = resolve(user.server_seed, user.client_seed, nonce);
+
+  // ×2 действует только на тот кейс, который его выдал.
+  const x2Active = user.x2_case_id === caseData.id;
+  const payout = item.value * (x2Active && item.value > 0 ? 2 : 1);
+
+  const granted = [];
+  if (item.perk) {
+    if (item.perk.type === 'credits') granted.push({ type: 'credits', amount: item.value });
+    if (item.perk.type === 'voucher') {
+      addVoucher(userId, item.perk.caseId, 1);
+      granted.push({ type: 'voucher', caseId: item.perk.caseId });
+    }
+    if (item.perk.type === 'x2') granted.push({ type: 'x2', caseId: caseData.id });
+  }
+
+  if (isFree) {
+    db.prepare('UPDATE vouchers SET count = count - 1 WHERE user_id = ? AND case_id = ?')
+      .run(userId, caseData.id);
+  }
+
+  const spent = isFree ? 0 : caseData.price;
+  const newBalance = before.balance - spent + payout;
+
+  // Новый ×2 ставится после того, как старый уже применён к этому прокруту.
+  const nextX2 = item.perk?.type === 'x2' ? caseData.id : (x2Active ? null : user.x2_case_id);
+
+  // Бесплатный раунд не идёт в лучший множитель: делить на нулевую ставку
+  // бессмысленно, а price там условная.
+  const multiplier = isFree ? 0 : payout / caseData.price;
+
+  db.prepare(`
+    UPDATE users
+       SET balance = ?, x2_case_id = ?,
+           total_rounds = total_rounds + 1,
+           total_spent = total_spent + ?,
+           total_won = total_won + ?,
+           best_multiplier = MAX(best_multiplier, ?)
+     WHERE id = ?
+  `).run(newBalance, nextX2, spent, payout, multiplier, userId);
+
+  db.prepare(`
+    INSERT INTO rounds (user_id, game, title, subtitle, bet, payout, multiplier,
+                        tier, free, roll, nonce, server_hash, client_seed, created_at)
+    VALUES (?, 'case', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(userId, caseData.name,
+         item.name + (x2Active && item.value > 0 ? ' (×2)' : ''),
+         spent, payout, multiplier, item.tier, isFree ? 1 : 0,
+         roll, nonce, user.server_seed_hash, user.client_seed, Date.now());
+
+  return {
+    item, roll, nonce, payout, granted,
+    free: isFree,
+    x2Applied: x2Active && item.value > 0,
+    balance: newBalance,
+  };
+});
+
+/* ============================================================
+   АДМИНКА
+   ============================================================ */
+
+/** Помечает администраторами всех, чей Telegram ID указан в настройках. */
+export function syncAdmins(tgIds) {
+  db.prepare('UPDATE users SET is_admin = 0').run();
+  if (!tgIds.length) return;
+  const marks = tgIds.map(() => '?').join(',');
+  db.prepare(`UPDATE users SET is_admin = 1 WHERE tg_id IN (${marks})`).run(...tgIds);
+}
+
+export function adminOverview() {
+  const users = db.prepare(`
+    SELECT COUNT(*) AS total,
+           SUM(CASE WHEN total_rounds > 0 THEN 1 ELSE 0 END) AS active,
+           SUM(CASE WHEN is_blocked = 1 THEN 1 ELSE 0 END) AS blocked,
+           COALESCE(SUM(balance), 0) AS balance
+      FROM users
+  `).get();
+
+  const rounds = db.prepare(`
+    SELECT COUNT(*) AS total,
+           COALESCE(SUM(bet), 0) AS wagered,
+           COALESCE(SUM(payout), 0) AS paid
+      FROM rounds
+  `).get();
+
+  const byGame = db.prepare(`
+    SELECT game, COUNT(*) AS rounds,
+           COALESCE(SUM(bet), 0) AS wagered,
+           COALESCE(SUM(payout), 0) AS paid
+      FROM rounds GROUP BY game ORDER BY wagered DESC
+  `).all();
+
+  const dayAgo = Date.now() - 86400000;
+  const today = db.prepare(`
+    SELECT COUNT(*) AS rounds,
+           COALESCE(SUM(bet), 0) AS wagered,
+           COALESCE(SUM(payout), 0) AS paid,
+           COUNT(DISTINCT user_id) AS players
+      FROM rounds WHERE created_at > ?
+  `).get(dayAgo);
+
+  const topWins = db.prepare(`
+    SELECT r.title, r.subtitle, r.bet, r.payout, r.multiplier, r.created_at,
+           u.username, u.first_name, u.id AS user_id
+      FROM rounds r JOIN users u ON u.id = r.user_id
+     ORDER BY r.payout DESC LIMIT 10
+  `).all();
+
+  return {
+    users,
+    rounds: {
+      ...rounds,
+      // Прибыль заведения = поставлено минус выплачено.
+      profit: rounds.wagered - rounds.paid,
+      rtp: rounds.wagered ? rounds.paid / rounds.wagered : null,
+    },
+    byGame: byGame.map((g) => ({
+      ...g,
+      profit: g.wagered - g.paid,
+      rtp: g.wagered ? g.paid / g.wagered : null,
+    })),
+    today: { ...today, profit: today.wagered - today.paid },
+    topWins,
+  };
+}
+
+export function adminUsers({ query = '', limit = 30, offset = 0 } = {}) {
+  const like = `%${query}%`;
+  const rows = db.prepare(`
+    SELECT id, tg_id, username, first_name, balance, total_rounds, total_spent,
+           total_won, best_multiplier, is_admin, is_blocked, created_at
+      FROM users
+     WHERE (? = '' OR username LIKE ? OR first_name LIKE ? OR tg_id LIKE ?)
+     ORDER BY total_spent DESC, id ASC
+     LIMIT ? OFFSET ?
+  `).all(query, like, like, like, limit, offset);
+
+  const total = db.prepare(`
+    SELECT COUNT(*) AS n FROM users
+     WHERE (? = '' OR username LIKE ? OR first_name LIKE ? OR tg_id LIKE ?)
+  `).get(query, like, like, like).n;
+
+  return { rows, total };
+}
+
+export function adminUserDetail(userId) {
+  const user = getUserById(userId);
+  if (!user) return null;
+  return {
+    user,
+    history: getHistory(userId, 30),
+    vouchers: getVouchers(userId),
+    log: db.prepare(`
+      SELECT action, amount, note, created_at FROM admin_log
+       WHERE target_id = ? ORDER BY id DESC LIMIT 20
+    `).all(userId),
+  };
+}
+
+/**
+ * Изменение баланса администратором. Отрицательная сумма списывает, но не
+ * ниже нуля — уводить игрока в долг нельзя.
+ */
+export const adminAdjustBalance = db.transaction((adminId, targetId, amount, note) => {
+  const target = getUserById(targetId);
+  if (!target) throw Object.assign(new Error('Игрок не найден'), { code: 'NOT_FOUND' });
+
+  const newBalance = Math.max(0, target.balance + amount);
+  const applied = newBalance - target.balance;
+
+  db.prepare('UPDATE users SET balance = ? WHERE id = ?').run(newBalance, targetId);
+  db.prepare(`
+    INSERT INTO admin_log (admin_id, target_id, action, amount, note, created_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(adminId, targetId, amount >= 0 ? 'credit' : 'debit', applied, note || null, Date.now());
+
+  return { balance: newBalance, applied };
+});
+
+export const adminSetBlocked = db.transaction((adminId, targetId, blocked) => {
+  const target = getUserById(targetId);
+  if (!target) throw Object.assign(new Error('Игрок не найден'), { code: 'NOT_FOUND' });
+
+  db.prepare('UPDATE users SET is_blocked = ? WHERE id = ?').run(blocked ? 1 : 0, targetId);
+  db.prepare(`
+    INSERT INTO admin_log (admin_id, target_id, action, amount, note, created_at)
+    VALUES (?, ?, ?, NULL, NULL, ?)
+  `).run(adminId, targetId, blocked ? 'block' : 'unblock', Date.now());
+
+  return { blocked: !!blocked };
+});
+
+export const adminGrantVoucher = db.transaction((adminId, targetId, caseId, count) => {
+  if (!getUserById(targetId)) throw Object.assign(new Error('Игрок не найден'), { code: 'NOT_FOUND' });
+  addVoucher(targetId, caseId, count);
+  db.prepare(`
+    INSERT INTO admin_log (admin_id, target_id, action, amount, note, created_at)
+    VALUES (?, ?, 'voucher', ?, ?, ?)
+  `).run(adminId, targetId, count, caseId, Date.now());
+  return getVouchers(targetId);
+});
+
+export function adminRecentRounds(limit = 40) {
+  return db.prepare(`
+    SELECT r.game, r.title, r.subtitle, r.bet, r.payout, r.multiplier, r.free,
+           r.created_at, u.username, u.first_name, u.id AS user_id
+      FROM rounds r JOIN users u ON u.id = r.user_id
+     ORDER BY r.id DESC LIMIT ?
+  `).all(limit);
+}

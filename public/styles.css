@@ -883,3 +883,233 @@ main { position: relative; z-index: 2; padding: 18px; }
   .case-grid { display: grid; grid-template-columns: repeat(2, 1fr); }
   main { max-width: 720px; margin: 0 auto; }
 }
+
+/* ============================================================
+   ШАПКА-ПОСТЕР
+   ============================================================ */
+
+.hero {
+  position: relative;
+  margin: -18px -18px 18px;
+  overflow: hidden;
+  /* Постер вертикальный: показываем верх с заголовком и маской,
+     иначе он занял бы почти весь экран. */
+  max-height: 360px;
+}
+
+.hero-img {
+  display: block;
+  width: 100%;
+  height: 360px;
+  object-fit: cover;
+  object-position: center top;
+}
+
+.hero-fade {
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 130px;
+  background: linear-gradient(180deg, transparent, var(--bg) 88%);
+  pointer-events: none;
+}
+
+@media (max-width: 400px) {
+  .hero, .hero-img { max-height: 300px; height: 300px; }
+}
+
+/* ============================================================
+   СОБСТВЕННЫЕ ИКОНКИ
+   ============================================================ */
+
+.ico { width: 100%; height: 100%; display: block; }
+
+[data-ico] { display: inline-block; line-height: 0; }
+.nav-ico[data-ico] { width: 24px; height: 24px; }
+.balance-ico[data-ico] { width: 22px; height: 22px; }
+.brand-mark[data-ico] { padding: 10px; }
+.crash-rocket[data-ico] { width: 30px; height: 30px; }
+.history-ico[data-ico] { width: 26px; height: 26px; }
+.tier-ico { width: 100%; height: 100%; }
+
+.nav-btn.active .nav-ico { transform: scale(1.2); }
+
+/* ============================================================
+   ОБЛОЖКИ КЕЙСОВ
+   ============================================================ */
+
+.case-cover {
+  position: relative;
+  height: 132px;
+  border-radius: 18px 18px 0 0;
+  overflow: hidden;
+  margin: -22px -22px 14px;
+}
+.cover-svg { width: 100%; height: 100%; display: block; }
+
+.cover-badges {
+  position: absolute;
+  top: 10px; left: 10px; right: 10px;
+  display: flex; justify-content: space-between; align-items: flex-start;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.cover-badge {
+  font-size: 10.5px;
+  font-weight: 900;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: rgba(10, 2, 18, 0.72);
+  border: 1.5px solid currentColor;
+  backdrop-filter: blur(3px);
+}
+.cover-badge.perk { color: var(--gold); }
+.cover-badge.rtp { color: var(--cyan); }
+
+.cover-top {
+  position: absolute;
+  bottom: 8px; left: 12px;
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--gold);
+  text-shadow: 0 2px 8px #000;
+}
+
+/* Плашка активных плюшек над сеткой */
+.perk-bar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+
+.perk-chip {
+  display: flex; align-items: center; gap: 7px;
+  padding: 9px 13px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 800;
+  background: linear-gradient(135deg, rgba(0, 255, 157, 0.2), rgba(255, 214, 10, 0.14));
+  border: 1.5px solid var(--green);
+  color: var(--green);
+}
+.perk-chip [data-ico] { width: 18px; height: 18px; }
+.perk-chip.gift { border-color: var(--pink); color: var(--pink);
+  background: linear-gradient(135deg, rgba(255, 46, 138, 0.22), rgba(160, 32, 255, 0.14)); }
+
+.case-card.free-ready { box-shadow: 0 0 0 3px var(--green), 0 10px 40px -8px var(--green); }
+
+/* ============================================================
+   АДМИНКА
+   ============================================================ */
+
+.admin-tabs { display: flex; gap: 8px; margin-bottom: 18px; }
+.admin-pane { display: none; }
+.admin-pane.active { display: block; }
+
+.admin-kpis { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 18px; }
+
+.kpi {
+  padding: 14px;
+  border-radius: 16px;
+  background: linear-gradient(150deg, var(--card-hi), var(--card));
+  border: 1.5px solid var(--line);
+}
+.kpi-label { font-size: 11.5px; color: var(--muted); margin-bottom: 6px; }
+.kpi-value { font-size: 21px; font-weight: 900; font-variant-numeric: tabular-nums; }
+.kpi-value.plus { color: var(--green); }
+.kpi-value.minus { color: var(--red); }
+.kpi-sub { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+.admin-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.admin-table th {
+  text-align: left; font-size: 11px; color: var(--muted);
+  padding: 8px 6px; border-bottom: 1.5px solid var(--line); font-weight: 700;
+}
+.admin-table td { padding: 10px 6px; border-bottom: 1px solid var(--line); }
+.admin-table tr:active { background: var(--card-hi); }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+.admin-search { display: flex; gap: 10px; margin-bottom: 14px; }
+
+.user-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 13px 15px;
+  border-radius: 14px;
+  background: var(--card);
+  border: 1.5px solid var(--line);
+  margin-bottom: 8px;
+  cursor: pointer;
+}
+.user-row.blocked { border-color: var(--red); opacity: 0.7; }
+.user-avatar {
+  width: 40px; height: 40px; border-radius: 12px; flex: 0 0 auto;
+  display: grid; place-items: center;
+  font-weight: 900; font-size: 16px;
+  background: linear-gradient(135deg, var(--pink), var(--violet)); color: #fff;
+}
+.user-main { flex: 1; min-width: 0; }
+.user-name { font-size: 14.5px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.user-meta { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+.user-bal { text-align: right; font-size: 15px; font-weight: 900; font-variant-numeric: tabular-nums; color: var(--gold); }
+
+.admin-detail {
+  position: fixed; inset: 0; z-index: 90;
+  background: var(--bg);
+  overflow-y: auto;
+  padding: calc(16px + var(--safe-top)) 18px calc(24px + var(--safe-bottom));
+}
+.detail-head { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
+.detail-head .btn { padding: 10px 14px; }
+.detail-head [data-ico] { width: 20px; height: 20px; }
+
+.admin-actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0; }
+.admin-actions .btn { flex: 1; min-width: 120px; }
+
+.amount-row { display: flex; gap: 8px; margin-bottom: 10px; }
+.amount-row .seed-input { font-size: 16px; font-weight: 800; color: var(--gold); }
+
+.log-row {
+  display: flex; justify-content: space-between; gap: 10px;
+  padding: 9px 12px; border-radius: 10px; background: var(--card);
+  font-size: 12.5px; margin-bottom: 6px;
+}
+.log-row b { font-variant-numeric: tabular-nums; }
+.log-row .plus { color: var(--green); }
+.log-row .minus { color: var(--red); }
+
+.nav-admin .nav-ico { filter: drop-shadow(0 0 8px var(--gold)); }
+
+/* ---------- Правки под новую карточку кейса ---------- */
+
+.case-card { min-height: auto; padding: 22px; }
+
+.case-info { margin-bottom: 14px; }
+.case-name { font-size: 24px; margin-bottom: 5px; }
+.case-tagline { font-size: 13px; min-height: 0; }
+
+.case-bottom { margin-top: 0; }
+
+.item-ico { width: 26px; height: 26px; flex: 0 0 auto; }
+.tile-icon { width: 30px; height: 30px; }
+
+/* Монеты фона — теперь SVG, размер задаётся инлайном */
+.money-drop { font-size: 0; }
+.money-drop svg { width: 100%; height: 100%; }
+
+/* Селект в админке выглядит как остальные поля ввода */
+select.seed-input {
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+                    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position: calc(100% - 18px) 50%, calc(100% - 13px) 50%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  padding-right: 34px;
+}
+
+.admin-actions .btn { display: flex; align-items: center; justify-content: center; gap: 8px; }
+.admin-actions .btn [data-ico], .btn-wide [data-ico] { width: 18px; height: 18px; }
+
+.admin-tag {
+  font-size: 9.5px; font-weight: 900; letter-spacing: 0.5px;
+  padding: 2px 7px; border-radius: 6px; vertical-align: middle;
+  background: linear-gradient(135deg, var(--gold), var(--orange)); color: #2a1400;
+}
+.roulette-tile .ico { width: 34px; height: 34px; }
+.tile-value .ico { width: 18px; height: 18px; margin: 0 auto; }
