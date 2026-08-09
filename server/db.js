@@ -37,6 +37,8 @@ db.exec(`
     is_admin          INTEGER NOT NULL DEFAULT 0,
     is_blocked        INTEGER NOT NULL DEFAULT 0,
     x2_case_id        TEXT,
+    gamble_stake      INTEGER NOT NULL DEFAULT 0,
+    gamble_case       TEXT,
     created_at        INTEGER NOT NULL
   );
 
@@ -140,6 +142,8 @@ ensureColumn('users', 'is_admin', 'INTEGER NOT NULL DEFAULT 0');
 ensureColumn('users', 'is_blocked', 'INTEGER NOT NULL DEFAULT 0');
 ensureColumn('users', 'x2_case_id', 'TEXT');
 ensureColumn('rounds', 'free', 'INTEGER NOT NULL DEFAULT 0');
+ensureColumn('users', 'gamble_stake', 'INTEGER NOT NULL DEFAULT 0');
+ensureColumn('users', 'gamble_case', 'TEXT');
 
 const STARTING_BALANCE = Number(process.env.STARTING_BALANCE || 1000);
 
@@ -340,10 +344,26 @@ export function crashTier(multiplier) {
 
 /* ---------- История, seed-ы, бонус ---------- */
 
-export function getHistory(userId, limit = 60) {
+/**
+ * История раундов. С caseTitle отдаются только открытия конкретного кейса —
+ * это питает блок «ваши выпадения из этого кейса» на экране прокрута.
+ */
+export function getHistory(userId, limit = 60, caseTitle = null) {
+  const columns = `game, title, subtitle, bet, payout, multiplier, tier, free,
+                   roll, nonce, server_hash, client_seed, created_at`;
+
+  if (caseTitle) {
+    return db.prepare(`
+      SELECT ${columns}
+        FROM rounds
+       WHERE user_id = ? AND game = 'case' AND title = ?
+       ORDER BY id DESC
+       LIMIT ?
+    `).all(userId, caseTitle, limit);
+  }
+
   return db.prepare(`
-    SELECT game, title, subtitle, bet, payout, multiplier, tier,
-           roll, nonce, server_hash, client_seed, created_at
+    SELECT ${columns}
       FROM rounds
      WHERE user_id = ?
      ORDER BY id DESC
@@ -481,12 +501,14 @@ export const playCaseRound = db.transaction((userId, caseData, resolve) => {
   db.prepare(`
     UPDATE users
        SET balance = ?, x2_case_id = ?,
+           gamble_stake = ?, gamble_case = ?,
            total_rounds = total_rounds + 1,
            total_spent = total_spent + ?,
            total_won = total_won + ?,
            best_multiplier = MAX(best_multiplier, ?)
      WHERE id = ?
-  `).run(newBalance, nextX2, spent, payout, multiplier, userId);
+  `).run(newBalance, nextX2, payout > 0 ? payout : 0, payout > 0 ? caseData.id : null,
+         spent, payout, multiplier, userId);
 
   db.prepare(`
     INSERT INTO rounds (user_id, game, title, subtitle, bet, payout, multiplier,
@@ -657,4 +679,68 @@ export function adminRecentRounds(limit = 40) {
       FROM rounds r JOIN users u ON u.id = r.user_id
      ORDER BY r.id DESC LIMIT ?
   `).all(limit);
+}
+
+/* ============================================================
+   РИСК-ИГРА ПОСЛЕ ПРОКРУТА
+   ============================================================ */
+
+/**
+ * Ставка риск-игры — это выигрыш последнего прокрута, он уже зачислен на
+ * баланс. Поэтому при проигрыше ставку снимаем, а при выигрыше доначисляем
+ * разницу до итоговой выплаты.
+ *
+ * Ставка обнуляется внутри той же транзакции: иначе одним выигрышем можно
+ * было бы рискнуть дважды, отправив два запроса подряд.
+ */
+export const playGamble = db.transaction((userId, pickIndex, config, resolve) => {
+  const user = getUserById(userId);
+  const stake = user.gamble_stake;
+
+  if (!stake || stake <= 0) {
+    throw Object.assign(new Error('Нечем рисковать'), { code: 'NO_STAKE' });
+  }
+
+  const nonce = user.nonce + 1;
+  db.prepare('UPDATE users SET nonce = ? WHERE id = ?').run(nonce, userId);
+
+  const fresh = getUserById(userId);
+  const { acePosition, roll } = resolve(fresh.server_seed, fresh.client_seed, nonce);
+  const won = pickIndex === acePosition;
+  const payout = won ? stake * config.payout : 0;
+
+  // Ставка уже на балансе: при выигрыше добавляем недостающее, при проигрыше снимаем.
+  const delta = payout - stake;
+
+  db.prepare(`
+    UPDATE users
+       SET balance = balance + ?,
+           gamble_stake = 0,
+           gamble_case = NULL,
+           total_rounds = total_rounds + 1,
+           total_spent = total_spent + ?,
+           total_won = total_won + ?,
+           best_multiplier = MAX(best_multiplier, ?)
+     WHERE id = ?
+  `).run(delta, stake, payout, won ? config.payout : 0, userId);
+
+  db.prepare(`
+    INSERT INTO rounds (user_id, game, title, subtitle, bet, payout, multiplier,
+                        tier, free, roll, nonce, server_hash, client_seed, created_at)
+    VALUES (?, 'gamble', 'Риск-игра', ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)
+  `).run(userId,
+         won ? `Нашёл туза — ${config.payout}x` : 'Промах',
+         stake, payout, won ? config.payout : 0,
+         won ? 'unique' : 'common',
+         roll, nonce, fresh.server_seed_hash, fresh.client_seed, Date.now());
+
+  return {
+    won, acePosition, payout, stake, roll, nonce,
+    balance: getUserById(userId).balance,
+  };
+});
+
+/** Сбрасывает предложенный риск, если игрок им не воспользовался. */
+export function clearGamble(userId) {
+  db.prepare('UPDATE users SET gamble_stake = 0, gamble_case = NULL WHERE id = ?').run(userId);
 }

@@ -16,7 +16,7 @@
 
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { CASES, CATEGORIES, TIERS, publicCase } from './server/cases.js';
-import { CRASH_CONFIG, ROULETTE_CONFIG, ROULETTE_WHEEL } from './server/games.js';
+import { CRASH_CONFIG, ROULETTE_CONFIG, ROULETTE_WHEEL, GAMBLE_CONFIG } from './server/games.js';
 
 const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
 
@@ -37,6 +37,13 @@ const config = {
     slots: ROULETTE_CONFIG.slots,
     colors: ROULETTE_CONFIG.colors,
     wheel: ROULETTE_WHEEL,
+  },
+  gamble: {
+    cards: GAMBLE_CONFIG.cards,
+    aces: GAMBLE_CONFIG.aces,
+    payout: GAMBLE_CONFIG.payout,
+    chance: GAMBLE_CONFIG.chance,
+    rtp: GAMBLE_CONFIG.rtp,
   },
   bonus: { amount: 500, cooldownMin: 60, balanceLimit: 250 },
 };
@@ -200,7 +207,7 @@ function freshUser() {
     serverSeed, serverSeedHash: sha256Hex(serverSeed),
     clientSeed: randHex(8), nonce: 0,
     prevServerSeed: null, prevServerHash: null,
-    x2CaseId: null, vouchers: {},
+    x2CaseId: null, vouchers: {}, gambleStake: 0,
     stats: { rounds: 0, spent: 0, won: 0, bestMultiplier: 0 },
     rounds: [],
     lastBonusAt: 0,
@@ -242,7 +249,7 @@ function load() {
       if (parsed && parsed.user) return parsed;
     }
   } catch { /* повреждённое хранилище просто игнорируем */ }
-  return { user: freshUser(), players: demoPlayers(), adminLog: [] };
+  return { user: freshUser(), players: demoPlayers(), adminLog: [], showAdmin: false };
 }
 
 function save() {
@@ -256,8 +263,11 @@ function publicUser() {
   return {
     id: u.id, username: u.username, firstName: u.firstName,
     balance: u.balance,
-    isAdmin: true, // в демо админка открыта, чтобы её можно было посмотреть
+    // Кнопка «Админ» скрыта: в рабочей версии её видят только Telegram ID
+    // из ADMIN_TG_IDS. Посмотреть панель в демо — demoAdmin() в консоли.
+    isAdmin: !!store.showAdmin,
     x2CaseId: u.x2CaseId,
+    gambleStake: u.gambleStake || 0,
     vouchers: Object.entries(u.vouchers).filter(([, n]) => n > 0)
       .map(([case_id, count]) => ({ case_id, count })),
     stats: {
@@ -330,6 +340,8 @@ const routes = {
     u.stats.won += payout;
     if (!free) u.stats.bestMultiplier = Math.max(u.stats.bestMultiplier, payout / table.price);
 
+    u.gambleStake = payout > 0 ? payout : 0;
+
     pushRound({
       game: 'case', title: table.name,
       subtitle: item.name + (x2Active && item.value > 0 ? ' (×2)' : ''),
@@ -350,6 +362,7 @@ const routes = {
 
   'POST /api/roulette': (body) => {
     const u = store.user;
+    u.gambleStake = 0;
     const bet = Math.floor(Number(body.bet));
     const payouts = { red: 2, black: 2, green: 14 };
     if (!bet || bet < 1) return { status: 400, body: { error: 'Некорректная ставка' } };
@@ -384,6 +397,7 @@ const routes = {
 
   'POST /api/crash/start': (body) => {
     const u = store.user;
+    u.gambleStake = 0;
     const bet = Math.floor(Number(body.bet));
     if (!bet || bet < 1) return { status: 400, body: { error: 'Некорректная ставка' } };
     if (u.balance < bet) {
@@ -442,7 +456,52 @@ const routes = {
     return { ok: true, amount: CONFIG.bonus.amount, balance: u.balance, user: publicUser() };
   },
 
-  'POST /api/history': () => ({ history: store.user.rounds }),
+  'POST /api/history': (body) => {
+    const title = body.caseTitle;
+    const limit = Math.min(60, Math.max(1, Number(body.limit) || 60));
+    const rows = title
+      ? store.user.rounds.filter((r) => r.game === 'case' && r.title === title)
+      : store.user.rounds;
+    return { history: rows.slice(0, limit) };
+  },
+
+  'POST /api/gamble/pick': (body) => {
+    const u = store.user;
+    const stake = u.gambleStake || 0;
+    if (stake <= 0) return { status: 400, body: { error: 'Нечем рисковать' } };
+
+    const index = Math.trunc(Number(body.index));
+    if (!Number.isInteger(index) || index < 0 || index >= CONFIG.gamble.cards) {
+      return { status: 400, body: { error: 'Некорректный выбор карты' } };
+    }
+
+    u.nonce++;
+    const roll = computeRoll(u.serverSeed, u.clientSeed, u.nonce);
+    const acePosition = Math.min(Math.floor(roll * CONFIG.gamble.cards), CONFIG.gamble.cards - 1);
+    const won = index === acePosition;
+    const payout = won ? stake * CONFIG.gamble.payout : 0;
+
+    // Ставка уже на балансе: при выигрыше доначисляем, при промахе снимаем.
+    u.balance += payout - stake;
+    u.gambleStake = 0;
+    u.stats.rounds++; u.stats.spent += stake; u.stats.won += payout;
+    u.stats.bestMultiplier = Math.max(u.stats.bestMultiplier, won ? CONFIG.gamble.payout : 0);
+
+    pushRound({ game: 'gamble', title: 'Риск-игра',
+      subtitle: won ? 'Нашёл туза — ' + CONFIG.gamble.payout + 'x' : 'Промах',
+      bet: stake, payout, multiplier: won ? CONFIG.gamble.payout : 0,
+      tier: won ? 'unique' : 'common', free: 0 });
+    save();
+
+    return { won, acePosition, payout, stake, balance: u.balance,
+             fair: { roll, nonce: u.nonce }, user: publicUser() };
+  },
+
+  'POST /api/gamble/skip': () => {
+    store.user.gambleStake = 0;
+    save();
+    return { user: publicUser() };
+  },
 
   'POST /api/fair/client-seed': (body) => {
     const seed = String(body.seed || '').trim() || randHex(8);
@@ -641,6 +700,13 @@ window.fetch = async (input, init = {}) => {
 window.__hmacTest = hmacSha256Hex;
 window.__shaTest = sha256Hex;
 
+/** Показать/скрыть админку в демо. В проде это делает ADMIN_TG_IDS. */
+window.demoAdmin = (on = true) => {
+  store.showAdmin = !!on;
+  save();
+  location.reload();
+};
+
 /** Сброс демо-прогресса — доступен из консоли. */
 window.resetDemo = () => {
   localStorage.removeItem(STORE_KEY);
@@ -712,7 +778,9 @@ if (shelves) {
     'в браузере, прогресс хранится локально и никуда не уходит. В рабочей версии ' +
     'исход раундов считает сервер, а серверный seed игроку недоступен — здесь это ' +
     'невозможно по определению. Игроки в админке выдуманы для наглядности. ' +
-    'Сбросить прогресс: <code>resetDemo()</code> в консоли.';
+    'Кнопка «Админ» скрыта — в рабочей версии её видят только Telegram ID ' +
+    'из ADMIN_TG_IDS; посмотреть панель здесь: <code>demoAdmin()</code>. ' +
+    'Сбросить прогресс: <code>resetDemo()</code>.';
   shelves.parentNode.insertBefore(note, shelves);
 }
 })();

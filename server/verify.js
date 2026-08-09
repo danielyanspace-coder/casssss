@@ -17,6 +17,9 @@ import {
   rouletteColorOf,
   rouletteSlotFromRoll,
   validateGames,
+  GAMBLE_CONFIG,
+  gambleAceFromRoll,
+  validateGamble,
 } from './games.js';
 import { computeRoll, generateClientSeed, generateServerSeed, hashSeed } from './fair.js';
 
@@ -235,6 +238,58 @@ console.log('\n=== Рулетка ===\n');
   for (const row of rows) {
     if (row.статус !== 'ок') failures++;
   }
+}
+
+console.log('\n=== Риск-игра ===\n');
+
+{
+  validateGamble();
+  const g = GAMBLE_CONFIG;
+
+  // Игрок выбирает карту вслепую, поэтому стратегия не влияет: проверяем
+  // и фиксированный выбор, и случайный — отдача обязана совпасть.
+  const rows = [];
+  for (const strategy of ['всегда первая', 'всегда последняя', 'случайная']) {
+    let payout = 0;
+    let hits = 0;
+    for (let n = 1; n <= ROUNDS; n++) {
+      const roll = computeRoll(serverSeed, `gamble:${strategy}`, n);
+      const ace = gambleAceFromRoll(roll);
+      const pick = strategy === 'всегда первая' ? 0
+                 : strategy === 'всегда последняя' ? g.cards - 1
+                 : Math.floor(Math.random() * g.cards);
+      if (pick === ace) { hits++; payout += g.payout; }
+    }
+    const rtp = payout / ROUNDS;
+    const se = g.payout * Math.sqrt((g.chance * (1 - g.chance)) / ROUNDS);
+    const ok = Math.abs(rtp - g.rtp) < 4 * se;
+    if (!ok) failures++;
+
+    rows.push({
+      стратегия: strategy,
+      'шанс факт': (hits / ROUNDS).toFixed(4),
+      'шанс теория': g.chance.toFixed(4),
+      'RTP факт': rtp.toFixed(4),
+      'RTP теория': g.rtp.toFixed(4),
+      статус: ok ? 'ок' : 'РАСХОЖДЕНИЕ',
+    });
+  }
+
+  console.log(`${g.cards} карт, тузов ${g.aces}, выплата ${g.payout}x → ` +
+              `отдача ${(g.rtp * 100).toFixed(2)}%, преимущество заведения ` +
+              `${((1 - g.rtp) * 100).toFixed(2)}%\n`);
+  console.table(rows);
+
+  // Позиция туза обязана быть равномерной, иначе «запоминание» карты работало бы.
+  const spread = new Array(g.cards).fill(0);
+  for (let n = 1; n <= ROUNDS; n++) {
+    spread[gambleAceFromRoll(computeRoll(serverSeed, 'gamble:spread', n))]++;
+  }
+  const expected = ROUNDS / g.cards;
+  const maxDev = Math.max(...spread.map((v) => Math.abs(v - expected) / expected));
+  console.log('Распределение позиции туза:', spread.join('  '));
+  console.log('Максимальное отклонение от равномерного:', (maxDev * 100).toFixed(2) + '%');
+  if (maxDev > 0.05) { console.error('Позиция туза распределена неравномерно'); failures++; }
 }
 
 console.log('\n=== Проверка provably fair ===\n');

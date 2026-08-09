@@ -62,6 +62,12 @@ async function api(path, body) {
 }
 
 const fmt = (n) => Number(n).toLocaleString('ru-RU');
+
+/**
+ * Сумма с символом валюты. Символ добавлен только ради вида — баланс
+ * остаётся условными единицами, платежей и вывода в проекте нет.
+ */
+const money = (n) => fmt(n) + ' ₽';
 const esc = (s) => String(s ?? '').replace(/[<>&"]/g, (c) =>
   ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]));
 
@@ -112,14 +118,14 @@ function buildMoneyRain() {
 
 function renderBalance() {
   const chip = document.getElementById('balanceChip');
-  document.getElementById('balanceValue').textContent = fmt(state.user.balance);
+  document.getElementById('balanceValue').textContent = money(state.user.balance);
   chip.classList.add('bump');
   setTimeout(() => chip.classList.remove('bump'), 260);
 
   const row = document.getElementById('bonusRow');
   row.hidden = state.user.balance > state.config.bonus.balanceLimit;
   document.getElementById('bonusHint').textContent =
-    `+${fmt(state.config.bonus.amount)} ед., раз в ${state.config.bonus.cooldownMin} мин.`;
+    `+${money(state.config.bonus.amount)}, раз в ${state.config.bonus.cooldownMin} мин.`;
 
   renderPerkBar();
 }
@@ -138,13 +144,21 @@ function renderPerkBar() {
   for (const v of state.user.vouchers || []) {
     const c = state.config.cases.find((x) => x.id === v.case_id);
     if (!c) continue;
-    chips.push(`<span class="perk-chip gift"><span data-ico="gift"></span>
-      «${esc(c.name)}» бесплатно${v.count > 1 ? ` ×${v.count}` : ''}</span>`);
+    // Плашка ведёт на сам кейс: иначе подарок приходится искать по полкам.
+    chips.push(`<button class="perk-chip gift" data-goto="${c.id}"><span data-ico="gift"></span>
+      «${esc(c.name)}» бесплатно${v.count > 1 ? ` ×${v.count}` : ''}</button>`);
   }
 
   bar.innerHTML = chips.join('');
   bar.hidden = !chips.length;
   mountIcons(bar);
+
+  bar.querySelectorAll('[data-goto]').forEach((el) => {
+    el.addEventListener('click', () => {
+      haptic('light');
+      openSheet(el.dataset.goto);
+    });
+  });
 }
 
 function renderStats() {
@@ -220,7 +234,7 @@ function caseCardHtml(c, vouchers) {
     </div>
     <div class="case-name">${esc(c.name)}</div>
     <div class="case-foot">
-      <span class="case-price">${freeCount ? 'ПОДАРОК' : fmt(c.price)}</span>
+      <span class="case-price">${freeCount ? 'ПОДАРОК' : money(c.price)}</span>
       <span class="case-max">${c.maxMultiplier}x</span>
     </div>
   </div>`;
@@ -250,7 +264,7 @@ function renderCases() {
           <h2 class="shelf-title">${shelf.title}</h2>
           <div class="shelf-hint">${shelf.hint}</div>
         </div>
-        <div class="shelf-range">${fmt(lo)}${hi !== lo ? ` – ${fmt(hi)}` : ''} ед.</div>
+        <div class="shelf-range">${fmt(lo)}${hi !== lo ? ` – ${fmt(hi)}` : ''} ₽</div>
       </div>
       <div class="shelf-row">
         ${items.map((c) => caseCardHtml(c, vouchers)).join('')}
@@ -286,7 +300,7 @@ function openSheet(caseId) {
           <div class="item-mult">${isPerk ? esc(it.perkLabel) : `${it.multiplier}x от цены`}</div>
         </div>
         <div class="item-right">
-          <div class="item-value">${isPerk && !it.value ? '—' : fmt(it.value)}</div>
+          <div class="item-value">${isPerk && !it.value ? '—' : money(it.value)}</div>
           <div class="item-chance">${(it.probability * 100).toFixed(3)}%</div>
         </div>
       </div>`;
@@ -296,7 +310,7 @@ function openSheet(caseId) {
     <div class="sheet-title">${esc(c.name)}</div>
     <div class="sheet-tagline">${esc(c.tagline)}</div>
     <div class="sheet-badges">
-      <span class="badge">Цена: <strong>${fmt(c.price)} ед.</strong></span>
+      <span class="badge">Цена: <strong>${money(c.price)}</strong></span>
       <span class="badge">RTP: <strong>${(c.rtp * 100).toFixed(2)}%</strong></span>
       <span class="badge">Максимум: <strong>${c.maxMultiplier}x</strong></span>
       ${x2 ? '<span class="badge">Активен: <strong>×2</strong></span>' : ''}
@@ -304,7 +318,7 @@ function openSheet(caseId) {
     <div class="items-title"><span>Содержимое</span><span>цена / шанс</span></div>
     ${rows}
     <button class="btn btn-primary sheet-open-btn" id="doOpenBtn">
-      ${freeCount ? 'ОТКРЫТЬ БЕСПЛАТНО' : `ОТКРЫТЬ ЗА ${fmt(c.price)}`}
+      ${freeCount ? 'ОТКРЫТЬ БЕСПЛАТНО' : `ОТКРЫТЬ ЗА ${money(c.price)}`}
     </button>
   `;
 
@@ -343,7 +357,7 @@ function tileHtml(item) {
   return `<div class="reel-tile" style="--tier-color:${color}">
     <div class="tile-icon">${iconTier(item.tier, color)}</div>
     <div class="tile-name">${esc(item.name)}</div>
-    <div class="tile-value">${item.kind === 'perk' && !item.value ? iconStar() : fmt(item.value)}</div>
+    <div class="tile-value">${item.kind === 'perk' && !item.value ? iconStar() : money(item.value)}</div>
   </div>`;
 }
 
@@ -354,7 +368,7 @@ async function startOpening(caseId) {
 
   const freeCount = (state.user.vouchers || []).find((v) => v.case_id === c.id)?.count || 0;
   if (!freeCount && state.user.balance < c.price) {
-    toast(`Не хватает ${fmt(c.price - state.user.balance)} ед.`);
+    toast(`Не хватает ${money(c.price - state.user.balance)}`);
     haptic('error');
     return;
   }
@@ -374,10 +388,21 @@ async function startOpening(caseId) {
 
   const opener = document.getElementById('opener');
   const reel = document.getElementById('reel');
-  document.getElementById('openerCaseName').textContent =
-    `${c.name} · ${data.free ? 'бесплатно' : `${fmt(c.price)} ед.`}`;
+
+  document.getElementById('openerCaseName').innerHTML =
+    `${esc(c.name)} · <span>${data.free ? 'бесплатно' : money(c.price)}</span>`;
+
+  // Число зрителей выдуманное и своё для каждого кейса — чисто оформление.
+  document.getElementById('openerViewers').textContent =
+    `этот кейс крутят ${viewersFor(c.id)} игроков`;
+
   document.getElementById('result').hidden = true;
+  document.getElementById('gamble').hidden = true;
+  document.getElementById('gambleStartBtn').hidden = true;
   opener.hidden = false;
+  document.querySelector('.opener-scroll').scrollTop = 0;
+  updateOpenerBalance();
+  loadCaseHistory(c.name);
 
   // Лента строится из предметов кейса, выигрышный ставится в фиксированную
   // позицию — сервер уже решил исход, анимация лишь доезжает до него.
@@ -397,18 +422,20 @@ async function startOpening(caseId) {
   const target = WINNER_INDEX * TILE_STEP + TILE_WIDTH / 2 - viewport / 2 + jitter;
 
   requestAnimationFrame(() => {
-    reel.style.transition = 'transform 5.6s cubic-bezier(0.09, 0.72, 0.13, 1)';
+    // Кривая с плавным разгоном: прежняя стартовала на полной скорости,
+    // и первые секунды предметы пролетали неразличимо.
+    reel.style.transition = 'transform 6.4s cubic-bezier(0.32, 0, 0.1, 1)';
     reel.style.transform = `translateX(${-target}px)`;
   });
 
   haptic('medium');
-  const timers = [1200, 2400, 3300, 4000, 4500, 4900, 5200, 5400]
+  const timers = [900, 1700, 2500, 3200, 3800, 4400, 4900, 5300, 5700, 6000, 6250]
     .map((t) => setTimeout(() => haptic('light'), t));
 
   setTimeout(() => {
     timers.forEach(clearTimeout);
     showCaseResult(data, c);
-  }, 5750);
+  }, 6550);
 }
 
 function showCaseResult(data, caseData) {
@@ -421,7 +448,7 @@ function showCaseResult(data, caseData) {
     : (state.config.tiers.find((t) => t.id === item.tier)?.label || item.tier);
   document.getElementById('resultName').textContent = item.name;
   document.getElementById('resultValue').textContent =
-    item.value ? `${fmt(item.value)} ед.` : '—';
+    item.value ? money(item.value) : '—';
 
   const net = document.getElementById('resultNet');
   const parts = [];
@@ -431,14 +458,24 @@ function showCaseResult(data, caseData) {
     if (g.type === 'voucher') parts.push(`подарок: кейс «${g.caseName}»`);
     if (g.type === 'credits') parts.push(`бонус +${fmt(g.amount)}`);
   }
-  const netText = data.net >= 0 ? `+${fmt(data.net)} ед.` : `${fmt(data.net)} ед.`;
+  const netText = data.net >= 0 ? `+${money(data.net)}` : `−${money(Math.abs(data.net))}`;
   net.innerHTML = `${netText}${parts.length ? '<br>' + esc(parts.join(' · ')) : ''}`;
   net.className = `result-net ${data.net >= 0 ? 'plus' : 'minus'}`;
 
   result.hidden = false;
   applyUser(data.user);
+  updateOpenerBalance();
+  loadCaseHistory(caseData.name);
   state.busy = false;
   haptic(data.net > 0 ? 'success' : 'light');
+
+  // Рискнуть можно только тем, что реально выиграно на этом прокруте.
+  const gambleBtn = document.getElementById('gambleStartBtn');
+  const stake = state.user.gambleStake || 0;
+  gambleBtn.hidden = stake <= 0;
+  if (stake > 0) {
+    gambleBtn.textContent = `РИСКНУТЬ ${money(stake)} → ${money(stake * state.config.gamble.payout)}`;
+  }
 
   const freeLeft = (state.user.vouchers || []).find((v) => v.case_id === caseData.id)?.count || 0;
   const againBtn = document.getElementById('againBtn');
@@ -447,8 +484,165 @@ function showCaseResult(data, caseData) {
     : againBtn.disabled ? 'Не хватает' : `Ещё раз · ${fmt(caseData.price)}`;
 }
 
-document.getElementById('closeOpener').addEventListener('click', () => {
+/* ---------- Вспомогательное для экрана прокрута ---------- */
+
+/** Выдуманное число зрителей, но стабильное для кейса — чтобы не скакало. */
+function viewersFor(caseId) {
+  let h = 0;
+  for (let i = 0; i < caseId.length; i++) h = (h * 31 + caseId.charCodeAt(i)) >>> 0;
+  // Небольшой дрейф по времени, чтобы число выглядело живым.
+  return 40 + ((h + Math.floor(Date.now() / 60000)) % 760);
+}
+
+function updateOpenerBalance() {
+  const el = document.getElementById('openerBalance');
+  if (el) el.textContent = money(state.user.balance);
+}
+
+/** Последние выпадения игрока именно из этого кейса. */
+async function loadCaseHistory(caseTitle) {
+  const box = document.getElementById('openerHistory');
+  let history;
+  try {
+    ({ history } = await api('/api/history', { caseTitle, limit: 8 }));
+  } catch { return; }
+
+  if (!history.length) {
+    box.innerHTML = '<h3><span>Ваши выпадения из этого кейса</span></h3>' +
+      '<div class="empty" style="padding:18px">Пока пусто</div>';
+    return;
+  }
+
+  box.innerHTML = '<h3><span>Ваши выпадения из этого кейса</span>' +
+    `<span>${history.length}</span></h3>` +
+    history.map((h) => `<div class="mini-row" style="--tier-color:${tierColor(h.tier)}">
+      <span class="mini-name">${esc(h.subtitle)}</span>
+      <span class="mini-val">${money(h.payout)}</span>
+    </div>`).join('');
+}
+
+function closeOpener() {
   document.getElementById('opener').hidden = true;
+  document.getElementById('gamble').hidden = true;
+}
+
+document.getElementById('closeOpener').addEventListener('click', closeOpener);
+document.getElementById('closeOpenerTop').addEventListener('click', closeOpener);
+
+/* ============================================================
+   РИСК-ИГРА: найди красного туза
+   ============================================================ */
+
+const gambleEl = {
+  root: () => document.getElementById('gamble'),
+  rules: () => document.getElementById('gambleRules'),
+  cards: () => document.getElementById('gambleCards'),
+  outcome: () => document.getElementById('gambleOutcome'),
+};
+
+function renderGamble() {
+  const g = state.config.gamble;
+
+  gambleEl.rules().innerHTML =
+    `Найдите красного туза среди ${g.cards} карт — выигрыш вырастет в ` +
+    `<b>${g.payout} раз</b>. Промах — выигрыш сгорает. ` +
+    `Шанс: <b>${g.aces} из ${g.cards}</b> (${(g.chance * 100).toFixed(1)}%).`;
+
+  gambleEl.cards().innerHTML = Array.from({ length: g.cards }, (_, i) =>
+    `<button class="gcard" data-idx="${i}">
+      <div class="gcard-inner">
+        <div class="gcard-face gcard-back">?</div>
+        <div class="gcard-face gcard-front blank"></div>
+      </div>
+    </button>`).join('');
+
+  gambleEl.outcome().textContent = '';
+  gambleEl.outcome().className = 'gamble-outcome';
+
+  gambleEl.cards().querySelectorAll('.gcard').forEach((card) => {
+    card.addEventListener('click', () => pickGambleCard(Number(card.dataset.idx)));
+  });
+}
+
+document.getElementById('gambleStartBtn').addEventListener('click', () => {
+  document.getElementById('gambleStartBtn').hidden = true;
+  document.getElementById('result').hidden = true;
+  renderGamble();
+  gambleEl.root().hidden = false;
+  haptic('medium');
+});
+
+async function pickGambleCard(index) {
+  if (state.busy) return;
+  state.busy = true;
+
+  const cards = [...gambleEl.cards().querySelectorAll('.gcard')];
+  cards.forEach((c) => c.classList.add('disabled'));
+  cards[index].classList.add('picked');
+
+  let data;
+  try {
+    data = await api('/api/gamble/pick', { index });
+  } catch (err) {
+    state.busy = false;
+    cards.forEach((c) => c.classList.remove('disabled', 'picked'));
+    toast(err.message);
+    haptic('error');
+    return;
+  }
+
+  // Сначала переворачивается выбранная карта, затем — все остальные,
+  // чтобы было видно, где на самом деле лежал туз.
+  const setFace = (i) => {
+    const front = cards[i].querySelector('.gcard-front');
+    const isAce = i === data.acePosition;
+    front.className = 'gcard-face gcard-front ' + (isAce ? 'ace' : 'blank');
+    // Пустая карта получает свой знак: без него вскрытая карта выглядит
+    // ровно как ещё не перевёрнутая, и непонятно, что раздача уже показана.
+    front.innerHTML = isAce ? iconStar('#fff') : '<span class="gcard-empty"></span>';
+    cards[i].classList.add('flipped');
+  };
+
+  setFace(index);
+  haptic(data.won ? 'success' : 'error');
+
+  setTimeout(() => {
+    cards.forEach((_, i) => { if (i !== index) setTimeout(() => setFace(i), i * 90); });
+
+    setTimeout(() => {
+      const out = gambleEl.outcome();
+      out.textContent = data.won
+        ? `Есть туз! Забираете ${money(data.payout)}`
+        : `Мимо. Туз был на карте ${data.acePosition + 1}`;
+      out.className = 'gamble-outcome ' + (data.won ? 'win' : 'lose');
+
+      applyUser(data.user);
+      updateOpenerBalance();
+      loadCaseHistory(state.config.cases.find((c) => c.id === state.openingCaseId)?.name);
+
+      // Рисковать больше нечем — кнопка становится выходом из раздачи.
+      const btn = document.getElementById('gambleSkipBtn');
+      btn.textContent = 'Продолжить';
+      btn.dataset.done = '1';
+      state.busy = false;
+    }, cards.length * 90 + 400);
+  }, 700);
+}
+
+document.getElementById('gambleSkipBtn').addEventListener('click', async (e) => {
+  const done = e.currentTarget.dataset.done === '1';
+  if (!done) {
+    // Отказ от риска: ставку надо снять, иначе она осталась бы висеть.
+    try { await api('/api/gamble/skip'); } catch { /* не критично */ }
+    const me = await api('/api/me').catch(() => null);
+    if (me) applyUser(me.user);
+  }
+  delete e.currentTarget.dataset.done;
+  e.currentTarget.textContent = 'Забрать без риска';
+  gambleEl.root().hidden = true;
+  document.getElementById('result').hidden = false;
+  document.getElementById('gambleStartBtn').hidden = true;
+  updateOpenerBalance();
 });
 
 document.getElementById('againBtn').addEventListener('click', () => {
@@ -550,7 +744,7 @@ async function startCrash() {
   const bet = betValue('crashBet');
   if (!bet) { toast('Укажите ставку'); return; }
   if (bet > state.user.balance) {
-    toast(`Не хватает ${fmt(bet - state.user.balance)} ед.`);
+    toast(`Не хватает ${money(bet - state.user.balance)}`);
     haptic('error');
     return;
   }
@@ -650,14 +844,14 @@ function finishCrash(data) {
     mult.className = 'crash-multiplier cashed';
     mult.style.color = '';
     status.className = 'crash-status win';
-    status.textContent = `Забрали ${fmt(data.payout)} ед. · взорвалось на ${data.crashPoint.toFixed(2)}x`;
+    status.textContent = `Забрали ${money(data.payout)} · взорвалось на ${data.crashPoint.toFixed(2)}x`;
     haptic('success');
   } else {
     mult.textContent = `${data.crashPoint.toFixed(2)}x`;
     mult.className = 'crash-multiplier busted';
     mult.style.color = '';
     status.className = 'crash-status lose';
-    status.textContent = `Взорвалось. Ставка ${fmt(round.bet)} ед. потеряна`;
+    status.textContent = `Взорвалось. Ставка ${money(round.bet)} потеряна`;
     haptic('error');
   }
   pushRecent('crash', data.crashPoint);
@@ -739,7 +933,7 @@ async function spinRoulette() {
   const bet = betValue('rouletteBet');
   if (!bet) { toast('Укажите ставку'); return; }
   if (bet > state.user.balance) {
-    toast(`Не хватает ${fmt(bet - state.user.balance)} ед.`);
+    toast(`Не хватает ${money(bet - state.user.balance)}`);
     haptic('error');
     return;
   }
@@ -771,19 +965,19 @@ async function spinRoulette() {
   const target = winnerIndex * ROUL_STEP + ROUL_TILE / 2 - viewport / 2 + jitter;
 
   requestAnimationFrame(() => {
-    reel.style.transition = 'transform 4.6s cubic-bezier(0.08, 0.7, 0.12, 1)';
+    reel.style.transition = 'transform 5.4s cubic-bezier(0.32, 0, 0.1, 1)';
     reel.style.transform = `translateX(${-target}px)`;
   });
 
   haptic('medium');
-  const timers = [1000, 2000, 2900, 3500, 3900, 4200, 4400]
+  const timers = [800, 1600, 2300, 2900, 3400, 3900, 4300, 4700, 5000, 5200]
     .map((t) => setTimeout(() => haptic('light'), t));
 
   setTimeout(() => {
     timers.forEach(clearTimeout);
     const box = document.getElementById('rouletteResult');
     const label = state.config.roulette.colors.find((c) => c.id === data.landed)?.label;
-    box.textContent = data.won ? `${label} — забрали ${fmt(data.payout)} ед.` : `${label} — мимо`;
+    box.textContent = data.won ? `${label} — забрали ${money(data.payout)}` : `${label} — мимо`;
     box.className = `roulette-result ${data.won ? 'win' : 'lose'}`;
 
     pushRecent('roulette', data.landed);
@@ -792,45 +986,10 @@ async function spinRoulette() {
 
     state.busy = false;
     document.getElementById('rouletteSpinBtn').disabled = false;
-  }, 4750);
+  }, 5550);
 }
 
 document.getElementById('rouletteSpinBtn').addEventListener('click', spinRoulette);
-
-/* ============================================================
-   ИСТОРИЯ
-   ============================================================ */
-
-const GAME_ICON_FN = { case: iconCases, crash: iconCrash, roulette: iconRoulette };
-
-async function loadHistory() {
-  let history;
-  try {
-    ({ history } = await api('/api/history'));
-  } catch { return; }
-
-  const list = document.getElementById('historyList');
-  if (!history.length) {
-    list.innerHTML = '<div class="empty">Пока пусто. Сыграйте первый раунд.</div>';
-    return;
-  }
-
-  list.innerHTML = history.map((h) => {
-    const profit = h.payout - h.bet;
-    const ico = (GAME_ICON_FN[h.game] || iconCases)();
-    return `<div class="history-row" style="--tier-color:${tierColor(h.tier)}">
-      <div class="history-ico">${ico}</div>
-      <div class="history-main">
-        <div class="history-item">${esc(h.subtitle)}</div>
-        <div class="history-case">${esc(h.title)} · ${h.free ? 'подарок' : `ставка ${fmt(h.bet)}`}</div>
-      </div>
-      <div class="history-right">
-        <div class="history-value">${fmt(h.payout)}</div>
-        <div class="history-mult ${profit >= 0 ? 'plus' : 'minus'}">${h.multiplier.toFixed(2)}x</div>
-      </div>
-    </div>`;
-  }).join('');
-}
 
 /* ============================================================
    ЧЕСТНОСТЬ
@@ -876,7 +1035,7 @@ document.getElementById('bonusBtn').addEventListener('click', async () => {
   try {
     const data = await api('/api/bonus');
     applyUser(data.user);
-    toast(`Начислено ${fmt(data.amount)} ед.`);
+    toast(`Начислено ${money(data.amount)}`);
     haptic('success');
   } catch (err) { toast(err.message); haptic('error'); }
 });
@@ -1162,7 +1321,6 @@ document.querySelectorAll('.nav-btn').forEach((btn) => {
     window.scrollTo({ top: 0 });
     haptic('light');
 
-    if (btn.dataset.view === 'history') loadHistory();
     if (btn.dataset.view === 'fair') renderFair();
     if (btn.dataset.view === 'roulette') renderRouletteReel(2);
     if (btn.dataset.view === 'admin') loadAdminOverview();

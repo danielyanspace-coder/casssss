@@ -22,6 +22,9 @@ import {
   rouletteColorOf,
   rouletteSlotFromRoll,
   validateGames,
+  GAMBLE_CONFIG,
+  gambleAceFromRoll,
+  validateGamble,
 } from './games.js';
 import { computeRoll, generateClientSeed } from './fair.js';
 import {
@@ -46,12 +49,15 @@ import {
   adminSetBlocked,
   adminGrantVoucher,
   adminRecentRounds,
+  playGamble,
+  clearGamble,
 } from './db.js';
 import { resolveUser } from './auth.js';
 
 // Если математика поехала — падаем на старте, до первого игрока.
 const caseReport = validateCases();
 const gameReport = validateGames();
+const gambleReport = validateGamble();
 
 // Администраторы задаются Telegram ID через настройки — не через базу,
 // чтобы права нельзя было получить, дописав себе строку в таблицу.
@@ -100,6 +106,8 @@ function publicUser(user) {
     balance: user.balance,
     isAdmin: !!user.is_admin,
     x2CaseId: user.x2_case_id,
+    gambleStake: user.gamble_stake,
+    gambleCase: user.gamble_case,
     vouchers: getVouchers(user.id),
     stats: {
       rounds: user.total_rounds,
@@ -152,6 +160,13 @@ app.get('/api/config', (req, res) => {
       slots: ROULETTE_CONFIG.slots,
       colors: ROULETTE_CONFIG.colors,
       wheel: ROULETTE_WHEEL,
+    },
+    gamble: {
+      cards: GAMBLE_CONFIG.cards,
+      aces: GAMBLE_CONFIG.aces,
+      payout: GAMBLE_CONFIG.payout,
+      chance: GAMBLE_CONFIG.chance,
+      rtp: GAMBLE_CONFIG.rtp,
     },
     bonus: {
       amount: BONUS_CONFIG.amount,
@@ -399,7 +414,46 @@ app.post('/api/bonus', auth, (req, res) => {
 });
 
 app.post('/api/history', auth, (req, res) => {
-  res.json({ history: getHistory(req.player.id) });
+  const caseTitle = req.body?.caseTitle ? String(req.body.caseTitle).slice(0, 64) : null;
+  const limit = Math.min(60, Math.max(1, Number(req.body?.limit) || 60));
+  res.json({ history: getHistory(req.player.id, limit, caseTitle) });
+});
+
+/* ============================================================
+   РИСК-ИГРА
+   ============================================================ */
+
+app.post('/api/gamble/pick', auth, (req, res) => {
+  const index = Math.trunc(Number(req.body?.index));
+  if (!Number.isInteger(index) || index < 0 || index >= GAMBLE_CONFIG.cards) {
+    return res.status(400).json({ error: 'Некорректный выбор карты' });
+  }
+
+  let result;
+  try {
+    result = playGamble(req.player.id, index, GAMBLE_CONFIG, (serverSeed, clientSeed, nonce) => {
+      const roll = computeRoll(serverSeed, clientSeed, nonce);
+      return { acePosition: gambleAceFromRoll(roll), roll };
+    });
+  } catch (err) {
+    if (err.code === 'NO_STAKE') return res.status(400).json({ error: 'Нечем рисковать' });
+    throw err;
+  }
+
+  res.json({
+    won: result.won,
+    acePosition: result.acePosition,
+    payout: result.payout,
+    stake: result.stake,
+    balance: result.balance,
+    fair: { roll: result.roll, nonce: result.nonce },
+    user: publicUser(getUserById(req.player.id)),
+  });
+});
+
+app.post('/api/gamble/skip', auth, (req, res) => {
+  clearGamble(req.player.id);
+  res.json({ user: publicUser(getUserById(req.player.id)) });
 });
 
 app.post('/api/fair/client-seed', auth, (req, res) => {
@@ -503,6 +557,7 @@ app.listen(PORT, () => {
     console.log('  DEV_MODE включён — подпись Telegram не проверяется.');
   }
   console.log(`  Краш RTP: ${(gameReport.crashRtp * 100).toFixed(2)}%  ` +
-              `Рулетка RTP: ${(gameReport.rouletteRtp * 100).toFixed(2)}%\n`);
+              `Рулетка RTP: ${(gameReport.rouletteRtp * 100).toFixed(2)}%  ` +
+              `Риск-игра RTP: ${(gambleReport.rtp * 100).toFixed(2)}%\n`);
   console.table(caseReport);
 });
