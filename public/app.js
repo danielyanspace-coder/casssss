@@ -212,20 +212,29 @@ const SHELVES = [
   { title: 'Максимум', hint: 'Дороже в игре нет', max: Infinity },
 ];
 
+/** Сезонный кейс до даты старта только показывается, но не открывается. */
+function lockedUntil(c) {
+  if (!c.availableFrom || Date.now() >= c.availableFrom) return null;
+  return new Date(c.availableFrom).toLocaleDateString('ru-RU',
+    { day: 'numeric', month: 'long' });
+}
+
 function caseCardHtml(c, vouchers) {
   const color = CATEGORY_COLORS[c.category] || '#a020ff';
   const freeCount = vouchers.get(c.id) || 0;
   const x2 = state.user.x2CaseId === c.id;
+  const locked = lockedUntil(c);
 
   let badge = '';
-  if (freeCount) badge = `<span class="cover-badge perk">БЕСПЛАТНО ×${freeCount}</span>`;
+  if (locked) badge = `<span class="cover-badge soon">С ${locked.toUpperCase()}</span>`;
+  else if (freeCount) badge = `<span class="cover-badge perk">БЕСПЛАТНО ×${freeCount}</span>`;
   else if (x2) badge = '<span class="cover-badge perk">×2</span>';
   else if (c.hasPerks) badge = '<span class="cover-badge perk">ПЛЮШКИ</span>';
   // Пустой span держит RTP прижатым вправо, когда плюшек у кейса нет.
   else badge = '<span></span>';
 
-  return `<div class="case-card ${freeCount ? 'free-ready' : ''}" data-case="${c.id}"
-      style="--cat-color:${color}">
+  return `<div class="case-card ${freeCount ? 'free-ready' : ''} ${locked ? 'locked' : ''}"
+      data-case="${c.id}" style="--cat-color:${color}">
     <div class="case-cover">
       ${caseCover(c)}
       <div class="cover-badges">${badge}
@@ -234,7 +243,7 @@ function caseCardHtml(c, vouchers) {
     </div>
     <div class="case-name">${esc(c.name)}</div>
     <div class="case-foot">
-      <span class="case-price">${freeCount ? 'ПОДАРОК' : money(c.price)}</span>
+      <span class="case-price">${freeCount && !locked ? 'ПОДАРОК' : money(c.price)}</span>
       <span class="case-max">${c.maxMultiplier}x</span>
     </div>
   </div>`;
@@ -286,6 +295,19 @@ function openSheet(caseId) {
 
   const freeCount = (state.user.vouchers || []).find((v) => v.case_id === c.id)?.count || 0;
   const x2 = state.user.x2CaseId === c.id;
+  const locked = lockedUntil(c);
+
+  // Витринный предмет показывается отдельной строкой над таблицей и честно
+  // подписан: он крутится в ленте, но в розыгрыше не участвует.
+  const showcaseRow = c.showcase ? `
+    <div class="item-row showcase-row" style="--tier-color:${tierColor(c.showcase.tier)}">
+      <span class="item-ico">${iconTier(c.showcase.tier, tierColor(c.showcase.tier))}</span>
+      <div class="item-info">
+        <div class="item-name">${esc(c.showcase.name)}</div>
+        <div class="item-mult">${esc(c.showcase.note)}</div>
+      </div>
+      <div class="item-right"><div class="item-chance">не разыгрывается</div></div>
+    </div>` : '';
 
   const rows = c.items
     .slice()
@@ -314,8 +336,10 @@ function openSheet(caseId) {
       <span class="badge">RTP: <strong>${(c.rtp * 100).toFixed(2)}%</strong></span>
       <span class="badge">Максимум: <strong>${c.maxMultiplier}x</strong></span>
       ${x2 ? '<span class="badge">Активен: <strong>×2</strong></span>' : ''}
+      ${locked ? `<span class="badge badge-soon">Старт: <strong>${locked}</strong></span>` : ''}
     </div>
     <div class="items-title"><span>Содержимое</span><span>цена / шанс</span></div>
+    ${showcaseRow}
     ${rows}
     <div class="count-row" id="countRow">
       ${[1, 2, 3, 4, 5].slice(0, state.config.maxBatch || 5).map((n) =>
@@ -328,6 +352,11 @@ function openSheet(caseId) {
   let count = 1;
 
   const refresh = () => {
+    if (locked) {
+      openBtn.textContent = `ОТКРОЕТСЯ ${locked.toUpperCase()}`;
+      openBtn.disabled = true;
+      return;
+    }
     // Ваучеры покрывают первые открытия пачки, остальное платное.
     const paid = Math.max(0, count - freeCount);
     openBtn.textContent = paid === 0
@@ -395,12 +424,22 @@ function weightedSample(items) {
 
 function tileHtml(item) {
   const color = tierColor(item.tier);
-  return `<div class="reel-tile" style="--tier-color:${color}">
+  let value;
+  if (item.showcase) value = '<span class="tile-showcase">ВИТРИНА</span>';
+  else if (item.kind === 'perk' && !item.value) value = iconStar();
+  else value = money(item.value);
+
+  return `<div class="reel-tile ${item.showcase ? 'is-showcase' : ''}"
+      style="--tier-color:${color}">
     <div class="tile-icon">${iconTier(item.tier, color)}</div>
     <div class="tile-name">${esc(item.name)}</div>
-    <div class="tile-value">${item.kind === 'perk' && !item.value ? iconStar() : money(item.value)}</div>
+    <div class="tile-value">${value}</div>
   </div>`;
 }
+
+// Позиции витринного предмета в ленте. Среди них нет WINNER_INDEX — витрина
+// проезжает мимо маркера, но остановиться на ней лента не может.
+const SHOWCASE_SLOTS = [11, 27, 43, 58];
 
 /** Разметка одной ленты. */
 function reelWrapHtml() {
@@ -492,9 +531,15 @@ async function startOpening(caseId, count = 1) {
   reels.querySelectorAll('.reel').forEach((reel, idx) => {
     // Лента строится из предметов кейса, выигрышный ставится в фиксированную
     // позицию — сервер уже решил исход, анимация лишь доезжает до него.
+    const showcaseTile = c.showcase
+      ? { name: c.showcase.name, tier: c.showcase.tier, kind: 'item', value: 0, showcase: true }
+      : null;
+
     const strip = [];
     for (let i = 0; i < STRIP_LENGTH; i++) {
-      strip.push(i === WINNER_INDEX ? opened[idx].item : weightedSample(c.items));
+      if (i === WINNER_INDEX) strip.push(opened[idx].item);
+      else if (showcaseTile && SHOWCASE_SLOTS.includes(i)) strip.push(showcaseTile);
+      else strip.push(weightedSample(c.items));
     }
     reel.innerHTML = strip.map(tileHtml).join('');
 

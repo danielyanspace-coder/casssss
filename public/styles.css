@@ -992,6 +992,36 @@ main { position: relative; z-index: 2; padding: 18px; }
 .case-card.free-ready { box-shadow: 0 0 0 3px var(--green), 0 10px 40px -8px var(--green); }
 
 /* ============================================================
+   СЕЗОННЫЙ КЕЙС
+   ============================================================ */
+
+.cover-badge.soon { color: var(--cyan); letter-spacing: 0.4px; }
+
+/* Карточка до старта остаётся кликабельной: состав посмотреть можно,
+   открыть — нет. Поэтому приглушаем обложку, а не блокируем нажатие. */
+.case-card.locked { box-shadow: 0 0 0 2px var(--cyan), 0 10px 40px -12px var(--cyan); }
+.case-card.locked .cover-svg { filter: saturate(0.75) brightness(0.78); }
+.case-card.locked .case-price { color: var(--cyan); }
+
+.badge.badge-soon { border-color: var(--cyan); color: var(--cyan); }
+
+/* Витринная строка в составе кейса и витринная плитка в ленте: обе видно,
+   но обе честно подписаны как не участвующие в розыгрыше. */
+.showcase-row {
+  background: linear-gradient(135deg, rgba(255, 45, 85, 0.16), rgba(10, 2, 18, 0.5));
+  border-style: dashed;
+}
+.showcase-row .item-chance { color: var(--muted); font-style: italic; }
+
+.reel-tile.is-showcase { border-style: dashed; opacity: 0.92; }
+.tile-showcase {
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.6px;
+  color: var(--muted);
+}
+
+/* ============================================================
    АДМИНКА
    ============================================================ */
 

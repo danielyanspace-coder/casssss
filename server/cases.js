@@ -85,6 +85,7 @@ export const CATEGORIES = [
   { id: 'elite', name: 'Элита', description: 'Самые крупные ставки в игре' },
   { id: 'risk', name: 'Риск', description: 'Редкие, но огромные множители' },
   { id: 'bonus', name: 'Бонусные', description: 'С плюшками: x2, подарки, бонусы' },
+  { id: 'season', name: 'Сезонные', description: 'Открыты ограниченное время' },
 ];
 
 /* ============================================================
@@ -179,6 +180,27 @@ const SPECS = [
     [{ type: 'x2', share: 0.08 }, { type: 'credits', amount: 1200009, share: 0.06 }]],
   ['legend_100000', 'Легенда', 'Вершина коллекции', 'bonus', 99999, 0.965, 45, 'normal', 'dragon',
     [{ type: 'voucher', caseId: 'abyss_50000', share: 0.07 }, { type: 'x2', share: 0.06 }]],
+  // ── Сезонные ────────────────────────────────────────────
+  ['porsche_999', 'Porsche 911', 'Сезонный кейс — с 1 октября', 'season',
+    999, 0.955, 25, 'normal', 'garage', [], {
+      availableFrom: '2026-10-01T00:00:00Z',
+      art: 'porsche',
+      /**
+       * Витринный предмет. Он крутится в ленте и виден в составе кейса, но
+       * НЕ входит в таблицу розыгрыша: сумма его вероятностей не участвует
+       * в решателе, и выпасть он не может.
+       *
+       * Вероятность здесь намеренно не указана. Написать рядом с призом
+       * число, которое не соответствует механике, — значит обмануть игрока,
+       * а весь остальной проект построен на обратном.
+       */
+      showcase: {
+        name: 'Porsche 911 (992.2)',
+        note: 'Витрина сезона — вне таблицы розыгрыша',
+        tier: 'unique',
+      },
+    }],
+
   ['sultan_40000', 'Три желания', 'Джинн не обманет', 'bonus', 39999, 0.96, 38, 'normal', 'desert',
     [{ type: 'voucher', caseId: 'lair_15000', share: 0.06 }, { type: 'credits', amount: 900000, share: 0.05 }]],
 ];
@@ -202,7 +224,8 @@ const PERK_LABELS = {
  * лишним кругом вычислений.
  */
 function buildCase(spec, builtById) {
-  const [id, name, tagline, category, price, rtp, maxMultiplier, profileId, themeId, perkSpecs = []] = spec;
+  const [id, name, tagline, category, price, rtp, maxMultiplier, profileId, themeId,
+         perkSpecs = [], extra = {}] = spec;
 
   const profile = PROFILES[profileId];
   const theme = THEMES[themeId];
@@ -320,6 +343,10 @@ function buildCase(spec, builtById) {
     palette: theme.palette,
     items,
     hasPerks: perkItems.length > 0,
+    // Витрина и сезонность не влияют на математику: решатель их не видит.
+    showcase: extra.showcase || null,
+    availableFrom: extra.availableFrom ? Date.parse(extra.availableFrom) : null,
+    art: extra.art || null,
     ev,
     cashEv,
     actualRtp: ev / price,
@@ -413,6 +440,13 @@ export function validateCases(cases = CASES) {
       }
     }
 
+    // Витринный предмет обязан оставаться вне таблицы: если он окажется
+    // среди items, у него появится вероятность, и обещание «не выпадает»
+    // перестанет быть правдой.
+    if (c.showcase && c.items.some((it) => it.name === c.showcase.name)) {
+      throw new Error(`[${c.id}] витринный предмет попал в таблицу розыгрыша`);
+    }
+
     report.push({
       id: c.id,
       название: c.name,
@@ -439,6 +473,9 @@ export function publicCase(c) {
     theme: c.theme,
     palette: c.palette,
     hasPerks: c.hasPerks,
+    showcase: c.showcase,
+    availableFrom: c.availableFrom,
+    art: c.art,
     topValue: Math.max(...c.items.filter((i) => i.kind === 'item').map((i) => i.value)),
     items: c.items.map((it) => ({
       id: it.id,

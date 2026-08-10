@@ -366,6 +366,30 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
         `${adm.data.stats.paidSum} vs ${paidBefore + amount}`);
 }
 
+/* ---------- Сезонный кейс ---------- */
+{
+  const seasonal = config.cases.filter((c) => c.availableFrom);
+  check('сезонный кейс есть в конфиге', seasonal.length >= 1);
+
+  for (const c of seasonal) {
+    const future = c.availableFrom > Date.now();
+    const r = await post('/api/open', { caseId: c.id, count: 1 });
+
+    // До даты старта сервер обязан отказать, после — открыть как обычно.
+    // Проверка привязана к дате, а не к «сегодня»: тест не протухнет 1 октября.
+    check(`«${c.name}»: ${future ? 'до старта закрыт' : 'после старта открывается'}`,
+          future ? r.status === 403 : r.status === 200,
+          `HTTP ${r.status}`);
+
+    if (c.showcase) {
+      check(`«${c.name}»: витринный предмет вне таблицы розыгрыша`,
+            !c.items.some((it) => it.name === c.showcase.name));
+      check(`«${c.name}»: сумма шансов без витрины равна единице`,
+            Math.abs(c.items.reduce((s, it) => s + it.probability, 0) - 1) < 1e-9);
+    }
+  }
+}
+
 /* ---------- Итог ---------- */
 
 console.log(`Пройдено проверок: ${passed}`);

@@ -56,6 +56,9 @@ const drawTables = CASES.map((c) => ({
   id: c.id,
   price: c.price,
   name: c.name,
+  // Дата старта нужна и офлайн: иначе сезонный кейс, закрытый на сервере,
+  // в автономной сборке открывался бы свободно.
+  availableFrom: c.availableFrom,
   items: c.items.map((it) => ({
     id: it.id,
     name: it.name,
@@ -361,6 +364,11 @@ const routes = {
   'POST /api/open': (body) => {
     const table = DRAW_BY_ID.get(body.caseId);
     if (!table) return { status: 404, body: { error: 'Кейс не найден' } };
+
+    if (table.availableFrom && Date.now() < table.availableFrom) {
+      const starts = new Date(table.availableFrom).toLocaleDateString('ru-RU');
+      return { status: 403, body: { error: 'Кейс откроется ' + starts } };
+    }
 
     const u = store.user;
     const count = Math.min(CONFIG.maxBatch, Math.max(1, Math.trunc(Number(body.count) || 1)));

@@ -199,6 +199,13 @@ app.post('/api/open', auth, (req, res) => {
   const caseData = getCase(req.body?.caseId);
   if (!caseData) return res.status(404).json({ error: 'Кейс не найден' });
 
+  // Сезонный кейс до даты старта не открывается. Проверка именно здесь, на
+  // сервере: спрятать кнопку в интерфейсе мало, запрос можно послать напрямую.
+  if (caseData.availableFrom && Date.now() < caseData.availableFrom) {
+    const starts = new Date(caseData.availableFrom).toLocaleDateString('ru-RU');
+    return res.status(403).json({ error: `Кейс откроется ${starts}` });
+  }
+
   const count = Math.min(MAX_BATCH, Math.max(1, Math.trunc(Number(req.body?.count) || 1)));
 
   const user = req.player;

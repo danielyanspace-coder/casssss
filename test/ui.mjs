@@ -10,9 +10,30 @@
  */
 
 import { chromium } from 'playwright';
+import { existsSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 
 const URL_TARGET = process.argv[2] || 'http://localhost:3000';
-const EXECUTABLE = process.argv[3] || process.env.CHROMIUM_PATH || undefined;
+
+/**
+ * Playwright ищет ровно ту сборку браузера, под которую собран пакет. Если в
+ * системе стоит другая ревизия (частый случай в готовых образах), запуск падает
+ * с советом «npx playwright install», хотя рабочий chromium рядом уже лежит.
+ * Поэтому при несовпадении подбираем любой установленный.
+ */
+function findChromium() {
+  const root = process.env.PLAYWRIGHT_BROWSERS_PATH;
+  if (!root || !existsSync(root)) return undefined;
+
+  for (const dir of readdirSync(root)) {
+    if (!dir.startsWith('chromium-')) continue;
+    const bin = join(root, dir, 'chrome-linux', 'chrome');
+    if (existsSync(bin)) return bin;
+  }
+  return undefined;
+}
+
+const EXECUTABLE = process.argv[3] || process.env.CHROMIUM_PATH || findChromium();
 
 let passed = 0;
 const failures = [];
@@ -219,6 +240,54 @@ for (let attempt = 0; attempt < 6 && !gambleTested; attempt++) {
   await ensureOpenerClosed();
 }
 check('риск: сценарий проигран', gambleTested);
+
+/* ---------- Сезонный кейс ---------- */
+
+await ensureOpenerClosed();
+await page.click('.nav-btn[data-view="cases"]');
+await page.waitForSelector('.case-card', { timeout: 10000 });
+
+const seasonal = await page.evaluate(async () => {
+  const cfg = await fetch('/api/config').then((r) => r.json());
+  const c = cfg.cases.find((x) => x.availableFrom);
+  if (!c) return null;
+  const card = [...document.querySelectorAll('.case-card')].find((el) => el.dataset.case === c.id);
+  return {
+    id: c.id,
+    future: c.availableFrom > Date.now(),
+    locked: card?.classList.contains('locked') ?? false,
+    badge: card?.querySelector('.cover-badge.soon')?.textContent.trim() || '',
+  };
+});
+
+if (check('сезонный кейс есть в конфиге', seasonal !== null)) {
+  check('сезонный: карточка помечена как закрытая', seasonal.locked === seasonal.future);
+  check('сезонный: на обложке дата старта', !seasonal.future || seasonal.badge.length > 0);
+
+  await page.evaluate((id) => {
+    [...document.querySelectorAll('.case-card')].find((c) => c.dataset.case === id).click();
+  }, seasonal.id);
+  await page.waitForSelector('#doOpenBtn', { state: 'visible' });
+
+  const sheet = await page.evaluate(() => ({
+    disabled: document.getElementById('doOpenBtn').disabled,
+    showcase: document.querySelectorAll('.showcase-row').length,
+    // Витринный предмет не должен встречаться в таблице розыгрыша.
+    inTable: [...document.querySelectorAll('.item-row:not(.showcase-row) .item-name')]
+      .map((n) => n.textContent.trim()),
+    showcaseName: document.querySelector('.showcase-row .item-name')?.textContent.trim() || '',
+  }));
+
+  check('сезонный: кнопка открытия заблокирована до старта',
+        sheet.disabled === seasonal.future);
+  check('сезонный: витринная строка показана', sheet.showcase === 1);
+  check('сезонный: витрина вне таблицы розыгрыша',
+        !sheet.inTable.includes(sheet.showcaseName), sheet.showcaseName);
+
+  await ensureOpenerClosed();
+  await page.evaluate(() => document.getElementById('sheetBackdrop')?.click());
+  await page.waitForTimeout(200);
+}
 
 /* ---------- Экраны ---------- */
 
