@@ -178,3 +178,12 @@ export function iconRouletteMark(kind) {
   if (kind === 'red') return svg('<path d="M12 4 20 12 12 20 4 12 12 4Z" fill="#fff"/>');
   return svg('<rect x="5" y="5" width="14" height="14" rx="2" fill="#cbb6e8"/>');
 }
+
+/** Динамик — для переключателя звука. */
+export function iconSound(on = true) {
+  const waves = on
+    ? '<path d="M16.4 8.6a4.6 4.6 0 0 1 0 6.8M19 6a8 8 0 0 1 0 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>'
+    : '<path d="m17 9.5 5 5M22 9.5l-5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>';
+  return svg(`<path d="M4 9.5h3.2L12 5.4v13.2L7.2 14.5H4a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1Z"
+      fill="currentColor"/>${waves}`);
+}

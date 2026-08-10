@@ -76,6 +76,7 @@ const html = read('./public/index.html');
 const icons = read('./public/icons.js');
 const covers = read('./public/covers.js');
 const sounds = read('./public/sounds.js');
+const legal = read('./public/legal.js');
 const app = read('./public/app.js');
 
 // Тело страницы без внешних подключений — всё уедет внутрь файла.
@@ -778,6 +779,8 @@ ${strip(covers)}
 
 ${strip(sounds)}
 
+${strip(legal)}
+
 ${strip(app)}
 
 // Пояснение про демо — над полками.
@@ -818,7 +821,8 @@ function topLevelNames(src) {
 
 const scopes = {
   icons: topLevelNames(icons), covers: topLevelNames(covers),
-  sounds: topLevelNames(sounds), app: topLevelNames(app),
+  sounds: topLevelNames(sounds), legal: topLevelNames(legal),
+  app: topLevelNames(app),
 };
 const clashes = [];
 for (const [aName, aSet] of Object.entries(scopes)) {

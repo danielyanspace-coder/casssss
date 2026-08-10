@@ -9,9 +9,10 @@
 import {
   iconCases, iconCrash, iconRoulette, iconHistory, iconFair, iconAdmin,
   iconCoin, iconX2, iconGift, iconBolt, iconSearch, iconPlus, iconMinus,
-  iconBlock, iconBack, iconTier, iconStar, iconRouletteMark,
+  iconBlock, iconBack, iconTier, iconStar, iconRouletteMark, iconSound,
 } from './icons.js';
 import { caseCover } from './covers.js';
+import { DOCS, footerHtml } from './legal.js';
 import {
   soundEnabled, toggleSound, sndTick, sndSpinStart, sndLand, sndReveal,
   sndBigWin, sndCollect, sndLose, sndFlip, sndBet, sndCrash, sndClimb,
@@ -1454,6 +1455,37 @@ document.getElementById('adminSearchBtn').addEventListener('click', () => {
 });
 
 /* ============================================================
+   ПОДВАЛ И ПРАВОВЫЕ ДОКУМЕНТЫ
+   ============================================================ */
+
+function buildFooter() {
+  const footer = document.getElementById('siteFooter');
+  footer.innerHTML = footerHtml();
+
+  footer.querySelectorAll('[data-doc]').forEach((btn) => {
+    btn.addEventListener('click', () => openDoc(btn.dataset.doc));
+  });
+}
+
+function openDoc(key) {
+  const doc = DOCS[key];
+  if (!doc) return;
+
+  document.getElementById('docTitle').textContent = doc.title;
+  document.getElementById('docBody').innerHTML = doc.body;
+  document.getElementById('docBackdrop').hidden = false;
+  document.querySelector('.doc-body').scrollTop = 0;
+  haptic('light');
+}
+
+document.getElementById('docClose').addEventListener('click', () => {
+  document.getElementById('docBackdrop').hidden = true;
+});
+document.getElementById('docBackdrop').addEventListener('click', (e) => {
+  if (e.target.id === 'docBackdrop') e.currentTarget.hidden = true;
+});
+
+/* ============================================================
    НАВИГАЦИЯ И СТАРТ
    ============================================================ */
 
@@ -1488,11 +1520,14 @@ async function init() {
 
   mountIcons();
   buildMoneyRain();
+  buildFooter();
 
   const soundBtn = document.getElementById('soundBtn');
   const paintSound = () => {
-    soundBtn.textContent = soundEnabled() ? 'ЗВУК ВКЛ' : 'ЗВУК ВЫКЛ';
+    // Только иконка: подпись словами отнимала у баланса половину шапки.
+    soundBtn.innerHTML = iconSound(soundEnabled());
     soundBtn.classList.toggle('off', !soundEnabled());
+    soundBtn.title = soundEnabled() ? 'Звук включён' : 'Звук выключен';
   };
   paintSound();
   soundBtn.addEventListener('click', () => { toggleSound(); paintSound(); });
