@@ -251,21 +251,34 @@ const seasonal = await page.evaluate(async () => {
   const cfg = await fetch('/api/config').then((r) => r.json());
   const c = cfg.cases.find((x) => x.availableFrom);
   if (!c) return null;
-  const card = [...document.querySelectorAll('.case-card')].find((el) => el.dataset.case === c.id);
+  const card = document.querySelector(`.featured-card[data-case="${c.id}"]`);
+  const shelves = document.querySelectorAll(`.shelf-row [data-case="${c.id}"]`).length;
+  const featured = document.querySelectorAll('.featured-card');
   return {
     id: c.id,
     future: c.availableFrom > Date.now(),
-    locked: card?.classList.contains('locked') ?? false,
-    badge: card?.querySelector('.cover-badge.soon')?.textContent.trim() || '',
+    onFeatured: card !== null,
+    // Витрина должна стоять первой в списке и не дублироваться в полках.
+    first: document.getElementById('caseShelves')?.firstElementChild?.classList
+      .contains('featured') ?? false,
+    onlyOne: featured.length === 1,
+    inShelves: shelves,
+    locked: card?.classList.contains('is-locked') ?? false,
+    badge: card?.querySelector('.featured-date')?.textContent.trim() || '',
   };
 });
 
 if (check('сезонный кейс есть в конфиге', seasonal !== null)) {
+  check('сезонный: вынесен на витрину', seasonal.onFeatured);
+  check('сезонный: витрина стоит первой под шапкой', seasonal.first);
+  check('сезонный: витрина одна', seasonal.onlyOne);
+  check('сезонный: не продублирован в полках', seasonal.inShelves === 0,
+        `найдено ${seasonal.inShelves}`);
   check('сезонный: карточка помечена как закрытая', seasonal.locked === seasonal.future);
   check('сезонный: на обложке дата старта', !seasonal.future || seasonal.badge.length > 0);
 
   await page.evaluate((id) => {
-    [...document.querySelectorAll('.case-card')].find((c) => c.dataset.case === id).click();
+    document.querySelector(`.featured-card[data-case="${id}"]`).click();
   }, seasonal.id);
   await page.waitForSelector('#doOpenBtn', { state: 'visible' });
 

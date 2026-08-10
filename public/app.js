@@ -249,15 +249,57 @@ function caseCardHtml(c, vouchers) {
   </div>`;
 }
 
+/**
+ * Витрина сезонного кейса — широкая карточка под шапкой.
+ *
+ * Обложка та же, что у остальных, но крупнее и без приглушения: закрытый
+ * кейс здесь не гасим, иначе главное место на экране занимает серое пятно.
+ * О том, что он ещё не открылся, говорят плашка с датой и подпись на кнопке.
+ */
+function featuredHtml(c, vouchers) {
+  const locked = lockedUntil(c);
+  const freeCount = vouchers.get(c.id) || 0;
+
+  return `<section class="featured">
+    <div class="featured-card ${locked ? 'is-locked' : ''}" data-case="${c.id}">
+      <div class="featured-badges">
+        <span class="featured-tag">СЕЗОННЫЙ КЕЙС</span>
+        ${locked ? `<span class="featured-date">С ${locked.toUpperCase()}</span>` : ''}
+      </div>
+      <div class="featured-cover">
+        ${caseCover(c)}
+        <div class="featured-shine"></div>
+        <div class="featured-top">до ${fmt(c.topValue)} ₽</div>
+      </div>
+      <div class="featured-body">
+        <div class="featured-name">${esc(c.name)}</div>
+        <div class="featured-sub">${esc(c.tagline)}</div>
+        <div class="featured-foot">
+          <span class="featured-price">${freeCount && !locked ? 'ПОДАРОК' : money(c.price)}</span>
+          <span class="featured-max">${c.maxMultiplier}x</span>
+          <span class="featured-rtp">RTP ${(c.rtp * 100).toFixed(1)}%</span>
+        </div>
+      </div>
+    </div>
+  </section>`;
+}
+
 function renderCases() {
   const root = document.getElementById('caseShelves');
   if (!root) return;
 
   const vouchers = new Map((state.user.vouchers || []).map((v) => [v.case_id, v.count]));
-  const sorted = [...state.config.cases].sort((a, b) => a.price - b.price);
+  const all = [...state.config.cases].sort((a, b) => a.price - b.price);
+
+  // Сезонный кейс идёт витриной над полками, поэтому из общего списка его
+  // убираем — иначе он попал бы в полку по цене ещё и вторым экземпляром.
+  const featured = all.find((c) => c.availableFrom);
+  const sorted = featured ? all.filter((c) => c !== featured) : all;
 
   let from = 0;
   const blocks = [];
+
+  if (featured) blocks.push(featuredHtml(featured, vouchers));
 
   for (const shelf of SHELVES) {
     const items = sorted.filter((c) => c.price > from && c.price <= shelf.max);
@@ -283,7 +325,7 @@ function renderCases() {
 
   root.innerHTML = blocks.join('');
 
-  root.querySelectorAll('.case-card').forEach((card) => {
+  root.querySelectorAll('.case-card, .featured-card').forEach((card) => {
     card.addEventListener('click', () => openSheet(card.dataset.case));
   });
 }
