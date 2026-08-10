@@ -52,6 +52,15 @@ import {
   adminRecentRounds,
   playGamble,
   clearGamble,
+  MIN_PAYOUT,
+  getDeposits,
+  getPayouts,
+  pendingPayoutTotal,
+  createPayout,
+  cancelPayout,
+  resolvePayout,
+  adminPayouts,
+  payoutStats,
 } from './db.js';
 import { resolveUser } from './auth.js';
 
@@ -171,6 +180,7 @@ app.get('/api/config', (req, res) => {
     },
     bonus: { enabled: false },
     maxBatch: MAX_BATCH,
+    minPayout: MIN_PAYOUT,
   });
 });
 
@@ -427,6 +437,52 @@ app.post('/api/history', auth, (req, res) => {
 });
 
 /* ============================================================
+   КАССА
+   ============================================================ */
+
+app.post('/api/wallet', auth, (req, res) => {
+  const pending = pendingPayoutTotal(req.player.id);
+  res.json({
+    balance: req.player.balance,
+    pending,
+    // Заявка списывает сумму сразу, поэтому доступное к выводу — это и есть
+    // текущий баланс; ожидающие заявки показываются отдельной строкой.
+    available: req.player.balance,
+    minPayout: MIN_PAYOUT,
+    deposits: getDeposits(req.player.id),
+    payouts: getPayouts(req.player.id),
+  });
+});
+
+app.post('/api/payout/create', auth, (req, res) => {
+  const amount = Math.trunc(Number(req.body?.amount));
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return res.status(400).json({ error: 'Укажите сумму вывода' });
+  }
+
+  try {
+    const result = createPayout(req.player.id, amount);
+    res.json({ ...result, user: publicUser(getUserById(req.player.id)) });
+  } catch (err) {
+    if (err.code === 'MIN' || err.code === 'INSUFFICIENT_FUNDS') {
+      return res.status(400).json({ error: err.code, message: err.message });
+    }
+    throw err;
+  }
+});
+
+app.post('/api/payout/cancel', auth, (req, res) => {
+  try {
+    const result = cancelPayout(req.player.id, Number(req.body?.id));
+    res.json({ ...result, user: publicUser(getUserById(req.player.id)) });
+  } catch (err) {
+    if (err.code === 'NOT_FOUND') return res.status(404).json({ error: err.message });
+    if (err.code === 'RESOLVED') return res.status(400).json({ error: err.message });
+    throw err;
+  }
+});
+
+/* ============================================================
    РИСК-ИГРА
    ============================================================ */
 
@@ -547,6 +603,29 @@ app.post('/api/admin/voucher', auth, adminOnly, (req, res) => {
     res.json({ vouchers: adminGrantVoucher(req.player.id, targetId, caseId, count) });
   } catch (err) {
     if (err.code === 'NOT_FOUND') return res.status(404).json({ error: err.message });
+    throw err;
+  }
+});
+
+app.post('/api/admin/payouts', auth, adminOnly, (req, res) => {
+  const status = ['pending', 'paid', 'rejected', 'cancelled', 'all']
+    .includes(req.body?.status) ? req.body.status : 'pending';
+  res.json({ rows: adminPayouts(status), stats: payoutStats() });
+});
+
+app.post('/api/admin/payout/resolve', auth, adminOnly, (req, res) => {
+  const id = Number(req.body?.id);
+  const status = String(req.body?.status || '');
+  const comment = String(req.body?.comment || '').slice(0, 300);
+
+  try {
+    const result = resolvePayout(req.player.id, id, status, comment);
+    res.json({ ...result, stats: payoutStats() });
+  } catch (err) {
+    if (err.code === 'NOT_FOUND') return res.status(404).json({ error: err.message });
+    if (err.code === 'RESOLVED' || err.code === 'BAD_STATUS') {
+      return res.status(400).json({ error: err.message });
+    }
     throw err;
   }
 });

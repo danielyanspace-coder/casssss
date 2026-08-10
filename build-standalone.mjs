@@ -47,6 +47,7 @@ const config = {
   },
   bonus: { enabled: false },
   maxBatch: 5,
+  minPayout: 1000,
 };
 
 // Кумулятивные границы и плюшки нужны заглушке для розыгрыша, но в publicCase
@@ -211,6 +212,8 @@ function freshUser() {
     clientSeed: randHex(8), nonce: 0,
     prevServerSeed: null, prevServerHash: null,
     x2CaseId: null, vouchers: {}, gambleStake: 0,
+    deposits: [{ amount: 5000, source: 'start', comment: 'Стартовый баланс', created_at: Date.now() }],
+    payouts: [],
     stats: { rounds: 0, spent: 0, won: 0, bestMultiplier: 0 },
     rounds: [],
     lastBonusAt: 0,
@@ -466,6 +469,88 @@ const routes = {
   'POST /api/bonus': () => ({ status: 410, body: { error: 'disabled',
     message: 'Бонус больше не выдаётся' } }),
 
+  /* ---------- Касса ---------- */
+
+  'POST /api/wallet': () => {
+    const u = store.user;
+    const pending = u.payouts.filter((p) => p.status === 'pending')
+      .reduce((a, p) => a + p.amount, 0);
+    return {
+      balance: u.balance, pending, available: u.balance,
+      minPayout: CONFIG.minPayout,
+      deposits: u.deposits, payouts: u.payouts,
+    };
+  },
+
+  'POST /api/payout/create': (body) => {
+    const u = store.user;
+    const amount = Math.trunc(Number(body.amount));
+    if (!amount || amount <= 0) return { status: 400, body: { error: 'Укажите сумму вывода' } };
+    if (amount < CONFIG.minPayout) {
+      return { status: 400, body: { error: 'MIN',
+        message: 'Минимальная сумма вывода — ' + CONFIG.minPayout } };
+    }
+    if (amount > u.balance) {
+      return { status: 400, body: { error: 'INSUFFICIENT_FUNDS', message: 'Недостаточно средств' } };
+    }
+
+    // Списываем сразу — как на сервере: иначе один баланс можно заявить дважды.
+    u.balance -= amount;
+    const id = Date.now();
+    u.payouts.unshift({ id, amount, status: 'pending', comment: null,
+                        created_at: Date.now(), resolved_at: null });
+    save();
+    return { id, amount, balance: u.balance, user: publicUser() };
+  },
+
+  'POST /api/payout/cancel': (body) => {
+    const u = store.user;
+    const p = u.payouts.find((x) => x.id === Number(body.id));
+    if (!p) return { status: 404, body: { error: 'Заявка не найдена' } };
+    if (p.status !== 'pending') return { status: 400, body: { error: 'Заявка уже обработана' } };
+
+    p.status = 'cancelled';
+    p.resolved_at = Date.now();
+    u.balance += p.amount;
+    save();
+    return { balance: u.balance, user: publicUser() };
+  },
+
+  'POST /api/admin/payouts': (body) => {
+    const u = store.user;
+    const status = body.status || 'pending';
+    const rows = (status === 'all' ? u.payouts : u.payouts.filter((p) => p.status === status))
+      .map((p) => ({ ...p, user_id: u.id, tg_id: '999000001',
+                     username: u.username, first_name: u.firstName, balance: u.balance }));
+    const sum = (st) => u.payouts.filter((p) => p.status === st).reduce((a, p) => a + p.amount, 0);
+    return {
+      rows,
+      stats: {
+        pendingSum: sum('pending'),
+        pendingCount: u.payouts.filter((p) => p.status === 'pending').length,
+        paidSum: sum('paid'), rejectedSum: sum('rejected'),
+      },
+    };
+  },
+
+  'POST /api/admin/payout/resolve': (body) => {
+    const u = store.user;
+    const p = u.payouts.find((x) => x.id === Number(body.id));
+    if (!p) return { status: 404, body: { error: 'Заявка не найдена' } };
+    if (p.status !== 'pending') return { status: 400, body: { error: 'Заявка уже обработана' } };
+    if (!['paid', 'rejected'].includes(body.status)) {
+      return { status: 400, body: { error: 'Недопустимый статус' } };
+    }
+
+    p.status = body.status;
+    p.comment = body.comment || null;
+    p.resolved_at = Date.now();
+    // Отклонение возвращает деньги, выплата — нет: они считаются ушедшими.
+    if (body.status === 'rejected') u.balance += p.amount;
+    save();
+    return { status: p.status, amount: p.amount };
+  },
+
   'POST /api/history': (body) => {
     const title = body.caseTitle;
     const limit = Math.min(60, Math.max(1, Number(body.limit) || 60));
@@ -620,6 +705,10 @@ const routes = {
     target.balance = Math.max(0, before + amount);
     store.adminLog.unshift({ target_id: id, action: amount > 0 ? 'credit' : 'debit',
       amount: target.balance - before, note: body.note || null, created_at: Date.now() });
+    if (target.balance > before && target === store.user) {
+      store.user.deposits.unshift({ amount: target.balance - before, source: 'admin',
+        comment: body.note || 'Начисление администратором', created_at: Date.now() });
+    }
     save();
     return { balance: target.balance, applied: target.balance - before };
   },

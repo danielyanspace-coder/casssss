@@ -305,6 +305,67 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
   check('админка: нельзя заблокировать самого себя', self.status === 400, `статус ${self.status}`);
 }
 
+/* ---------- 11. Касса ---------- */
+
+{
+  await post('/api/admin/balance', { userId: me.id, amount: 200_000, note: 'касса' });
+  const start = (await post('/api/wallet')).data;
+
+  check('касса отдаёт баланс и истории',
+        start.balance > 0 && Array.isArray(start.deposits) && Array.isArray(start.payouts));
+  check('начисление администратора видно в пополнениях',
+        start.deposits.some((d) => d.source === 'admin'));
+
+  check('минимальная сумма вывода проверяется',
+        (await post('/api/payout/create', { amount: 1 })).status === 400);
+  check('нельзя вывести больше баланса',
+        (await post('/api/payout/create', { amount: start.balance + 1 })).status === 400);
+
+  const amount = 5000;
+  const before = start.balance;
+
+  // Создание и отмена.
+  const made = (await post('/api/payout/create', { amount })).data;
+  check('заявка списывает сумму сразу', made.balance === before - amount,
+        `${made.balance} vs ${before - amount}`);
+  check('сумма учтена как ожидающая',
+        (await post('/api/wallet')).data.pending === amount);
+
+  const cancelled = (await post('/api/payout/cancel', { id: made.id })).data;
+  check('отмена возвращает средства', cancelled.balance === before);
+  check('повторная отмена отклонена',
+        (await post('/api/payout/cancel', { id: made.id })).status === 400);
+
+  // Отклонение администратором возвращает деньги.
+  const p2 = (await post('/api/payout/create', { amount })).data;
+  await post('/api/admin/payout/resolve', { id: p2.id, status: 'rejected', comment: 'Проверка' });
+  const afterReject = (await post('/api/wallet')).data;
+  check('отклонение возвращает средства', afterReject.balance === before,
+        `${afterReject.balance} vs ${before}`);
+  check('комментарий администратора виден игроку',
+        afterReject.payouts[0].comment === 'Проверка');
+
+  // Выплата деньги не возвращает.
+  // Снимок статистики до операции: база может хранить заявки прошлых прогонов,
+  // поэтому проверяем прирост, а не абсолютное значение.
+  const paidBefore = (await post('/api/admin/payouts', { status: 'all' })).data.stats.paidSum;
+  const p3 = (await post('/api/payout/create', { amount })).data;
+  await post('/api/admin/payout/resolve', { id: p3.id, status: 'paid', comment: 'Отправлено' });
+  const afterPaid = (await post('/api/wallet')).data;
+  check('выплата не возвращает средства', afterPaid.balance === before - amount,
+        `${afterPaid.balance} vs ${before - amount}`);
+  check('заявка со статусом paid не отменяется',
+        (await post('/api/payout/cancel', { id: p3.id })).status === 400);
+  check('повторное решение по заявке отклонено',
+        (await post('/api/admin/payout/resolve', { id: p3.id, status: 'rejected' })).status === 400);
+
+  const adm = await post('/api/admin/payouts', { status: 'all' });
+  check('админка видит заявки', adm.status === 200 && adm.data.rows.length >= 3);
+  check('статистика выплат растёт ровно на выплаченное',
+        adm.data.stats.paidSum === paidBefore + amount,
+        `${adm.data.stats.paidSum} vs ${paidBefore + amount}`);
+}
+
 /* ---------- Итог ---------- */
 
 console.log(`Пройдено проверок: ${passed}`);

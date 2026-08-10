@@ -9,12 +9,12 @@
 import {
   iconCases, iconCrash, iconRoulette, iconHistory, iconFair, iconAdmin,
   iconCoin, iconX2, iconGift, iconBolt, iconSearch, iconPlus, iconMinus,
-  iconBlock, iconBack, iconTier, iconStar, iconRouletteMark, iconSound,
+  iconBlock, iconBack, iconTier, iconStar, iconRouletteMark,
 } from './icons.js';
 import { caseCover } from './covers.js';
 import { DOCS, footerHtml } from './legal.js';
 import {
-  soundEnabled, toggleSound, sndTick, sndSpinStart, sndLand, sndReveal,
+  sndTick, sndSpinStart, sndLand, sndReveal,
   sndBigWin, sndCollect, sndLose, sndFlip, sndBet, sndCrash, sndClimb,
 } from './sounds.js';
 
@@ -1445,13 +1445,218 @@ document.querySelectorAll('[data-admin-tab]').forEach((btn) => {
     btn.classList.add('active');
     document.getElementById(`admin-${state.admin.tab}`).classList.add('active');
     if (state.admin.tab === 'users') loadAdminUsers();
+    if (state.admin.tab === 'payouts') loadAdminPayouts();
     haptic('light');
+  });
+});
+
+/* ---------- Админка: заявки на вывод ---------- */
+
+async function loadAdminPayouts() {
+  let d;
+  try { d = await api('/api/admin/payouts', { status: state.admin.payoutStatus || 'pending' }); }
+  catch (err) { toast(err.message); return; }
+
+  const box = document.getElementById('payoutAdminList');
+  const s = d.stats;
+
+  const head = `<div class="admin-kpis">
+    <div class="kpi"><div class="kpi-label">Ожидают решения</div>
+      <div class="kpi-value">${fmt(s.pendingCount)}</div>
+      <div class="kpi-sub">на ${money(s.pendingSum)}</div></div>
+    <div class="kpi"><div class="kpi-label">Выплачено всего</div>
+      <div class="kpi-value minus">${money(s.paidSum)}</div></div>
+  </div>`;
+
+  if (!d.rows.length) {
+    box.innerHTML = head + '<div class="empty">Заявок нет</div>';
+    return;
+  }
+
+  box.innerHTML = head + d.rows.map((p) => {
+    const name = p.username ? '@' + p.username : (p.first_name || ('#' + p.user_id));
+    return `<div class="payout-row admin ${p.status}">
+      <div class="payout-head">
+        <b>${money(p.amount)}</b>
+        <span class="payout-status ${p.status}">${STATUS_LABEL[p.status] || p.status}</span>
+      </div>
+      <div class="payout-date">${esc(name)} · ID ${p.tg_id} ·
+        баланс ${money(p.balance)} · ${new Date(p.created_at).toLocaleString('ru-RU')}</div>
+      ${p.comment ? `<div class="payout-comment">${esc(p.comment)}</div>` : ''}
+      ${p.status === 'pending' ? `
+        <input class="seed-input payout-note" data-note="${p.id}" placeholder="комментарий игроку">
+        <div class="admin-actions">
+          <button class="btn btn-primary" data-resolve="paid" data-id="${p.id}">Выплачено</button>
+          <button class="btn btn-outline" data-resolve="rejected" data-id="${p.id}">Отклонить</button>
+        </div>` : ''}
+    </div>`;
+  }).join('');
+
+  box.querySelectorAll('[data-resolve]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const id = Number(btn.dataset.id);
+      const note = box.querySelector(`[data-note="${id}"]`)?.value || '';
+      const status = btn.dataset.resolve;
+
+      if (status === 'rejected' && !note.trim()) {
+        toast('Укажите причину отклонения — игрок её увидит');
+        return;
+      }
+
+      try {
+        await api('/api/admin/payout/resolve', { id, status, comment: note });
+        toast(status === 'paid' ? 'Отмечено как выплаченное' : 'Заявка отклонена, средства возвращены');
+        haptic('success');
+        loadAdminPayouts();
+      } catch (err) { toast(err.message); haptic('error'); }
+    });
+  });
+}
+
+document.querySelectorAll('[data-payout-status]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    state.admin.payoutStatus = btn.dataset.payoutStatus;
+    document.querySelectorAll('[data-payout-status]').forEach((b) => b.classList.remove('active'));
+    btn.classList.add('active');
+    loadAdminPayouts();
   });
 });
 
 document.getElementById('adminSearchBtn').addEventListener('click', () => {
   state.admin.query = document.getElementById('adminSearch').value.trim();
   loadAdminUsers();
+});
+
+/* ============================================================
+   КАССА
+   ============================================================ */
+
+function switchView(name) {
+  document.querySelectorAll('.nav-btn').forEach((b) =>
+    b.classList.toggle('active', b.dataset.view === name));
+  document.querySelectorAll('.view').forEach((v) => v.classList.remove('active'));
+  document.getElementById(`view-${name}`).classList.add('active');
+  window.scrollTo({ top: 0 });
+}
+
+document.getElementById('balanceChip').addEventListener('click', () => {
+  if (state.crash && !state.crash.finished) {
+    toast('Сначала закончите раунд краша');
+    return;
+  }
+  haptic('light');
+  switchView('wallet');
+  loadWallet();
+});
+
+const STATUS_LABEL = {
+  pending: 'В обработке',
+  paid: 'Выплачено',
+  rejected: 'Отклонено',
+  cancelled: 'Отменена вами',
+};
+
+const SOURCE_LABEL = {
+  start: 'Стартовый баланс',
+  admin: 'Начисление администратором',
+};
+
+async function loadWallet() {
+  let w;
+  try { w = await api('/api/wallet'); }
+  catch (err) { toast(err.message); return; }
+
+  state.wallet = w;
+
+  document.getElementById('walletBalance').textContent = money(w.balance);
+  document.getElementById('walletRows').innerHTML = `
+    <div class="wallet-row"><span>Доступно к выводу</span><b>${money(w.available)}</b></div>
+    ${w.pending ? `<div class="wallet-row pending"><span>В обработке</span>
+      <b>${money(w.pending)}</b></div>` : ''}
+    <div class="wallet-row"><span>Минимальная сумма вывода</span><b>${money(w.minPayout)}</b></div>
+  `;
+
+  document.getElementById('depositList').innerHTML = w.deposits.length
+    ? w.deposits.map((d) => `<div class="log-row">
+        <span>${esc(d.comment || SOURCE_LABEL[d.source] || 'Пополнение')}<br>
+          <small>${new Date(d.created_at).toLocaleString('ru-RU')}</small></span>
+        <b class="plus">+${money(d.amount)}</b>
+      </div>`).join('')
+    : '<div class="empty">Пополнений пока не было</div>';
+
+  renderPayoutList(w.payouts);
+
+  document.getElementById('withdrawHint').innerHTML =
+    `Доступно <b>${money(w.available)}</b> · минимум ${money(w.minPayout)}`;
+}
+
+function renderPayoutList(payouts) {
+  const box = document.getElementById('payoutList');
+  if (!payouts.length) {
+    box.innerHTML = '<div class="empty">Заявок пока не было</div>';
+    return;
+  }
+
+  box.innerHTML = payouts.map((p) => `
+    <div class="payout-row ${p.status}">
+      <div class="payout-head">
+        <b>${money(p.amount)}</b>
+        <span class="payout-status ${p.status}">${STATUS_LABEL[p.status] || p.status}</span>
+      </div>
+      <div class="payout-date">${new Date(p.created_at).toLocaleString('ru-RU')}</div>
+      ${p.comment ? `<div class="payout-comment">${esc(p.comment)}</div>` : ''}
+      ${p.status === 'pending'
+        ? `<button class="btn btn-outline btn-sm payout-cancel" data-cancel="${p.id}">Отменить</button>`
+        : ''}
+    </div>`).join('');
+
+  // Кнопка отмены есть только у заявок в обработке: после решения
+  // администратора отменять уже нечего.
+  box.querySelectorAll('[data-cancel]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      try {
+        const r = await api('/api/payout/cancel', { id: Number(btn.dataset.cancel) });
+        applyUser(r.user);
+        toast('Заявка отменена, средства возвращены');
+        sndCollect();
+        haptic('success');
+        loadWallet();
+      } catch (err) { toast(err.message); haptic('error'); }
+    });
+  });
+}
+
+document.getElementById('walletDeposit').addEventListener('click', () => {
+  const pane = document.getElementById('walletDepositPane');
+  document.getElementById('walletWithdrawPane').hidden = true;
+  pane.hidden = !pane.hidden;
+  haptic('light');
+});
+
+document.getElementById('walletWithdraw').addEventListener('click', () => {
+  const pane = document.getElementById('walletWithdrawPane');
+  document.getElementById('walletDepositPane').hidden = true;
+  pane.hidden = !pane.hidden;
+  haptic('light');
+});
+
+document.getElementById('withdrawAll').addEventListener('click', () => {
+  document.getElementById('withdrawAmount').value = state.wallet?.available || 0;
+});
+
+document.getElementById('withdrawSubmit').addEventListener('click', async () => {
+  const amount = Math.trunc(Number(document.getElementById('withdrawAmount').value));
+  if (!amount || amount <= 0) { toast('Укажите сумму'); return; }
+
+  try {
+    const r = await api('/api/payout/create', { amount });
+    applyUser(r.user);
+    document.getElementById('withdrawAmount').value = '';
+    toast(`Заявка на ${money(amount)} создана`);
+    sndBet();
+    haptic('success');
+    loadWallet();
+  } catch (err) { toast(err.message); haptic('error'); }
 });
 
 /* ============================================================
@@ -1522,15 +1727,6 @@ async function init() {
   buildMoneyRain();
   buildFooter();
 
-  const soundBtn = document.getElementById('soundBtn');
-  const paintSound = () => {
-    // Только иконка: подпись словами отнимала у баланса половину шапки.
-    soundBtn.innerHTML = iconSound(soundEnabled());
-    soundBtn.classList.toggle('off', !soundEnabled());
-    soundBtn.title = soundEnabled() ? 'Звук включён' : 'Звук выключен';
-  };
-  paintSound();
-  soundBtn.addEventListener('click', () => { toggleSound(); paintSound(); });
 
   try {
     const [config, me] = await Promise.all([

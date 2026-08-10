@@ -22,11 +22,10 @@
         <div class="brand-sub">симулятор</div>
       </div>
     </div>
-    <button class="sound-btn" id="soundBtn" title="Звук"></button>
-    <div class="balance-chip" id="balanceChip">
+    <button class="balance-chip" id="balanceChip">
       <span class="balance-ico" data-ico="coin"></span>
       <span class="balance-value" id="balanceValue">—</span>
-    </div>
+    </button>
   </header>
 
   <main id="app">
@@ -46,9 +45,6 @@
 
       <div class="shelves" id="caseShelves"></div>
 
-      <div class="notice">
-        Баланс — условные единицы. Реальных денег, платежей и вывода здесь нет.
-      </div>
     </section>
 
     <!-- ══════════ КРАШ ══════════ -->
@@ -186,11 +182,48 @@
       </div>
     </section>
 
+    <!-- ══════════ КАССА ══════════ -->
+    <section class="view" id="view-wallet">
+      <div class="wallet-card">
+        <div class="wallet-label">Ваш баланс</div>
+        <div class="wallet-balance" id="walletBalance">—</div>
+        <div class="wallet-rows" id="walletRows"></div>
+      </div>
+
+      <div class="wallet-actions">
+        <button class="btn btn-primary" id="walletDeposit">Пополнить</button>
+        <button class="btn btn-huge btn-crash" id="walletWithdraw">Вывести</button>
+      </div>
+
+      <div class="wallet-pane" id="walletDepositPane" hidden>
+        <h2 class="section-title">История пополнений</h2>
+        <div id="depositList"></div>
+      </div>
+
+      <div class="wallet-pane" id="walletWithdrawPane" hidden>
+        <h2 class="section-title">Вывод средств</h2>
+
+        <div class="withdraw-form">
+          <div class="withdraw-hint" id="withdrawHint"></div>
+          <div class="amount-row">
+            <input class="seed-input" id="withdrawAmount" type="number" inputmode="numeric"
+                   min="0" placeholder="сумма вывода">
+            <button class="btn btn-sm" id="withdrawAll">Всё</button>
+          </div>
+          <button class="btn btn-primary btn-wide" id="withdrawSubmit">Вывести</button>
+        </div>
+
+        <h2 class="section-title">История выводов</h2>
+        <div id="payoutList"></div>
+      </div>
+    </section>
+
     <!-- ══════════ АДМИНКА ══════════ -->
     <section class="view" id="view-admin">
       <div class="admin-tabs">
         <button class="tab active" data-admin-tab="overview">Сводка</button>
         <button class="tab" data-admin-tab="users">Игроки</button>
+        <button class="tab" data-admin-tab="payouts">Выплаты</button>
         <button class="tab" data-admin-tab="feed">Лента</button>
       </div>
 
@@ -202,6 +235,16 @@
           <button class="btn btn-sm" id="adminSearchBtn">Найти</button>
         </div>
         <div id="adminUserList"></div>
+      </div>
+
+      <div class="admin-pane" id="admin-payouts">
+        <div class="admin-tabs" id="payoutFilter">
+          <button class="tab active" data-payout-status="pending">Ожидают</button>
+          <button class="tab" data-payout-status="paid">Выплачены</button>
+          <button class="tab" data-payout-status="rejected">Отклонены</button>
+          <button class="tab" data-payout-status="all">Все</button>
+        </div>
+        <div id="payoutAdminList"></div>
       </div>
 
       <div class="admin-pane" id="admin-feed"></div>

@@ -89,6 +89,34 @@ db.exec(`
     PRIMARY KEY (user_id, case_id)
   );
 
+  -- Заявки на вывод. Сумма списывается сразу при создании, поэтому статус
+  -- pending означает «деньги уже сняты и ждут решения администратора».
+  CREATE TABLE IF NOT EXISTS payouts (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id      INTEGER NOT NULL REFERENCES users(id),
+    amount       INTEGER NOT NULL,
+    status       TEXT    NOT NULL DEFAULT 'pending',
+    comment      TEXT,
+    created_at   INTEGER NOT NULL,
+    resolved_at  INTEGER,
+    resolved_by  INTEGER
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_payouts_user ON payouts(user_id, id DESC);
+  CREATE INDEX IF NOT EXISTS idx_payouts_status ON payouts(status, id DESC);
+
+  -- История зачислений: стартовый баланс и всё, что начислил администратор.
+  CREATE TABLE IF NOT EXISTS deposits (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL REFERENCES users(id),
+    amount     INTEGER NOT NULL,
+    source     TEXT    NOT NULL,
+    comment    TEXT,
+    created_at INTEGER NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_deposits_user ON deposits(user_id, id DESC);
+
   -- Журнал действий администратора: любое изменение баланса извне видно.
   CREATE TABLE IF NOT EXISTS admin_log (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -181,7 +209,14 @@ export function getOrCreateUser(tgUser) {
     client_seed: generateClientSeed(),
     created_at: Date.now(),
   });
-  return selectUser.get(tgId);
+
+  const created = selectUser.get(tgId);
+  if (STARTING_BALANCE > 0) {
+    db.prepare(`INSERT INTO deposits (user_id, amount, source, comment, created_at)
+                VALUES (?, ?, 'start', 'Стартовый баланс', ?)`)
+      .run(created.id, STARTING_BALANCE, Date.now());
+  }
+  return created;
 }
 
 export function getUserById(id) {
@@ -670,6 +705,14 @@ export const adminAdjustBalance = db.transaction((adminId, targetId, amount, not
     VALUES (?, ?, ?, ?, ?, ?)
   `).run(adminId, targetId, amount >= 0 ? 'credit' : 'debit', applied, note || null, Date.now());
 
+  // Начисление показывается игроку в истории пополнений, списание — нет:
+  // в кассе он должен видеть приход, а не служебные корректировки.
+  if (applied > 0) {
+    db.prepare(`INSERT INTO deposits (user_id, amount, source, comment, created_at)
+                VALUES (?, ?, 'admin', ?, ?)`)
+      .run(targetId, applied, note || 'Начисление администратором', Date.now());
+  }
+
   return { balance: newBalance, applied };
 });
 
@@ -767,4 +810,132 @@ export const playGamble = db.transaction((userId, pickIndex, config, resolve) =>
 /** Сбрасывает предложенный риск, если игрок им не воспользовался. */
 export function clearGamble(userId) {
   db.prepare('UPDATE users SET gamble_stake = 0, gamble_case = NULL WHERE id = ?').run(userId);
+}
+
+/* ============================================================
+   КАССА: ПОПОЛНЕНИЯ И ВЫВОДЫ
+   ============================================================ */
+
+/** Минимальная сумма заявки на вывод. */
+export const MIN_PAYOUT = Number(process.env.MIN_PAYOUT || 1000);
+
+export function getDeposits(userId, limit = 50) {
+  return db.prepare(`
+    SELECT amount, source, comment, created_at
+      FROM deposits WHERE user_id = ? ORDER BY id DESC LIMIT ?
+  `).all(userId, limit);
+}
+
+export function getPayouts(userId, limit = 50) {
+  return db.prepare(`
+    SELECT id, amount, status, comment, created_at, resolved_at
+      FROM payouts WHERE user_id = ? ORDER BY id DESC LIMIT ?
+  `).all(userId, limit);
+}
+
+/** Сумма заявок, ожидающих решения администратора. */
+export function pendingPayoutTotal(userId) {
+  return db.prepare(`SELECT COALESCE(SUM(amount), 0) AS n FROM payouts
+                      WHERE user_id = ? AND status = 'pending'`).get(userId).n;
+}
+
+/**
+ * Создание заявки на вывод.
+ *
+ * Сумма списывается сразу, а не при одобрении: иначе игрок мог бы подать
+ * несколько заявок на один и тот же баланс, а потом проиграть его в кейсах,
+ * и администратору пришлось бы выплачивать то, чего уже нет.
+ */
+export const createPayout = db.transaction((userId, amount) => {
+  const user = getUserById(userId);
+
+  if (amount < MIN_PAYOUT) {
+    throw Object.assign(new Error(`Минимальная сумма вывода — ${MIN_PAYOUT}`), { code: 'MIN' });
+  }
+  if (amount > user.balance) {
+    throw Object.assign(new Error('Недостаточно средств'), { code: 'INSUFFICIENT_FUNDS' });
+  }
+
+  db.prepare('UPDATE users SET balance = balance - ? WHERE id = ?').run(amount, userId);
+  const info = db.prepare(`
+    INSERT INTO payouts (user_id, amount, status, created_at)
+    VALUES (?, ?, 'pending', ?)
+  `).run(userId, amount, Date.now());
+
+  return { id: info.lastInsertRowid, amount, balance: getUserById(userId).balance };
+});
+
+/** Отмена собственной заявки: средства возвращаются на баланс. */
+export const cancelPayout = db.transaction((userId, payoutId) => {
+  const row = db.prepare(`SELECT * FROM payouts WHERE id = ? AND user_id = ?`)
+    .get(payoutId, userId);
+
+  if (!row) throw Object.assign(new Error('Заявка не найдена'), { code: 'NOT_FOUND' });
+  if (row.status !== 'pending') {
+    throw Object.assign(new Error('Заявка уже обработана'), { code: 'RESOLVED' });
+  }
+
+  db.prepare(`UPDATE payouts SET status = 'cancelled', resolved_at = ? WHERE id = ?`)
+    .run(Date.now(), payoutId);
+  db.prepare('UPDATE users SET balance = balance + ? WHERE id = ?').run(row.amount, userId);
+
+  return { balance: getUserById(userId).balance };
+});
+
+/**
+ * Решение администратора по заявке.
+ *
+ * При отклонении сумма возвращается игроку — она была списана авансом.
+ * При выплате остаётся списанной: деньги считаются ушедшими.
+ */
+export const resolvePayout = db.transaction((adminId, payoutId, status, comment) => {
+  const row = db.prepare('SELECT * FROM payouts WHERE id = ?').get(payoutId);
+
+  if (!row) throw Object.assign(new Error('Заявка не найдена'), { code: 'NOT_FOUND' });
+  if (row.status !== 'pending') {
+    throw Object.assign(new Error('Заявка уже обработана'), { code: 'RESOLVED' });
+  }
+  if (!['paid', 'rejected'].includes(status)) {
+    throw Object.assign(new Error('Недопустимый статус'), { code: 'BAD_STATUS' });
+  }
+
+  db.prepare(`UPDATE payouts SET status = ?, comment = ?, resolved_at = ?, resolved_by = ?
+               WHERE id = ?`)
+    .run(status, comment || null, Date.now(), adminId, payoutId);
+
+  if (status === 'rejected') {
+    db.prepare('UPDATE users SET balance = balance + ? WHERE id = ?')
+      .run(row.amount, row.user_id);
+  }
+
+  db.prepare(`
+    INSERT INTO admin_log (admin_id, target_id, action, amount, note, created_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(adminId, row.user_id, status === 'paid' ? 'payout_paid' : 'payout_rejected',
+         row.amount, comment || null, Date.now());
+
+  return { status, amount: row.amount, userId: row.user_id };
+});
+
+export function adminPayouts(status = 'pending', limit = 60) {
+  const where = status === 'all' ? '' : 'WHERE p.status = ?';
+  const args = status === 'all' ? [limit] : [status, limit];
+  return db.prepare(`
+    SELECT p.id, p.amount, p.status, p.comment, p.created_at, p.resolved_at,
+           u.id AS user_id, u.tg_id, u.username, u.first_name, u.balance
+      FROM payouts p JOIN users u ON u.id = p.user_id
+      ${where}
+     ORDER BY p.id DESC LIMIT ?
+  `).all(...args);
+}
+
+export function payoutStats() {
+  return db.prepare(`
+    SELECT
+      COALESCE(SUM(CASE WHEN status = 'pending' THEN amount END), 0)  AS pendingSum,
+      COALESCE(SUM(CASE WHEN status = 'pending' THEN 1 END), 0)       AS pendingCount,
+      COALESCE(SUM(CASE WHEN status = 'paid' THEN amount END), 0)     AS paidSum,
+      COALESCE(SUM(CASE WHEN status = 'rejected' THEN amount END), 0) AS rejectedSum
+    FROM payouts
+  `).get();
 }
