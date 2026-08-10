@@ -11,7 +11,7 @@ import {
   iconCoin, iconX2, iconGift, iconBolt, iconSearch, iconPlus, iconMinus,
   iconBlock, iconBack, iconTier, iconStar, iconRouletteMark,
 } from './icons.js';
-import { caseCover } from './covers.js';
+import { caseCover, porschePhotoSrc } from './covers.js';
 import { DOCS, footerHtml } from './legal.js';
 import {
   sndTick, sndSpinStart, sndLand, sndReveal,
@@ -471,9 +471,15 @@ function tileHtml(item) {
   else if (item.kind === 'perk' && !item.value) value = iconStar();
   else value = money(item.value);
 
+  // У витринного предмета вместо значка редкости — сама фотография: ради неё
+  // он в ленте и крутится.
+  const icon = item.photo
+    ? `<img class="tile-photo" src="${item.photo}" alt="">`
+    : iconTier(item.tier, color);
+
   return `<div class="reel-tile ${item.showcase ? 'is-showcase' : ''}"
       style="--tier-color:${color}">
-    <div class="tile-icon">${iconTier(item.tier, color)}</div>
+    <div class="tile-icon">${icon}</div>
     <div class="tile-name">${esc(item.name)}</div>
     <div class="tile-value">${value}</div>
   </div>`;
@@ -574,7 +580,11 @@ async function startOpening(caseId, count = 1) {
     // Лента строится из предметов кейса, выигрышный ставится в фиксированную
     // позицию — сервер уже решил исход, анимация лишь доезжает до него.
     const showcaseTile = c.showcase
-      ? { name: c.showcase.name, tier: c.showcase.tier, kind: 'item', value: 0, showcase: true }
+      ? {
+          name: c.showcase.name, tier: c.showcase.tier, kind: 'item', value: 0,
+          showcase: true,
+          photo: c.art === 'porsche' ? porschePhotoSrc() : null,
+        }
       : null;
 
     const strip = [];

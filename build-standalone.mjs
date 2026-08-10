@@ -74,6 +74,7 @@ const drawTables = CASES.map((c) => ({
 /* ---------- Исходники клиента ---------- */
 
 const heroData = readFileSync(new URL('./public/assets/hero.webp', import.meta.url)).toString('base64');
+const porscheData = readFileSync(new URL('./public/assets/porsche.webp', import.meta.url)).toString('base64');
 
 const css = read('./public/styles.css');
 const html = read('./public/index.html');
@@ -864,6 +865,12 @@ ${body}
 'use strict';
 ${shim}
 })();
+</script>
+
+<script>
+/* Снимок машины уезжает в файл целиком: с диска относительных путей нет.
+   Присваивание идёт до кода обложек — оттуда эта переменная и читается. */
+window.__PORSCHE_SRC = 'data:image/webp;base64,${porscheData}';
 </script>
 
 <script>
