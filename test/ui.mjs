@@ -88,7 +88,8 @@ async function openCaseAndVerify(caseId) {
   return page.evaluate(() => {
     // Именно родитель нужной ленты: класс .reel-wrap есть и у рулетки,
     // а querySelector вернул бы её — скрытую, с нулевыми координатами.
-    const reel = document.getElementById('reel');
+    // Первая лента пачки: при мультиоткрытии их несколько.
+    const reel = document.querySelector('#reels .reel');
     const box = reel.parentElement.getBoundingClientRect();
     const marker = box.left + box.width / 2;
 

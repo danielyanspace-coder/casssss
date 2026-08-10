@@ -212,16 +212,62 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
         `игр в истории: ${new Set(all.map((h) => h.game)).size}`);
 }
 
-/* ---------- 9. Бонус ---------- */
+/* ---------- 9. Бонус отключён ---------- */
 
 {
-  const cur = (await post('/api/me')).data.user;
   const r = await post('/api/bonus');
-  if (cur.balance > config.bonus.balanceLimit) {
-    check('бонус: не выдаётся при высоком балансе', r.status === 400 && r.data.error === 'balance');
-  } else {
-    check('бонус: выдан при низком балансе', r.status === 200);
+  check('бонус: раздача по таймеру отключена', r.status === 410 && r.data.error === 'disabled',
+        `статус ${r.status}`);
+  check('бонус: конфиг сообщает об отключении', config.bonus?.enabled === false);
+}
+
+/* ---------- 9b. Пачка открытий ---------- */
+
+{
+  await post('/api/admin/balance', { userId: me.id, amount: 5_000_000, note: 'пачка' });
+  const c = config.cases.find((x) => x.id === 'neon_500');
+  const before = (await post('/api/me')).data.user;
+
+  const r = await post('/api/open', { caseId: c.id, count: 5 });
+  check('пачка: открыто ровно столько, сколько просили',
+        r.data.count === 5 && r.data.opened?.length === 5, `count ${r.data.count}`);
+
+  const won = r.data.opened.reduce((s, o) => s + o.item.value, 0);
+  check('пачка: сумма выигрышей сходится', r.data.totalWon === won);
+  check('пачка: баланс сходится',
+        r.data.balance === before.balance - r.data.totalSpent + r.data.totalWon,
+        `${r.data.balance} vs ${before.balance - r.data.totalSpent + r.data.totalWon}`);
+
+  const tooMany = await post('/api/open', { caseId: c.id, count: 99 });
+  check('пачка: количество ограничено сверху', tooMany.data.count <= 5, `count ${tooMany.data.count}`);
+}
+
+/* ---------- 9c. Округление номиналов ---------- */
+
+{
+  let ugly = 0;
+  for (const c of config.cases) {
+    for (const it of c.items) {
+      if (it.kind !== 'item') continue;
+      const step = it.value < 100 ? 5 : it.value < 1000 ? 10 : it.value < 10000 ? 50
+                 : it.value < 100000 ? 500 : it.value < 1000000 ? 1000 : 10000;
+      if (it.value % step !== 0) ugly++;
+    }
   }
+  check('номиналы округлены по шагу', ugly === 0, `не округлено ${ugly}`);
+
+  // Подарочный кейс должен быть сопоставим по цене с выдающим.
+  let offBand = 0;
+  for (const c of config.cases) {
+    for (const it of c.items) {
+      if (it.kind !== 'perk' || !/бесплатно/i.test(it.name)) continue;
+      const gift = config.cases.find((g) => it.name.includes(g.name));
+      if (!gift) continue;
+      const ratio = gift.price / c.price;
+      if (ratio < 0.25 || ratio > 0.6) offBand++;
+    }
+  }
+  check('подарочные кейсы сопоставимы по цене', offBand === 0, `вне диапазона ${offBand}`);
 }
 
 /* ---------- 10. Админка ---------- */

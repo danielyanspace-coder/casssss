@@ -33,6 +33,40 @@ export const TIERS = [
 const TIER_IDS = TIERS.map((t) => t.id);
 
 /**
+ * Округление номинала до «человеческого» шага.
+ *
+ * Цена кейса остаётся маркетинговой (999), а вот выигрыш вида 24 975 читается
+ * плохо. Шаг растёт вместе с суммой, поэтому мелочь не схлопывается в ноль,
+ * а крупные суммы не тянут за собой хвост из значащих цифр.
+ *
+ * На RTP это не влияет: номиналы округляются ДО того, как решаются
+ * вероятности, и решатель сводит матожидание к price * rtp уже по округлённым
+ * числам. Погрешность уходит в вероятность филлера, а не в отдачу.
+ */
+function niceStep(v) {
+  return v < 100 ? 5
+       : v < 1_000 ? 10
+       : v < 10_000 ? 50
+       : v < 100_000 ? 500
+       : v < 1_000_000 ? 1_000
+       : 10_000;
+}
+
+function roundNice(v) {
+  const step = niceStep(v);
+  return Math.max(step, Math.round(v / step) * step);
+}
+
+/**
+ * Верхний номинал округляется ВНИЗ: карточка обещает «макс 12x», и выпасть
+ * больше обещанного он не должен, даже на величину шага округления.
+ */
+function roundNiceDown(v) {
+  const step = niceStep(v);
+  return Math.max(step, Math.floor(v / step) * step);
+}
+
+/**
  * Профили разброса. Первый множитель — «филлер», его вероятность решается;
  * последний берётся из maxMultiplier кейса.
  */
@@ -124,7 +158,7 @@ const SPECS = [
 
   // ── Бонусные (с плюшками) ───────────────────────────────
   ['lucky_200', 'Счастливый', 'Иногда просто везёт', 'bonus', 199, 0.95, 18, 'soft', 'casino',
-    [{ type: 'credits', amount: 1499, share: 0.07 }]],
+    [{ type: 'credits', amount: 1500, share: 0.07 }]],
   ['double_500', 'Удвоитель', 'Следующий прокрут — вдвойне', 'bonus', 499, 0.95, 22, 'normal', 'neon',
     [{ type: 'x2', share: 0.09 }]],
   ['gift_1000', 'Подарочный', 'С подарком внутри', 'bonus', 999, 0.95, 24, 'normal', 'circus',
@@ -132,21 +166,21 @@ const SPECS = [
   ['chain_2000', 'Цепная реакция', 'Одно тянет другое', 'bonus', 1999, 0.95, 26, 'normal', 'toxic',
     [{ type: 'x2', share: 0.07 }, { type: 'voucher', caseId: 'vault_1000', share: 0.05 }]],
   ['jackpot_5000', 'Джекпот', 'Или пусто, или очень', 'bonus', 4999, 0.95, 30, 'normal', 'casino',
-    [{ type: 'credits', amount: 119999, share: 0.08 }]],
+    [{ type: 'credits', amount: 120000, share: 0.08 }]],
   ['ticket_7000', 'Золотой билет', 'Проход в дорогое', 'bonus', 6999, 0.955, 30, 'normal', 'circus',
     [{ type: 'voucher', caseId: 'steam_4000', share: 0.07 }]],
   ['stake_10000', 'Двойная ставка', 'Удваивает следующий прокрут', 'bonus', 9999, 0.955, 32, 'normal', 'casino',
     [{ type: 'x2', share: 0.1 }]],
   ['treasure_15000', 'Клад', 'Кто нашёл — того и есть', 'bonus', 14999, 0.958, 34, 'normal', 'pirate',
-    [{ type: 'credits', amount: 399999, share: 0.07 }]],
+    [{ type: 'credits', amount: 400000, share: 0.07 }]],
   ['megabox_25000', 'Мегабокс', 'Подарок и удвоение', 'bonus', 24999, 0.96, 36, 'normal', 'royal',
-    [{ type: 'voucher', caseId: 'orbit_10000', share: 0.06 }, { type: 'x2', share: 0.06 }]],
+    [{ type: 'voucher', caseId: 'crypt_12000', share: 0.06 }, { type: 'x2', share: 0.06 }]],
   ['infinity_50000', 'Бесконечность', 'Не заканчивается', 'bonus', 49999, 0.962, 40, 'normal', 'galaxy',
-    [{ type: 'x2', share: 0.08 }, { type: 'credits', amount: 1199999, share: 0.06 }]],
+    [{ type: 'x2', share: 0.08 }, { type: 'credits', amount: 1200009, share: 0.06 }]],
   ['legend_100000', 'Легенда', 'Вершина коллекции', 'bonus', 99999, 0.965, 45, 'normal', 'dragon',
-    [{ type: 'voucher', caseId: 'apex_100000', share: 0.07 }, { type: 'x2', share: 0.06 }]],
+    [{ type: 'voucher', caseId: 'abyss_50000', share: 0.07 }, { type: 'x2', share: 0.06 }]],
   ['sultan_40000', 'Три желания', 'Джинн не обманет', 'bonus', 39999, 0.96, 38, 'normal', 'desert',
-    [{ type: 'voucher', caseId: 'lair_15000', share: 0.06 }, { type: 'credits', amount: 899999, share: 0.05 }]],
+    [{ type: 'voucher', caseId: 'lair_15000', share: 0.06 }, { type: 'credits', amount: 900000, share: 0.05 }]],
 ];
 
 /* ============================================================
@@ -175,8 +209,8 @@ function buildCase(spec, builtById) {
   const target = price * rtp;
 
   const values = [
-    ...profile.mult.map((m) => Math.round(price * m)),
-    Math.round(price * maxMultiplier),
+    ...profile.mult.map((m) => roundNice(price * m)),
+    roundNiceDown(price * maxMultiplier),
   ];
 
   // Плюшки, не выдающие единицы сразу (x2 и подарок), забирают долю
@@ -328,6 +362,9 @@ export function pickItem(caseData, roll) {
    ПРОВЕРКА ИНВАРИАНТОВ
    ============================================================ */
 
+/** Допустимая доля цены подарочного кейса от цены выдавшего его. */
+const VOUCHER_RATIO = [0.25, 0.6];
+
 export function validateCases(cases = CASES) {
   const report = [];
   const seen = new Set();
@@ -360,13 +397,18 @@ export function validateCases(cases = CASES) {
       }
     }
 
-    // Подарочный кейс не должен быть дороже того, который его выдаёт, —
-    // иначе выгоднее крутить дешёвый ради подарка.
+    // Подарочный кейс должен быть сопоставим по цене с тем, который его
+    // выдаёт. Слишком дорогой подарок ломает ощущение уровня («за 999 дали
+    // кейс за 100 000»), слишком дешёвый обесценивает саму находку.
     for (const it of c.items) {
       if (it.perk?.type === 'voucher') {
         const gift = builtById.get(it.perk.caseId);
-        if (gift.price > c.price) {
-          throw new Error(`[${c.id}] дарит более дорогой кейс ${gift.id} (${gift.price} > ${c.price})`);
+        const ratio = gift.price / c.price;
+        if (ratio < VOUCHER_RATIO[0] || ratio > VOUCHER_RATIO[1]) {
+          throw new Error(
+            `[${c.id}] дарит кейс ${gift.id} за ${gift.price} — это ${(ratio * 100).toFixed(0)}% ` +
+            `от цены, допустимо ${VOUCHER_RATIO[0] * 100}–${VOUCHER_RATIO[1] * 100}%`
+          );
         }
       }
     }

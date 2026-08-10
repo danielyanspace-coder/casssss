@@ -405,7 +405,16 @@ const BONUS_AMOUNT = Number(process.env.BONUS_AMOUNT || 500);
 const BONUS_COOLDOWN_MS = Number(process.env.BONUS_COOLDOWN_MIN || 60) * 60 * 1000;
 const BONUS_BALANCE_LIMIT = Number(process.env.BONUS_BALANCE_LIMIT || 250);
 
+/**
+ * Бонус отключён: раздача единиц по таймеру ломала ощущение ставки —
+ * проигрыш переставал что-либо значить, раз через час всё равно доначислят.
+ * Функция оставлена, чтобы старый клиент получал внятный отказ, а не 404.
+ */
 export const claimBonus = db.transaction((userId) => {
+  return { ok: false, reason: 'disabled' };
+});
+
+const claimBonusLegacy = db.transaction((userId) => {
   const user = getUserById(userId);
   const now = Date.now();
   const waitLeft = user.last_bonus_at + BONUS_COOLDOWN_MS - now;
@@ -525,6 +534,21 @@ export const playCaseRound = db.transaction((userId, caseData, resolve) => {
     x2Applied: x2Active && item.value > 0,
     balance: newBalance,
   };
+});
+
+/**
+ * Несколько открытий одного кейса одной транзакцией.
+ *
+ * Важно, что это именно транзакция: при частичной нехватке средств не должно
+ * получиться «три кейса открылись, четвёртый нет» — либо вся пачка, либо
+ * ничего. Каждое открытие внутри само разбирается с ваучером и ×2.
+ */
+export const playCaseBatch = db.transaction((userId, caseData, count, resolve) => {
+  const results = [];
+  for (let i = 0; i < count; i++) {
+    results.push(playCaseRound(userId, caseData, resolve));
+  }
+  return results;
 });
 
 /* ============================================================

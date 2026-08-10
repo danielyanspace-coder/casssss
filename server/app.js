@@ -36,6 +36,7 @@ import {
   getOrCreateUser,
   getUserById,
   playCaseRound,
+  playCaseBatch,
   playInstantRound,
   rotateServerSeed,
   setClientSeed,
@@ -168,11 +169,8 @@ app.get('/api/config', (req, res) => {
       chance: GAMBLE_CONFIG.chance,
       rtp: GAMBLE_CONFIG.rtp,
     },
-    bonus: {
-      amount: BONUS_CONFIG.amount,
-      cooldownMin: BONUS_CONFIG.cooldownMs / 60000,
-      balanceLimit: BONUS_CONFIG.balanceLimit,
-    },
+    bonus: { enabled: false },
+    maxBatch: MAX_BATCH,
   });
 });
 
@@ -184,30 +182,35 @@ app.post('/api/me', auth, (req, res) => {
    КЕЙСЫ
    ============================================================ */
 
+/** Сколько одинаковых кейсов можно открыть за раз. */
+const MAX_BATCH = 5;
+
 app.post('/api/open', auth, (req, res) => {
   const caseData = getCase(req.body?.caseId);
   if (!caseData) return res.status(404).json({ error: 'Кейс не найден' });
 
-  const user = req.player;
-  const hasVoucher = getVouchers(user.id).some((v) => v.case_id === caseData.id);
-  if (!hasVoucher && user.balance < caseData.price) {
-    return sendInsufficient(res, caseData.price - user.balance);
-  }
+  const count = Math.min(MAX_BATCH, Math.max(1, Math.trunc(Number(req.body?.count) || 1)));
 
-  let result;
+  const user = req.player;
+  const vouchers = getVouchers(user.id).find((v) => v.case_id === caseData.id)?.count || 0;
+  // Ваучеры покрывают первые открытия пачки, остальное оплачивается балансом.
+  const payable = Math.max(0, count - vouchers);
+  const need = payable * caseData.price;
+
+  if (user.balance < need) return sendInsufficient(res, need - user.balance);
+
+  let results;
   try {
-    result = playCaseRound(user.id, caseData, (serverSeed, clientSeed, nonce) => {
+    results = playCaseBatch(user.id, caseData, count, (serverSeed, clientSeed, nonce) => {
       const roll = computeRoll(serverSeed, clientSeed, nonce);
       return { item: pickItem(caseData, roll), roll };
     });
   } catch (err) {
-    if (err.code === 'INSUFFICIENT_FUNDS') return sendInsufficient(res, caseData.price - user.balance);
+    if (err.code === 'INSUFFICIENT_FUNDS') return sendInsufficient(res, need - user.balance);
     throw err;
   }
 
-  const spent = result.free ? 0 : caseData.price;
-
-  res.json({
+  const opened = results.map((result) => ({
     item: {
       id: result.item.id,
       name: result.item.name,
@@ -223,9 +226,20 @@ app.post('/api/open', auth, (req, res) => {
     })),
     free: result.free,
     x2Applied: result.x2Applied,
-    balance: result.balance,
-    net: result.payout - spent,
+    net: result.payout - (result.free ? 0 : caseData.price),
     fair: { roll: result.roll, nonce: result.nonce },
+  }));
+
+  const last = results[results.length - 1];
+
+  res.json({
+    count,
+    opened,
+    // Поля одиночного открытия сохранены: на них опирается вся анимация.
+    ...opened[0],
+    totalSpent: opened.reduce((s, o) => s + (o.free ? 0 : caseData.price), 0),
+    totalWon: opened.reduce((s, o) => s + o.item.value, 0),
+    balance: last.balance,
     user: publicUser(getUserById(user.id)),
   });
 });
@@ -401,16 +415,9 @@ app.post('/api/crash/cashout', auth, (req, res) => {
    ПРОЧЕЕ
    ============================================================ */
 
+// Бонус по таймеру отключён — раздача единиц обесценивала ставку.
 app.post('/api/bonus', auth, (req, res) => {
-  const result = claimBonus(req.player.id);
-  if (!result.ok) {
-    const message =
-      result.reason === 'cooldown'
-        ? `Следующий бонус через ${Math.ceil(result.waitLeft / 60000)} мин.`
-        : `Бонус доступен, когда баланс меньше ${result.limit} ед.`;
-    return res.status(400).json({ error: result.reason, message });
-  }
-  res.json({ ...result, user: publicUser(getUserById(req.player.id)) });
+  res.status(410).json({ error: 'disabled', message: 'Бонус больше не выдаётся' });
 });
 
 app.post('/api/history', auth, (req, res) => {

@@ -45,7 +45,8 @@ const config = {
     chance: GAMBLE_CONFIG.chance,
     rtp: GAMBLE_CONFIG.rtp,
   },
-  bonus: { amount: 500, cooldownMin: 60, balanceLimit: 250 },
+  bonus: { enabled: false },
+  maxBatch: 5,
 };
 
 // Кумулятивные границы и плюшки нужны заглушке для розыгрыша, но в publicCase
@@ -74,6 +75,7 @@ const css = read('./public/styles.css');
 const html = read('./public/index.html');
 const icons = read('./public/icons.js');
 const covers = read('./public/covers.js');
+const sounds = read('./public/sounds.js');
 const app = read('./public/app.js');
 
 // Тело страницы без внешних подключений — всё уедет внутрь файла.
@@ -296,22 +298,11 @@ function pushRound(round) {
 
 let crashRound = null;
 
-const routes = {
-  'GET /api/config': () => CONFIG,
 
-  'POST /api/me': () => ({ user: publicUser() }),
-
-  'POST /api/open': (body) => {
-    const table = DRAW_BY_ID.get(body.caseId);
-    if (!table) return { status: 404, body: { error: 'Кейс не найден' } };
-
+/** Одно открытие кейса. Общая часть для одиночного открытия и пачки. */
+function openOnce(table) {
     const u = store.user;
     const free = (u.vouchers[table.id] || 0) > 0;
-    if (!free && u.balance < table.price) {
-      return { status: 400, body: { error: 'INSUFFICIENT_FUNDS',
-        message: 'Не хватает ' + (table.price - u.balance) + ' ед.' } };
-    }
-
     u.nonce++;
     const roll = computeRoll(u.serverSeed, u.clientSeed, u.nonce);
     const item = pickItem(table, roll);
@@ -348,18 +339,50 @@ const routes = {
       bet: spent, payout, multiplier: free ? 0 : payout / table.price,
       tier: item.tier, free: free ? 1 : 0,
     });
-    save();
-
     return {
       item: { id: item.id, name: item.name, kind: item.kind, value: payout,
               tier: item.tier, perkLabel: item.perkLabel,
               multiplier: Number((payout / table.price).toFixed(2)) },
       granted, free, x2Applied: x2Active && item.value > 0,
-      balance: u.balance, net: payout - spent,
-      fair: { roll, nonce: u.nonce }, user: publicUser(),
+      net: payout - spent,
+      fair: { roll, nonce: u.nonce },
+    };
+}
+
+const routes = {
+  'GET /api/config': () => CONFIG,
+
+  'POST /api/me': () => ({ user: publicUser() }),
+
+  'POST /api/open': (body) => {
+    const table = DRAW_BY_ID.get(body.caseId);
+    if (!table) return { status: 404, body: { error: 'Кейс не найден' } };
+
+    const u = store.user;
+    const count = Math.min(CONFIG.maxBatch, Math.max(1, Math.trunc(Number(body.count) || 1)));
+    const vouchers = u.vouchers[table.id] || 0;
+    // Ваучеры покрывают первые открытия пачки, остальное платное.
+    const need = Math.max(0, count - vouchers) * table.price;
+
+    if (u.balance < need) {
+      return { status: 400, body: { error: 'INSUFFICIENT_FUNDS',
+        message: 'Не хватает ' + (need - u.balance) + ' ед.' } };
+    }
+
+    const opened = [];
+    for (let n = 0; n < count; n++) opened.push(openOnce(table));
+    save();
+
+    return {
+      count,
+      opened,
+      ...opened[0],
+      totalSpent: opened.reduce((a, o) => a + (o.free ? 0 : table.price), 0),
+      totalWon: opened.reduce((a, o) => a + o.item.value, 0),
+      balance: u.balance,
+      user: publicUser(),
     };
   },
-
   'POST /api/roulette': (body) => {
     const u = store.user;
     u.gambleStake = 0;
@@ -439,22 +462,8 @@ const routes = {
     return finishCrash('cashed', Number(current.toFixed(2)));
   },
 
-  'POST /api/bonus': () => {
-    const u = store.user;
-    if (u.balance > CONFIG.bonus.balanceLimit) {
-      return { status: 400, body: { error: 'balance',
-        message: 'Бонус доступен, когда баланс меньше ' + CONFIG.bonus.balanceLimit + ' ед.' } };
-    }
-    const wait = u.lastBonusAt + CONFIG.bonus.cooldownMin * 60000 - Date.now();
-    if (wait > 0) {
-      return { status: 400, body: { error: 'cooldown',
-        message: 'Следующий бонус через ' + Math.ceil(wait / 60000) + ' мин.' } };
-    }
-    u.balance += CONFIG.bonus.amount;
-    u.lastBonusAt = Date.now();
-    save();
-    return { ok: true, amount: CONFIG.bonus.amount, balance: u.balance, user: publicUser() };
-  },
+  'POST /api/bonus': () => ({ status: 410, body: { error: 'disabled',
+    message: 'Бонус больше не выдаётся' } }),
 
   'POST /api/history': (body) => {
     const title = body.caseTitle;
@@ -767,6 +776,8 @@ ${strip(icons)}
 
 ${strip(covers)}
 
+${strip(sounds)}
+
 ${strip(app)}
 
 // Пояснение про демо — над полками.
@@ -805,7 +816,10 @@ function topLevelNames(src) {
   return names;
 }
 
-const scopes = { icons: topLevelNames(icons), covers: topLevelNames(covers), app: topLevelNames(app) };
+const scopes = {
+  icons: topLevelNames(icons), covers: topLevelNames(covers),
+  sounds: topLevelNames(sounds), app: topLevelNames(app),
+};
 const clashes = [];
 for (const [aName, aSet] of Object.entries(scopes)) {
   for (const [bName, bSet] of Object.entries(scopes)) {

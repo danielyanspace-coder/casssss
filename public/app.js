@@ -12,6 +12,10 @@ import {
   iconBlock, iconBack, iconTier, iconStar, iconRouletteMark,
 } from './icons.js';
 import { caseCover } from './covers.js';
+import {
+  soundEnabled, toggleSound, sndTick, sndSpinStart, sndLand, sndReveal,
+  sndBigWin, sndCollect, sndLose, sndFlip, sndBet, sndCrash, sndClimb,
+} from './sounds.js';
 
 const tg = window.Telegram?.WebApp;
 
@@ -121,11 +125,6 @@ function renderBalance() {
   document.getElementById('balanceValue').textContent = money(state.user.balance);
   chip.classList.add('bump');
   setTimeout(() => chip.classList.remove('bump'), 260);
-
-  const row = document.getElementById('bonusRow');
-  row.hidden = state.user.balance > state.config.bonus.balanceLimit;
-  document.getElementById('bonusHint').textContent =
-    `+${money(state.config.bonus.amount)}, раз в ${state.config.bonus.cooldownMin} мин.`;
 
   renderPerkBar();
 }
@@ -317,15 +316,40 @@ function openSheet(caseId) {
     </div>
     <div class="items-title"><span>Содержимое</span><span>цена / шанс</span></div>
     ${rows}
-    <button class="btn btn-primary sheet-open-btn" id="doOpenBtn">
-      ${freeCount ? 'ОТКРЫТЬ БЕСПЛАТНО' : `ОТКРЫТЬ ЗА ${money(c.price)}`}
-    </button>
+    <div class="count-row" id="countRow">
+      ${[1, 2, 3, 4, 5].slice(0, state.config.maxBatch || 5).map((n) =>
+        `<button class="count-btn ${n === 1 ? 'active' : ''}" data-count="${n}">×${n}</button>`).join('')}
+    </div>
+    <button class="btn btn-primary sheet-open-btn" id="doOpenBtn"></button>
   `;
 
+  const openBtn = document.getElementById('doOpenBtn');
+  let count = 1;
+
+  const refresh = () => {
+    // Ваучеры покрывают первые открытия пачки, остальное платное.
+    const paid = Math.max(0, count - freeCount);
+    openBtn.textContent = paid === 0
+      ? `ОТКРЫТЬ БЕСПЛАТНО ×${count}`
+      : `ОТКРЫТЬ ЗА ${money(paid * c.price)}`;
+    openBtn.disabled = paid * c.price > state.user.balance;
+  };
+  refresh();
+
+  document.querySelectorAll('#countRow .count-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      count = Number(btn.dataset.count);
+      document.querySelectorAll('#countRow .count-btn').forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+      haptic('light');
+      refresh();
+    });
+  });
+
   document.getElementById('sheetBackdrop').hidden = false;
-  document.getElementById('doOpenBtn').addEventListener('click', () => {
+  openBtn.addEventListener('click', () => {
     closeSheet();
-    startOpening(c.id);
+    startOpening(c.id, count);
   });
 }
 
@@ -377,24 +401,56 @@ function tileHtml(item) {
   </div>`;
 }
 
-async function startOpening(caseId) {
+/** Разметка одной ленты. */
+function reelWrapHtml() {
+  return `<div class="reel-wrap">
+    <div class="reel-marker"></div>
+    <div class="reel-fade reel-fade-l"></div>
+    <div class="reel-fade reel-fade-r"></div>
+    <div class="reel"></div>
+  </div>`;
+}
+
+/**
+ * Щелчки ленты привязаны к её реальному положению, а не к таймеру:
+ * когда лента замедляется, щелчки редеют сами — как у настоящего барабана.
+ */
+function trackReelTicks(reel, step, durationMs) {
+  let last = 0;
+  const started = performance.now();
+
+  const frame = () => {
+    const m = new DOMMatrixReadOnly(getComputedStyle(reel).transform);
+    const passed = Math.abs(m.m41) / step;
+    if (passed - last >= 1) {
+      last = Math.floor(passed);
+      sndTick(1 + Math.min(0.5, passed / 400));
+    }
+    if (performance.now() - started < durationMs) requestAnimationFrame(frame);
+  };
+  requestAnimationFrame(frame);
+}
+
+async function startOpening(caseId, count = 1) {
   if (state.busy) return;
   const c = state.config.cases.find((x) => x.id === caseId);
   if (!c) return;
 
   const freeCount = (state.user.vouchers || []).find((v) => v.case_id === c.id)?.count || 0;
-  if (!freeCount && state.user.balance < c.price) {
-    toast(`Не хватает ${money(c.price - state.user.balance)}`);
+  const need = Math.max(0, count - freeCount) * c.price;
+  if (need > state.user.balance) {
+    toast(`Не хватает ${money(need - state.user.balance)}`);
     haptic('error');
     return;
   }
 
   state.busy = true;
   state.openingCaseId = caseId;
+  state.openingCount = count;
 
   let data;
   try {
-    data = await api('/api/open', { caseId });
+    data = await api('/api/open', { caseId, count });
   } catch (err) {
     state.busy = false;
     toast(err.message);
@@ -402,11 +458,12 @@ async function startOpening(caseId) {
     return;
   }
 
-  const opener = document.getElementById('opener');
-  const reel = document.getElementById('reel');
+  const opened = data.opened || [data];
 
+  const opener = document.getElementById('opener');
   document.getElementById('openerCaseName').innerHTML =
-    `${esc(c.name)} · <span>${data.free ? 'бесплатно' : money(c.price)}</span>`;
+    `${esc(c.name)}${count > 1 ? ` ×${count}` : ''} · ` +
+    `<span>${data.totalSpent ? money(data.totalSpent) : 'бесплатно'}</span>`;
 
   // Число зрителей выдуманное и своё для каждого кейса — чисто оформление.
   document.getElementById('openerViewers').textContent =
@@ -415,46 +472,98 @@ async function startOpening(caseId) {
   document.getElementById('result').hidden = true;
   document.getElementById('gamble').hidden = true;
   document.getElementById('gambleStartBtn').hidden = true;
+  document.getElementById('batchSummary').hidden = true;
   opener.hidden = false;
   document.querySelector('.opener-scroll').scrollTop = 0;
   updateOpenerBalance();
   loadCaseHistory(c.name);
 
-  // Лента строится из предметов кейса, выигрышный ставится в фиксированную
-  // позицию — сервер уже решил исход, анимация лишь доезжает до него.
-  const shown = { ...data.item };
-  const strip = [];
-  for (let i = 0; i < STRIP_LENGTH; i++) {
-    strip.push(i === WINNER_INDEX ? shown : weightedSample(c.items));
-  }
-  reel.innerHTML = strip.map(tileHtml).join('');
+  // Своя лента на каждый кейс пачки — крутятся одновременно.
+  const reels = document.getElementById('reels');
+  reels.className = 'reels' + (count > 1 ? ' compact' : '');
+  reels.innerHTML = opened.map(reelWrapHtml).join('');
 
-  reel.style.transition = 'none';
-  reel.style.transform = 'translateX(0)';
-  void reel.offsetWidth;
+  const DURATION = 6.4;
+  sndSpinStart();
+  sndBet();
+  haptic('medium');
 
-  const viewport = reel.parentElement.clientWidth;
-  const { tileW, step } = measureReel(reel);
-  // Сдвиг внутри плитки, но с запасом от краёв: иначе маркер может встать
-  // на границу и визуально «зацепить» соседнюю.
-  const jitter = (Math.random() - 0.5) * (tileW * 0.5);
-  const target = WINNER_INDEX * step + tileW / 2 - viewport / 2 + jitter;
+  reels.querySelectorAll('.reel').forEach((reel, idx) => {
+    // Лента строится из предметов кейса, выигрышный ставится в фиксированную
+    // позицию — сервер уже решил исход, анимация лишь доезжает до него.
+    const strip = [];
+    for (let i = 0; i < STRIP_LENGTH; i++) {
+      strip.push(i === WINNER_INDEX ? opened[idx].item : weightedSample(c.items));
+    }
+    reel.innerHTML = strip.map(tileHtml).join('');
 
-  requestAnimationFrame(() => {
-    // Кривая с плавным разгоном: прежняя стартовала на полной скорости,
-    // и первые секунды предметы пролетали неразличимо.
-    reel.style.transition = 'transform 6.4s cubic-bezier(0.32, 0, 0.1, 1)';
-    reel.style.transform = `translateX(${-target}px)`;
+    reel.style.transition = 'none';
+    reel.style.transform = 'translateX(0)';
+    void reel.offsetWidth;
+
+    const viewport = reel.parentElement.clientWidth;
+    const { tileW, step } = measureReel(reel);
+    // Сдвиг внутри плитки, но с запасом от краёв: иначе маркер может встать
+    // на границу и визуально «зацепить» соседнюю.
+    const jitter = (Math.random() - 0.5) * (tileW * 0.5);
+    const target = WINNER_INDEX * step + tileW / 2 - viewport / 2 + jitter;
+
+    requestAnimationFrame(() => {
+      // Кривая с плавным разгоном: прежняя стартовала на полной скорости,
+      // и первые секунды предметы пролетали неразличимо.
+      reel.style.transition = `transform ${DURATION}s cubic-bezier(0.32, 0, 0.1, 1)`;
+      reel.style.transform = `translateX(${-target}px)`;
+    });
+
+    // Щелчки снимаем только с первой ленты — иначе они сливаются в шум.
+    if (idx === 0) trackReelTicks(reel, step, DURATION * 1000);
   });
 
-  haptic('medium');
-  const timers = [900, 1700, 2500, 3200, 3800, 4400, 4900, 5300, 5700, 6000, 6250]
-    .map((t) => setTimeout(() => haptic('light'), t));
-
   setTimeout(() => {
-    timers.forEach(clearTimeout);
-    showCaseResult(data, c);
-  }, 6550);
+    sndLand();
+    haptic('medium');
+    if (count > 1) showBatchResult(data, c);
+    else showCaseResult(data, c);
+  }, DURATION * 1000 + 150);
+}
+
+/** Итог пачки: список выпавшего и суммарный результат. */
+function showBatchResult(data, caseData) {
+  const box = document.getElementById('batchSummary');
+  const opened = data.opened;
+  const net = data.totalWon - data.totalSpent;
+
+  const best = opened.reduce((a, b) => (b.item.value > a.item.value ? b : a));
+
+  box.innerHTML = `
+    <div class="batch-total ${net >= 0 ? 'plus' : 'minus'}">
+      ${net >= 0 ? '+' : '−'}${money(Math.abs(net))}
+    </div>
+    <div class="batch-sub">потрачено ${money(data.totalSpent)} · выиграно ${money(data.totalWon)}</div>
+    <div class="batch-list">
+      ${opened.map((o) => `<div class="mini-row" style="--tier-color:${tierColor(o.item.tier)}">
+        <span class="mini-name">${esc(o.item.name)}${o.x2Applied ? ' (×2)' : ''}</span>
+        <span class="mini-val">${money(o.item.value)}</span>
+      </div>`).join('')}
+    </div>
+    <div class="result-actions">
+      <button class="btn btn-outline" id="batchClose">Забрать</button>
+      <button class="btn btn-primary" id="batchAgain">Ещё раз ×${data.count}</button>
+    </div>
+  `;
+  box.hidden = false;
+
+  applyUser(data.user);
+  updateOpenerBalance();
+  loadCaseHistory(caseData.name);
+  state.busy = false;
+
+  sndReveal(best.item.tier);
+  if (net > 0) { sndCollect(); haptic('success'); } else { sndLose(); haptic('light'); }
+
+  document.getElementById('batchClose').addEventListener('click', closeOpener);
+  document.getElementById('batchAgain').addEventListener('click', () =>
+    startOpening(caseData.id, data.count));
 }
 
 function showCaseResult(data, caseData) {
@@ -486,7 +595,11 @@ function showCaseResult(data, caseData) {
   updateOpenerBalance();
   loadCaseHistory(caseData.name);
   state.busy = false;
-  haptic(data.net > 0 ? 'success' : 'light');
+
+  sndReveal(item.tier);
+  if (item.multiplier >= 5) sndBigWin();
+  if (data.net > 0) { setTimeout(sndCollect, 260); haptic('success'); }
+  else { setTimeout(sndLose, 200); haptic('light'); }
 
   // Рискнуть можно только тем, что реально выиграно на этом прокруте.
   const gambleBtn = document.getElementById('gambleStartBtn');
@@ -623,10 +736,13 @@ async function pickGambleCard(index) {
   };
 
   setFace(index);
+  sndFlip();
   haptic(data.won ? 'success' : 'error');
 
   setTimeout(() => {
-    cards.forEach((_, i) => { if (i !== index) setTimeout(() => setFace(i), i * 90); });
+    cards.forEach((_, i) => {
+      if (i !== index) setTimeout(() => { setFace(i); sndFlip(); }, i * 90);
+    });
 
     setTimeout(() => {
       const out = gambleEl.outcome();
@@ -634,6 +750,7 @@ async function pickGambleCard(index) {
         ? `Есть туз! Забираете ${money(data.payout)}`
         : `Мимо. Туз был на карте ${data.acePosition + 1}`;
       out.className = 'gamble-outcome ' + (data.won ? 'win' : 'lose');
+      if (data.won) { sndBigWin(); sndCollect(); } else sndLose();
 
       applyUser(data.user);
       updateOpenerBalance();
@@ -665,7 +782,7 @@ document.getElementById('gambleSkipBtn').addEventListener('click', async (e) => 
 });
 
 document.getElementById('againBtn').addEventListener('click', () => {
-  if (state.openingCaseId) startOpening(state.openingCaseId);
+  if (state.openingCaseId) startOpening(state.openingCaseId, state.openingCount || 1);
 });
 
 /* ============================================================
@@ -799,6 +916,7 @@ async function startCrash() {
   const btn = crashEl.btn();
   btn.classList.add('cashout');
   btn.textContent = 'ЗАБРАТЬ';
+  sndBet();
   haptic('medium');
 
   runCrashLoop();
@@ -816,6 +934,12 @@ function runCrashLoop() {
   crashEl.multiplier().style.color = crashColorFor(m);
   crashEl.btn().textContent = `ЗАБРАТЬ ${fmt(Math.floor(round.bet * m))}`;
   drawCrashGraph(elapsed, m);
+
+  // Тон ползёт вверх вместе с множителем, но не чаще раза в ~250 мс.
+  if (elapsed - (round.lastClimb || 0) > 250) {
+    round.lastClimb = elapsed;
+    sndClimb(m);
+  }
 
   round.raf = requestAnimationFrame(runCrashLoop);
 }
@@ -872,6 +996,7 @@ function finishCrash(data) {
     mult.style.color = '';
     status.className = 'crash-status win';
     status.textContent = `Забрали ${money(data.payout)} · взорвалось на ${data.crashPoint.toFixed(2)}x`;
+    sndCollect();
     haptic('success');
   } else {
     mult.textContent = `${data.crashPoint.toFixed(2)}x`;
@@ -879,6 +1004,7 @@ function finishCrash(data) {
     mult.style.color = '';
     status.className = 'crash-status lose';
     status.textContent = `Взорвалось. Ставка ${money(round.bet)} потеряна`;
+    sndCrash();
     haptic('error');
   }
   pushRecent('crash', data.crashPoint);
@@ -996,9 +1122,11 @@ async function spinRoulette() {
     reel.style.transform = `translateX(${-target}px)`;
   });
 
+  sndSpinStart();
+  sndBet();
   haptic('medium');
   const timers = [800, 1600, 2300, 2900, 3400, 3900, 4300, 4700, 5000, 5200]
-    .map((t) => setTimeout(() => haptic('light'), t));
+    .map((t) => setTimeout(() => { haptic('light'); sndTick(); }, t));
 
   setTimeout(() => {
     timers.forEach(clearTimeout);
@@ -1009,6 +1137,9 @@ async function spinRoulette() {
 
     pushRecent('roulette', data.landed);
     applyUser(data.user);
+    sndLand();
+    if (data.won) { sndReveal(data.landed === 'green' ? 'unique' : 'epic'); sndCollect(); }
+    else sndLose();
     haptic(data.won ? 'success' : 'error');
 
     state.busy = false;
@@ -1058,14 +1189,6 @@ document.getElementById('rotateBtn').addEventListener('click', async () => {
   } catch (err) { toast(err.message); }
 });
 
-document.getElementById('bonusBtn').addEventListener('click', async () => {
-  try {
-    const data = await api('/api/bonus');
-    applyUser(data.user);
-    toast(`Начислено ${money(data.amount)}`);
-    haptic('success');
-  } catch (err) { toast(err.message); haptic('error'); }
-});
 
 /* ============================================================
    АДМИНКА
@@ -1365,6 +1488,14 @@ async function init() {
 
   mountIcons();
   buildMoneyRain();
+
+  const soundBtn = document.getElementById('soundBtn');
+  const paintSound = () => {
+    soundBtn.textContent = soundEnabled() ? 'ЗВУК ВКЛ' : 'ЗВУК ВЫКЛ';
+    soundBtn.classList.toggle('off', !soundEnabled());
+  };
+  paintSound();
+  soundBtn.addEventListener('click', () => { toggleSound(); paintSound(); });
 
   try {
     const [config, me] = await Promise.all([

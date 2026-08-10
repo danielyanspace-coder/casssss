@@ -1428,3 +1428,62 @@ select.seed-input {
   background: currentColor;
   transform: rotate(45deg);
 }
+
+/* ---------- Мультиоткрытие и звук ---------- */
+
+.count-row { display: flex; gap: 8px; margin-top: 16px; }
+
+.count-btn {
+  flex: 1;
+  padding: 12px 0;
+  border-radius: 12px;
+  border: 2px solid var(--line);
+  background: var(--card);
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 900;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.count-btn.active {
+  background: linear-gradient(135deg, var(--pink), var(--violet));
+  border-color: var(--magenta);
+  color: #fff;
+  box-shadow: 0 4px 18px rgba(255, 46, 138, 0.5);
+}
+
+.reels { display: flex; flex-direction: column; gap: 10px; }
+/* В пачке ленты ниже: пять полноразмерных не помещаются на экран телефона. */
+.reels.compact .reel-wrap { height: 92px; }
+.reels.compact .reel-tile { flex-basis: 96px; width: 96px; padding: 7px 5px; gap: 3px; }
+.reels.compact .tile-icon { width: 22px; height: 22px; }
+.reels.compact .tile-name { font-size: 9.5px; -webkit-line-clamp: 1; }
+.reels.compact .tile-value { font-size: 12px; }
+
+.batch-summary { margin-top: 22px; animation: pop 0.4s cubic-bezier(0.2, 1.3, 0.4, 1); }
+.batch-total {
+  text-align: center; font-size: 40px; font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+.batch-total.plus { color: var(--green); text-shadow: 0 0 30px var(--green); }
+.batch-total.minus { color: var(--muted); }
+.batch-sub { text-align: center; font-size: 13px; color: var(--muted); margin: 6px 0 16px; }
+.batch-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 18px; }
+
+.sound-btn {
+  padding: 9px 12px;
+  border-radius: 999px;
+  border: 1.5px solid var(--line);
+  background: var(--card);
+  color: var(--cyan);
+  font-family: inherit;
+  font-size: 9.5px;
+  font-weight: 900;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.sound-btn.off { color: var(--muted); opacity: 0.7; }
+.topbar { gap: 8px; }
+.balance-chip { padding: 12px 14px; }
