@@ -252,24 +252,33 @@ function caseCardHtml(c, vouchers) {
 /**
  * Витрина сезонного кейса — широкая карточка под шапкой.
  *
- * Обложка та же, что у остальных, но крупнее и без приглушения: закрытый
- * кейс здесь не гасим, иначе главное место на экране занимает серое пятно.
- * О том, что он ещё не открылся, говорят плашка с датой и подпись на кнопке.
+ * Закрытый кейс здесь не гасим, иначе главное место на экране занимает серое
+ * пятно. О том, что он ещё не открылся, говорят плашка с датой и подпись на
+ * кнопке.
+ *
+ * У кейса с готовым баннером на обложке уже есть и заголовок, и плашка
+ * «сезонный кейс», поэтому свои подписи карточка не рисует: осталась только
+ * дата старта — её баннер знать не может. Потолок выигрыша переехал в нижнюю
+ * строку, чтобы не перекрывать макет.
  */
 function featuredHtml(c, vouchers) {
   const locked = lockedUntil(c);
   const freeCount = vouchers.get(c.id) || 0;
+  const ownArt = Boolean(c.art);
+
+  const badges = [
+    ownArt ? '' : '<span class="featured-tag">СЕЗОННЫЙ КЕЙС</span>',
+    locked ? `<span class="featured-date">С ${locked.toUpperCase()}</span>` : '',
+  ].filter(Boolean).join('');
 
   return `<section class="featured">
-    <div class="featured-card ${locked ? 'is-locked' : ''}" data-case="${c.id}">
-      <div class="featured-badges">
-        <span class="featured-tag">СЕЗОННЫЙ КЕЙС</span>
-        ${locked ? `<span class="featured-date">С ${locked.toUpperCase()}</span>` : ''}
-      </div>
+    <div class="featured-card ${locked ? 'is-locked' : ''} ${ownArt ? 'own-art' : ''}"
+        data-case="${c.id}">
+      ${badges ? `<div class="featured-badges">${badges}</div>` : ''}
       <div class="featured-cover">
         ${caseCover(c)}
         <div class="featured-shine"></div>
-        <div class="featured-top">до ${fmt(c.topValue)} ₽</div>
+        ${ownArt ? '' : `<div class="featured-top">до ${fmt(c.topValue)} ₽</div>`}
       </div>
       <div class="featured-body">
         <div class="featured-name">${esc(c.name)}</div>
@@ -278,6 +287,7 @@ function featuredHtml(c, vouchers) {
           <span class="featured-price">${freeCount && !locked ? 'ПОДАРОК' : money(c.price)}</span>
           <span class="featured-max">${c.maxMultiplier}x</span>
           <span class="featured-rtp">RTP ${(c.rtp * 100).toFixed(1)}%</span>
+          ${ownArt ? `<span class="featured-rtp">до ${fmt(c.topValue)} ₽</span>` : ''}
         </div>
       </div>
     </div>

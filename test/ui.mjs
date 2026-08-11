@@ -265,6 +265,12 @@ const seasonal = await page.evaluate(async () => {
     inShelves: shelves,
     locked: card?.classList.contains('is-locked') ?? false,
     badge: card?.querySelector('.featured-date')?.textContent.trim() || '',
+    // Готовый баннер несёт свой заголовок и плашку «сезонный кейс», поэтому
+    // карточка обязана свои такие же подписи убрать.
+    ownArt: Boolean(c.art),
+    photo: card?.querySelector('img.cover-photo')?.naturalWidth || 0,
+    ownTag: card?.querySelector('.featured-tag') !== null && card !== null,
+    ownTop: card?.querySelector('.featured-top') !== null && card !== null,
   };
 });
 
@@ -276,6 +282,12 @@ if (check('сезонный кейс есть в конфиге', seasonal !== n
         `найдено ${seasonal.inShelves}`);
   check('сезонный: карточка помечена как закрытая', seasonal.locked === seasonal.future);
   check('сезонный: на обложке дата старта', !seasonal.future || seasonal.badge.length > 0);
+
+  if (seasonal.ownArt) {
+    check('сезонный: баннер загрузился', seasonal.photo > 0, `ширина ${seasonal.photo}`);
+    check('сезонный: карточка не дублирует заголовок баннера', !seasonal.ownTag);
+    check('сезонный: карточка не кладёт потолок поверх баннера', !seasonal.ownTop);
+  }
 
   await page.evaluate((id) => {
     document.querySelector(`.featured-card[data-case="${id}"]`).click();
