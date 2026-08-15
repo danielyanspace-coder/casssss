@@ -961,7 +961,6 @@ main { position: relative; z-index: 2; padding: 18px; }
   backdrop-filter: blur(3px);
 }
 .cover-badge.perk { color: var(--gold); }
-.cover-badge.rtp { color: var(--cyan); }
 
 .cover-top {
   position: absolute;
@@ -1122,7 +1121,7 @@ main { position: relative; z-index: 2; padding: 18px; }
   flex-wrap: wrap;
 }
 .featured-price { font-size: 24px; font-weight: 900; color: var(--gold); }
-.featured-max, .featured-rtp {
+.featured-max, .featured-chip {
   font-size: 12px; font-weight: 800;
   padding: 5px 11px;
   border-radius: 999px;
@@ -1136,7 +1135,7 @@ main { position: relative; z-index: 2; padding: 18px; }
 .featured-card.own-art .featured-foot { gap: 7px; }
 .featured-card.own-art .featured-price { font-size: 21px; }
 .featured-card.own-art .featured-max,
-.featured-card.own-art .featured-rtp { font-size: 11px; padding: 4px 9px; }
+.featured-card.own-art .featured-chip { font-size: 11px; padding: 4px 9px; }
 
 @media (max-width: 420px) {
   .featured-cover { height: 148px; }

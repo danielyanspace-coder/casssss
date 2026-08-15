@@ -106,6 +106,10 @@ console.log('\n=== Кейсы с плюшками: симуляция цепоч
     let received = 0;
     let x2 = false;
     let perkHits = 0;
+    // Разброс копим по ходу симуляции: закрытой формулы у цепочки нет —
+    // ×2 связывает соседние раунды, а подарок подмешивает чужой кейс.
+    let sumX = 0;
+    let sumX2 = 0;
 
     for (let n = 1; n <= ROUNDS; n++) {
       spent += c.price;
@@ -113,7 +117,7 @@ console.log('\n=== Кейсы с плюшками: симуляция цепоч
       const item = pickItem(c, roll);
 
       // ×2 удваивает только выплату единицами — плюшки не удваиваются.
-      received += item.value * (x2 && item.value > 0 ? 2 : 1);
+      let round = item.value * (x2 && item.value > 0 ? 2 : 1);
       x2 = false;
 
       if (item.kind === 'perk') {
@@ -122,14 +126,26 @@ console.log('\n=== Кейсы с плюшками: симуляция цепоч
         if (item.perk.type === 'voucher') {
           // Бесплатное открытие стоит игроку 0, а приносит полное EV кейса.
           const gift = CASES.find((g) => g.id === item.perk.caseId);
-          received += gift.price * gift.rtp;
+          round += gift.price * gift.rtp;
         }
       }
+
+      received += round;
+      const x = round / c.price;
+      sumX += x;
+      sumX2 += x * x;
     }
 
     const empirical = received / spent;
     const drift = Math.abs(empirical - c.rtp);
-    const ok = drift < 0.02;
+
+    // Допуск от фактического разброса, а не фиксированные 0.02: подняв потолок
+    // кейсов до 500x, мы увеличили дисперсию на порядок, и прежний общий порог
+    // начал ругаться на совершенно нормальные прогоны.
+    const mean = sumX / ROUNDS;
+    const variance = Math.max(0, sumX2 / ROUNDS - mean * mean);
+    const se = Math.sqrt(variance / ROUNDS);
+    const ok = drift < 4 * se;
     if (!ok) failures++;
 
     rows.push({
@@ -137,6 +153,7 @@ console.log('\n=== Кейсы с плюшками: симуляция цепоч
       цена: c.price,
       'RTP заявлен': c.rtp.toFixed(4),
       'RTP факт': empirical.toFixed(4),
+      'допуск ±4σ': (4 * se).toFixed(4),
       'плюшек выпало': `${((perkHits / ROUNDS) * 100).toFixed(2)}%`,
       статус: ok ? 'ок' : 'РАСХОЖДЕНИЕ',
     });

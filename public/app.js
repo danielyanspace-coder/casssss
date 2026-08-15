@@ -173,7 +173,6 @@ function renderStats() {
       value: `${s.profit >= 0 ? '+' : ''}${fmt(s.profit)}`,
       cls: s.profit > 0 ? 'plus' : s.profit < 0 ? 'minus' : '',
     },
-    { label: 'Ваш фактический RTP', value: s.spent ? `${((s.won / s.spent) * 100).toFixed(1)}%` : '—' },
   ];
 
   document.getElementById('statsGrid').innerHTML = cards
@@ -207,7 +206,7 @@ const SHELVES = [
   { title: 'Средние ставки', hint: 'Золотая середина', max: 1800 },
   { title: 'Серьёзные', hint: 'Ставки покрупнее', max: 3500 },
   { title: 'Крупные', hint: 'Для уверенных', max: 8000 },
-  { title: 'Премиум', hint: 'Лучший RTP в игре', max: 18000 },
+  { title: 'Премиум', hint: 'Ставки посерьёзнее', max: 18000 },
   { title: 'Элита', hint: 'Здесь считают тысячами', max: 40000 },
   { title: 'Максимум', hint: 'Дороже в игре нет', max: Infinity },
 ];
@@ -230,15 +229,13 @@ function caseCardHtml(c, vouchers) {
   else if (freeCount) badge = `<span class="cover-badge perk">БЕСПЛАТНО ×${freeCount}</span>`;
   else if (x2) badge = '<span class="cover-badge perk">×2</span>';
   else if (c.hasPerks) badge = '<span class="cover-badge perk">ПЛЮШКИ</span>';
-  // Пустой span держит RTP прижатым вправо, когда плюшек у кейса нет.
-  else badge = '<span></span>';
+  else badge = '';
 
   return `<div class="case-card ${freeCount ? 'free-ready' : ''} ${locked ? 'locked' : ''}"
       data-case="${c.id}" style="--cat-color:${color}">
     <div class="case-cover">
       ${caseCover(c)}
-      <div class="cover-badges">${badge}
-        <span class="cover-badge rtp">${(c.rtp * 100).toFixed(1)}%</span></div>
+      <div class="cover-badges">${badge}</div>
       <div class="cover-top">до ${fmt(c.topValue)}</div>
     </div>
     <div class="case-name">${esc(c.name)}</div>
@@ -286,8 +283,7 @@ function featuredHtml(c, vouchers) {
         <div class="featured-foot">
           <span class="featured-price">${freeCount && !locked ? 'ПОДАРОК' : money(c.price)}</span>
           <span class="featured-max">${c.maxMultiplier}x</span>
-          <span class="featured-rtp">RTP ${(c.rtp * 100).toFixed(1)}%</span>
-          ${ownArt ? `<span class="featured-rtp">до ${fmt(c.topValue)} ₽</span>` : ''}
+          ${ownArt ? `<span class="featured-chip">до ${fmt(c.topValue)} ₽</span>` : ''}
         </div>
       </div>
     </div>
@@ -375,7 +371,6 @@ function openSheet(caseId) {
         </div>
         <div class="item-right">
           <div class="item-value">${isPerk && !it.value ? '—' : money(it.value)}</div>
-          <div class="item-chance">${(it.probability * 100).toFixed(3)}%</div>
         </div>
       </div>`;
     }).join('');
@@ -385,12 +380,11 @@ function openSheet(caseId) {
     <div class="sheet-tagline">${esc(c.tagline)}</div>
     <div class="sheet-badges">
       <span class="badge">Цена: <strong>${money(c.price)}</strong></span>
-      <span class="badge">RTP: <strong>${(c.rtp * 100).toFixed(2)}%</strong></span>
       <span class="badge">Максимум: <strong>${c.maxMultiplier}x</strong></span>
       ${x2 ? '<span class="badge">Активен: <strong>×2</strong></span>' : ''}
       ${locked ? `<span class="badge badge-soon">Старт: <strong>${locked}</strong></span>` : ''}
     </div>
-    <div class="items-title"><span>Содержимое</span><span>цена / шанс</span></div>
+    <div class="items-title"><span>Содержимое</span><span>цена</span></div>
     ${showcaseRow}
     ${rows}
     <div class="count-row" id="countRow">
@@ -785,8 +779,7 @@ function renderGamble() {
 
   gambleEl.rules().innerHTML =
     `Найдите красного туза среди ${g.cards} карт — выигрыш вырастет в ` +
-    `<b>${g.payout} раз</b>. Промах — выигрыш сгорает. ` +
-    `Шанс: <b>${g.aces} из ${g.cards}</b> (${(g.chance * 100).toFixed(1)}%).`;
+    `<b>×${g.payout}</b>. Промах — выигрыш сгорает.`;
 
   gambleEl.cards().innerHTML = Array.from({ length: g.cards }, (_, i) =>
     `<button class="gcard" data-idx="${i}">

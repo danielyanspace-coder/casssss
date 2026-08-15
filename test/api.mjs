@@ -268,6 +268,25 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
     }
   }
   check('подарочные кейсы сопоставимы по цене', offBand === 0, `вне диапазона ${offBand}`);
+
+  // Отдача задана одна на все кейсы и должна совпадать с фактической: если
+  // решатель разойдётся с заявленным значением, поймать это больше негде —
+  // из интерфейса число убрано.
+  const TARGET_RTP = 0.7;
+  let offRtp = 0;
+  let evMismatch = 0;
+  for (const c of config.cases) {
+    if (Math.abs(c.rtp - TARGET_RTP) > 1e-9) offRtp++;
+    const ev = c.items.reduce((s, it) => s + it.probability * (it.evValue ?? it.value), 0);
+    if (Math.abs(ev / c.price - TARGET_RTP) > 1e-6) evMismatch++;
+  }
+  check(`отдача всех кейсов равна ${TARGET_RTP}`, offRtp === 0, `отклонений ${offRtp}`);
+  check('матожидание сходится с заявленной отдачей', evMismatch === 0,
+        `расхождений ${evMismatch}`);
+
+  const tops = config.cases.map((c) => c.maxMultiplier);
+  check('потолок множителя доходит до 500x', Math.max(...tops) === 500,
+        `максимум ${Math.max(...tops)}`);
 }
 
 /* ---------- 10. Админка ---------- */

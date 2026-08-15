@@ -210,7 +210,10 @@ for (let attempt = 0; attempt < 6 && !gambleTested; attempt++) {
     await page.waitForSelector('.gcard', { state: 'visible' });
 
     const rules = await page.textContent('#gambleRules');
-    check('риск: правила показаны над картами', /Шанс/.test(rules));
+    check('риск: правила показаны над картами', /туза среди/.test(rules), rules.trim());
+    // Числовые шансы из интерфейса убраны намеренно — проверяем, что они
+    // не вернулись ни здесь, ни в составе кейса.
+    check('риск: процент шанса не показан', !/%/.test(rules), rules.trim());
 
     const cards = await page.evaluate(() => document.querySelectorAll('.gcard').length);
     check('риск: количество карт из конфига', cards === 6, `карт ${cards}`);
@@ -301,10 +304,17 @@ if (check('сезонный кейс есть в конфиге', seasonal !== n
     inTable: [...document.querySelectorAll('.item-row:not(.showcase-row) .item-name')]
       .map((n) => n.textContent.trim()),
     showcaseName: document.querySelector('.showcase-row .item-name')?.textContent.trim() || '',
+    // Числовые шансы и RTP из карточки кейса убраны.
+    chances: document.querySelectorAll('.item-row:not(.showcase-row) .item-chance').length,
+    badges: [...document.querySelectorAll('.sheet-badges .badge')].map((b) => b.textContent),
   }));
 
   check('сезонный: кнопка открытия заблокирована до старта',
         sheet.disabled === seasonal.future);
+  check('карточка кейса: шансы предметов не показаны', sheet.chances === 0,
+        `найдено ${sheet.chances}`);
+  check('карточка кейса: RTP не показан',
+        !sheet.badges.some((b) => /RTP/i.test(b)), sheet.badges.join(' | '));
   check('сезонный: витринная строка показана', sheet.showcase === 1);
   check('сезонный: витрина вне таблицы розыгрыша',
         !sheet.inTable.includes(sheet.showcaseName), sheet.showcaseName);

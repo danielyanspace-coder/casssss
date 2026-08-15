@@ -11,7 +11,7 @@
    ============================================================ */
 
 /** Доля, которую забирает заведение. RTP краша = 1 - EDGE. */
-const CRASH_EDGE = 0.05;
+const CRASH_EDGE = 0.3;
 
 /** Потолок множителя — иначе редкий раунд может тянуться минутами. */
 const CRASH_MAX = 1000;
@@ -76,19 +76,19 @@ export const ROULETTE_WHEEL = [
   'black', 'red', 'black', 'red', 'black', 'red', 'black',
 ];
 
-export const ROULETTE_PAYOUTS = { red: 2, black: 2, green: 14 };
+export const ROULETTE_PAYOUTS = { red: 1.5, black: 1.5, green: 10.5 };
 
 export const ROULETTE_COLORS = [
-  { id: 'red', label: 'Красное', payout: 2, slots: 7 },
-  { id: 'green', label: 'Зелёное', payout: 14, slots: 1 },
-  { id: 'black', label: 'Чёрное', payout: 2, slots: 7 },
+  { id: 'red', label: 'Красное', payout: 1.5, slots: 7 },
+  { id: 'green', label: 'Зелёное', payout: 10.5, slots: 1 },
+  { id: 'black', label: 'Чёрное', payout: 1.5, slots: 7 },
 ];
 
 export const ROULETTE_CONFIG = {
   slots: ROULETTE_WHEEL.length,
   payouts: ROULETTE_PAYOUTS,
   colors: ROULETTE_COLORS,
-  rtp: (7 / 15) * 2,
+  rtp: (7 / 15) * 1.5,
 };
 
 /** Номер выпавшего сектора из ролла. */
@@ -168,7 +168,7 @@ export function validateGames() {
 export const GAMBLE_CONFIG = {
   cards: 6,
   aces: 1,
-  payout: 5,
+  payout: 4.2,
 };
 
 GAMBLE_CONFIG.chance = GAMBLE_CONFIG.aces / GAMBLE_CONFIG.cards;
