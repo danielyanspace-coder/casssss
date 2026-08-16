@@ -271,7 +271,7 @@
     <button class="nav-btn active" data-view="cases"><span class="nav-ico" data-ico="cases"></span><span>Кейсы</span></button>
     <button class="nav-btn" data-view="crash"><span class="nav-ico" data-ico="crash"></span><span>Краш</span></button>
     <button class="nav-btn" data-view="roulette"><span class="nav-ico" data-ico="roulette"></span><span>Рулетка</span></button>
-    <button class="nav-btn" data-view="fair"><span class="nav-ico" data-ico="fair"></span><span>Честность</span></button>
+    <button class="nav-btn" data-view="wallet"><span class="nav-ico" data-ico="coin"></span><span>Касса</span></button>
     <button class="nav-btn nav-admin" data-view="admin" id="navAdmin" hidden><span class="nav-ico" data-ico="admin"></span><span>Админ</span></button>
   </nav>
 
@@ -304,6 +304,23 @@
         <div class="reels" id="reels"></div>
 
         <div class="batch-summary" id="batchSummary" hidden></div>
+
+        <div class="freespins" id="freespins" hidden>
+          <div class="fs-head">
+            <div class="fs-title">ФРИСПИНЫ</div>
+            <div class="fs-left" id="fsLeft"></div>
+          </div>
+          <div class="fs-total" id="fsTotal">0 ₽</div>
+          <div class="fs-sub">выигрыш с фриспинов</div>
+          <div class="reel-wrap fs-reel-wrap">
+            <div class="reel-marker"></div>
+            <div class="reel-fade reel-fade-l"></div>
+            <div class="reel-fade reel-fade-r"></div>
+            <div class="reel" id="fsReel"></div>
+          </div>
+          <div class="fs-log" id="fsLog"></div>
+          <button class="btn btn-primary btn-wide" id="fsCollect" hidden>ЗАБРАТЬ</button>
+        </div>
 
         <div class="result" id="result" hidden>
           <div class="result-tier" id="resultTier"></div>

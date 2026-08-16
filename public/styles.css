@@ -1906,3 +1906,70 @@ select.seed-input {
   font-size: 12px; font-weight: 900; color: var(--muted);
   letter-spacing: 1px; margin-bottom: 18px;
 }
+
+/* ============================================================
+   ФРИСПИНЫ
+   ============================================================ */
+
+.freespins { text-align: center; padding: 6px 0 2px; }
+
+.fs-head {
+  display: flex; align-items: center; justify-content: center; gap: 12px;
+  margin-bottom: 6px;
+}
+.fs-title {
+  font-size: 13px; font-weight: 900; letter-spacing: 3px;
+  background: linear-gradient(100deg, var(--gold), var(--pink));
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.fs-left {
+  font-size: 12px; font-weight: 800; color: var(--cyan);
+  padding: 3px 10px; border: 1.5px solid var(--cyan); border-radius: 999px;
+}
+
+/* Главное число экрана: ради него всё и крутится, поэтому оно крупнее
+   любого другого текста в приложении. */
+.fs-total {
+  font-size: 46px;
+  font-weight: 900;
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+  background: linear-gradient(180deg, #fff, var(--gold) 60%, #ff9b2e);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  text-shadow: 0 0 32px rgba(255, 214, 10, 0.35);
+}
+.fs-total.bump { animation: fsBump 0.42s cubic-bezier(0.2, 1.6, 0.4, 1); }
+@keyframes fsBump {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.16); }
+  100% { transform: scale(1); }
+}
+
+.fs-sub { font-size: 11px; color: var(--muted); letter-spacing: 1px; margin-bottom: 12px; }
+
+.fs-reel-wrap { margin-bottom: 12px; }
+
+.fs-log {
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 6px;
+  min-height: 26px; margin-bottom: 12px;
+}
+.fs-chip {
+  font-size: 11px; font-weight: 800;
+  padding: 4px 9px; border-radius: 999px;
+  border: 1.5px solid var(--tier-color, var(--line));
+  color: var(--tier-color, var(--text));
+  background: rgba(10, 2, 18, 0.6);
+  animation: fsChip 0.3s ease both;
+}
+@keyframes fsChip { from { opacity: 0; transform: translateY(-6px); } }
+
+@media (max-width: 420px) {
+  .fs-total { font-size: 38px; }
+}
+
+/* Полка направлений собрана по теме, а не по цене — выделяем её рамкой,
+   чтобы разброс цен внутри не читался как ошибка сортировки. */
+.shelf-country .shelf-title {
+  background: linear-gradient(100deg, var(--cyan), var(--gold));
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}

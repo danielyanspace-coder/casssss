@@ -284,8 +284,10 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
   check('матожидание сходится с заявленной отдачей', evMismatch === 0,
         `расхождений ${evMismatch}`);
 
+  // Потолок ровно 500x есть у обычных кейсов; кейс с джекпотом округляет свой
+  // вверх, поэтому проверяем достижение планки, а не точное совпадение.
   const tops = config.cases.map((c) => c.maxMultiplier);
-  check('потолок множителя доходит до 500x', Math.max(...tops) === 500,
+  check('потолок множителя доходит до 500x', Math.max(...tops) >= 500,
         `максимум ${Math.max(...tops)}`);
 }
 
@@ -383,6 +385,57 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
   check('статистика выплат растёт ровно на выплаченное',
         adm.data.stats.paidSum === paidBefore + amount,
         `${adm.data.stats.paidSum} vs ${paidBefore + amount}`);
+}
+
+/* ---------- Фриспины и джекпот ---------- */
+{
+  // Фриспины прокручиваются на сервере в той же транзакции, что и выдача,
+  // поэтому проверяем именно баланс: он обязан учесть и предмет, и серию.
+  const fsCase = config.cases.find((c) =>
+    c.items.some((it) => it.kind === 'perk' && /фриспин/i.test(it.name)));
+  check('в конфиге есть кейс с фриспинами', !!fsCase);
+
+  if (fsCase) {
+    let hit = null;
+    let balanceOk = true;
+    for (let i = 0; i < 900 && !hit; i++) {
+      const before = (await post('/api/me')).data.user;
+      const { data } = await post('/api/open', { caseId: fsCase.id });
+      const fs = (data.granted || []).find((g) => g.type === 'freespins');
+
+      const expected = before.balance - fsCase.price + data.item.value + (fs ? fs.total : 0);
+      if (data.balance !== expected) balanceOk = false;
+      if (fs) hit = { fs, data };
+    }
+
+    check('баланс сходится с учётом фриспинов', balanceOk);
+
+    if (check('фриспины выпали за 900 открытий', !!hit)) {
+      const { fs } = hit;
+      check('фриспинов ровно столько, сколько обещано',
+            fs.spins.length === fs.count, `${fs.spins.length} из ${fs.count}`);
+      check('сумма серии равна сумме прокрутов',
+            fs.spins.reduce((a, s) => a + s.value, 0) === fs.total);
+      check('у каждого прокрута свой nonce',
+            new Set(fs.spins.map((s) => s.nonce)).size === fs.spins.length);
+      // Фриспин крутит обычную часть таблицы: плюшек в серии быть не может.
+      const names = new Set(fsCase.items.filter((it) => it.kind === 'item').map((it) => it.name));
+      check('в серии только обычные предметы', fs.spins.every((s) => names.has(s.name)));
+    }
+  }
+
+  const jackpotCase = config.cases.find((c) => c.id === 'geneva_6000');
+  if (check('в конфиге есть кейс с джекпотом', !!jackpotCase)) {
+    const rolex = jackpotCase.items.find((it) => /rolex/i.test(it.name));
+    check('джекпот есть в таблице розыгрыша', !!rolex);
+    check('шанс джекпота крайне мал', rolex.probability < 0.0001,
+          `${(rolex.probability * 100).toFixed(4)}%`);
+    check('джекпот укладывается в заявленный потолок',
+          rolex.value <= jackpotCase.price * jackpotCase.maxMultiplier);
+  }
+
+  const country = config.cases.filter((c) => c.category === 'country');
+  check('блок направлений собран', country.length >= 5, `кейсов ${country.length}`);
 }
 
 /* ---------- Сезонный кейс ---------- */

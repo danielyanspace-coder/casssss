@@ -85,6 +85,7 @@ export const CATEGORIES = [
   { id: 'elite', name: 'Элита', description: 'Самые крупные ставки в игре' },
   { id: 'risk', name: 'Риск', description: 'Редкие, но огромные множители' },
   { id: 'bonus', name: 'Бонусные', description: 'С плюшками: x2, подарки, бонусы' },
+  { id: 'country', name: 'Направления', description: 'Города, куда хочется попасть' },
   { id: 'season', name: 'Сезонные', description: 'Открыты ограниченное время' },
 ];
 
@@ -203,6 +204,20 @@ const SPECS = [
 
   ['sultan_40000', 'Три желания', 'Джинн не обманет', 'bonus', 39999, 0.7, 300, 'normal', 'desert',
     [{ type: 'voucher', caseId: 'lair_15000', share: 0.06 }, { type: 'credits', amount: 900000, share: 0.05 }]],
+
+  // ── Направления ─────────────────────────────────────────
+  ['santorini_999', 'Санторини', 'Белое на синем', 'country', 999, 0.7, 180, 'soft', 'santorini'],
+  ['rio_1500', 'Рио-де-Жанейро', 'Карнавал не заканчивается', 'country', 1499, 0.7, 220,
+    'normal', 'rio'],
+  ['monaco_2500', 'Монако', 'Казино, яхты, Гран-при', 'country', 2499, 0.7, 260, 'normal', 'monaco'],
+  ['vegas_3000', 'Лас-Вегас', 'Город, который не спит', 'country', 2999, 0.7, 280, 'normal', 'vegas',
+    [{ type: 'freespins', count: 7, share: 0.09 }]],
+  ['dubai_5000', 'Дубай', 'Золото и небоскрёбы', 'country', 4999, 0.7, 300, 'normal', 'dubai',
+    [{ type: 'freespins', count: 10, share: 0.12 }]],
+  ['geneva_6000', 'Женева', 'Витрина закрыта на ключ', 'country', 5999, 0.7, 300, 'normal', 'atelier',
+    [], { jackpot: { name: 'Rolex Daytona', value: 2999500, share: 0.02 } }],
+  ['singapore_8000', 'Сингапур', 'Порядок и роскошь', 'country', 7999, 0.7, 340,
+    'normal', 'singapore', [{ type: 'freespins', count: 12, share: 0.10 }]],
 ];
 
 /* ============================================================
@@ -213,6 +228,7 @@ const PERK_LABELS = {
   x2: 'Удвоитель ×2',
   voucher: 'Подарочный кейс',
   credits: 'Бонус на баланс',
+  freespins: 'Фриспины',
 };
 
 /**
@@ -257,6 +273,11 @@ function buildCase(spec, builtById) {
       // Удваивается только выплата единицами следующего открытия этого кейса.
       evValue = creditEv;
       label = 'Удвоитель ×2';
+    } else if (p.type === 'freespins') {
+      // Ценность фриспинов вычисляется отдельно ниже: она зависит от того,
+      // сколько вероятности осталось обычным предметам, а это ещё неизвестно.
+      evValue = null;
+      label = `${p.count} фриспинов`;
     } else if (p.type === 'voucher') {
       const targetCase = builtById.get(p.caseId);
       if (!targetCase) {
@@ -269,7 +290,9 @@ function buildCase(spec, builtById) {
       throw new Error(`[${id}] неизвестный тип плюшки: ${p.type}`);
     }
 
-    if (evValue <= 0) throw new Error(`[${id}] плюшка ${p.type} имеет нулевую ценность`);
+    if (p.type !== 'freespins' && evValue <= 0) {
+      throw new Error(`[${id}] плюшка ${p.type} имеет нулевую ценность`);
+    }
 
     return {
       id: `${id}_perk${i}`,
@@ -277,18 +300,77 @@ function buildCase(spec, builtById) {
       kind: 'perk',
       perk: p.type === 'voucher' ? { type: 'voucher', caseId: p.caseId }
           : p.type === 'credits' ? { type: 'credits', amount: p.amount }
+          : p.type === 'freespins' ? { type: 'freespins', caseId: id, count: p.count }
           : { type: 'x2', caseId: id },
       perkLabel: PERK_LABELS[p.type],
       value: payout,
       evValue,
+      share: p.share,
+      count: p.count,
       // Доля матожидания задана — отсюда вероятность.
-      probability: (p.share * target) / evValue,
+      probability: evValue === null ? null : (p.share * target) / evValue,
       tier: 'unique',
-      multiplier: Number((evValue / price).toFixed(3)),
+      multiplier: evValue === null ? null : Number((evValue / price).toFixed(3)),
     };
   });
 
-  const perkProbability = perkItems.reduce((s, it) => s + it.probability, 0);
+  // Джекпот — обычный предмет, но его вероятность задаётся не весом, а долей
+  // матожидания, как у плюшек. Так дорогой приз можно поставить на любой
+  // сколь угодно малый шанс, не ломая остальную таблицу.
+  const jackpotItems = [];
+  if (extra.jackpot) {
+    const j = extra.jackpot;
+    if (!(j.value > 0) || !(j.share > 0)) {
+      throw new Error(`[${id}] у джекпота должны быть положительные value и share`);
+    }
+    // Номинал округляется тем же шагом, что и обычные предметы: иначе среди
+    // ровных чисел торчал бы один с «хвостом».
+    const jackpotValue = roundNice(j.value);
+    jackpotItems.push({
+      id: `${id}_jackpot`,
+      name: j.name,
+      kind: 'item',
+      value: jackpotValue,
+      evValue: jackpotValue,
+      share: j.share,
+      probability: (j.share * target) / jackpotValue,
+      tier: 'unique',
+      multiplier: Number((jackpotValue / price).toFixed(3)),
+      jackpot: true,
+    });
+  }
+
+  /*
+   * Ценность фриспинов зависит от решения, а решение — от их вероятности.
+   *
+   * Фриспин прокручивает обычную часть таблицы этого же кейса, поэтому стоит
+   * столько, сколько в среднем приносит один обычный предмет: cashNormal / N,
+   * где N — вероятность, оставшаяся обычным предметам. Но N зависит от
+   * вероятности самих фриспинов. Круг размыкается тем, что суммарный вклад
+   * плюшек в матожидание известен заранее — это target * Σshare, — а значит
+   * известна и cashNormal. Дальше p = A·(1 − K − p) решается напрямую.
+   */
+  const preFixed = [...perkItems.filter((it) => it.probability !== null), ...jackpotItems];
+  const K = preFixed.reduce((s, it) => s + it.probability, 0);
+  const totalShare = [...perkSpecs, ...(extra.jackpot ? [extra.jackpot] : [])]
+    .reduce((s, p) => s + p.share, 0);
+  const cashNormal = target * (1 - totalShare);
+
+  if (!(cashNormal > 0)) {
+    throw new Error(`[${id}] плюшки и джекпот забрали всё матожидание`);
+  }
+
+  for (const it of perkItems) {
+    if (it.probability !== null) continue;
+    const A = (it.share * target) / (it.count * cashNormal);
+    it.probability = (A * (1 - K)) / (1 + A);
+    const rest = 1 - K - it.probability;
+    it.evValue = (it.count * cashNormal) / rest;
+    it.multiplier = Number((it.evValue / price).toFixed(3));
+  }
+
+  const preItems = [...perkItems, ...jackpotItems];
+  const perkProbability = preItems.reduce((s, it) => s + it.probability, 0);
   if (perkProbability >= 0.4) {
     throw new Error(`[${id}] плюшки занимают ${(perkProbability * 100).toFixed(1)}% вероятности`);
   }
@@ -301,7 +383,7 @@ function buildCase(spec, builtById) {
 
   // EV = p0*v0 + q*avgRest + (доли плюшек) = target.
   // Плюшки по построению дают ровно target * Σshare, отсюда:
-  const perkEv = perkItems.reduce((s, it) => s + it.probability * it.evValue, 0);
+  const perkEv = preItems.reduce((s, it) => s + it.probability * it.evValue, 0);
   const v0 = values[0];
   const q = (target - perkEv - (1 - perkProbability) * v0) / (avgRest - v0);
   const p0 = 1 - perkProbability - q;
@@ -325,7 +407,7 @@ function buildCase(spec, builtById) {
     probability: i === 0 ? p0 : q * (restWeights[i - 1] / restSum),
   }));
 
-  const items = [...normalItems, ...perkItems];
+  const items = [...normalItems, ...preItems];
 
   let acc = 0;
   for (const item of items) {
@@ -334,14 +416,30 @@ function buildCase(spec, builtById) {
   }
   items[items.length - 1].cumulative = 1;
 
+  // Таблица фриспина: те же обычные предметы, но вероятности пересчитаны на
+  // единицу. Плюшки и джекпот в неё не входят — иначе фриспин мог бы выдать
+  // новые фриспины, и матожидание кейса перестало бы иметь конечное решение.
+  const freeTotal = normalItems.reduce((s, it) => s + it.probability, 0);
+  let freeAcc = 0;
+  const freeItems = normalItems.map((it) => {
+    freeAcc += it.probability / freeTotal;
+    return { ...it, probability: it.probability / freeTotal, cumulative: freeAcc };
+  });
+  freeItems[freeItems.length - 1].cumulative = 1;
+
   const ev = items.reduce((s, it) => s + it.probability * it.evValue, 0);
   const cashEv = items.reduce((s, it) => s + it.probability * it.value, 0);
 
   return {
-    id, name, category, tagline, price, rtp, maxMultiplier,
+    id, name, category, tagline, price, rtp,
+    maxMultiplier: jackpotItems.length
+      ? Math.max(maxMultiplier, Math.ceil(jackpotItems[0].value / price))
+      : maxMultiplier,
     theme: themeId,
     palette: theme.palette,
     items,
+    freeItems,
+    freeSpinEv: freeItems.reduce((s, it) => s + it.probability * it.value, 0),
     hasPerks: perkItems.length > 0,
     // Витрина и сезонность не влияют на математику: решатель их не видит.
     showcase: extra.showcase || null,
@@ -383,6 +481,14 @@ export function pickItem(caseData, roll) {
     if (roll < item.cumulative) return item;
   }
   return caseData.items[caseData.items.length - 1];
+}
+
+/** Предмет фриспина: таблица та же, но без плюшек и джекпота. */
+export function pickFreeItem(caseData, roll) {
+  for (const item of caseData.freeItems) {
+    if (roll < item.cumulative) return item;
+  }
+  return caseData.freeItems[caseData.freeItems.length - 1];
 }
 
 /* ============================================================

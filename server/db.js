@@ -497,7 +497,7 @@ function addVoucher(userId, caseId, delta = 1) {
  *
  * resolve(serverSeed, clientSeed, nonce) должен вернуть выпавший предмет.
  */
-export const playCaseRound = db.transaction((userId, caseData, resolve) => {
+export const playCaseRound = db.transaction((userId, caseData, resolve, resolveFree) => {
   const before = getUserById(userId);
 
   // Бесплатное открытие тратит ваучер и не трогает баланс.
@@ -518,6 +518,11 @@ export const playCaseRound = db.transaction((userId, caseData, resolve) => {
   const payout = item.value * (x2Active && item.value > 0 ? 2 : 1);
 
   const granted = [];
+  // Фриспины прокручиваются здесь же, внутри той же транзакции: игрок не может
+  // закрыть приложение между выдачей и начислением и потерять выигрыш.
+  // Каждый прокрут берёт свой nonce, поэтому проверяется так же, как обычный.
+  let freeSpinsPayout = 0;
+
   if (item.perk) {
     if (item.perk.type === 'credits') granted.push({ type: 'credits', amount: item.value });
     if (item.perk.type === 'voucher') {
@@ -525,6 +530,29 @@ export const playCaseRound = db.transaction((userId, caseData, resolve) => {
       granted.push({ type: 'voucher', caseId: item.perk.caseId });
     }
     if (item.perk.type === 'x2') granted.push({ type: 'x2', caseId: caseData.id });
+    if (item.perk.type === 'freespins') {
+      const spins = [];
+      for (let i = 0; i < item.perk.count; i++) {
+        const spinNonce = bumpNonce(userId);
+        const u = getUserById(userId);
+        const spin = resolveFree(u.server_seed, u.client_seed, spinNonce);
+        freeSpinsPayout += spin.item.value;
+        spins.push({
+          name: spin.item.name,
+          value: spin.item.value,
+          tier: spin.item.tier,
+          roll: spin.roll,
+          nonce: spinNonce,
+        });
+      }
+      granted.push({
+        type: 'freespins',
+        caseId: caseData.id,
+        count: item.perk.count,
+        spins,
+        total: freeSpinsPayout,
+      });
+    }
   }
 
   if (isFree) {
@@ -533,14 +561,15 @@ export const playCaseRound = db.transaction((userId, caseData, resolve) => {
   }
 
   const spent = isFree ? 0 : caseData.price;
-  const newBalance = before.balance - spent + payout;
+  const totalPayout = payout + freeSpinsPayout;
+  const newBalance = before.balance - spent + totalPayout;
 
   // Новый ×2 ставится после того, как старый уже применён к этому прокруту.
   const nextX2 = item.perk?.type === 'x2' ? caseData.id : (x2Active ? null : user.x2_case_id);
 
   // Бесплатный раунд не идёт в лучший множитель: делить на нулевую ставку
   // бессмысленно, а price там условная.
-  const multiplier = isFree ? 0 : payout / caseData.price;
+  const multiplier = isFree ? 0 : totalPayout / caseData.price;
 
   db.prepare(`
     UPDATE users
@@ -551,8 +580,9 @@ export const playCaseRound = db.transaction((userId, caseData, resolve) => {
            total_won = total_won + ?,
            best_multiplier = MAX(best_multiplier, ?)
      WHERE id = ?
-  `).run(newBalance, nextX2, payout > 0 ? payout : 0, payout > 0 ? caseData.id : null,
-         spent, payout, multiplier, userId);
+  `).run(newBalance, nextX2, totalPayout > 0 ? totalPayout : 0,
+         totalPayout > 0 ? caseData.id : null,
+         spent, totalPayout, multiplier, userId);
 
   db.prepare(`
     INSERT INTO rounds (user_id, game, title, subtitle, bet, payout, multiplier,
@@ -560,11 +590,13 @@ export const playCaseRound = db.transaction((userId, caseData, resolve) => {
     VALUES (?, 'case', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(userId, caseData.name,
          item.name + (x2Active && item.value > 0 ? ' (×2)' : ''),
-         spent, payout, multiplier, item.tier, isFree ? 1 : 0,
+         spent, totalPayout, multiplier, item.tier, isFree ? 1 : 0,
          roll, nonce, user.server_seed_hash, user.client_seed, Date.now());
 
   return {
     item, roll, nonce, payout, granted,
+    freeSpinsPayout,
+    totalPayout,
     free: isFree,
     x2Applied: x2Active && item.value > 0,
     balance: newBalance,
@@ -578,10 +610,10 @@ export const playCaseRound = db.transaction((userId, caseData, resolve) => {
  * получиться «три кейса открылись, четвёртый нет» — либо вся пачка, либо
  * ничего. Каждое открытие внутри само разбирается с ваучером и ×2.
  */
-export const playCaseBatch = db.transaction((userId, caseData, count, resolve) => {
+export const playCaseBatch = db.transaction((userId, caseData, count, resolve, resolveFree) => {
   const results = [];
   for (let i = 0; i < count; i++) {
-    results.push(playCaseRound(userId, caseData, resolve));
+    results.push(playCaseRound(userId, caseData, resolve, resolveFree));
   }
   return results;
 });

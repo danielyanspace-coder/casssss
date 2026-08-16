@@ -300,12 +300,33 @@ function renderCases() {
   // Сезонный кейс идёт витриной над полками, поэтому из общего списка его
   // убираем — иначе он попал бы в полку по цене ещё и вторым экземпляром.
   const featured = all.find((c) => c.availableFrom);
-  const sorted = featured ? all.filter((c) => c !== featured) : all;
+
+  // Направления — отдельная полка по теме, а не по цене: смысл блока в том,
+  // что кейсы в нём связаны идеей, и разброс цен внутри как раз уместен.
+  const country = all.filter((c) => c.category === 'country');
+  const countryIds = new Set(country.map((c) => c.id));
+
+  const sorted = all.filter((c) => c !== featured && !countryIds.has(c.id));
 
   let from = 0;
   const blocks = [];
 
   if (featured) blocks.push(featuredHtml(featured, vouchers));
+
+  if (country.length) {
+    blocks.push(`<section class="shelf shelf-country">
+      <div class="shelf-head">
+        <div>
+          <h2 class="shelf-title">Направления</h2>
+          <div class="shelf-hint">Города, куда хочется попасть</div>
+        </div>
+        <div class="shelf-range">${fmt(country[0].price)} – ${fmt(country[country.length - 1].price)} ₽</div>
+      </div>
+      <div class="shelf-row">
+        ${country.map((c) => caseCardHtml(c, vouchers)).join('')}
+      </div>
+    </section>`);
+  }
 
   for (const shelf of SHELVES) {
     const items = sorted.filter((c) => c.price > from && c.price <= shelf.max);
@@ -565,6 +586,7 @@ async function startOpening(caseId, count = 1) {
   document.getElementById('gamble').hidden = true;
   document.getElementById('gambleStartBtn').hidden = true;
   document.getElementById('batchSummary').hidden = true;
+  document.getElementById('freespins').hidden = true;
   opener.hidden = false;
   document.querySelector('.opener-scroll').scrollTop = 0;
   updateOpenerBalance();
@@ -621,12 +643,116 @@ async function startOpening(caseId, count = 1) {
     if (idx === 0) trackReelTicks(reel, step, DURATION * 1000);
   });
 
-  setTimeout(() => {
+  setTimeout(async () => {
     sndLand();
     haptic('medium');
+
+    // Фриспины проигрываются до итогового экрана: сначала игрок видит, сколько
+    // они принесли, и только потом — общий результат прокрута.
+    for (const g of collectFreeSpins(data)) await runFreeSpins(g, c);
+
     if (count > 1) showBatchResult(data, c);
     else showCaseResult(data, c);
   }, DURATION * 1000 + 150);
+}
+
+/** Все выдачи фриспинов из ответа — и одиночного прокрута, и пачки. */
+function collectFreeSpins(data) {
+  const out = [];
+  for (const g of data.granted || []) if (g.type === 'freespins') out.push(g);
+  for (const o of data.opened || []) {
+    for (const g of o.granted || []) if (g.type === 'freespins') out.push(g);
+  }
+  return out;
+}
+
+/**
+ * Проигрывает серию фриспинов.
+ *
+ * Исход каждого прокрута уже посчитан сервером и лежит в ответе — здесь только
+ * анимация. Сумма копится на экране крупными цифрами: это и есть смысл режима,
+ * поэтому она набирается на глазах, а не появляется готовой в конце.
+ */
+function runFreeSpins(grant, caseData) {
+  const box = document.getElementById('freespins');
+  const reel = document.getElementById('fsReel');
+  const totalEl = document.getElementById('fsTotal');
+  const leftEl = document.getElementById('fsLeft');
+  const logEl = document.getElementById('fsLog');
+  const collectBtn = document.getElementById('fsCollect');
+
+  document.getElementById('result').hidden = true;
+  document.getElementById('batchSummary').hidden = true;
+  box.hidden = false;
+  collectBtn.hidden = true;
+  logEl.innerHTML = '';
+  totalEl.textContent = money(0);
+
+  const SPIN_LEN = 26;
+  const SPIN_WIN = 20;
+  const SPIN_MS = 1000;
+
+  const filler = caseData.items.filter((it) => it.kind === 'item');
+  const pickFiller = () => filler[Math.floor(Math.random() * filler.length)];
+
+  let acc = 0;
+
+  const runOne = (i) => new Promise((done) => {
+    const spin = grant.spins[i];
+    leftEl.textContent = `${i + 1} из ${grant.count}`;
+
+    const strip = [];
+    for (let k = 0; k < SPIN_LEN; k++) strip.push(k === SPIN_WIN ? spin : pickFiller());
+    reel.innerHTML = strip.map(tileHtml).join('');
+
+    reel.style.transition = 'none';
+    reel.style.transform = 'translateX(0)';
+    void reel.offsetWidth;
+
+    const viewport = reel.parentElement.clientWidth;
+    const { tileW, step } = measureReel(reel);
+    const target = SPIN_WIN * step + tileW / 2 - viewport / 2;
+
+    requestAnimationFrame(() => {
+      reel.style.transition = `transform ${SPIN_MS / 1000}s cubic-bezier(0.25, 0, 0.15, 1)`;
+      reel.style.transform = `translateX(${-target}px)`;
+      sndSpinStart();
+
+      setTimeout(() => {
+        sndLand();
+        acc += spin.value;
+        totalEl.textContent = money(acc);
+        // Перезапуск анимации: без сброса класса подряд идущие прибавки
+        // не «подпрыгивают».
+        totalEl.classList.remove('bump');
+        void totalEl.offsetWidth;
+        totalEl.classList.add('bump');
+
+        logEl.insertAdjacentHTML('beforeend',
+          `<span class="fs-chip" style="--tier-color:${tierColor(spin.tier)}">` +
+          `${money(spin.value)}</span>`);
+        haptic('light');
+        done();
+      }, SPIN_MS + 60);
+    });
+  });
+
+  return (async () => {
+    for (let i = 0; i < grant.spins.length; i++) await runOne(i);
+
+    sndBigWin();
+    haptic('success');
+    collectBtn.hidden = false;
+    collectBtn.textContent = `ЗАБРАТЬ ${money(grant.total)}`;
+
+    await new Promise((done) => {
+      collectBtn.addEventListener('click', () => {
+        sndCollect();
+        box.hidden = true;
+        done();
+      }, { once: true });
+    });
+  })();
 }
 
 /** Итог пачки: список выпавшего и суммарный результат. */
@@ -687,6 +813,7 @@ function showCaseResult(data, caseData) {
     if (g.type === 'x2') parts.push('получен ×2 на следующий прокрут');
     if (g.type === 'voucher') parts.push(`подарок: кейс «${g.caseName}»`);
     if (g.type === 'credits') parts.push(`бонус +${fmt(g.amount)}`);
+    if (g.type === 'freespins') parts.push(`${g.count} фриспинов: +${fmt(g.total)}`);
   }
   const netText = data.net >= 0 ? `+${money(data.net)}` : `−${money(Math.abs(data.net))}`;
   net.innerHTML = `${netText}${parts.length ? '<br>' + esc(parts.join(' · ')) : ''}`;
@@ -1767,6 +1894,14 @@ function buildFooter() {
   const footer = document.getElementById('siteFooter');
   footer.innerHTML = footerHtml();
 
+  footer.querySelectorAll('[data-view]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      switchView(btn.dataset.view);
+      renderFair();
+      haptic('light');
+    });
+  });
+
   footer.querySelectorAll('[data-doc]').forEach((btn) => {
     btn.addEventListener('click', () => openDoc(btn.dataset.doc));
   });
@@ -1809,6 +1944,7 @@ document.querySelectorAll('.nav-btn').forEach((btn) => {
     haptic('light');
 
     if (btn.dataset.view === 'fair') renderFair();
+    if (btn.dataset.view === 'wallet') loadWallet();
     if (btn.dataset.view === 'roulette') renderRouletteReel(2);
     if (btn.dataset.view === 'admin') loadAdminOverview();
   });

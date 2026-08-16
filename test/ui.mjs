@@ -332,14 +332,34 @@ await page.waitForTimeout(400);
 check('краш: экран открывается',
       await page.isVisible('#crashActionBtn'));
 
-await page.click('.nav-btn[data-view="fair"]');
-await page.waitForTimeout(400);
+/* ---------- Касса и честность ---------- */
+
+const menu = await page.evaluate(() =>
+  [...document.querySelectorAll('.nav-btn')].filter((b) => !b.hidden)
+    .map((b) => b.textContent.trim()));
+check('меню: «Честность» убрана', !menu.some((m) => /Честность/.test(m)), menu.join(', '));
+check('меню: появилась «Касса»', menu.some((m) => /Касса/.test(m)), menu.join(', '));
+
+await page.click('.nav-btn[data-view="wallet"]');
+await page.waitForTimeout(500);
+check('касса: экран открывается по кнопке меню',
+      await page.isVisible('#walletBalance'));
+
+// Экран честности остался, но попасть на него теперь можно только из подвала.
+await page.evaluate(() => {
+  const link = document.querySelector('#siteFooter [data-view="fair"]');
+  link.scrollIntoView({ block: 'center' });
+  link.click();
+});
+await page.waitForTimeout(500);
 const fair = await page.evaluate(() => ({
   hash: document.getElementById('serverHash').textContent.trim().length,
   stats: document.querySelectorAll('#statsGrid .stat-card').length,
+  visible: document.getElementById('view-fair').classList.contains('active'),
 }));
+check('честность: открывается ссылкой из подвала', fair.visible);
 check('честность: хеш серверного seed показан', fair.hash === 64, `длина ${fair.hash}`);
-check('честность: статистика переехала сюда', fair.stats > 0, `карточек ${fair.stats}`);
+check('честность: статистика на месте', fair.stats > 0, `карточек ${fair.stats}`);
 
 /* ---------- Итог ---------- */
 

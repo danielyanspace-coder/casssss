@@ -12,7 +12,9 @@ import express from 'express';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
-import { CASES, CATEGORIES, getCase, pickItem, publicCase, validateCases, TIERS } from './cases.js';
+import {
+  CASES, CATEGORIES, getCase, pickItem, pickFreeItem, publicCase, validateCases, TIERS,
+} from './cases.js';
 import {
   CRASH_CONFIG,
   ROULETTE_CONFIG,
@@ -221,6 +223,9 @@ app.post('/api/open', auth, (req, res) => {
     results = playCaseBatch(user.id, caseData, count, (serverSeed, clientSeed, nonce) => {
       const roll = computeRoll(serverSeed, clientSeed, nonce);
       return { item: pickItem(caseData, roll), roll };
+    }, (serverSeed, clientSeed, nonce) => {
+      const roll = computeRoll(serverSeed, clientSeed, nonce);
+      return { item: pickFreeItem(caseData, roll), roll };
     });
   } catch (err) {
     if (err.code === 'INSUFFICIENT_FUNDS') return sendInsufficient(res, need - user.balance);
@@ -243,7 +248,7 @@ app.post('/api/open', auth, (req, res) => {
     })),
     free: result.free,
     x2Applied: result.x2Applied,
-    net: result.payout - (result.free ? 0 : caseData.price),
+    net: result.totalPayout - (result.free ? 0 : caseData.price),
     fair: { roll: result.roll, nonce: result.nonce },
   }));
 

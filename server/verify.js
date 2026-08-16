@@ -8,7 +8,7 @@
  * таблице вероятностей.
  */
 
-import { CASES, pickItem, validateCases } from './cases.js';
+import { CASES, pickItem, pickFreeItem, validateCases } from './cases.js';
 import {
   CRASH_CONFIG,
   ROULETTE_CONFIG,
@@ -127,6 +127,14 @@ console.log('\n=== Кейсы с плюшками: симуляция цепоч
           // Бесплатное открытие стоит игроку 0, а приносит полное EV кейса.
           const gift = CASES.find((g) => g.id === item.perk.caseId);
           round += gift.price * gift.rtp;
+        }
+        if (item.perk.type === 'freespins') {
+          // Серия проигрывается так же, как в игре: по обычной части таблицы,
+          // каждый прокрут со своим роллом.
+          for (let k = 0; k < item.perk.count; k++) {
+            const fRoll = computeRoll(serverSeed, `perk:${c.id}:fs`, n * 100 + k);
+            round += pickFreeItem(c, fRoll).value;
+          }
         }
       }
 

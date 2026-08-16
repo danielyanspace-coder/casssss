@@ -69,6 +69,12 @@ const drawTables = CASES.map((c) => ({
     perkLabel: it.perkLabel || null,
     cumulative: it.cumulative,
   })),
+  freeItems: c.freeItems.map((it) => ({
+    name: it.name,
+    value: it.value,
+    tier: it.tier,
+    cumulative: it.cumulative,
+  })),
 }));
 
 /* ---------- Исходники клиента ---------- */
@@ -298,6 +304,12 @@ function pickItem(table, roll) {
   return table.items[table.items.length - 1];
 }
 
+/* Фриспин крутит обычную часть таблицы: плюшки и джекпот в неё не входят. */
+function pickFreeItem(table, roll) {
+  for (const it of table.freeItems) if (roll < it.cumulative) return it;
+  return table.freeItems[table.freeItems.length - 1];
+}
+
 function pushRound(round) {
   store.user.rounds.unshift({ ...round, created_at: Date.now() });
   store.user.rounds = store.user.rounds.slice(0, 120);
@@ -320,6 +332,7 @@ function openOnce(table) {
     const payout = item.value * (x2Active && item.value > 0 ? 2 : 1);
 
     const granted = [];
+    let freeSpinsPayout = 0;
     if (item.perk) {
       if (item.perk.type === 'credits') granted.push({ type: 'credits', amount: item.value });
       if (item.perk.type === 'voucher') {
@@ -328,24 +341,40 @@ function openOnce(table) {
           caseName: DRAW_BY_ID.get(item.perk.caseId)?.name });
       }
       if (item.perk.type === 'x2') granted.push({ type: 'x2', caseId: table.id });
+      if (item.perk.type === 'freespins') {
+        const spins = [];
+        for (let i = 0; i < item.perk.count; i++) {
+          u.nonce++;
+          const fRoll = computeRoll(u.serverSeed, u.clientSeed, u.nonce);
+          const fItem = pickFreeItem(table, fRoll);
+          freeSpinsPayout += fItem.value;
+          spins.push({ name: fItem.name, value: fItem.value, tier: fItem.tier,
+            roll: fRoll, nonce: u.nonce });
+        }
+        granted.push({ type: 'freespins', caseId: table.id,
+          count: item.perk.count, spins, total: freeSpinsPayout });
+      }
     }
 
     if (free) u.vouchers[table.id]--;
     u.x2CaseId = item.perk?.type === 'x2' ? table.id : (x2Active ? null : u.x2CaseId);
 
     const spent = free ? 0 : table.price;
-    u.balance += payout - spent;
+    const totalPayout = payout + freeSpinsPayout;
+    u.balance += totalPayout - spent;
     u.stats.rounds++;
     u.stats.spent += spent;
-    u.stats.won += payout;
-    if (!free) u.stats.bestMultiplier = Math.max(u.stats.bestMultiplier, payout / table.price);
+    u.stats.won += totalPayout;
+    if (!free) {
+      u.stats.bestMultiplier = Math.max(u.stats.bestMultiplier, totalPayout / table.price);
+    }
 
     u.gambleStake = payout > 0 ? payout : 0;
 
     pushRound({
       game: 'case', title: table.name,
       subtitle: item.name + (x2Active && item.value > 0 ? ' (×2)' : ''),
-      bet: spent, payout, multiplier: free ? 0 : payout / table.price,
+      bet: spent, payout: totalPayout, multiplier: free ? 0 : totalPayout / table.price,
       tier: item.tier, free: free ? 1 : 0,
     });
     return {
@@ -353,7 +382,7 @@ function openOnce(table) {
               tier: item.tier, perkLabel: item.perkLabel,
               multiplier: Number((payout / table.price).toFixed(2)) },
       granted, free, x2Applied: x2Active && item.value > 0,
-      net: payout - spent,
+      net: totalPayout - spent,
       fair: { roll, nonce: u.nonce },
     };
 }
