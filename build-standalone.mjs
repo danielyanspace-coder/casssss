@@ -160,7 +160,29 @@ const FEED_NICK_TAIL = ${JSON.stringify([
   '', '', '_', 'x', 'ka', 'off', 'ov', '77', '01', '_ru', 'pro', 'dev',
   '2k', 'ix', 'er', 'yy', '99', '13', '_tg', 'zz',
 ])};
+
+const FEED_STEP_MS = 2000;
+const FEED_TOTAL_WEIGHT = FEED_POOL.reduce((s, p) => s + p.weight, 0);
+
 let feedSeq = 1;
+let feedLastAt = Date.now();
+
+function makeFeedDrop(at) {
+  let r = Math.random() * FEED_TOTAL_WEIGHT;
+  let pick = FEED_POOL[FEED_POOL.length - 1];
+  for (const entry of FEED_POOL) {
+    r -= entry.weight;
+    if (r <= 0) { pick = entry; break; }
+  }
+  const head = FEED_NICK_HEAD[Math.floor(Math.random() * FEED_NICK_HEAD.length)];
+  const tail = FEED_NICK_TAIL[Math.floor(Math.random() * FEED_NICK_TAIL.length)];
+  return { id: 'd' + (feedSeq++), nick: head + tail, ...pick, at };
+}
+
+// Лента не должна открываться пустой — набиваем историю сразу.
+const feedRing = [];
+for (let i = 23; i >= 0; i--) feedRing.push(makeFeedDrop(feedLastAt - i * FEED_STEP_MS));
+feedRing.reverse();
 
 /* ---------- SHA-256 и HMAC на чистом JS ----------
    Своя реализация, а не crypto.subtle: тот доступен только в защищённом
@@ -572,25 +594,27 @@ const routes = {
              fair: { roll, nonce: u.nonce }, user: publicUser() };
   },
 
-  /* Витрина: в автономной сборке других игроков нет, лента целиком
-     выдуманная. Обычные исходы в неё не попадают — см. NEDOSTATOK.md. */
+  /* Лента выигрышей: в автономной сборке других игроков нет, поэтому она
+     целиком выдуманная — см. NEDOSTATOK.md. Обычные исходы в неё не попадают.
+
+     Кольцо живёт между запросами, а не пересобирается заново: клиент
+     показывает только записи, которых ещё не видел, и лента из свежих
+     двадцати четырёх на каждый опрос заваливала бы его целиком. */
   'GET /api/feed': () => {
-    const total = FEED_POOL.reduce((s, p) => s + p.weight, 0);
-    const drops = [];
+    const now = Date.now();
+    const due = Math.min(24, Math.floor((now - feedLastAt) / FEED_STEP_MS));
 
-    for (let i = 0; i < 24; i++) {
-      let r = Math.random() * total;
-      let pick = FEED_POOL[FEED_POOL.length - 1];
-      for (const entry of FEED_POOL) {
-        r -= entry.weight;
-        if (r <= 0) { pick = entry; break; }
-      }
-      const head = FEED_NICK_HEAD[Math.floor(Math.random() * FEED_NICK_HEAD.length)];
-      const tail = FEED_NICK_TAIL[Math.floor(Math.random() * FEED_NICK_TAIL.length)];
-      drops.push({ id: 'd' + (feedSeq++), nick: head + tail, ...pick, at: Date.now() - i * 2500 });
+    for (let i = 0; i < due; i++) {
+      feedLastAt += FEED_STEP_MS;
+      feedRing.unshift(makeFeedDrop(feedLastAt));
     }
+    if (feedRing.length > 40) feedRing.length = 40;
 
-    return { drops, minMultiplier: CONFIG.feed.minMultiplier, minValue: CONFIG.feed.minValue };
+    return {
+      drops: feedRing.slice(0, 24),
+      minMultiplier: CONFIG.feed.minMultiplier,
+      minValue: CONFIG.feed.minValue,
+    };
   },
 
   'POST /api/free-case/state': () => ({ enabled: false }),

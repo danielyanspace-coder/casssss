@@ -71,10 +71,7 @@ async function api(path, body) {
 
 const fmt = (n) => Number(n).toLocaleString('ru-RU');
 
-/**
- * Сумма с символом валюты. Символ добавлен только ради вида — баланс
- * остаётся условными единицами, платежей и вывода в проекте нет.
- */
+/** Сумма с символом валюты. */
 const money = (n) => fmt(n) + ' ₽';
 const esc = (s) => String(s ?? '').replace(/[<>&"]/g, (c) =>
   ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]));
@@ -836,6 +833,14 @@ function showCaseResult(data, caseData) {
   updateOpenerBalance();
   loadCaseHistory(caseData.name);
   state.busy = false;
+
+  // Крупный выигрыш игрока должен попасть в ленту сразу, а не в следующий
+  // плановый опрос: сервер уже записал раунд, осталось его забрать.
+  const feedMin = state.config?.feed;
+  if (feedMin && item.value >= feedMin.minValue
+      && item.value / caseData.price >= feedMin.minMultiplier) {
+    setTimeout(pollFeed, 400);
+  }
 
   sndReveal(item.tier);
   if (item.multiplier >= 5) sndBigWin();
@@ -1971,26 +1976,48 @@ document.getElementById('withdrawSubmit').addEventListener('click', async () => 
 });
 
 /* ============================================================
-   ВИТРИНА КРУПНЫХ ВЫПАДЕНИЙ
+   ЛЕНТА ВЫИГРЫШЕЙ
    ============================================================ */
 
 /**
- * Лента под шапкой. Показывает только дорогие выпадения — обычный серый
- * исход в неё не попадает, поэтому и подписана «Крупные выпадения».
+ * Лента под шапкой. Показывает только крупные выигрыши — обычный исход в
+ * неё не попадает, поэтому и подписана «Последние большие выигрыши».
  *
- * Часть записей приходит с сервера как выдуманные: пока живых игроков нет,
- * настоящая лента была бы пустой. Подробности — в NEDOSTATOK.md.
+ * ПОЧЕМУ НЕ ПЕРЕРИСОВЫВАЕМ ЦЕЛИКОМ. Раньше опрос заменял содержимое ленты
+ * разом, и она моргала. Теперь новые выигрыши въезжают по одному слева,
+ * сдвигая остальные вправо, — как настоящая живая лента.
+ *
+ * ПОЧЕМУ ОЧЕРЕДЬ. Сервер добавляет выигрыш каждые две секунды, но сеть
+ * отвечает неровно: опрос с тем же периодом приносил бы то ноль записей,
+ * то сразу две, и лента дёргалась бы. Поэтому опрос идёт реже и складывает
+ * новое в очередь, а отдельный таймер достаёт оттуда ровно по одной штуке
+ * раз в две секунды.
+ *
+ * Выигрыш самого игрока попадает в ленту так же, как чужие: сервер отдаёт
+ * его из истории раундов. Чтобы он появился сразу, а не в следующий опрос,
+ * после крупного выпадения дёргаем pollFeed() вручную.
  */
 const FEED_LIMIT = 24;
-const FEED_POLL_MS = 3000;
 
-/** Ключи уже показанных записей — чтобы анимировать только новые. */
+/** Как часто спрашиваем сервер о новых выигрышах. */
+const FEED_POLL_MS = 6000;
+
+/** С каким шагом они въезжают в ленту. */
+const FEED_STEP_MS = 2000;
+
+/** Сколько карточек держим в DOM. */
+const FEED_MAX_CARDS = 20;
+
+/** Ключи уже показанных записей — иначе один выигрыш въехал бы дважды. */
 const feedSeen = new Set();
 
-function feedCardHtml(drop, isNew) {
+/** Выигрыши, дождавшиеся своей очереди на показ. */
+const feedQueue = [];
+
+function feedCardHtml(drop) {
   const color = tierColor(drop.tier);
   const art = itemArt(drop.name, color) || iconTier(drop.tier, color);
-  return `<div class="feed-card${isNew ? ' is-new' : ''}" style="--tier-color:${color}">
+  return `<div class="feed-card is-new" style="--tier-color:${color}">
     <div class="feed-art">${art}</div>
     <div class="feed-name">${esc(drop.name)}</div>
     <div class="feed-value">${money(drop.value)}</div>
@@ -1998,33 +2025,63 @@ function feedCardHtml(drop, isNew) {
   </div>`;
 }
 
-async function loadFeed() {
+/** Ставит одну карточку в начало ленты и убирает лишнее с хвоста. */
+function pushFeedCard(drop, animate = true) {
   const track = document.getElementById('feedTrack');
   if (!track) return;
 
+  track.insertAdjacentHTML('afterbegin', feedCardHtml(drop));
+  if (!animate) track.firstElementChild.classList.remove('is-new');
+
+  while (track.children.length > FEED_MAX_CARDS) track.lastElementChild.remove();
+  document.getElementById('feed').hidden = false;
+}
+
+async function pollFeed() {
   let drops;
   try {
     const res = await fetch(`/api/feed?limit=${FEED_LIMIT}`);
     ({ drops } = await res.json());
   } catch {
-    return; // Витрина необязательна: молча ждём следующего опроса.
+    return; // Лента необязательна: молча ждём следующего опроса.
   }
   if (!drops?.length) return;
 
-  const first = feedSeen.size === 0;
-  track.innerHTML = drops.map((d) => feedCardHtml(d, !first && !feedSeen.has(d.id))).join('');
+  // Первый заход наполняет ленту сразу, без анимации: пустая полоса,
+  // которая заполняется по одной карточке за две секунды, выглядит поломкой.
+  if (feedSeen.size === 0) {
+    for (const d of drops.slice(0, FEED_MAX_CARDS).reverse()) {
+      feedSeen.add(d.id);
+      pushFeedCard(d, false);
+    }
+    for (const d of drops) feedSeen.add(d.id);
+    return;
+  }
 
-  // Множество могло бы расти бесконечно — держим только то, что на экране.
-  feedSeen.clear();
-  for (const d of drops) feedSeen.add(d.id);
+  // Сервер отдаёт свежие первыми, а въезжать они должны в обратном порядке.
+  for (const d of [...drops].reverse()) {
+    if (feedSeen.has(d.id)) continue;
+    feedSeen.add(d.id);
+    feedQueue.push(d);
+  }
 
-  document.getElementById('feed').hidden = false;
+  // Множество не должно расти бесконечно: помним только последнюю партию.
+  if (feedSeen.size > 400) {
+    feedSeen.clear();
+    for (const d of drops) feedSeen.add(d.id);
+  }
 }
 
 function startFeed() {
-  loadFeed();
-  if (state.feedTimer) clearInterval(state.feedTimer);
-  state.feedTimer = setInterval(loadFeed, FEED_POLL_MS);
+  pollFeed();
+  if (state.feedTimers) state.feedTimers.forEach(clearInterval);
+  state.feedTimers = [
+    setInterval(pollFeed, FEED_POLL_MS),
+    setInterval(() => {
+      const next = feedQueue.shift();
+      if (next) pushFeedCard(next);
+    }, FEED_STEP_MS),
+  ];
 }
 
 /* ============================================================

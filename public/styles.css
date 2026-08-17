@@ -55,9 +55,11 @@ html, body {
   font-size: 17px;
 }
 
+/* Отступ снизу был рассчитан на нижнюю панель навигации. Панель убрана, и
+   отступ остался пустой полосой в 84 пикселя под каждым экраном. */
 body {
   min-height: 100vh;
-  padding-bottom: calc(84px + var(--safe-bottom));
+  padding-bottom: calc(12px + var(--safe-bottom));
   overflow-x: hidden;
 }
 
@@ -1950,7 +1952,9 @@ select.seed-input {
   background: rgba(6, 1, 12, 0.82);
   backdrop-filter: blur(6px);
   display: flex; align-items: flex-start; justify-content: center;
-  padding: 16px;
+  /* Отступ сверху заметный: меню открывается кнопкой в шапке, и лист,
+     прижатый к самому верху, наезжал на неё. */
+  padding: 76px 16px 24px;
   overflow-y: auto;
 }
 
@@ -1966,13 +1970,16 @@ select.seed-input {
 .menu-title { font-size: 18px; font-weight: 900; }
 
 /* Почти квадратные плитки: два в ряд на телефоне. */
-.menu-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+.menu-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
 
+/* Плитки были почти квадратные и занимали весь первый экран.
+   Фиксированная невысокая строка вместо пропорции — содержимого в плитке
+   на квадрат всё равно не набирается. */
 .menu-tile {
-  aspect-ratio: 1 / 0.82;
-  display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-end;
-  gap: 2px;
-  padding: 14px;
+  min-height: 74px;
+  display: flex; flex-direction: column; align-items: flex-start; justify-content: center;
+  gap: 1px;
+  padding: 10px 12px;
   text-align: left;
   border-radius: 18px;
   background: linear-gradient(155deg, rgba(255, 46, 138, 0.16), rgba(10, 2, 18, 0.7));
@@ -1982,14 +1989,14 @@ select.seed-input {
 }
 .menu-tile:active { transform: scale(0.96); }
 .menu-tile::after {
-  content: ''; position: absolute; inset: -40% -40% auto auto;
-  width: 120px; height: 120px; border-radius: 50%;
+  content: ''; position: absolute; inset: -60% -30% auto auto;
+  width: 90px; height: 90px; border-radius: 50%;
   background: radial-gradient(circle, rgba(0, 240, 255, 0.22), transparent 70%);
 }
-.menu-tile-ico { width: 30px; height: 30px; color: var(--cyan); margin-bottom: auto; }
+.menu-tile-ico { width: 22px; height: 22px; color: var(--cyan); margin-bottom: 5px; }
 .menu-tile-ico svg { width: 100%; height: 100%; }
-.menu-tile-title { font-size: 15.5px; font-weight: 900; }
-.menu-tile-sub { font-size: 11px; color: var(--muted); }
+.menu-tile-title { font-size: 14px; font-weight: 900; line-height: 1.15; }
+.menu-tile-sub { font-size: 10.5px; color: var(--muted); line-height: 1.2; }
 
 @media (min-width: 560px) {
   .menu-grid { grid-template-columns: repeat(3, 1fr); }
@@ -2117,26 +2124,30 @@ select.seed-input {
 }
 
 /* ============================================================
-   ВИТРИНА КРУПНЫХ ВЫПАДЕНИЙ
+   ЛЕНТА ВЫИГРЫШЕЙ
    ============================================================ */
 
+/* Ширина карточки вынесена в переменную: её же использует анимация
+   въезда, а два разных числа рано или поздно разъезжаются. */
 .feed {
-  margin: 0 0 16px;
-  padding: 12px 0 14px;
-  border-radius: var(--radius);
+  --feed-w: 96px;
+  --feed-gap: 8px;
+  margin: 0 0 14px;
+  padding: 9px 0 10px;
+  border-radius: 16px;
   background: linear-gradient(180deg, rgba(160, 32, 255, 0.16), rgba(13, 3, 24, 0));
   border: 1px solid var(--line);
   overflow: hidden;
 }
 
 .feed-head {
-  display: flex; align-items: center; gap: 8px;
-  padding: 0 16px 10px;
+  display: flex; align-items: center; gap: 7px;
+  padding: 0 14px 8px;
 }
 
 /* Пульсирующая точка: единственный намёк, что лента живая. */
 .feed-dot {
-  width: 7px; height: 7px; border-radius: 50%;
+  width: 6px; height: 6px; border-radius: 50%;
   background: var(--green);
   box-shadow: 0 0 10px var(--green);
   animation: feedPulse 1.8s ease-in-out infinite;
@@ -2148,14 +2159,17 @@ select.seed-input {
 }
 
 .feed-title {
-  font-size: 11px; font-weight: 900; letter-spacing: 1.4px;
+  font-size: 10px; font-weight: 900; letter-spacing: 1.2px;
   text-transform: uppercase; color: var(--muted);
 }
 
-/* Горизонтальная лента. Свайп пальцем работает, полосу прокрутки прячем. */
+/* Горизонтальная лента. Свайп пальцем работает, полосу прокрутки прячем.
+   Промежуток задан полем карточки, а не gap: gap нельзя анимировать у
+   отдельного элемента, а въезжающая карточка должна раздвигать соседей
+   вместе со своим отступом. */
 .feed-track {
-  display: flex; gap: 10px;
-  padding: 0 16px;
+  display: flex;
+  padding: 0 14px;
   overflow-x: auto;
   scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
@@ -2164,44 +2178,55 @@ select.seed-input {
 
 .feed-card {
   flex: 0 0 auto;
-  width: 128px;
-  padding: 10px;
-  border-radius: 14px;
+  width: var(--feed-w);
+  max-width: var(--feed-w);
+  margin-right: var(--feed-gap);
+  padding: 7px 6px;
+  border-radius: 11px;
   background: var(--card);
   border: 1px solid var(--tier-color, var(--line));
-  border-top: 3px solid var(--tier-color, var(--line));
+  border-top: 2px solid var(--tier-color, var(--line));
   text-align: center;
+  overflow: hidden;
 }
 
-/* Новые карточки въезжают слева, а не появляются рывком. */
-.feed-card.is-new { animation: feedIn 0.5s cubic-bezier(0.22, 1, 0.36, 1); }
+/* Новый выигрыш въезжает слева, раздвигая остальные вправо. */
+.feed-card.is-new { animation: feedIn 0.55s cubic-bezier(0.22, 1, 0.36, 1); }
 
 @keyframes feedIn {
-  from { opacity: 0; transform: translateX(-26px) scale(0.9); }
-  to   { opacity: 1; transform: none; }
+  from {
+    max-width: 0; margin-right: 0; padding-left: 0; padding-right: 0;
+    opacity: 0; transform: scale(0.8);
+  }
+  to {
+    max-width: var(--feed-w); margin-right: var(--feed-gap);
+    padding-left: 6px; padding-right: 6px;
+    opacity: 1; transform: none;
+  }
 }
 
 .feed-art {
-  width: 42px; height: 42px; margin: 0 auto 6px;
+  width: 28px; height: 28px; margin: 0 auto 4px;
   display: flex; align-items: center; justify-content: center;
 }
 .feed-art svg { width: 100%; height: 100%; }
 
 .feed-name {
-  font-size: 10.5px; font-weight: 700; line-height: 1.25;
-  height: 26px; overflow: hidden;
+  font-size: 9px; font-weight: 700; line-height: 1.2;
+  height: 22px; overflow: hidden;
   color: var(--text);
 }
 
 .feed-value {
-  font-size: 13px; font-weight: 900;
+  font-size: 11.5px; font-weight: 900;
   color: var(--tier-color, var(--text));
-  margin-top: 4px;
+  margin-top: 3px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
 .feed-nick {
-  font-size: 9.5px; color: var(--muted);
-  margin-top: 3px;
+  font-size: 8.5px; color: var(--muted);
+  margin-top: 2px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
@@ -2251,9 +2276,18 @@ select.seed-input {
    АПГРЕЙД
    ============================================================ */
 
+/* Экран апгрейда собран так, чтобы кольцо, множители, ставка и кнопка
+   помещались на телефон целиком: листать вниз ради каждого запуска — это
+   лишнее движение на самом частом действии раздела.
+   Кольцо ограничено и по ширине, и по высоте видимой области. */
+#view-upgrade.view { padding-bottom: 8px; }
+#view-upgrade .game-head { margin-bottom: 8px; }
+#view-upgrade .game-title { font-size: 26px; letter-spacing: 2px; }
+#view-upgrade .game-sub { font-size: 11.5px; margin-top: 4px; }
+
 .upg-stage {
   position: relative;
-  max-width: 340px;
+  width: min(100%, 250px, 34vh);
   margin: 0 auto;
   aspect-ratio: 1;
 }
@@ -2310,21 +2344,21 @@ select.seed-input {
 }
 
 .upg-label {
-  font-size: 10px; font-weight: 900; letter-spacing: 2px;
+  font-size: 9px; font-weight: 900; letter-spacing: 2px;
   color: var(--muted);
 }
 
 .upg-target {
-  font-size: 34px; font-weight: 900; line-height: 1.1;
-  margin-top: 4px;
+  font-size: clamp(20px, 7vw, 28px); font-weight: 900; line-height: 1.1;
+  margin-top: 3px;
   background: linear-gradient(90deg, var(--cyan), var(--pink));
   -webkit-background-clip: text; background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 
 .upg-mult {
-  margin-top: 6px;
-  padding: 4px 12px;
+  margin-top: 5px;
+  padding: 3px 10px;
   border-radius: 999px;
   background: rgba(255, 214, 10, 0.14);
   border: 1px solid var(--gold);
@@ -2333,10 +2367,10 @@ select.seed-input {
 }
 
 .upg-outcome {
-  min-height: 30px;
-  margin: 10px 0 4px;
+  min-height: 22px;
+  margin: 6px 0 2px;
   text-align: center;
-  font-size: 17px; font-weight: 900;
+  font-size: 15px; font-weight: 900;
 }
 .upg-outcome.win  { color: var(--green); text-shadow: 0 0 18px rgba(0, 255, 157, 0.6); }
 .upg-outcome.lose { color: var(--muted); }
@@ -2344,21 +2378,41 @@ select.seed-input {
 .upg-picker {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
-  margin-top: 8px;
+  gap: 6px;
+  margin-top: 4px;
 }
 
 .upg-opt {
-  padding: 12px 4px;
-  border-radius: 14px;
-  border: 2px solid var(--line);
+  padding: 8px 3px;
+  border-radius: 11px;
+  border: 1.5px solid var(--line);
   background: var(--card);
   color: var(--text);
   font-family: inherit;
-  font-size: 15px; font-weight: 900;
+  font-size: 13.5px; font-weight: 900;
   cursor: pointer;
   transition: all 0.15s;
 }
+
+/* Панель ставки на этом экране плотнее общей: там, где у краша и рулетки
+   есть место, здесь его съедает кольцо. */
+#view-upgrade .bet-panel { margin-top: 8px; padding: 10px; border-radius: 16px; }
+#view-upgrade .bet-row { margin-bottom: 7px; }
+#view-upgrade .bet-input { padding: 10px 12px; font-size: 17px; }
+#view-upgrade .bet-quick .chip,
+#view-upgrade .bet-chips .chip { padding: 7px 6px; font-size: 12.5px; border-radius: 10px; }
+#view-upgrade .bet-chips { margin-bottom: 0; }
+
+/* Низкий экран: подзаголовок уходит, заголовок ужимается. Правило раздела
+   важнее вводной фразы, если выбор стоит между ней и кнопкой запуска. */
+@media (max-height: 700px) {
+  #view-upgrade .game-sub { display: none; }
+  #view-upgrade .game-title { font-size: 21px; }
+  #view-upgrade .game-head { margin-bottom: 4px; }
+  .upg-picker { gap: 5px; }
+  .upg-opt { padding: 6px 3px; font-size: 12.5px; }
+}
+#view-upgrade .btn-huge { margin-top: 8px; padding: 14px; font-size: 17px; }
 
 .upg-opt.active {
   border-color: var(--gold);
@@ -2375,5 +2429,5 @@ select.seed-input {
 
 @media (min-width: 700px) {
   .upg-picker { grid-template-columns: repeat(8, 1fr); }
-  .feed-card { width: 148px; }
+  .feed { --feed-w: 116px; }
 }

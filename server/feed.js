@@ -31,8 +31,8 @@ export const FEED_MIN_VALUE = 500;
 /** Сколько записей держим в памяти. */
 const CAPACITY = 60;
 
-/** Как часто добавляется выдуманное выпадение. */
-const INTERVAL_MS = 2500;
+/** Как часто добавляется выпадение. */
+const INTERVAL_MS = 2000;
 
 /** Выключатель выдуманных выпадений. */
 export const FEED_SYNTHETIC = process.env.FEED_SYNTHETIC !== '0';

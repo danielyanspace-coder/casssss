@@ -62,9 +62,11 @@ html, body {
   font-size: 17px;
 }
 
+/* Отступ снизу был рассчитан на нижнюю панель навигации. Панель убрана, и
+   отступ остался пустой полосой в 84 пикселя под каждым экраном. */
 body {
   min-height: 100vh;
-  padding-bottom: calc(84px + var(--safe-bottom));
+  padding-bottom: calc(12px + var(--safe-bottom));
   overflow-x: hidden;
 }
 
@@ -1957,7 +1959,9 @@ select.seed-input {
   background: rgba(6, 1, 12, 0.82);
   backdrop-filter: blur(6px);
   display: flex; align-items: flex-start; justify-content: center;
-  padding: 16px;
+  /* Отступ сверху заметный: меню открывается кнопкой в шапке, и лист,
+     прижатый к самому верху, наезжал на неё. */
+  padding: 76px 16px 24px;
   overflow-y: auto;
 }
 
@@ -1973,13 +1977,16 @@ select.seed-input {
 .menu-title { font-size: 18px; font-weight: 900; }
 
 /* Почти квадратные плитки: два в ряд на телефоне. */
-.menu-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+.menu-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
 
+/* Плитки были почти квадратные и занимали весь первый экран.
+   Фиксированная невысокая строка вместо пропорции — содержимого в плитке
+   на квадрат всё равно не набирается. */
 .menu-tile {
-  aspect-ratio: 1 / 0.82;
-  display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-end;
-  gap: 2px;
-  padding: 14px;
+  min-height: 74px;
+  display: flex; flex-direction: column; align-items: flex-start; justify-content: center;
+  gap: 1px;
+  padding: 10px 12px;
   text-align: left;
   border-radius: 18px;
   background: linear-gradient(155deg, rgba(255, 46, 138, 0.16), rgba(10, 2, 18, 0.7));
@@ -1989,14 +1996,14 @@ select.seed-input {
 }
 .menu-tile:active { transform: scale(0.96); }
 .menu-tile::after {
-  content: ''; position: absolute; inset: -40% -40% auto auto;
-  width: 120px; height: 120px; border-radius: 50%;
+  content: ''; position: absolute; inset: -60% -30% auto auto;
+  width: 90px; height: 90px; border-radius: 50%;
   background: radial-gradient(circle, rgba(0, 240, 255, 0.22), transparent 70%);
 }
-.menu-tile-ico { width: 30px; height: 30px; color: var(--cyan); margin-bottom: auto; }
+.menu-tile-ico { width: 22px; height: 22px; color: var(--cyan); margin-bottom: 5px; }
 .menu-tile-ico svg { width: 100%; height: 100%; }
-.menu-tile-title { font-size: 15.5px; font-weight: 900; }
-.menu-tile-sub { font-size: 11px; color: var(--muted); }
+.menu-tile-title { font-size: 14px; font-weight: 900; line-height: 1.15; }
+.menu-tile-sub { font-size: 10.5px; color: var(--muted); line-height: 1.2; }
 
 @media (min-width: 560px) {
   .menu-grid { grid-template-columns: repeat(3, 1fr); }
@@ -2124,26 +2131,30 @@ select.seed-input {
 }
 
 /* ============================================================
-   ВИТРИНА КРУПНЫХ ВЫПАДЕНИЙ
+   ЛЕНТА ВЫИГРЫШЕЙ
    ============================================================ */
 
+/* Ширина карточки вынесена в переменную: её же использует анимация
+   въезда, а два разных числа рано или поздно разъезжаются. */
 .feed {
-  margin: 0 0 16px;
-  padding: 12px 0 14px;
-  border-radius: var(--radius);
+  --feed-w: 96px;
+  --feed-gap: 8px;
+  margin: 0 0 14px;
+  padding: 9px 0 10px;
+  border-radius: 16px;
   background: linear-gradient(180deg, rgba(160, 32, 255, 0.16), rgba(13, 3, 24, 0));
   border: 1px solid var(--line);
   overflow: hidden;
 }
 
 .feed-head {
-  display: flex; align-items: center; gap: 8px;
-  padding: 0 16px 10px;
+  display: flex; align-items: center; gap: 7px;
+  padding: 0 14px 8px;
 }
 
 /* Пульсирующая точка: единственный намёк, что лента живая. */
 .feed-dot {
-  width: 7px; height: 7px; border-radius: 50%;
+  width: 6px; height: 6px; border-radius: 50%;
   background: var(--green);
   box-shadow: 0 0 10px var(--green);
   animation: feedPulse 1.8s ease-in-out infinite;
@@ -2155,14 +2166,17 @@ select.seed-input {
 }
 
 .feed-title {
-  font-size: 11px; font-weight: 900; letter-spacing: 1.4px;
+  font-size: 10px; font-weight: 900; letter-spacing: 1.2px;
   text-transform: uppercase; color: var(--muted);
 }
 
-/* Горизонтальная лента. Свайп пальцем работает, полосу прокрутки прячем. */
+/* Горизонтальная лента. Свайп пальцем работает, полосу прокрутки прячем.
+   Промежуток задан полем карточки, а не gap: gap нельзя анимировать у
+   отдельного элемента, а въезжающая карточка должна раздвигать соседей
+   вместе со своим отступом. */
 .feed-track {
-  display: flex; gap: 10px;
-  padding: 0 16px;
+  display: flex;
+  padding: 0 14px;
   overflow-x: auto;
   scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
@@ -2171,44 +2185,55 @@ select.seed-input {
 
 .feed-card {
   flex: 0 0 auto;
-  width: 128px;
-  padding: 10px;
-  border-radius: 14px;
+  width: var(--feed-w);
+  max-width: var(--feed-w);
+  margin-right: var(--feed-gap);
+  padding: 7px 6px;
+  border-radius: 11px;
   background: var(--card);
   border: 1px solid var(--tier-color, var(--line));
-  border-top: 3px solid var(--tier-color, var(--line));
+  border-top: 2px solid var(--tier-color, var(--line));
   text-align: center;
+  overflow: hidden;
 }
 
-/* Новые карточки въезжают слева, а не появляются рывком. */
-.feed-card.is-new { animation: feedIn 0.5s cubic-bezier(0.22, 1, 0.36, 1); }
+/* Новый выигрыш въезжает слева, раздвигая остальные вправо. */
+.feed-card.is-new { animation: feedIn 0.55s cubic-bezier(0.22, 1, 0.36, 1); }
 
 @keyframes feedIn {
-  from { opacity: 0; transform: translateX(-26px) scale(0.9); }
-  to   { opacity: 1; transform: none; }
+  from {
+    max-width: 0; margin-right: 0; padding-left: 0; padding-right: 0;
+    opacity: 0; transform: scale(0.8);
+  }
+  to {
+    max-width: var(--feed-w); margin-right: var(--feed-gap);
+    padding-left: 6px; padding-right: 6px;
+    opacity: 1; transform: none;
+  }
 }
 
 .feed-art {
-  width: 42px; height: 42px; margin: 0 auto 6px;
+  width: 28px; height: 28px; margin: 0 auto 4px;
   display: flex; align-items: center; justify-content: center;
 }
 .feed-art svg { width: 100%; height: 100%; }
 
 .feed-name {
-  font-size: 10.5px; font-weight: 700; line-height: 1.25;
-  height: 26px; overflow: hidden;
+  font-size: 9px; font-weight: 700; line-height: 1.2;
+  height: 22px; overflow: hidden;
   color: var(--text);
 }
 
 .feed-value {
-  font-size: 13px; font-weight: 900;
+  font-size: 11.5px; font-weight: 900;
   color: var(--tier-color, var(--text));
-  margin-top: 4px;
+  margin-top: 3px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
 .feed-nick {
-  font-size: 9.5px; color: var(--muted);
-  margin-top: 3px;
+  font-size: 8.5px; color: var(--muted);
+  margin-top: 2px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
@@ -2258,9 +2283,18 @@ select.seed-input {
    АПГРЕЙД
    ============================================================ */
 
+/* Экран апгрейда собран так, чтобы кольцо, множители, ставка и кнопка
+   помещались на телефон целиком: листать вниз ради каждого запуска — это
+   лишнее движение на самом частом действии раздела.
+   Кольцо ограничено и по ширине, и по высоте видимой области. */
+#view-upgrade.view { padding-bottom: 8px; }
+#view-upgrade .game-head { margin-bottom: 8px; }
+#view-upgrade .game-title { font-size: 26px; letter-spacing: 2px; }
+#view-upgrade .game-sub { font-size: 11.5px; margin-top: 4px; }
+
 .upg-stage {
   position: relative;
-  max-width: 340px;
+  width: min(100%, 250px, 34vh);
   margin: 0 auto;
   aspect-ratio: 1;
 }
@@ -2317,21 +2351,21 @@ select.seed-input {
 }
 
 .upg-label {
-  font-size: 10px; font-weight: 900; letter-spacing: 2px;
+  font-size: 9px; font-weight: 900; letter-spacing: 2px;
   color: var(--muted);
 }
 
 .upg-target {
-  font-size: 34px; font-weight: 900; line-height: 1.1;
-  margin-top: 4px;
+  font-size: clamp(20px, 7vw, 28px); font-weight: 900; line-height: 1.1;
+  margin-top: 3px;
   background: linear-gradient(90deg, var(--cyan), var(--pink));
   -webkit-background-clip: text; background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 
 .upg-mult {
-  margin-top: 6px;
-  padding: 4px 12px;
+  margin-top: 5px;
+  padding: 3px 10px;
   border-radius: 999px;
   background: rgba(255, 214, 10, 0.14);
   border: 1px solid var(--gold);
@@ -2340,10 +2374,10 @@ select.seed-input {
 }
 
 .upg-outcome {
-  min-height: 30px;
-  margin: 10px 0 4px;
+  min-height: 22px;
+  margin: 6px 0 2px;
   text-align: center;
-  font-size: 17px; font-weight: 900;
+  font-size: 15px; font-weight: 900;
 }
 .upg-outcome.win  { color: var(--green); text-shadow: 0 0 18px rgba(0, 255, 157, 0.6); }
 .upg-outcome.lose { color: var(--muted); }
@@ -2351,21 +2385,41 @@ select.seed-input {
 .upg-picker {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
-  margin-top: 8px;
+  gap: 6px;
+  margin-top: 4px;
 }
 
 .upg-opt {
-  padding: 12px 4px;
-  border-radius: 14px;
-  border: 2px solid var(--line);
+  padding: 8px 3px;
+  border-radius: 11px;
+  border: 1.5px solid var(--line);
   background: var(--card);
   color: var(--text);
   font-family: inherit;
-  font-size: 15px; font-weight: 900;
+  font-size: 13.5px; font-weight: 900;
   cursor: pointer;
   transition: all 0.15s;
 }
+
+/* Панель ставки на этом экране плотнее общей: там, где у краша и рулетки
+   есть место, здесь его съедает кольцо. */
+#view-upgrade .bet-panel { margin-top: 8px; padding: 10px; border-radius: 16px; }
+#view-upgrade .bet-row { margin-bottom: 7px; }
+#view-upgrade .bet-input { padding: 10px 12px; font-size: 17px; }
+#view-upgrade .bet-quick .chip,
+#view-upgrade .bet-chips .chip { padding: 7px 6px; font-size: 12.5px; border-radius: 10px; }
+#view-upgrade .bet-chips { margin-bottom: 0; }
+
+/* Низкий экран: подзаголовок уходит, заголовок ужимается. Правило раздела
+   важнее вводной фразы, если выбор стоит между ней и кнопкой запуска. */
+@media (max-height: 700px) {
+  #view-upgrade .game-sub { display: none; }
+  #view-upgrade .game-title { font-size: 21px; }
+  #view-upgrade .game-head { margin-bottom: 4px; }
+  .upg-picker { gap: 5px; }
+  .upg-opt { padding: 6px 3px; font-size: 12.5px; }
+}
+#view-upgrade .btn-huge { margin-top: 8px; padding: 14px; font-size: 17px; }
 
 .upg-opt.active {
   border-color: var(--gold);
@@ -2382,7 +2436,7 @@ select.seed-input {
 
 @media (min-width: 700px) {
   .upg-picker { grid-template-columns: repeat(8, 1fr); }
-  .feed-card { width: 148px; }
+  .feed { --feed-w: 116px; }
 }
 
 
@@ -2406,7 +2460,7 @@ select.seed-input {
       <div class="brand-mark" data-ico="bolt"></div>
       <div class="brand-text">
         <div class="brand-name">LUCKY<span>BOX</span></div>
-        <div class="brand-sub">симулятор</div>
+        <div class="brand-sub">кейсы и игры</div>
       </div>
     </div>
     <div class="top-right">
@@ -2439,11 +2493,11 @@ select.seed-input {
         <div class="hero-fade"></div>
       </div>
 
-      <!-- Витрина крупных выпадений. Обычные исходы сюда не попадают. -->
+      <!-- Лента выигрышей. Обычные исходы сюда не попадают. -->
       <div class="feed" id="feed" hidden>
         <div class="feed-head">
           <span class="feed-dot"></span>
-          <span class="feed-title">Крупные выпадения</span>
+          <span class="feed-title">Последние большие выигрыши</span>
         </div>
         <div class="feed-track" id="feedTrack"></div>
       </div>
@@ -2857,7 +2911,29 @@ const DRAW_BY_ID = new Map(DRAW.map((c) => [c.id, c]));
 const FEED_POOL = [{"caseName":"Пыль","name":"Молот основателя","tier":"unique","value":720,"multiplier":30,"weight":0.035532955773221915},{"caseName":"Пыль","name":"Наковальня богов","tier":"unique","value":1200,"multiplier":50,"weight":0.02672020175702168},{"caseName":"Пыль","name":"Пламя первой ковки","tier":"unique","value":1400,"multiplier":58.33,"weight":0.02413551653370311},{"caseName":"Искра","name":"Вывеска «Вегас»","tier":"mythic","value":690,"multiplier":14.08,"weight":0.05422647624413731},{"caseName":"Искра","name":"Неоновый бульвар","tier":"mythic","value":980,"multiplier":20,"weight":0.04444020874727717},{"caseName":"Искра","name":"Город в огнях","tier":"unique","value":1450,"multiplier":29.59,"weight":0.03544191402370816},{"caseName":"Искра","name":"Рассвет над стрипом","tier":"unique","value":2450,"multiplier":50,"weight":0.02665173984997276},{"caseName":"Искра","name":"Первый свет","tier":"unique","value":4400,"multiplier":89.8,"weight":0.019199216571675896},{"caseName":"Медяк","name":"Автоматон","tier":"mythic","value":560,"multiplier":7.57,"weight":0.07676958421878105},{"caseName":"Медяк","name":"Мастерская изобретателя","tier":"mythic","value":740,"multiplier":10,"weight":0.06538428417580562},{"caseName":"Медяк","name":"Сердце машины","tier":"mythic","value":1050,"multiplier":14.19,"weight":0.05419184405480202},{"caseName":"Медяк","name":"Патент на вечность","tier":"mythic","value":1500,"multiplier":20.27,"weight":0.04441182663894127},{"caseName":"Медяк","name":"Город на паре","tier":"unique","value":2200,"multiplier":29.73,"weight":0.035419278751016865},{"caseName":"Медяк","name":"Чертёж будущего","tier":"unique","value":3700,"multiplier":50,"weight":0.026634718495008744},{"caseName":"Медяк","name":"Первый оборот","tier":"unique","value":6650,"multiplier":89.86,"weight":0.019186954832587297},{"caseName":"Разогрев","name":"Ключ от кассы","tier":"mythic","value":540,"multiplier":5.45,"weight":0.09134267704625268},{"caseName":"Разогрев","name":"Стол хайроллеров","tier":"mythic","value":740,"multiplier":7.47,"weight":0.07682665620377735},{"caseName":"Разогрев","name":"Кольцо чемпиона","tier":"mythic","value":990,"multiplier":10,"weight":0.06543289210983896},{"caseName":"Разогрев","name":"Джекпот-жетон","tier":"mythic","value":1400,"multiplier":14.14,"weight":0.05423213131364665},{"caseName":"Разогрев","name":"Банк турнира","tier":"mythic","value":2000,"multiplier":20.2,"weight":0.04444484324479356},{"caseName":"Разогрев","name":"Браслет серии","tier":"unique","value":2950,"multiplier":29.8,"weight":0.03544561012386495},{"caseName":"Разогрев","name":"Доля в заведении","tier":"unique","value":4950,"multiplier":50,"weight":0.026654519256857283},{"caseName":"Разогрев","name":"Право на банк","tier":"unique","value":12500,"multiplier":126.26,"weight":0.01563924293145361},{"caseName":"Подворотня","name":"Корона района","tier":"legendary","value":600,"multiplier":4.03,"weight":0.10979849590788537},{"caseName":"Подворотня","name":"Стена в центре","tier":"mythic","value":820,"multiplier":5.5,"weight":0.09192285094355987},{"caseName":"Подворотня","name":"Свой лейбл","tier":"mythic","value":1100,"multiplier":7.38,"weight":0.0773146298650294},{"caseName":"Подворотня","name":"Первый миллион просмотров","tier":"mythic","value":1500,"multiplier":10.07,"weight":0.06584849692081055},{"caseName":"Подворотня","name":"Имя на карте","tier":"mythic","value":2100,"multiplier":14.09,"weight":0.05457659315778093},{"caseName":"Подворотня","name":"Клуб под ключ","tier":"mythic","value":3000,"multiplier":20.13,"weight":0.04472713996254228},{"caseName":"Подворотня","name":"Улица твоего имени","tier":"unique","value":4450,"multiplier":29.87,"weight":0.03567074714013151},{"caseName":"Подворотня","name":"Легенда квартала","tier":"unique","value":7450,"multiplier":50,"weight":0.026823818611968912},{"caseName":"Подворотня","name":"Первый трек","tier":"unique","value":17500,"multiplier":117.45,"weight":0.01645745706545415},{"caseName":"Мерзлота","name":"Северное сияние","tier":"legendary","value":900,"multiplier":3.01,"weight":0.12878801849605984},{"caseName":"Мерзлота","name":"Алмаз мерзлоты","tier":"legendary","value":1200,"multiplier":4.01,"weight":0.10968813346425844},{"caseName":"Мерзлота","name":"Ледяной чертог","tier":"mythic","value":1650,"multiplier":5.52,"weight":0.09183045595789635},{"caseName":"Мерзлота","name":"Корона зимы","tier":"mythic","value":2250,"multiplier":7.53,"weight":0.07723691813128059},{"caseName":"Мерзлота","name":"Замёрзшее время","tier":"mythic","value":3000,"multiplier":10.03,"weight":0.06578231021242943},{"caseName":"Мерзлота","name":"Трон изо льда","tier":"mythic","value":4200,"multiplier":14.05,"weight":0.0545217362479852},{"caseName":"Мерзлота","name":"Вечный ледник","tier":"mythic","value":6000,"multiplier":20.07,"weight":0.04468218309476469},{"caseName":"Мерзлота","name":"Сердце полюса","tier":"unique","value":8950,"multiplier":29.93,"weight":0.0356348931806776},{"caseName":"Мерзлота","name":"Белое безмолвие","tier":"unique","value":15000,"multiplier":50.17,"weight":0.0267968570206926},{"caseName":"Мерзлота","name":"Первый снег","tier":"unique","value":38500,"multiplier":128.76,"weight":0.01572275803241975},{"caseName":"Первая руна","name":"Свиток заклятий","tier":"legendary","value":750,"multiplier":3.01,"weight":0.12925314959704207},{"caseName":"Первая руна","name":"Древний тотем","tier":"legendary","value":1000,"multiplier":4.02,"weight":0.11008428337694989},{"caseName":"Первая руна","name":"Камень предсказаний","tier":"mythic","value":1350,"multiplier":5.42,"weight":0.09216211104182565},{"caseName":"Первая руна","name":"Дерево судьбы","tier":"mythic","value":1850,"multiplier":7.43,"weight":0.07751586716075087},{"caseName":"Первая руна","name":"Голос предков","tier":"mythic","value":2500,"multiplier":10.04,"weight":0.06601988975384616},{"caseName":"Первая руна","name":"Руна первотворения","tier":"mythic","value":3500,"multiplier":14.06,"weight":0.05471864707482012},{"caseName":"Первая руна","name":"Слово силы","tier":"mythic","value":5000,"multiplier":20.08,"weight":0.04484355736901671},{"caseName":"Первая руна","name":"Нить норн","tier":"unique","value":7450,"multiplier":29.92,"weight":0.03576359224206598},{"caseName":"Первая руна","name":"Книга рун","tier":"unique","value":12500,"multiplier":50.2,"weight":0.02689363661055235},{"caseName":"Первая руна","name":"Первая буква","tier":"unique","value":32000,"multiplier":128.51,"weight":0.01577954238114642},{"caseName":"Колода","name":"Каре тузов","tier":"legendary","value":1200,"multiplier":3.01,"weight":0.12896044224786465},{"caseName":"Колода","name":"Royal Flush","tier":"legendary","value":1600,"multiplier":4.01,"weight":0.11040521708927188},{"caseName":"Колода","name":"Ключ от кассы","tier":"mythic","value":2200,"multiplier":5.51,"weight":0.09296214564030839},{"caseName":"Колода","name":"Стол хайроллеров","tier":"mythic","value":3000,"multiplier":7.52,"weight":0.07862649372102334},{"caseName":"Колода","name":"Кольцо чемпиона","tier":"mythic","value":4000,"multiplier":10.03,"weight":0.06731347192151547},{"caseName":"Колода","name":"Джекпот-жетон","tier":"mythic","value":5600,"multiplier":14.04,"weight":0.056129716938709516},{"caseName":"Колода","name":"Банк турнира","tier":"mythic","value":8000,"multiplier":20.05,"weight":0.046296247776109994},{"caseName":"Колода","name":"Браслет серии","tier":"unique","value":12000,"multiplier":30.08,"weight":0.0371925978099981},{"caseName":"Колода","name":"Доля в заведении","tier":"unique","value":20000,"multiplier":50.13,"weight":0.028226575309651027},{"caseName":"Колода","name":"Право на банк","tier":"unique","value":59500,"multiplier":149.12,"weight":0.015595981503814218},{"caseName":"Неоновый","name":"Синтезатор света","tier":"legendary","value":1500,"multiplier":3.01,"weight":0.12944752798868464},{"caseName":"Неоновый","name":"Ядро подсветки","tier":"legendary","value":2000,"multiplier":4.01,"weight":0.11082221943525454},{"caseName":"Неоновый","name":"Купол клуба","tier":"mythic","value":2750,"multiplier":5.51,"weight":0.09331326521456043},{"caseName":"Неоновый","name":"Проектор на крыше","tier":"mythic","value":3750,"multiplier":7.52,"weight":0.07892346729892544},{"caseName":"Неоновый","name":"Ночная панорама","tier":"mythic","value":5000,"multiplier":10.02,"weight":0.06756771602743315},{"caseName":"Неоновый","name":"Вывеска «Вегас»","tier":"mythic","value":7000,"multiplier":14.03,"weight":0.05634171981556504},{"caseName":"Неоновый","name":"Неоновый бульвар","tier":"mythic","value":10000,"multiplier":20.04,"weight":0.046471109475962655},{"caseName":"Неоновый","name":"Город в огнях","tier":"unique","value":15000,"multiplier":30.06,"weight":0.03733307487212296},{"caseName":"Неоновый","name":"Рассвет над стрипом","tier":"unique","value":25000,"multiplier":50.1,"weight":0.028333187555281258},{"caseName":"Неоновый","name":"Первый свет","tier":"unique","value":74500,"multiplier":149.3,"weight":0.015654887786021282},{"caseName":"Мираж","name":"Печать султана","tier":"legendary","value":1800,"multiplier":3.01,"weight":0.12845851813537992},{"caseName":"Мираж","name":"Сокровища султана","tier":"legendary","value":2400,"multiplier":4.01,"weight":0.1099755113621877},{"caseName":"Мираж","name":"Дворец в барханах","tier":"mythic","value":3300,"multiplier":5.51,"weight":0.09260032970953244},{"caseName":"Мираж","name":"Караван с шёлком","tier":"mythic","value":4500,"multiplier":7.51,"weight":0.07832047326707003},{"caseName":"Мираж","name":"Слово джинна","tier":"mythic","value":6000,"multiplier":10.02,"weight":0.0670514826319042},{"caseName":"Мираж","name":"Три желания","tier":"mythic","value":8400,"multiplier":14.02,"weight":0.05591125569689451},{"caseName":"Мираж","name":"Город под песком","tier":"mythic","value":12000,"multiplier":20.03,"weight":0.04611605916422749},{"caseName":"Мираж","name":"Клад пустыни","tier":"unique","value":18000,"multiplier":30.05,"weight":0.037047841314739614},{"caseName":"Мираж","name":"Власть над ветром","tier":"unique","value":30000,"multiplier":50.08,"weight":0.0281167152741717},{"caseName":"Мираж","name":"Первый шаг","tier":"unique","value":101000,"multiplier":168.61,"weight":0.014519978316267198},{"caseName":"Горн","name":"Дамасская сталь","tier":"legendary","value":2250,"multiplier":3,"weight":0.128374244528475},{"caseName":"Горн","name":"Мифриловый слиток","tier":"legendary","value":3000,"multiplier":4.01,"weight":0.1099033633010997},{"caseName":"Горн","name":"Горн мастера","tier":"mythic","value":4100,"multiplier":5.47,"weight":0.09253958041942321},{"caseName":"Горн","name":"Молот подмастерья","tier":"mythic","value":5600,"multiplier":7.48,"weight":0.0782690920984833},{"caseName":"Горн","name":"Клинок оружейника","tier":"mythic","value":7500,"multiplier":10.01,"weight":0.06700749434392039},{"caseName":"Горн","name":"Сердце горна","tier":"mythic","value":10500,"multiplier":14.02,"weight":0.05587457581569586},{"caseName":"Горн","name":"Слиток метеорита","tier":"mythic","value":15000,"multiplier":20.03,"weight":0.046085805299412426},{"caseName":"Горн","name":"Молот основателя","tier":"unique","value":22500,"multiplier":30.04,"weight":0.03702353654102002},{"caseName":"Горн","name":"Наковальня богов","tier":"unique","value":37500,"multiplier":50.07,"weight":0.028098269654178047},{"caseName":"Горн","name":"Пламя первой ковки","tier":"unique","value":127000,"multiplier":169.56,"weight":0.014510452665787535},{"caseName":"Пит-стоп","name":"Двигатель V12","tier":"legendary","value":2400,"multiplier":3,"weight":0.12833834119639087},{"caseName":"Пит-стоп","name":"Золотой руль","tier":"legendary","value":3200,"multiplier":4.01,"weight":0.1098726258508872},{"caseName":"Пит-стоп","name":"Болид формулы","tier":"mythic","value":4400,"multiplier":5.51,"weight":0.09251369922106503},{"caseName":"Пит-стоп","name":"Поул-позиция","tier":"mythic","value":6000,"multiplier":7.51,"weight":0.07824720202843181},{"caseName":"Пит-стоп","name":"Подиум Монцы","tier":"mythic","value":8000,"multiplier":10.01,"weight":0.06698875388448952},{"caseName":"Пит-стоп","name":"Кубок Гран-при","tier":"mythic","value":11000,"multiplier":13.77,"weight":0.05585894897825709},{"caseName":"Пит-стоп","name":"Титул чемпиона","tier":"mythic","value":16000,"multiplier":20.03,"weight":0.04607291615659327},{"caseName":"Пит-стоп","name":"Команда в боксах","tier":"unique","value":24000,"multiplier":30.04,"weight":0.03701318190694024},{"caseName":"Пит-стоп","name":"Рекорд круга","tier":"unique","value":40000,"multiplier":50.06,"weight":0.02809041121255614},{"caseName":"Пит-стоп","name":"Клетчатый флаг","tier":"unique","value":135000,"multiplier":168.96,"weight":0.014506394424956872},{"caseName":"Сейф","name":"Золотой слиток","tier":"legendary","value":3000,"multiplier":3,"weight":0.12827312158673507},{"caseName":"Сейф","name":"Печать хранителя","tier":"legendary","value":4000,"multiplier":4,"weight":0.10981679023930728},{"caseName":"Сейф","name":"Ячейка первого ряда","tier":"mythic","value":5500,"multiplier":5.51,"weight":0.09246668515422604},{"caseName":"Сейф","name":"Платиновый брусок","tier":"mythic","value":7500,"multiplier":7.51,"weight":0.07820743798032756},{"caseName":"Сейф","name":"Хранилище под улицей","tier":"mythic","value":10000,"multiplier":10.01,"weight":0.0669547112099548},{"caseName":"Сейф","name":"Ключ от главного зала","tier":"mythic","value":14000,"multiplier":14.01,"weight":0.05583056230273844},{"caseName":"Сейф","name":"Резервный фонд","tier":"mythic","value":20000,"multiplier":20.02,"weight":0.046049502595381354},{"caseName":"Сейф","name":"Золотой запас","tier":"unique","value":30000,"multiplier":30.03,"weight":0.036994372366053345},{"caseName":"Сейф","name":"Дверь без замка","tier":"unique","value":50000,"multiplier":50.05,"weight":0.028076136089180886},{"caseName":"Сейф","name":"Право подписи","tier":"unique","value":179000,"multiplier":179.18,"weight":0.014058338249733994},{"caseName":"Шапито","name":"Ящик с двойным дном","tier":"legendary","value":3600,"multiplier":3,"weight":0.1283591176288157},{"caseName":"Шапито","name":"Шатёр иллюзий","tier":"legendary","value":4800,"multiplier":4,"weight":0.10989041290629906},{"caseName":"Шапито","name":"Пушка для полётов","tier":"mythic","value":6600,"multiplier":5.5,"weight":0.09252867607523281},{"caseName":"Шапито","name":"Афиша с именем","tier":"mythic","value":9000,"multiplier":7.51,"weight":0.07825986930845288},{"caseName":"Шапито","name":"Аншлаг","tier":"mythic","value":12000,"multiplier":10.01,"weight":0.06699959855729211},{"caseName":"Шапито","name":"Гран-при шапито","tier":"mythic","value":17000,"multiplier":14.18,"weight":0.055867991869632726},{"caseName":"Шапито","name":"Цирк на площади","tier":"mythic","value":24000,"multiplier":20.02,"weight":0.04608037480706528},{"caseName":"Шапито","name":"Овация стоя","tier":"unique","value":36000,"multiplier":30.03,"weight":0.03701917389550381},{"caseName":"Шапито","name":"Тайна фокуса","tier":"unique","value":60000,"multiplier":50.04,"weight":0.02809495871196202},{"caseName":"Шапито","name":"Последний номер","tier":"unique","value":215000,"multiplier":179.32,"weight":0.014067763150545268},{"caseName":"Путь меча","name":"Знамя клана","tier":"legendary","value":4500,"multiplier":3,"weight":0.12852407482629902},{"caseName":"Путь меча","name":"Меч сёгуна","tier":"legendary","value":6000,"multiplier":4,"weight":0.11003163555474177},{"caseName":"Путь меча","name":"Замок на холме","tier":"mythic","value":8250,"multiplier":5.5,"weight":0.09264758676404225},{"caseName":"Путь меча","name":"Клятва верности","tier":"mythic","value":11000,"multiplier":7.34,"weight":0.07836044283182242},{"caseName":"Путь меча","name":"Печать даймё","tier":"mythic","value":15000,"multiplier":10.01,"weight":0.06708570125271948},{"caseName":"Путь меча","name":"Право на имя","tier":"mythic","value":21000,"multiplier":14.01,"weight":0.055939789086208225},{"caseName":"Путь меча","name":"Клинок без зазубрин","tier":"mythic","value":30000,"multiplier":20.01,"weight":0.04613959373617272},{"caseName":"Путь меча","name":"Наследие клана","tier":"unique","value":45000,"multiplier":30.02,"weight":0.03706674807092475},{"caseName":"Путь меча","name":"Путь воина","tier":"unique","value":75000,"multiplier":50.03,"weight":0.028131064177145546},{"caseName":"Путь меча","name":"Первый удар","tier":"unique","value":284000,"multiplier":189.46,"weight":0.01368053304119474},{"caseName":"Абордаж","name":"Сундук с дублонами","tier":"legendary","value":5400,"multiplier":3,"weight":0.1283150989895425},{"caseName":"Абордаж","name":"Сундук Флинта","tier":"legendary","value":7200,"multiplier":4,"weight":0.10985272780426142},{"caseName":"Абордаж","name":"Флаг с черепом","tier":"mythic","value":9900,"multiplier":5.5,"weight":0.09249694489407623},{"caseName":"Абордаж","name":"Каюта капитана","tier":"mythic","value":13500,"multiplier":7.5,"weight":0.07823303137889795},{"caseName":"Абордаж","name":"Галеон под парусом","tier":"mythic","value":18000,"multiplier":10.01,"weight":0.06697662215160452},{"caseName":"Абордаж","name":"Корона морского царя","tier":"mythic","value":25000,"multiplier":13.9,"weight":0.055848832864597034},{"caseName":"Абордаж","name":"Остров с крестом","tier":"mythic","value":36000,"multiplier":20.01,"weight":0.046064572303638356},{"caseName":"Абордаж","name":"Флот из трёх мачт","tier":"unique","value":54000,"multiplier":30.02,"weight":0.037006478781264944},{"caseName":"Абордаж","name":"Клад всех морей","tier":"unique","value":90000,"multiplier":50.03,"weight":0.02808532400991839},{"caseName":"Абордаж","name":"Чёрная метка удачи","tier":"unique","value":341000,"multiplier":189.55,"weight":0.013658288953124683},{"caseName":"Зелёный храм","name":"Свиток из коры","tier":"legendary","value":6000,"multiplier":3,"weight":0.12832035286389817},{"caseName":"Зелёный храм","name":"Глаз божества","tier":"legendary","value":8000,"multiplier":4,"weight":0.10985722573501203},{"caseName":"Зелёный храм","name":"Храм в лианах","tier":"mythic","value":11000,"multiplier":5.5,"weight":0.09250073219058759},{"caseName":"Зелёный храм","name":"Тропа к городу","tier":"mythic","value":15000,"multiplier":7.5,"weight":0.07823623463806671},{"caseName":"Зелёный храм","name":"Сокровищница вождей","tier":"mythic","value":20000,"multiplier":10.01,"weight":0.06697936451598972},{"caseName":"Зелёный храм","name":"Город из золота","tier":"mythic","value":28000,"multiplier":14.01,"weight":0.05585111960055479},{"caseName":"Зелёный храм","name":"Сердце сельвы","tier":"mythic","value":40000,"multiplier":20.01,"weight":0.046066458422084566},{"caseName":"Зелёный храм","name":"Тайна племени","tier":"unique","value":60000,"multiplier":30.02,"weight":0.03700799401518048},{"caseName":"Зелёный храм","name":"Проклятие идола","tier":"unique","value":100000,"multiplier":50.03,"weight":0.02808647396627387},{"caseName":"Зелёный храм","name":"Первый костёр","tier":"unique","value":379000,"multiplier":189.59,"weight":0.013658848193109988},{"caseName":"Ночное дело","name":"Конверт с фотографиями","tier":"legendary","value":7500,"multiplier":3,"weight":0.1285686459266541},{"caseName":"Ночное дело","name":"Ключ от сейфа","tier":"legendary","value":10000,"multiplier":4,"weight":0.11006979362806125},{"caseName":"Ночное дело","name":"Досье на босса","tier":"mythic","value":13500,"multiplier":5.4,"weight":0.09267971619110016},{"caseName":"Ночное дело","name":"Список информаторов","tier":"mythic","value":18500,"multiplier":7.4,"weight":0.07838761759395196},{"caseName":"Ночное дело","name":"Признание под запись","tier":"mythic","value":25000,"multiplier":10,"weight":0.06710896602647465},{"caseName":"Ночное дело","name":"Компромат на мэра","tier":"mythic","value":35000,"multiplier":14.01,"weight":0.055959188548577996},{"caseName":"Ночное дело","name":"Свидетель под защитой","tier":"mythic","value":50000,"multiplier":20.01,"weight":0.04615559457076761},{"caseName":"Ночное дело","name":"Дело закрыто","tier":"unique","value":75000,"multiplier":30.01,"weight":0.037079602516680056},{"caseName":"Ночное дело","name":"Правда о городе","tier":"unique","value":125000,"multiplier":50.02,"weight":0.028140819800644326},{"caseName":"Ночное дело","name":"Имя заказчика","tier":"unique","value":474000,"multiplier":189.68,"weight":0.013685277338416207},{"caseName":"Взлом","name":"Корневой доступ","tier":"legendary","value":9000,"multiplier":3,"weight":0.12833084754386467},{"caseName":"Взлом","name":"Ключ от сети","tier":"legendary","value":12000,"multiplier":4,"weight":0.1098662104081396},{"caseName":"Взлом","name":"Дата-центр","tier":"mythic","value":16500,"multiplier":5.5,"weight":0.09250829736290314},{"caseName":"Взлом","name":"Нулевой день","tier":"mythic","value":22500,"multiplier":7.5,"weight":0.0782426331884602},{"caseName":"Взлом","name":"Backdoor в банк","tier":"mythic","value":30000,"multiplier":10,"weight":0.0669848424232684},{"caseName":"Взлом","name":"Цифровой двойник","tier":"mythic","value":42000,"multiplier":14,"weight":0.05585568738433107},{"caseName":"Взлом","name":"Ключ от всех дверей","tier":"mythic","value":60000,"multiplier":20.01,"weight":0.04607022596735342},{"caseName":"Взлом","name":"Сеть под контролем","tier":"unique","value":90000,"multiplier":30.01,"weight":0.03701102071394433},{"caseName":"Взлом","name":"Сознание в облаке","tier":"unique","value":150000,"multiplier":50.02,"weight":0.02808877101852696},{"caseName":"Взлом","name":"Первый код","tier":"unique","value":569000,"multiplier":189.73,"weight":0.013659965281999618},{"caseName":"Огранка","name":"Розовый бриллиант","tier":"legendary","value":10500,"multiplier":3,"weight":0.1286087209649528},{"caseName":"Огранка","name":"Кристалл творения","tier":"legendary","value":14000,"multiplier":4,"weight":0.11010410254656454},{"caseName":"Огранка","name":"Огранка в 100 карат","tier":"mythic","value":19000,"multiplier":5.43,"weight":0.0927086045965827},{"caseName":"Огранка","name":"Жила самоцветов","tier":"mythic","value":26000,"multiplier":7.43,"weight":0.07841205113102923},{"caseName":"Огранка","name":"Витрина ювелира","tier":"mythic","value":35000,"multiplier":10,"weight":0.067129883991071},{"caseName":"Огранка","name":"Камень без имени","tier":"mythic","value":49000,"multiplier":14,"weight":0.05597663111093903},{"caseName":"Огранка","name":"Коллекция дома","tier":"mythic","value":70000,"multiplier":20.01,"weight":0.04616998133829395},{"caseName":"Огранка","name":"Алмазный фонд","tier":"unique","value":105000,"multiplier":30.01,"weight":0.0370911602839743},{"caseName":"Огранка","name":"Совершенная огранка","tier":"unique","value":175000,"multiplier":50.01,"weight":0.028149591336061378},{"caseName":"Огранка","name":"Первый кристалл","tier":"unique","value":699000,"multiplier":199.77,"weight":0.013315568067840726},{"caseName":"Паровая","name":"Паровой котёл","tier":"legendary","value":12000,"multiplier":3,"weight":0.12835126092146876},{"caseName":"Паровая","name":"Двигатель Теслы","tier":"legendary","value":16000,"multiplier":4,"weight":0.10988368664617522},{"caseName":"Паровая","name":"Летающая машина","tier":"mythic","value":22000,"multiplier":5.5,"weight":0.09252301250615763},{"caseName":"Паровая","name":"Автоматон","tier":"mythic","value":30000,"multiplier":7.5,"weight":0.07825507911589373},{"caseName":"Паровая","name":"Мастерская изобретателя","tier":"mythic","value":40000,"multiplier":10,"weight":0.06699549759237469},{"caseName":"Паровая","name":"Сердце машины","tier":"mythic","value":56000,"multiplier":14,"weight":0.05586457225698433},{"caseName":"Паровая","name":"Патент на вечность","tier":"mythic","value":80000,"multiplier":20.01,"weight":0.046077554282695964},{"caseName":"Паровая","name":"Город на паре","tier":"unique","value":120000,"multiplier":30.01,"weight":0.03701690799635387},{"caseName":"Паровая","name":"Чертёж будущего","tier":"unique","value":200000,"multiplier":50.01,"weight":0.028093239053299655},{"caseName":"Паровая","name":"Первый оборот","tier":"unique","value":799000,"multiplier":199.8,"weight":0.013288911813832141},{"caseName":"Марианская","name":"Затонувший сундук","tier":"legendary","value":18000,"multiplier":3,"weight":0.12771233470927693},{"caseName":"Марианская","name":"Сердце кракена","tier":"legendary","value":24000,"multiplier":4,"weight":0.10933669110295675},{"caseName":"Марианская","name":"Врата Атлантиды","tier":"mythic","value":33000,"multiplier":5.5,"weight":0.092062437537928},{"caseName":"Марианская","name":"Корона Атлантиды","tier":"mythic","value":45000,"multiplier":7.5,"weight":0.07786552921256336},{"caseName":"Марианская","name":"Жемчуг бездны","tier":"mythic","value":60000,"multiplier":10,"weight":0.0666619973275289},{"caseName":"Марианская","name":"Голос глубины","tier":"mythic","value":84000,"multiplier":14,"weight":0.055586481186498386},{"caseName":"Марианская","name":"Город под водой","tier":"mythic","value":120000,"multiplier":20,"weight":0.045848182502367926},{"caseName":"Марианская","name":"Трон Посейдона","tier":"unique","value":180000,"multiplier":30.01,"weight":0.03683263966394042},{"caseName":"Марианская","name":"Дно Марианской","tier":"unique","value":300000,"multiplier":50.01,"weight":0.02795339230237832},{"caseName":"Марианская","name":"Первая волна","tier":"unique","value":1250000,"multiplier":208.37,"weight":0.012878933558167122},{"caseName":"Сёгун","name":"Знамя клана","tier":"legendary","value":24000,"multiplier":3,"weight":0.12759160834028582},{"caseName":"Сёгун","name":"Меч сёгуна","tier":"legendary","value":32000,"multiplier":4,"weight":0.10923333521533314},{"caseName":"Сёгун","name":"Замок на холме","tier":"mythic","value":44000,"multiplier":5.5,"weight":0.09197541098853695},{"caseName":"Сёгун","name":"Клятва верности","tier":"mythic","value":60000,"multiplier":7.5,"weight":0.07779192298938373},{"caseName":"Сёгун","name":"Печать даймё","tier":"mythic","value":80000,"multiplier":10,"weight":0.06659898179417915},{"caseName":"Сёгун","name":"Право на имя","tier":"mythic","value":112000,"multiplier":14,"weight":0.05553393532979697},{"caseName":"Сёгун","name":"Клинок без зазубрин","tier":"mythic","value":160000,"multiplier":20,"weight":0.04580484225171044},{"caseName":"Сёгун","name":"Наследие клана","tier":"unique","value":240000,"multiplier":30,"weight":0.03679782179879757},{"caseName":"Сёгун","name":"Путь воина","tier":"unique","value":400000,"multiplier":50.01,"weight":0.027926967982743633},{"caseName":"Сёгун","name":"Первый удар","tier":"unique","value":1670000,"multiplier":208.78,"weight":0.012866759112460725},{"caseName":"Склеп","name":"Ключ от склепа","tier":"legendary","value":36000,"multiplier":3,"weight":0.12756514154140322},{"caseName":"Склеп","name":"Гроб чёрного дуба","tier":"legendary","value":48000,"multiplier":4,"weight":0.109210676540895},{"caseName":"Склеп","name":"Замок на утёсе","tier":"mythic","value":66000,"multiplier":5.5,"weight":0.09195633218910457},{"caseName":"Склеп","name":"Кровь первого","tier":"mythic","value":90000,"multiplier":7.5,"weight":0.07777578632328762},{"caseName":"Склеп","name":"Печать бессмертия","tier":"mythic","value":120000,"multiplier":10,"weight":0.06658516692124304},{"caseName":"Склеп","name":"Трон в подземелье","tier":"mythic","value":168000,"multiplier":14,"weight":0.05552241572034417},{"caseName":"Склеп","name":"Ночь без рассвета","tier":"mythic","value":240000,"multiplier":20,"weight":0.04579534078399249},{"caseName":"Склеп","name":"Родословная князя","tier":"unique","value":360000,"multiplier":30,"weight":0.03679018869062113},{"caseName":"Склеп","name":"Договор с вечностью","tier":"unique","value":600000,"multiplier":50,"weight":0.027921174988559963},{"caseName":"Склеп","name":"Имя во тьме","tier":"unique","value":2690000,"multiplier":224.19,"weight":0.012393641599543332},{"caseName":"Карантин","name":"Сыворотка","tier":"legendary","value":54000,"multiplier":3,"weight":0.12769218517189596},{"caseName":"Карантин","name":"Формула бессмертия","tier":"legendary","value":72000,"multiplier":4,"weight":0.10931944074300126},{"caseName":"Карантин","name":"Лаборатория","tier":"mythic","value":99000,"multiplier":5.5,"weight":0.09204791258596642},{"caseName":"Карантин","name":"Патент на лекарство","tier":"mythic","value":135000,"multiplier":7.5,"weight":0.07785324414710644},{"caseName":"Карантин","name":"Штамм","tier":"mythic","value":180000,"multiplier":10,"weight":0.06665147987508313},{"caseName":"Карантин","name":"Ключ от хранилища","tier":"mythic","value":252000,"multiplier":14,"weight":0.05557771114965665},{"caseName":"Карантин","name":"Противоядие от всего","tier":"mythic","value":360000,"multiplier":20,"weight":0.0458409489045382},{"caseName":"Карантин","name":"Секрет молодости","tier":"unique","value":540000,"multiplier":30,"weight":0.0368268284738824},{"caseName":"Карантин","name":"Запретный синтез","tier":"unique","value":900000,"multiplier":50,"weight":0.027948982016367932},{"caseName":"Карантин","name":"Первая формула","tier":"unique","value":4310000,"multiplier":239.46,"weight":0.011981073324060988},{"caseName":"Пепел","name":"Пламя без дыма","tier":"legendary","value":75000,"multiplier":3,"weight":0.12773265304737733},{"caseName":"Пепел","name":"Второе рождение","tier":"legendary","value":100000,"multiplier":4,"weight":0.10935408597606487},{"caseName":"Пепел","name":"Клетка из света","tier":"mythic","value":137000,"multiplier":5.48,"weight":0.09207708417121133},{"caseName":"Пепел","name":"Песнь на рассвете","tier":"mythic","value":187000,"multiplier":7.48,"weight":0.07787791719491846},{"caseName":"Пепел","name":"Вечное пламя","tier":"mythic","value":250000,"multiplier":10,"weight":0.06667260288887293},{"caseName":"Пепел","name":"Бессмертие","tier":"mythic","value":350000,"multiplier":14,"weight":0.05559532469344022},{"caseName":"Пепел","name":"Круг перерождений","tier":"mythic","value":500000,"multiplier":20,"weight":0.04585547669893471},{"caseName":"Пепел","name":"Первый рассвет","tier":"unique","value":750000,"multiplier":30,"weight":0.03683849953665769},{"caseName":"Пепел","name":"Птица над миром","tier":"unique","value":1250000,"multiplier":50,"weight":0.027957839535115443},{"caseName":"Пепел","name":"Начало заново","tier":"unique","value":6490000,"multiplier":259.61,"weight":0.011477883235257206},{"caseName":"Сокровищница","name":"Слеза дракона","tier":"legendary","value":105000,"multiplier":3,"weight":0.1270413788802669},{"caseName":"Сокровищница","name":"Корона Владыки","tier":"legendary","value":140000,"multiplier":4,"weight":0.10876227446272231},{"caseName":"Сокровищница","name":"Логово в горе","tier":"mythic","value":192000,"multiplier":5.49,"weight":0.09157877376935344},{"caseName":"Сокровищница","name":"Клад под чешуёй","tier":"mythic","value":262000,"multiplier":7.49,"weight":0.07745645102271545},{"caseName":"Сокровищница","name":"Крыло небесного","tier":"mythic","value":350000,"multiplier":10,"weight":0.06631177856610562},{"caseName":"Сокровищница","name":"Сердце первородного","tier":"mythic","value":490000,"multiplier":14,"weight":0.055294449303664686},{"caseName":"Сокровищница","name":"Дыхание пламени","tier":"mythic","value":700000,"multiplier":20,"weight":0.04560731222645051},{"caseName":"Сокровищница","name":"Трон из костей","tier":"unique","value":1050000,"multiplier":30,"weight":0.03663913388913328},{"caseName":"Сокровищница","name":"Древний повелитель","tier":"unique","value":1750000,"multiplier":50,"weight":0.02780653498003291},{"caseName":"Сокровищница","name":"Имя дракона","tier":"unique","value":9790000,"multiplier":279.72,"weight":0.010967946906844765},{"caseName":"Алмазный фонд","name":"Розовый бриллиант","tier":"legendary","value":180000,"multiplier":3,"weight":0.12690615282157908},{"caseName":"Алмазный фонд","name":"Кристалл творения","tier":"legendary","value":240000,"multiplier":4,"weight":0.10864650514536173},{"caseName":"Алмазный фонд","name":"Огранка в 100 карат","tier":"mythic","value":330000,"multiplier":5.5,"weight":0.09148129500498989},{"caseName":"Алмазный фонд","name":"Жила самоцветов","tier":"mythic","value":450000,"multiplier":7.5,"weight":0.07737400441607385},{"caseName":"Алмазный фонд","name":"Витрина ювелира","tier":"mythic","value":600000,"multiplier":10,"weight":0.06624119463086257},{"caseName":"Алмазный фонд","name":"Камень без имени","tier":"mythic","value":840000,"multiplier":14,"weight":0.05523559249250165},{"caseName":"Алмазный фонд","name":"Коллекция дома","tier":"mythic","value":1200000,"multiplier":20,"weight":0.045558766649142664},{"caseName":"Алмазный фонд","name":"Алмазный фонд","tier":"unique","value":1800000,"multiplier":30,"weight":0.03660013426780335},{"caseName":"Алмазный фонд","name":"Совершенная огранка","tier":"unique","value":3000000,"multiplier":50,"weight":0.02777693700050643},{"caseName":"Алмазный фонд","name":"Первый кристалл","tier":"unique","value":19190000,"multiplier":319.84,"weight":0.010194059587884965},{"caseName":"Регалии","name":"Трон в зале","tier":"legendary","value":15000,"multiplier":3,"weight":0.12838138811894348},{"caseName":"Регалии","name":"Корона империи","tier":"legendary","value":20000,"multiplier":4,"weight":0.10990947904979537},{"caseName":"Регалии","name":"Замок с землями","tier":"mythic","value":27500,"multiplier":5.5,"weight":0.09254472993260687},{"caseName":"Регалии","name":"Право первой подписи","tier":"mythic","value":37500,"multiplier":7.5,"weight":0.07827344750748566},{"caseName":"Регалии","name":"Династия","tier":"mythic","value":50000,"multiplier":10,"weight":0.06701122308327671},{"caseName":"Регалии","name":"Титул навсегда","tier":"mythic","value":70000,"multiplier":14,"weight":0.05587768504596781},{"caseName":"Регалии","name":"Империя на карте","tier":"mythic","value":100000,"multiplier":20,"weight":0.046088369817869214},{"caseName":"Регалии","name":"Слово короля","tier":"unique","value":150000,"multiplier":30.01,"weight":0.03702559677501568},{"caseName":"Регалии","name":"Наследие рода","tier":"unique","value":250000,"multiplier":50.01,"weight":0.028099833227401158},{"caseName":"Регалии","name":"Первый венец","tier":"unique","value":1040000,"multiplier":208.04,"weight":0.012946403113316792},{"caseName":"Гробница","name":"Ожерелье царицы","tier":"legendary","value":22500,"multiplier":3,"weight":0.1278551933511136},{"caseName":"Гробница","name":"Скипетр фараона","tier":"legendary","value":30000,"multiplier":4,"weight":0.10945899480392221},{"caseName":"Гробница","name":"Золотая маска","tier":"mythic","value":41000,"multiplier":5.47,"weight":0.0921654183096818},{"caseName":"Гробница","name":"Ладья солнца","tier":"mythic","value":56000,"multiplier":7.47,"weight":0.07795262936443609},{"caseName":"Гробница","name":"Сокровище пирамиды","tier":"mythic","value":75000,"multiplier":10,"weight":0.06673656524159928},{"caseName":"Гробница","name":"Печать Тутанхамона","tier":"mythic","value":105000,"multiplier":14,"weight":0.055648660060801006},{"caseName":"Гробница","name":"Гробница царей","tier":"mythic","value":150000,"multiplier":20,"weight":0.045899468144415555},{"caseName":"Гробница","name":"Долина фараонов","tier":"unique","value":225000,"multiplier":30,"weight":0.03687384054629549},{"caseName":"Гробница","name":"Тайна сфинкса","tier":"unique","value":375000,"multiplier":50.01,"weight":0.027984660884760246},{"caseName":"Гробница","name":"Имя, стёртое с камня","tier":"unique","value":1680000,"multiplier":224.03,"weight":0.012421821697424403},{"caseName":"Орбита","name":"Модуль связи","tier":"legendary","value":30000,"multiplier":3,"weight":0.12761910627889142},{"caseName":"Орбита","name":"Ядро станции","tier":"legendary","value":40000,"multiplier":4,"weight":0.10925687666593877},{"caseName":"Орбита","name":"Орбитальный телескоп","tier":"mythic","value":55000,"multiplier":5.5,"weight":0.09199523309312116},{"caseName":"Орбита","name":"Спутник наблюдения","tier":"mythic","value":75000,"multiplier":7.5,"weight":0.07780868833586847},{"caseName":"Орбита","name":"Реактор станции","tier":"mythic","value":100000,"multiplier":10,"weight":0.06661333489103553},{"caseName":"Орбита","name":"Чёрный ящик «Орбиты»","tier":"mythic","value":140000,"multiplier":14,"weight":0.05554590374029112},{"caseName":"Орбита","name":"Купол оранжереи","tier":"mythic","value":200000,"multiplier":20,"weight":0.04581471389418333},{"caseName":"Орбита","name":"Ключ от шлюза","tier":"unique","value":300000,"multiplier":30,"weight":0.03680575229091853},{"caseName":"Орбита","name":"Станция целиком","tier":"unique","value":500000,"multiplier":50.01,"weight":0.02793298667050076},{"caseName":"Орбита","name":"Билет на Марс","tier":"unique","value":2390000,"multiplier":239.02,"weight":0.011974216494300029},{"caseName":"Логово","name":"Слеза дракона","tier":"legendary","value":45000,"multiplier":3,"weight":0.12766482595335818},{"caseName":"Логово","name":"Корона Владыки","tier":"legendary","value":60000,"multiplier":4,"weight":0.10929601805299333},{"caseName":"Логово","name":"Логово в горе","tier":"mythic","value":82500,"multiplier":5.5,"weight":0.09202819047883046},{"caseName":"Логово","name":"Клад под чешуёй","tier":"mythic","value":112000,"multiplier":7.47,"weight":0.07783656337750705},{"caseName":"Логово","name":"Крыло небесного","tier":"mythic","value":150000,"multiplier":10,"weight":0.06663719918592965},{"caseName":"Логово","name":"Сердце первородного","tier":"mythic","value":210000,"multiplier":14,"weight":0.055565803116732586},{"caseName":"Логово","name":"Дыхание пламени","tier":"mythic","value":300000,"multiplier":20,"weight":0.045831127061976965},{"caseName":"Логово","name":"Трон из костей","tier":"unique","value":450000,"multiplier":30,"weight":0.03681893798906601},{"caseName":"Логово","name":"Древний повелитель","tier":"unique","value":750000,"multiplier":50,"weight":0.027942993691351295},{"caseName":"Логово","name":"Имя дракона","tier":"unique","value":4040000,"multiplier":269.35,"weight":0.011240362111928349},{"caseName":"Депозитарий","name":"Золотой слиток","tier":"legendary","value":60000,"multiplier":3,"weight":0.12769850678723918},{"caseName":"Депозитарий","name":"Печать хранителя","tier":"legendary","value":80000,"multiplier":4,"weight":0.10932485278488137},{"caseName":"Депозитарий","name":"Ячейка первого ряда","tier":"mythic","value":110000,"multiplier":5.5,"weight":0.09205246957193805},{"caseName":"Депозитарий","name":"Платиновый брусок","tier":"mythic","value":150000,"multiplier":7.5,"weight":0.07785709840225961},{"caseName":"Депозитарий","name":"Хранилище под улицей","tier":"mythic","value":200000,"multiplier":10,"weight":0.06665477956814783},{"caseName":"Депозитарий","name":"Ключ от главного зала","tier":"mythic","value":280000,"multiplier":14,"weight":0.05558046261726661},{"caseName":"Депозитарий","name":"Резервный фонд","tier":"mythic","value":400000,"multiplier":20,"weight":0.04584321833743695},{"caseName":"Депозитарий","name":"Золотой запас","tier":"unique","value":600000,"multiplier":30,"weight":0.03682865164766245},{"caseName":"Депозитарий","name":"Дверь без замка","tier":"unique","value":1000000,"multiplier":50,"weight":0.0279503656775004},{"caseName":"Депозитарий","name":"Право подписи","tier":"unique","value":6390000,"multiplier":319.52,"weight":0.010257707436007759},{"caseName":"Галактика","name":"Туманность в склянке","tier":"legendary","value":90000,"multiplier":3,"weight":0.12768159099153503},{"caseName":"Галактика","name":"Горизонт событий","tier":"legendary","value":120000,"multiplier":4,"weight":0.1093103708859021},{"caseName":"Галактика","name":"Сверхновая","tier":"mythic","value":165000,"multiplier":5.5,"weight":0.09204027568801162},{"caseName":"Галактика","name":"Карта рукава","tier":"mythic","value":225000,"multiplier":7.5,"weight":0.07784678493185324},{"caseName":"Галактика","name":"Квазар","tier":"mythic","value":300000,"multiplier":10,"weight":0.06664595003159139},{"caseName":"Галактика","name":"Сингулярность","tier":"mythic","value":420000,"multiplier":14,"weight":0.05557310005857716},{"caseName":"Галактика","name":"Рождение галактики","tier":"mythic","value":600000,"multiplier":20,"weight":0.04583714563905286},{"caseName":"Галактика","name":"Тёмная энергия","tier":"unique","value":900000,"multiplier":30,"weight":0.03682377307889132},{"caseName":"Галактика","name":"Край вселенной","tier":"unique","value":1500000,"multiplier":50,"weight":0.027946663185689398},{"caseName":"Галактика","name":"Первый свет","tier":"unique","value":8990000,"multiplier":299.68,"weight":0.010620092162350799},{"caseName":"Возрождение","name":"Пламя без дыма","tier":"legendary","value":120000,"multiplier":3,"weight":0.12690591520473765},{"caseName":"Возрождение","name":"Второе рождение","tier":"legendary","value":160000,"multiplier":4,"weight":0.10864630171756244},{"caseName":"Возрождение","name":"Клетка из света","tier":"mythic","value":220000,"multiplier":5.5,"weight":0.09148112371702719},{"caseName":"Возрождение","name":"Песнь на рассвете","tier":"mythic","value":300000,"multiplier":7.5,"weight":0.07737385954235315},{"caseName":"Возрождение","name":"Вечное пламя","tier":"mythic","value":400000,"multiplier":10,"weight":0.06624107060201849},{"caseName":"Возрождение","name":"Бессмертие","tier":"mythic","value":560000,"multiplier":14,"weight":0.05523548907035283},{"caseName":"Возрождение","name":"Круг перерождений","tier":"mythic","value":800000,"multiplier":20,"weight":0.045558681345711824},{"caseName":"Возрождение","name":"Первый рассвет","tier":"unique","value":1200000,"multiplier":30,"weight":0.03660006573835771},{"caseName":"Возрождение","name":"Птица над миром","tier":"unique","value":2000000,"multiplier":50,"weight":0.02777688499145968},{"caseName":"Возрождение","name":"Начало заново","tier":"unique","value":12790000,"multiplier":319.76,"weight":0.010194040500707654},{"caseName":"Бездна","name":"Затонувший сундук","tier":"legendary","value":150000,"multiplier":3,"weight":0.1269221449746532},{"caseName":"Бездна","name":"Сердце кракена","tier":"legendary","value":200000,"multiplier":4,"weight":0.10866019629825403},{"caseName":"Бездна","name":"Врата Атлантиды","tier":"mythic","value":275000,"multiplier":5.5,"weight":0.09149282307388656},{"caseName":"Бездна","name":"Корона Атлантиды","tier":"mythic","value":375000,"multiplier":7.5,"weight":0.07738375474649574},{"caseName":"Бездна","name":"Жемчуг бездны","tier":"mythic","value":500000,"multiplier":10,"weight":0.06624954205374789},{"caseName":"Бездна","name":"Голос глубины","tier":"mythic","value":700000,"multiplier":14,"weight":0.05524255303799642},{"caseName":"Бездна","name":"Город под водой","tier":"mythic","value":1000000,"multiplier":20,"weight":0.045564507763768886},{"caseName":"Бездна","name":"Трон Посейдона","tier":"unique","value":1500000,"multiplier":30,"weight":0.036604746455130205},{"caseName":"Бездна","name":"Дно Марианской","tier":"unique","value":2500000,"multiplier":50,"weight":0.02778043732746904},{"caseName":"Бездна","name":"Первая волна","tier":"unique","value":16990000,"multiplier":339.81,"weight":0.0098669803970377},{"caseName":"Империя","name":"Трон в зале","tier":"legendary","value":225000,"multiplier":3,"weight":0.12710030104399053},{"caseName":"Империя","name":"Корона империи","tier":"legendary","value":300000,"multiplier":4,"weight":0.10881271872426397},{"caseName":"Империя","name":"Замок с землями","tier":"mythic","value":412000,"multiplier":5.49,"weight":0.09162124827293022},{"caseName":"Империя","name":"Право первой подписи","tier":"mythic","value":562000,"multiplier":7.49,"weight":0.07749237555162751},{"caseName":"Империя","name":"Династия","tier":"mythic","value":750000,"multiplier":10,"weight":0.06634253416328126},{"caseName":"Империя","name":"Титул навсегда","tier":"mythic","value":1050000,"multiplier":14,"weight":0.05532009503125042},{"caseName":"Империя","name":"Империя на карте","tier":"mythic","value":1500000,"multiplier":20,"weight":0.04562846503147898},{"caseName":"Империя","name":"Слово короля","tier":"unique","value":2250000,"multiplier":30,"weight":0.036656127226774415},{"caseName":"Империя","name":"Наследие рода","tier":"unique","value":3750000,"multiplier":50,"weight":0.027819431732422736},{"caseName":"Империя","name":"Первый венец","tier":"unique","value":26240000,"multiplier":349.87,"weight":0.009727367252980332},{"caseName":"Вершина","name":"Туманность в склянке","tier":"legendary","value":300000,"multiplier":3,"weight":0.12693748603606347},{"caseName":"Вершина","name":"Горизонт событий","tier":"legendary","value":400000,"multiplier":4,"weight":0.10867333004055404},{"caseName":"Вершина","name":"Сверхновая","tier":"mythic","value":550000,"multiplier":5.5,"weight":0.0915038817982538},{"caseName":"Вершина","name":"Карта рукава","tier":"mythic","value":750000,"multiplier":7.5,"weight":0.0773931081098033},{"caseName":"Вершина","name":"Квазар","tier":"mythic","value":1000000,"multiplier":10,"weight":0.0662575496263685},{"caseName":"Вершина","name":"Сингулярность","tier":"mythic","value":1400000,"multiplier":14,"weight":0.055249230197437625},{"caseName":"Вершина","name":"Рождение галактики","tier":"mythic","value":2000000,"multiplier":20,"weight":0.04557001513926961},{"caseName":"Вершина","name":"Тёмная энергия","tier":"unique","value":3000000,"multiplier":30,"weight":0.03660917086557007},{"caseName":"Вершина","name":"Край вселенной","tier":"unique","value":5000000,"multiplier":50,"weight":0.02778379514493367},{"caseName":"Вершина","name":"Первый свет","tier":"unique","value":35990000,"multiplier":359.9,"weight":0.009568239117101907},{"caseName":"Ва-банк","name":"Каре тузов","tier":"legendary","value":1500,"multiplier":3.01,"weight":0.12988165438144036},{"caseName":"Ва-банк","name":"Royal Flush","tier":"legendary","value":2000,"multiplier":4.01,"weight":0.1117711685285075},{"caseName":"Ва-банк","name":"Ключ от кассы","tier":"mythic","value":2750,"multiplier":5.51,"weight":0.0946533050278035},{"caseName":"Ва-банк","name":"Стол хайроллеров","tier":"mythic","value":3750,"multiplier":7.52,"weight":0.08050505060443892},{"caseName":"Ва-банк","name":"Кольцо чемпиона","tier":"mythic","value":5000,"multiplier":10.02,"weight":0.06927955777402363},{"caseName":"Ва-банк","name":"Джекпот-жетон","tier":"mythic","value":7000,"multiplier":14.03,"weight":0.05812008920532071},{"caseName":"Ва-банк","name":"Банк турнира","tier":"mythic","value":10000,"multiplier":20.04,"weight":0.048246681721666906},{"caseName":"Ва-банк","name":"Браслет серии","tier":"unique","value":15000,"multiplier":30.06,"weight":0.039043416338219804},{"caseName":"Ва-банк","name":"Доля в заведении","tier":"unique","value":25000,"multiplier":50.1,"weight":0.029904928236378216},{"caseName":"Ва-банк","name":"Право на банк","tier":"unique","value":159000,"multiplier":318.64,"weight":0.01134793444116312},{"caseName":"Красное или ничего","name":"Каре тузов","tier":"legendary","value":3000,"multiplier":3,"weight":0.1287091316723537},{"caseName":"Красное или ничего","name":"Royal Flush","tier":"legendary","value":4000,"multiplier":4,"weight":0.11076214047181257},{"caseName":"Красное или ничего","name":"Ключ от кассы","tier":"mythic","value":5500,"multiplier":5.51,"weight":0.09379881060236858},{"caseName":"Красное или ничего","name":"Стол хайроллеров","tier":"mythic","value":7500,"multiplier":7.51,"weight":0.0797782812967994},{"caseName":"Красное или ничего","name":"Кольцо чемпиона","tier":"mythic","value":10000,"multiplier":10.01,"weight":0.06865412799217807},{"caseName":"Красное или ничего","name":"Джекпот-жетон","tier":"mythic","value":14000,"multiplier":14.01,"weight":0.057595402907075356},{"caseName":"Красное или ничего","name":"Банк турнира","tier":"mythic","value":20000,"multiplier":20.02,"weight":0.04781112883141349},{"caseName":"Красное или ничего","name":"Браслет серии","tier":"unique","value":30000,"multiplier":30.03,"weight":0.038690947065211916},{"caseName":"Красное или ничего","name":"Доля в заведении","tier":"unique","value":50000,"multiplier":50.05,"weight":0.029634957795689316},{"caseName":"Красное или ничего","name":"Право на банк","tier":"unique","value":359000,"multiplier":359.36,"weight":0.010574911705311284},{"caseName":"Жерло","name":"Слеза магмы","tier":"legendary","value":7500,"multiplier":3,"weight":0.12898528970349968},{"caseName":"Жерло","name":"Корона огня","tier":"legendary","value":10000,"multiplier":4,"weight":0.11099979147792825},{"caseName":"Жерло","name":"Кальдера","tier":"mythic","value":13500,"multiplier":5.4,"weight":0.09400006512505253},{"caseName":"Жерло","name":"Огненная река","tier":"mythic","value":18500,"multiplier":7.4,"weight":0.07994945340249907},{"caseName":"Жерло","name":"Извержение","tier":"mythic","value":25000,"multiplier":10,"weight":0.06880143213890037},{"caseName":"Жерло","name":"Ядро планеты","tier":"mythic","value":35000,"multiplier":14.01,"weight":0.057718979477464835},{"caseName":"Жерло","name":"Рождение острова","tier":"mythic","value":50000,"multiplier":20.01,"weight":0.047913712284765986},{"caseName":"Жерло","name":"Пепел эпохи","tier":"unique","value":75000,"multiplier":30.01,"weight":0.03877396227653276},{"caseName":"Жерло","name":"Первый огонь","tier":"unique","value":125000,"multiplier":50.02,"weight":0.029698542496258855},{"caseName":"Жерло","name":"Кузня земли","tier":"unique","value":899000,"multiplier":359.74,"weight":0.010597601212715586},{"caseName":"Реактор","name":"Сыворотка","tier":"legendary","value":15000,"multiplier":3,"weight":0.1287885702490679},{"caseName":"Реактор","name":"Формула бессмертия","tier":"legendary","value":20000,"multiplier":4,"weight":0.11140590184108037},{"caseName":"Реактор","name":"Лаборатория","tier":"mythic","value":27500,"multiplier":5.5,"weight":0.09488632768053015},{"caseName":"Реактор","name":"Патент на лекарство","tier":"mythic","value":37500,"multiplier":7.5,"weight":0.08115505146922529},{"caseName":"Реактор","name":"Штамм","tier":"mythic","value":50000,"multiplier":10,"weight":0.0702015068604566},{"caseName":"Реактор","name":"Ключ от хранилища","tier":"mythic","value":70000,"multiplier":14,"weight":0.059251302849404365},{"caseName":"Реактор","name":"Противоядие от всего","tier":"mythic","value":100000,"multiplier":20,"weight":0.04950252097411642},{"caseName":"Реактор","name":"Секрет молодости","tier":"unique","value":150000,"multiplier":30.01,"weight":0.04035313886164193},{"caseName":"Реактор","name":"Запретный синтез","tier":"unique","value":250000,"multiplier":50.01,"weight":0.031193603824792037},{"caseName":"Реактор","name":"Первая формула","tier":"unique","value":1990000,"multiplier":398.08,"weight":0.010937251497276692},{"caseName":"Тень","name":"Список целей","tier":"legendary","value":30000,"multiplier":3,"weight":0.12801482207893267},{"caseName":"Тень","name":"Тень основателя","tier":"legendary","value":40000,"multiplier":4,"weight":0.11073658691254985},{"caseName":"Тень","name":"Убежище ордена","tier":"mythic","value":55000,"multiplier":5.5,"weight":0.09431626061423942},{"caseName":"Тень","name":"Слово мастера","tier":"mythic","value":75000,"multiplier":7.5,"weight":0.08066748046467026},{"caseName":"Тень","name":"Ночь без свидетелей","tier":"mythic","value":100000,"multiplier":10,"weight":0.06977974359863169},{"caseName":"Тень","name":"Право на тишину","tier":"mythic","value":140000,"multiplier":14,"weight":0.058895327260350204},{"caseName":"Тень","name":"Тайна ордена","tier":"mythic","value":200000,"multiplier":20,"weight":0.04920511504013696},{"caseName":"Тень","name":"Имя, что не звучит","tier":"unique","value":300000,"multiplier":30,"weight":0.04011070145207193},{"caseName":"Тень","name":"Клинок из ниоткуда","tier":"unique","value":500000,"multiplier":50.01,"weight":0.031006195937332157},{"caseName":"Тень","name":"Первая тень","tier":"unique","value":4490000,"multiplier":449.04,"weight":0.010244959888771438},{"caseName":"Полночь","name":"Ключ от склепа","tier":"legendary","value":60000,"multiplier":3,"weight":0.12801625625182098},{"caseName":"Полночь","name":"Гроб чёрного дуба","tier":"legendary","value":80000,"multiplier":4,"weight":0.11073782751428733},{"caseName":"Полночь","name":"Замок на утёсе","tier":"mythic","value":110000,"multiplier":5.5,"weight":0.09431731725613215},{"caseName":"Полночь","name":"Кровь первого","tier":"mythic","value":150000,"multiplier":7.5,"weight":0.08066838419684416},{"caseName":"Полночь","name":"Печать бессмертия","tier":"mythic","value":200000,"multiplier":10,"weight":0.06978052535354723},{"caseName":"Полночь","name":"Трон в подземелье","tier":"mythic","value":280000,"multiplier":14,"weight":0.05889598707520784},{"caseName":"Полночь","name":"Ночь без рассвета","tier":"mythic","value":400000,"multiplier":20,"weight":0.049205666293818444},{"caseName":"Полночь","name":"Родословная князя","tier":"unique","value":600000,"multiplier":30,"weight":0.04011115081941564},{"caseName":"Полночь","name":"Договор с вечностью","tier":"unique","value":1000000,"multiplier":50,"weight":0.031006543305276434},{"caseName":"Полночь","name":"Имя во тьме","tier":"unique","value":8990000,"multiplier":449.52,"weight":0.01024507466488467},{"caseName":"Точка невозврата","name":"Туманность в склянке","tier":"legendary","value":150000,"multiplier":3,"weight":0.127245407407079},{"caseName":"Точка невозврата","name":"Горизонт событий","tier":"legendary","value":200000,"multiplier":4,"weight":0.11007102058751149},{"caseName":"Точка невозврата","name":"Сверхновая","tier":"mythic","value":275000,"multiplier":5.5,"weight":0.09374938629818386},{"caseName":"Точка невозврата","name":"Карта рукава","tier":"mythic","value":375000,"multiplier":7.5,"weight":0.08018264017818597},{"caseName":"Точка невозврата","name":"Квазар","tier":"mythic","value":500000,"multiplier":10,"weight":0.06936034248826753},{"caseName":"Точка невозврата","name":"Сингулярность","tier":"mythic","value":700000,"multiplier":14,"weight":0.058541345368551795},{"caseName":"Точка невозврата","name":"Рождение галактики","tier":"mythic","value":1000000,"multiplier":20,"weight":0.04890937477485122},{"caseName":"Точка невозврата","name":"Тёмная энергия","tier":"unique","value":1500000,"multiplier":30,"weight":0.03986962185133212},{"caseName":"Точка невозврата","name":"Край вселенной","tier":"unique","value":2500000,"multiplier":50,"weight":0.030819837657211722},{"caseName":"Точка невозврата","name":"Первый свет","tier":"unique","value":24990000,"multiplier":499.81,"weight":0.009656735735706539},{"caseName":"Счастливый","name":"Каре тузов","tier":"legendary","value":600,"multiplier":3.02,"weight":0.12290112222458821},{"caseName":"Счастливый","name":"Royal Flush","tier":"legendary","value":800,"multiplier":4.02,"weight":0.10467429233636519},{"caseName":"Счастливый","name":"Ключ от кассы","tier":"mythic","value":1100,"multiplier":5.53,"weight":0.08763288870669575},{"caseName":"Счастливый","name":"Стол хайроллеров","tier":"mythic","value":1500,"multiplier":7.54,"weight":0.07370642103475988},{"caseName":"Счастливый","name":"Кольцо чемпиона","tier":"mythic","value":2000,"multiplier":10.05,"weight":0.0627754028833118},{"caseName":"Счастливый","name":"Джекпот-жетон","tier":"mythic","value":2800,"multiplier":14.07,"weight":0.052029549400322485},{"caseName":"Счастливый","name":"Банк турнира","tier":"mythic","value":4000,"multiplier":20.1,"weight":0.042639761912006684},{"caseName":"Счастливый","name":"Браслет серии","tier":"unique","value":5950,"multiplier":29.9,"weight":0.03400602333510234},{"caseName":"Счастливый","name":"Доля в заведении","tier":"unique","value":9950,"multiplier":50,"weight":0.025571973529786966},{"caseName":"Счастливый","name":"Право на банк","tier":"unique","value":23500,"multiplier":118.09,"weight":0.015689401368737782},{"caseName":"Удвоитель","name":"Синтезатор света","tier":"legendary","value":1500,"multiplier":3.01,"weight":0.12381524409012266},{"caseName":"Удвоитель","name":"Ядро подсветки","tier":"legendary","value":2000,"multiplier":4.01,"weight":0.10600032587091664},{"caseName":"Удвоитель","name":"Купол клуба","tier":"mythic","value":2750,"multiplier":5.51,"weight":0.08925318921808288},{"caseName":"Удвоитель","name":"Проектор на крыше","tier":"mythic","value":3750,"multiplier":7.52,"weight":0.0754894938504307},{"caseName":"Удвоитель","name":"Ночная панорама","tier":"mythic","value":5000,"multiplier":10.02,"weight":0.06462783324282574},{"caseName":"Удвоитель","name":"Вывеска «Вегас»","tier":"mythic","value":7000,"multiplier":14.03,"weight":0.053890282030192756},{"caseName":"Удвоитель","name":"Неоновый бульвар","tier":"mythic","value":10000,"multiplier":20.04,"weight":0.044449143620634346},{"caseName":"Удвоитель","name":"Город в огнях","tier":"unique","value":15000,"multiplier":30.06,"weight":0.03570870645232241},{"caseName":"Удвоитель","name":"Рассвет над стрипом","tier":"unique","value":25000,"multiplier":50.1,"weight":0.02710040575911983},{"caseName":"Удвоитель","name":"Первый свет","tier":"unique","value":74500,"multiplier":149.3,"weight":0.014973740963204318},{"caseName":"Подарочный","name":"Ящик с двойным дном","tier":"legendary","value":3000,"multiplier":3,"weight":0.125179384888382},{"caseName":"Подарочный","name":"Шатёр иллюзий","tier":"legendary","value":4000,"multiplier":4,"weight":0.10716818989454246},{"caseName":"Подарочный","name":"Пушка для полётов","tier":"mythic","value":5500,"multiplier":5.51,"weight":0.09023654080521482},{"caseName":"Подарочный","name":"Афиша с именем","tier":"mythic","value":7500,"multiplier":7.51,"weight":0.07632120321835283},{"caseName":"Подарочный","name":"Аншлаг","tier":"mythic","value":10000,"multiplier":10.01,"weight":0.0653398737082588},{"caseName":"Подарочный","name":"Гран-при шапито","tier":"mythic","value":14000,"multiplier":14.01,"weight":0.05448402097475744},{"caseName":"Подарочный","name":"Цирк на площади","tier":"mythic","value":20000,"multiplier":20.02,"weight":0.044938864338839785},{"caseName":"Подарочный","name":"Овация стоя","tier":"unique","value":30000,"multiplier":30.03,"weight":0.03610212895601043},{"caseName":"Подарочный","name":"Тайна фокуса","tier":"unique","value":50000,"multiplier":50.05,"weight":0.027398985868677977},{"caseName":"Подарочный","name":"Последний номер","tier":"unique","value":169000,"multiplier":169.17,"weight":0.01414932992070979},{"caseName":"Цепная реакция","name":"Сыворотка","tier":"legendary","value":6000,"multiplier":3,"weight":0.12132452618788821},{"caseName":"Цепная реакция","name":"Формула бессмертия","tier":"legendary","value":8000,"multiplier":4,"weight":0.10386798012278561},{"caseName":"Цепная реакция","name":"Лаборатория","tier":"mythic","value":11000,"multiplier":5.5,"weight":0.08745773569496754},{"caseName":"Цепная реакция","name":"Патент на лекарство","tier":"mythic","value":15000,"multiplier":7.5,"weight":0.0739709164317485},{"caseName":"Цепная реакция","name":"Штамм","tier":"mythic","value":20000,"multiplier":10.01,"weight":0.06332775341482522},{"caseName":"Цепная реакция","name":"Ключ от хранилища","tier":"mythic","value":28000,"multiplier":14.01,"weight":0.052806203157712686},{"caseName":"Цепная реакция","name":"Противоядие от всего","tier":"mythic","value":40000,"multiplier":20.01,"weight":0.04355498653546702},{"caseName":"Цепная реакция","name":"Секрет молодости","tier":"unique","value":60000,"multiplier":30.02,"weight":0.03499037556277785},{"caseName":"Цепная реакция","name":"Запретный синтез","tier":"unique","value":100000,"multiplier":50.03,"weight":0.02655524295402189},{"caseName":"Цепная реакция","name":"Первая формула","tier":"unique","value":379000,"multiplier":189.59,"weight":0.012914188967817184},{"caseName":"Джекпот","name":"Каре тузов","tier":"legendary","value":15000,"multiplier":3,"weight":0.12207155529487622},{"caseName":"Джекпот","name":"Royal Flush","tier":"legendary","value":20000,"multiplier":4,"weight":0.10450752438373423},{"caseName":"Джекпот","name":"Ключ от кассы","tier":"mythic","value":27500,"multiplier":5.5,"weight":0.08799623748226672},{"caseName":"Джекпот","name":"Стол хайроллеров","tier":"mythic","value":37500,"multiplier":7.5,"weight":0.07442637609337964},{"caseName":"Джекпот","name":"Кольцо чемпиона","tier":"mythic","value":50000,"multiplier":10,"weight":0.06371768013918572},{"caseName":"Джекпот","name":"Джекпот-жетон","tier":"mythic","value":70000,"multiplier":14,"weight":0.05313134574864473},{"caseName":"Джекпот","name":"Банк турнира","tier":"mythic","value":100000,"multiplier":20,"weight":0.04382316679315109},{"caseName":"Джекпот","name":"Браслет серии","tier":"unique","value":150000,"multiplier":30.01,"weight":0.035205821110608444},{"caseName":"Джекпот","name":"Доля в заведении","tier":"unique","value":250000,"multiplier":50.01,"weight":0.026718751026569985},{"caseName":"Джекпот","name":"Право на банк","tier":"unique","value":1120000,"multiplier":224.04,"weight":0.011859910062754045},{"caseName":"Золотой билет","name":"Ящик с двойным дном","tier":"legendary","value":21000,"multiplier":3,"weight":0.12366643053296586},{"caseName":"Золотой билет","name":"Шатёр иллюзий","tier":"legendary","value":28000,"multiplier":4,"weight":0.10587292406616675},{"caseName":"Золотой билет","name":"Пушка для полётов","tier":"mythic","value":38500,"multiplier":5.5,"weight":0.08914591579894345},{"caseName":"Золотой билет","name":"Афиша с именем","tier":"mythic","value":52500,"multiplier":7.5,"weight":0.07539876301845276},{"caseName":"Золотой билет","name":"Аншлаг","tier":"mythic","value":70000,"multiplier":10,"weight":0.06455015704207294},{"caseName":"Золотой билет","name":"Гран-при шапито","tier":"mythic","value":98000,"multiplier":14,"weight":0.05382551129356796},{"caseName":"Золотой билет","name":"Цирк на площади","tier":"mythic","value":140000,"multiplier":20,"weight":0.0443957201894295},{"caseName":"Золотой билет","name":"Овация стоя","tier":"unique","value":210000,"multiplier":30,"weight":0.035665788153629155},{"caseName":"Золотой билет","name":"Тайна фокуса","tier":"unique","value":350000,"multiplier":50.01,"weight":0.027067833778092423},{"caseName":"Золотой билет","name":"Последний номер","tier":"unique","value":1570000,"multiplier":224.32,"weight":0.012014860795046801},{"caseName":"Двойная ставка","name":"Каре тузов","tier":"legendary","value":30000,"multiplier":3,"weight":0.12130761267206314},{"caseName":"Двойная ставка","name":"Royal Flush","tier":"legendary","value":40000,"multiplier":4,"weight":0.10385350017564941},{"caseName":"Двойная ставка","name":"Ключ от кассы","tier":"mythic","value":55000,"multiplier":5.5,"weight":0.0874455434545098},{"caseName":"Двойная ставка","name":"Стол хайроллеров","tier":"mythic","value":75000,"multiplier":7.5,"weight":0.07396060435137221},{"caseName":"Двойная ставка","name":"Кольцо чемпиона","tier":"mythic","value":100000,"multiplier":10,"weight":0.06331892506829707},{"caseName":"Двойная ставка","name":"Джекпот-жетон","tier":"mythic","value":140000,"multiplier":14,"weight":0.05279884159133503},{"caseName":"Двойная ставка","name":"Банк турнира","tier":"mythic","value":200000,"multiplier":20,"weight":0.04354891465554979},{"caseName":"Двойная ставка","name":"Браслет серии","tier":"unique","value":300000,"multiplier":30,"weight":0.034985497651531035},{"caseName":"Двойная ставка","name":"Доля в заведении","tier":"unique","value":500000,"multiplier":50.01,"weight":0.026551540961225757},{"caseName":"Двойная ставка","name":"Право на банк","tier":"unique","value":2390000,"multiplier":239.02,"weight":0.011382023106850702},{"caseName":"Клад","name":"Сундук с дублонами","tier":"legendary","value":45000,"multiplier":3,"weight":0.1220944322777748},{"caseName":"Клад","name":"Сундук Флинта","tier":"legendary","value":60000,"multiplier":4,"weight":0.10452710975595567},{"caseName":"Клад","name":"Флаг с черепом","tier":"mythic","value":82500,"multiplier":5.5,"weight":0.08801272853470853},{"caseName":"Клад","name":"Каюта капитана","tier":"mythic","value":112000,"multiplier":7.47,"weight":0.07444032406781954},{"caseName":"Клад","name":"Галеон под парусом","tier":"mythic","value":150000,"multiplier":10,"weight":0.0637296212361543},{"caseName":"Клад","name":"Корона морского царя","tier":"mythic","value":210000,"multiplier":14,"weight":0.0531413028994743},{"caseName":"Клад","name":"Остров с крестом","tier":"mythic","value":300000,"multiplier":20,"weight":0.04383137953226846},{"caseName":"Клад","name":"Флот из трёх мачт","tier":"unique","value":450000,"multiplier":30,"weight":0.035212418904546045},{"caseName":"Клад","name":"Клад всех морей","tier":"unique","value":750000,"multiplier":50,"weight":0.02672375828980039},{"caseName":"Клад","name":"Чёрная метка удачи","tier":"unique","value":3890000,"multiplier":259.35,"weight":0.010971240351827104},{"caseName":"Мегабокс","name":"Трон в зале","tier":"legendary","value":75000,"multiplier":3,"weight":0.12087818782033773},{"caseName":"Мегабокс","name":"Корона империи","tier":"legendary","value":100000,"multiplier":4,"weight":0.10348586229265311},{"caseName":"Мегабокс","name":"Замок с землями","tier":"mythic","value":137000,"multiplier":5.48,"weight":0.08713598918413179},{"caseName":"Мегабокс","name":"Право первой подписи","tier":"mythic","value":187000,"multiplier":7.48,"weight":0.07369878630996893},{"caseName":"Мегабокс","name":"Династия","tier":"mythic","value":250000,"multiplier":10,"weight":0.06309477821213587},{"caseName":"Мегабокс","name":"Титул навсегда","tier":"mythic","value":350000,"multiplier":14,"weight":0.05261193547536912},{"caseName":"Мегабокс","name":"Империя на карте","tier":"mythic","value":500000,"multiplier":20,"weight":0.04339475296852263},{"caseName":"Мегабокс","name":"Слово короля","tier":"unique","value":750000,"multiplier":30,"weight":0.03486165017147088},{"caseName":"Мегабокс","name":"Наследие рода","tier":"unique","value":1250000,"multiplier":50,"weight":0.026457549402994548},{"caseName":"Мегабокс","name":"Первый венец","tier":"unique","value":6990000,"multiplier":279.61,"weight":0.010435856080077589},{"caseName":"Бесконечность","name":"Туманность в склянке","tier":"legendary","value":150000,"multiplier":3,"weight":0.11678816781668647},{"caseName":"Бесконечность","name":"Горизонт событий","tier":"legendary","value":200000,"multiplier":4,"weight":0.09998432694947652},{"caseName":"Бесконечность","name":"Сверхновая","tier":"mythic","value":275000,"multiplier":5.5,"weight":0.08418766620521072},{"caseName":"Бесконечность","name":"Карта рукава","tier":"mythic","value":375000,"multiplier":7.5,"weight":0.07120512293125736},{"caseName":"Бесконечность","name":"Квазар","tier":"mythic","value":500000,"multiplier":10,"weight":0.0609599107917446},{"caseName":"Бесконечность","name":"Сингулярность","tier":"mythic","value":700000,"multiplier":14,"weight":0.050831764276534644},{"caseName":"Бесконечность","name":"Рождение галактики","tier":"mythic","value":1000000,"multiplier":20,"weight":0.041926453262056476},{"caseName":"Бесконечность","name":"Тёмная энергия","tier":"unique","value":1500000,"multiplier":30,"weight":0.03368207551757606},{"caseName":"Бесконечность","name":"Край вселенной","tier":"unique","value":2500000,"multiplier":50,"weight":0.025562334904356665},{"caseName":"Бесконечность","name":"Первый свет","tier":"unique","value":15990000,"multiplier":319.81,"weight":0.009381306701157607},{"caseName":"Легенда","name":"Слеза дракона","tier":"legendary","value":300000,"multiplier":3,"weight":0.11941119460967074},{"caseName":"Легенда","name":"Корона Владыки","tier":"legendary","value":400000,"multiplier":4,"weight":0.10222994457812731},{"caseName":"Легенда","name":"Логово в горе","tier":"mythic","value":550000,"multiplier":5.5,"weight":0.08607849562931555},{"caseName":"Легенда","name":"Клад под чешуёй","tier":"mythic","value":750000,"multiplier":7.5,"weight":0.07280436837485052},{"caseName":"Легенда","name":"Крыло небесного","tier":"mythic","value":1000000,"multiplier":10,"weight":0.062329051881068485},{"caseName":"Легенда","name":"Сердце первородного","tier":"mythic","value":1400000,"multiplier":14,"weight":0.05197343026997068},{"caseName":"Легенда","name":"Дыхание пламени","tier":"mythic","value":2000000,"multiplier":20,"weight":0.04286810867370568},{"caseName":"Легенда","name":"Трон из костей","tier":"unique","value":3000000,"multiplier":30,"weight":0.03443856470802724},{"caseName":"Легенда","name":"Древний повелитель","tier":"unique","value":5000000,"multiplier":50,"weight":0.026136457185738877},{"caseName":"Легенда","name":"Имя дракона","tier":"unique","value":35990000,"multiplier":359.9,"weight":0.009000925565514316},{"caseName":"Porsche 911","name":"Компрессор Рутса","tier":"legendary","value":3000,"multiplier":3,"weight":0.12827312158673507},{"caseName":"Porsche 911","name":"Оппозитная шестёрка","tier":"legendary","value":4000,"multiplier":4,"weight":0.10981679023930728},{"caseName":"Porsche 911","name":"Мотор с наддувом","tier":"mythic","value":5500,"multiplier":5.51,"weight":0.09246668515422604},{"caseName":"Porsche 911","name":"Гараж с подъёмником","tier":"mythic","value":7500,"multiplier":7.51,"weight":0.07820743798032756},{"caseName":"Porsche 911","name":"Коллекция под чехлами","tier":"mythic","value":10000,"multiplier":10.01,"weight":0.0669547112099548},{"caseName":"Porsche 911","name":"Ключи от бокса","tier":"mythic","value":14000,"multiplier":14.01,"weight":0.05583056230273844},{"caseName":"Porsche 911","name":"Купе из ателье","tier":"mythic","value":20000,"multiplier":20.02,"weight":0.046049502595381354},{"caseName":"Porsche 911","name":"Номерной экземпляр","tier":"unique","value":30000,"multiplier":30.03,"weight":0.036994372366053345},{"caseName":"Porsche 911","name":"Витрина коллекционера","tier":"unique","value":50000,"multiplier":50.05,"weight":0.028076136089180886},{"caseName":"Porsche 911","name":"Первый оборот стартера","tier":"unique","value":179000,"multiplier":179.18,"weight":0.014058338249733994},{"caseName":"Три желания","name":"Печать султана","tier":"legendary","value":120000,"multiplier":3,"weight":0.12023339263473695},{"caseName":"Три желания","name":"Сокровища султана","tier":"legendary","value":160000,"multiplier":4,"weight":0.10293384222197483},{"caseName":"Три желания","name":"Дворец в барханах","tier":"mythic","value":220000,"multiplier":5.5,"weight":0.08667118352041686},{"caseName":"Три желания","name":"Караван с шёлком","tier":"mythic","value":300000,"multiplier":7.5,"weight":0.07330565812485815},{"caseName":"Три желания","name":"Слово джинна","tier":"mythic","value":400000,"multiplier":10,"weight":0.0627582145197003},{"caseName":"Три желания","name":"Три желания","tier":"mythic","value":560000,"multiplier":14,"weight":0.05233128994856756},{"caseName":"Три желания","name":"Город под песком","tier":"mythic","value":800000,"multiplier":20,"weight":0.043163274251816305},{"caseName":"Три желания","name":"Клад пустыни","tier":"unique","value":1200000,"multiplier":30,"weight":0.03467568920863718},{"caseName":"Три желания","name":"Власть над ветром","tier":"unique","value":2000000,"multiplier":50,"weight":0.02631641806420246},{"caseName":"Три желания","name":"Первый шаг","tier":"unique","value":11990000,"multiplier":299.76,"weight":0.010000578007033693},{"caseName":"Rolex","name":"Минутный репетир","tier":"legendary","value":18000,"multiplier":3,"weight":0.12624263445021028},{"caseName":"Rolex","name":"Турбийон","tier":"legendary","value":24000,"multiplier":4,"weight":0.10807845583848286},{"caseName":"Rolex","name":"Витрина мастера","tier":"mythic","value":33000,"multiplier":5.5,"weight":0.0910029925860539},{"caseName":"Rolex","name":"Именной калибр","tier":"mythic","value":45000,"multiplier":7.5,"weight":0.07696946080447596},{"caseName":"Rolex","name":"Часы на заказ","tier":"mythic","value":60000,"multiplier":10,"weight":0.06589485799862073},{"caseName":"Rolex","name":"Коллекция дома","tier":"mythic","value":84000,"multiplier":14,"weight":0.054946797744907794},{"caseName":"Rolex","name":"Единственный экземпляр","tier":"mythic","value":120000,"multiplier":20,"weight":0.0453205663887415},{"caseName":"Rolex","name":"Аукционный лот","tier":"unique","value":180000,"multiplier":30.01,"weight":0.03640877347921026},{"caseName":"Rolex","name":"Наследие мануфактуры","tier":"unique","value":300000,"multiplier":50.01,"weight":0.027631707572378525},{"caseName":"Rolex","name":"Первый ход","tier":"unique","value":1790000,"multiplier":298.38,"weight":0.010500404970424287},{"caseName":"Rolex","name":"Rolex Daytona","tier":"unique","value":3000000,"multiplier":500.08,"weight":0.00893693376659328},{"caseName":"Санторини","name":"Купол с золотом","tier":"legendary","value":3000,"multiplier":3,"weight":0.12779229803410438},{"caseName":"Санторини","name":"Вилла над обрывом","tier":"legendary","value":4000,"multiplier":4,"weight":0.10884008315492473},{"caseName":"Санторини","name":"Виноградник на склоне","tier":"mythic","value":5500,"multiplier":5.51,"weight":0.0911204717132768},{"caseName":"Санторини","name":"Остров на горизонте","tier":"mythic","value":7500,"multiplier":7.51,"weight":0.07663976335943318},{"caseName":"Санторини","name":"Бухта в скалах","tier":"mythic","value":10000,"multiplier":10.01,"weight":0.06527371637677523},{"caseName":"Санторини","name":"Дом с белой крышей","tier":"mythic","value":14000,"multiplier":14.01,"weight":0.0541002031811874},{"caseName":"Санторини","name":"Своя гавань","tier":"mythic","value":20000,"multiplier":20.02,"weight":0.044336724219693494},{"caseName":"Санторини","name":"Остров целиком","tier":"unique","value":30000,"multiplier":30.03,"weight":0.03535938313934031},{"caseName":"Санторини","name":"Легенда Атлантиды","tier":"unique","value":50000,"multiplier":50.05,"weight":0.026589677974355973},{"caseName":"Санторини","name":"Первый рассвет","tier":"unique","value":179000,"multiplier":179.18,"weight":0.0130105687590126},{"caseName":"Рио-де-Жанейро","name":"Ложа в Самбадроме","tier":"legendary","value":4500,"multiplier":3,"weight":0.128566741118672},{"caseName":"Рио-де-Жанейро","name":"Золото Ипанемы","tier":"legendary","value":6000,"multiplier":4,"weight":0.11006816288971151},{"caseName":"Рио-де-Жанейро","name":"Победа школы","tier":"mythic","value":8250,"multiplier":5.5,"weight":0.09267834309533558},{"caseName":"Рио-де-Жанейро","name":"Пентхаус на Леблоне","tier":"mythic","value":11000,"multiplier":7.34,"weight":0.07838645624268617},{"caseName":"Рио-де-Жанейро","name":"Ночь карнавала","tier":"mythic","value":15000,"multiplier":10.01,"weight":0.0671079717740017},{"caseName":"Рио-де-Жанейро","name":"Корона карнавала","tier":"mythic","value":21000,"multiplier":14.01,"weight":0.05595835948556462},{"caseName":"Рио-де-Жанейро","name":"Свой блок на улице","tier":"mythic","value":30000,"multiplier":20.01,"weight":0.04615491075284045},{"caseName":"Рио-де-Жанейро","name":"Легенда самбы","tier":"unique","value":45000,"multiplier":30.02,"weight":0.03707905316405728},{"caseName":"Рио-де-Жанейро","name":"Город у ног","tier":"unique","value":75000,"multiplier":50.03,"weight":0.028140402880501847},{"caseName":"Рио-де-Жанейро","name":"Первый барабан","tier":"unique","value":329000,"multiplier":219.48,"weight":0.012643457863905909},{"caseName":"Монако","name":"Апартаменты в Монте-Карло","tier":"legendary","value":7500,"multiplier":3,"weight":0.12865938260821774},{"caseName":"Монако","name":"Яхта на рейде","tier":"legendary","value":10000,"multiplier":4,"weight":0.11014747483674336},{"caseName":"Монако","name":"Ложа над трассой","tier":"mythic","value":13500,"multiplier":5.4,"weight":0.09274512443923741},{"caseName":"Монако","name":"Гараж под скалой","tier":"mythic","value":18500,"multiplier":7.4,"weight":0.07844293926468196},{"caseName":"Монако","name":"Прописка княжества","tier":"mythic","value":25000,"multiplier":10,"weight":0.06715632784503096},{"caseName":"Монако","name":"Гран-при Монако","tier":"mythic","value":35000,"multiplier":14.01,"weight":0.055998681467207545},{"caseName":"Монако","name":"Мега-яхта","tier":"mythic","value":50000,"multiplier":20.01,"weight":0.04618816865177129},{"caseName":"Монако","name":"Вилла на скале","tier":"unique","value":75000,"multiplier":30.01,"weight":0.03710577126149192},{"caseName":"Монако","name":"Место в списке","tier":"unique","value":125000,"multiplier":50.02,"weight":0.02816068004407139},{"caseName":"Монако","name":"Ключи от порта","tier":"unique","value":649000,"multiplier":259.7,"weight":0.01156115789867504},{"caseName":"Лас-Вегас","name":"Стол в приватной","tier":"legendary","value":9000,"multiplier":3,"weight":0.12773285181589125},{"caseName":"Лас-Вегас","name":"Джекпот автомата","tier":"legendary","value":12000,"multiplier":4,"weight":0.10935425614515351},{"caseName":"Лас-Вегас","name":"Пентхаус над стрипом","tier":"mythic","value":16500,"multiplier":5.5,"weight":0.09207722745505262},{"caseName":"Лас-Вегас","name":"Банк турнира","tier":"mythic","value":22500,"multiplier":7.5,"weight":0.0778780383830211},{"caseName":"Лас-Вегас","name":"Хайроллер-люкс","tier":"mythic","value":30000,"multiplier":10,"weight":0.06667270664005855},{"caseName":"Лас-Вегас","name":"Браслет серии","tier":"mythic","value":42000,"multiplier":14,"weight":0.055595411206949545},{"caseName":"Лас-Вегас","name":"Своё шоу на афише","tier":"mythic","value":60000,"multiplier":20.01,"weight":0.04585554805598195},{"caseName":"Лас-Вегас","name":"Доля в казино","tier":"unique","value":90000,"multiplier":30.01,"weight":0.036838556862123284},{"caseName":"Лас-Вегас","name":"Ночь за счёт заведения","tier":"unique","value":150000,"multiplier":50.02,"weight":0.027957883041126504},{"caseName":"Лас-Вегас","name":"Первый жетон","tier":"unique","value":839000,"multiplier":279.76,"weight":0.01102764429451714},{"caseName":"Дубай","name":"Аренда суперкара","tier":"legendary","value":15000,"multiplier":3,"weight":0.12540196247027857},{"caseName":"Дубай","name":"Пентхаус над заливом","tier":"legendary","value":20000,"multiplier":4,"weight":0.10735874232922832},{"caseName":"Дубай","name":"Остров-пальма","tier":"mythic","value":27500,"multiplier":5.5,"weight":0.09039698759978121},{"caseName":"Дубай","name":"Верхний этаж башни","tier":"mythic","value":37500,"multiplier":7.5,"weight":0.07645690758273299},{"caseName":"Дубай","name":"Золото по весу","tier":"mythic","value":50000,"multiplier":10,"weight":0.06545605251121729},{"caseName":"Дубай","name":"Вилла на воде","tier":"mythic","value":70000,"multiplier":14,"weight":0.05458089732265911},{"caseName":"Дубай","name":"Частный самолёт","tier":"mythic","value":100000,"multiplier":20,"weight":0.04501876873976519},{"caseName":"Дубай","name":"Небоскрёб целиком","tier":"unique","value":150000,"multiplier":30.01,"weight":0.036166321031818376},{"caseName":"Дубай","name":"Имя на башне","tier":"unique","value":250000,"multiplier":50.01,"weight":0.02744770315568579},{"caseName":"Дубай","name":"Ключи от города","tier":"unique","value":1490000,"multiplier":298.06,"weight":0.010430480920795453},{"caseName":"Сингапур","name":"Ложа на трассе","tier":"legendary","value":24000,"multiplier":3,"weight":0.12697355515780115},{"caseName":"Сингапур","name":"Башня над заливом","tier":"legendary","value":32000,"multiplier":4,"weight":0.10870420942609473},{"caseName":"Сингапур","name":"Апартаменты в Марине","tier":"mythic","value":44000,"multiplier":5.5,"weight":0.0915298825073833},{"caseName":"Сингапур","name":"Портфель в банке","tier":"mythic","value":60000,"multiplier":7.5,"weight":0.07741509926092217},{"caseName":"Сингапур","name":"Резиденция","tier":"mythic","value":80000,"multiplier":10,"weight":0.06627637662301183},{"caseName":"Сингапур","name":"Ключи от небоскрёба","tier":"mythic","value":112000,"multiplier":14,"weight":0.05526492919441743},{"caseName":"Сингапур","name":"Доля в порту","tier":"mythic","value":160000,"multiplier":20,"weight":0.04558296379986605},{"caseName":"Сингапур","name":"Город-государство","tier":"unique","value":240000,"multiplier":30,"weight":0.03661957331390823},{"caseName":"Сингапур","name":"Место в совете","tier":"unique","value":400000,"multiplier":50.01,"weight":0.027791689874226897},{"caseName":"Сингапур","name":"Первый контейнер","tier":"unique","value":2710000,"multiplier":338.79,"weight":0.009870977046081333}];
 const FEED_NICK_HEAD = ["nova","lucky","shadow","astra","volt","delta","orbit","grim","echo","frost","blaze","onyx","rune","vega","kilo","zen","drift","crimson","quartz","pixel","raven","atlas","noir","mango","сова","барс","вихрь","туман","кобальт","янтарь","сокол","кремень"];
 const FEED_NICK_TAIL = ["","","_","x","ka","off","ov","77","01","_ru","pro","dev","2k","ix","er","yy","99","13","_tg","zz"];
+
+const FEED_STEP_MS = 2000;
+const FEED_TOTAL_WEIGHT = FEED_POOL.reduce((s, p) => s + p.weight, 0);
+
 let feedSeq = 1;
+let feedLastAt = Date.now();
+
+function makeFeedDrop(at) {
+  let r = Math.random() * FEED_TOTAL_WEIGHT;
+  let pick = FEED_POOL[FEED_POOL.length - 1];
+  for (const entry of FEED_POOL) {
+    r -= entry.weight;
+    if (r <= 0) { pick = entry; break; }
+  }
+  const head = FEED_NICK_HEAD[Math.floor(Math.random() * FEED_NICK_HEAD.length)];
+  const tail = FEED_NICK_TAIL[Math.floor(Math.random() * FEED_NICK_TAIL.length)];
+  return { id: 'd' + (feedSeq++), nick: head + tail, ...pick, at };
+}
+
+// Лента не должна открываться пустой — набиваем историю сразу.
+const feedRing = [];
+for (let i = 23; i >= 0; i--) feedRing.push(makeFeedDrop(feedLastAt - i * FEED_STEP_MS));
+feedRing.reverse();
 
 /* ---------- SHA-256 и HMAC на чистом JS ----------
    Своя реализация, а не crypto.subtle: тот доступен только в защищённом
@@ -3269,25 +3345,27 @@ const routes = {
              fair: { roll, nonce: u.nonce }, user: publicUser() };
   },
 
-  /* Витрина: в автономной сборке других игроков нет, лента целиком
-     выдуманная. Обычные исходы в неё не попадают — см. NEDOSTATOK.md. */
+  /* Лента выигрышей: в автономной сборке других игроков нет, поэтому она
+     целиком выдуманная — см. NEDOSTATOK.md. Обычные исходы в неё не попадают.
+
+     Кольцо живёт между запросами, а не пересобирается заново: клиент
+     показывает только записи, которых ещё не видел, и лента из свежих
+     двадцати четырёх на каждый опрос заваливала бы его целиком. */
   'GET /api/feed': () => {
-    const total = FEED_POOL.reduce((s, p) => s + p.weight, 0);
-    const drops = [];
+    const now = Date.now();
+    const due = Math.min(24, Math.floor((now - feedLastAt) / FEED_STEP_MS));
 
-    for (let i = 0; i < 24; i++) {
-      let r = Math.random() * total;
-      let pick = FEED_POOL[FEED_POOL.length - 1];
-      for (const entry of FEED_POOL) {
-        r -= entry.weight;
-        if (r <= 0) { pick = entry; break; }
-      }
-      const head = FEED_NICK_HEAD[Math.floor(Math.random() * FEED_NICK_HEAD.length)];
-      const tail = FEED_NICK_TAIL[Math.floor(Math.random() * FEED_NICK_TAIL.length)];
-      drops.push({ id: 'd' + (feedSeq++), nick: head + tail, ...pick, at: Date.now() - i * 2500 });
+    for (let i = 0; i < due; i++) {
+      feedLastAt += FEED_STEP_MS;
+      feedRing.unshift(makeFeedDrop(feedLastAt));
     }
+    if (feedRing.length > 40) feedRing.length = 40;
 
-    return { drops, minMultiplier: CONFIG.feed.minMultiplier, minValue: CONFIG.feed.minValue };
+    return {
+      drops: feedRing.slice(0, 24),
+      minMultiplier: CONFIG.feed.minMultiplier,
+      minValue: CONFIG.feed.minValue,
+    };
   },
 
   'POST /api/free-case/state': () => ({ enabled: false }),
@@ -4936,87 +5014,260 @@ const ul = (items) => `<ul>${items.map((i) => `<li>${i}</li>`).join('')}</ul>`;
    ============================================================ */
 
 const TERMS = [
-  p('Настоящее соглашение регулирует использование сервиса LUCKYBOX (далее — ' +
-    '«Сервис»). Начиная пользоваться Сервисом, вы подтверждаете, что прочитали ' +
-    'условия и согласны с ними. Если вы не согласны хотя бы с одним пунктом, ' +
-    'прекратите использование Сервиса.'),
+  p('Настоящее Пользовательское соглашение (далее — «Соглашение») является ' +
+    'публичной офертой и определяет условия использования сервиса LUCKYBOX. ' +
+    'Регистрируя учётную запись или начиная пользоваться Сервисом, вы ' +
+    'подтверждаете, что ознакомились с Соглашением, понимаете его и принимаете ' +
+    'в полном объёме. Если вы не согласны хотя бы с одним условием, ' +
+    'воздержитесь от использования Сервиса.'),
+  p('Соглашение действует с даты публикации и распространяется на всех ' +
+    'пользователей вне зависимости от способа доступа к Сервису.'),
 
-  h('1. Что такое Сервис'),
-  p('LUCKYBOX — развлекательный симулятор открытия виртуальных кейсов и ' +
-    'сопутствующих игровых механик. Сервис не является азартной игрой в смысле ' +
-    'применимого законодательства и не предоставляет возможности выиграть ' +
-    'денежные средства или иное имущество, имеющее рыночную стоимость.'),
-
-  h('2. Игровой баланс'),
-  p('Игровой баланс — это запись в базе данных Сервиса. Он начисляется при ' +
-    'создании аккаунта, изменяется по итогам игровых раундов и может быть ' +
-    'скорректирован администрацией.'),
-  p('Администрация вправе изменить, обнулить или пересчитать баланс любого ' +
-    'аккаунта, в том числе при обнаружении ошибок в работе Сервиса или попыток ' +
-    'обойти его логику.'),
-
-  h('3. Заявки на вывод'),
-  p('В разделе «Касса» можно оформить заявку на вывод. Порядок такой:'),
+  h('1. Термины'),
   ul([
-    'сумма списывается с баланса в момент создания заявки — это исключает ' +
-      'ситуацию, когда одни и те же средства заявлены к выводу несколько раз;',
-    'пока заявка имеет статус «в обработке», её можно отменить самостоятельно, ' +
-      'и сумма немедленно вернётся на баланс;',
-    'заявку рассматривает администратор вручную и присваивает ей статус ' +
-      '«выплачено» или «отклонено», при необходимости с комментарием;',
-    'при отклонении сумма возвращается на баланс полностью;',
-    'после присвоения статуса заявка становится окончательной и отмене не подлежит.',
+    '<b>Оператор</b> — юридическое лицо, указанное в разделе «Контакты», ' +
+      'осуществляющее управление Сервисом.',
+    '<b>Сервис</b> — программно-аппаратный комплекс LUCKYBOX, включая ' +
+      'мини-приложение Telegram, серверную часть и все игровые разделы.',
+    '<b>Пользователь</b> — физическое лицо, прошедшее регистрацию и принявшее ' +
+      'условия Соглашения.',
+    '<b>Счёт</b> — учётная запись Пользователя в Сервисе, отражающая остаток ' +
+      'денежных средств, доступных для участия в играх и вывода.',
+    '<b>Раунд</b> — единичное игровое событие: открытие кейса, апгрейд, ставка ' +
+      'в рулетке, раунд краша или риск-игры.',
+    '<b>Бонус</b> — средства, фриспины или иные преимущества, предоставленные ' +
+      'Оператором на условиях соответствующей акции.',
   ]),
-  p('Сроки рассмотрения не гарантированы. Администрация вправе отказать в ' +
-    'выводе, указав причину в комментарии к заявке.'),
 
-  h('4. Возрастное ограничение'),
-  p('Сервис предназначен для лиц, достигших 18 лет. Механики Сервиса ' +
-    'воспроизводят структуру азартных игр, и мы не считаем их подходящими для ' +
-    'несовершеннолетних, даже без денежных ставок.'),
+  h('2. Оператор и правовой статус'),
+  p('Сервис управляется Оператором, реквизиты которого приведены в разделе ' +
+    '«Контакты» и в подвале Сервиса. Оператор действует в соответствии с ' +
+    'законодательством страны своей регистрации.'),
+  p('Пользователь самостоятельно определяет, допускает ли законодательство ' +
+    'страны его местонахождения участие в играх, предлагаемых Сервисом. ' +
+    'Оператор не несёт ответственности за нарушение Пользователем требований ' +
+    'применимого к нему национального законодательства. Доступ к Сервису из ' +
+    'юрисдикций, где такая деятельность ограничена, может быть заблокирован.'),
 
-  h('5. Аккаунт'),
-  p('Доступ к Сервису осуществляется через учётную запись Telegram. Вы отвечаете ' +
-    'за сохранность доступа к своему аккаунту Telegram и за все действия, ' +
-    'совершённые под ним в Сервисе.'),
-  p('Мы вправе ограничить или прекратить доступ к Сервису без предварительного ' +
-    'уведомления, если пользователь: автоматизирует игровые действия; ' +
-    'вмешивается в работу Сервиса или пытается воздействовать на результаты ' +
-    'раундов; создаёт множественные аккаунты для обхода ограничений; нарушает ' +
-    'условия настоящего соглашения.'),
+  h('3. Право на участие'),
+  p('Пользоваться Сервисом вправе дееспособное физическое лицо, достигшее ' +
+    '18 лет. Оператор вправе в любой момент запросить подтверждение возраста ' +
+    'и приостановить операции по Счёту до его получения.'),
+  p('Не допускаются к участию: лица, не достигшие 18 лет; лица, в отношении ' +
+    'которых действует самоисключение или ограничение, установленное Оператором; ' +
+    'сотрудники Оператора и связанные с ними лица, если иное не предусмотрено ' +
+    'внутренними правилами; лица, включённые в санкционные перечни.'),
+  p('Если будет установлено, что Счёт открыт несовершеннолетним, он подлежит ' +
+    'немедленной блокировке. Все выигрыши, полученные по такому Счёту, ' +
+    'аннулируются; внесённые средства возвращаются на реквизиты, с которых ' +
+    'поступили.'),
 
-  h('6. Честность результатов'),
-  p('Исход каждого раунда определяется на сервере до того, как начинается ' +
-    'анимация в интерфейсе. Используется схема provably fair: хеш серверного ' +
-    'seed публикуется до начала игры, пользователь задаёт собственный client ' +
-    'seed, а после смены серверного seed прежнее значение раскрывается, и любой ' +
-    'прошлый результат можно пересчитать самостоятельно.'),
-  p('Состав каждого кейса — полный перечень предметов и их номиналов — показан ' +
-    'в интерфейсе до открытия. Мы не изменяем шансы в зависимости от истории ' +
-    'конкретного игрока, размера его баланса или времени, проведённого в Сервисе: ' +
-    'таблица вероятностей у кейса фиксированная и одинаковая для всех.'),
-  p('Обращаем внимание: средняя отдача всех игр меньше 100%. Это означает, что ' +
-    'на длинной дистанции баланс закономерно уменьшается. Это свойство механики, ' +
-    'а не сбой.'),
+  h('4. Учётная запись'),
+  p('Доступ к Сервису осуществляется через учётную запись Telegram. Один ' +
+    'Пользователь вправе иметь только один Счёт. Создание нескольких Счетов ' +
+    'одним лицом, в том числе с использованием данных третьих лиц, является ' +
+    'нарушением Соглашения.'),
+  p('Пользователь обязуется предоставлять достоверные сведения и поддерживать ' +
+    'их в актуальном состоянии. Пользователь самостоятельно обеспечивает ' +
+    'сохранность доступа к своей учётной записи Telegram и несёт ' +
+    'ответственность за все действия, совершённые в Сервисе от его имени.'),
+  p('Счёт не может быть передан, продан, подарен или иным образом отчуждён ' +
+    'в пользу третьего лица.'),
 
-  h('7. Доступность Сервиса'),
-  p('Сервис предоставляется «как есть». Мы не гарантируем его бесперебойную ' +
-    'работу и вправе приостанавливать доступ для обновлений и технического ' +
-    'обслуживания. Мы не несём ответственности за утрату игрового прогресса, ' +
-    'вызванную сбоями, действиями третьих лиц или прекращением работы Сервиса.'),
+  h('5. Верификация'),
+  p('Оператор вправе провести проверку личности Пользователя (верификацию) до ' +
+    'исполнения заявки на вывод, а также в любой иной момент при наличии ' +
+    'оснований. Для верификации могут быть запрошены: документ, удостоверяющий ' +
+    'личность, подтверждение адреса, подтверждение принадлежности платёжного ' +
+    'инструмента, а также пояснения об источнике средств.'),
+  p('До завершения верификации операции по выводу приостанавливаются. ' +
+    'Непредоставление запрошенных документов в разумный срок является ' +
+    'основанием для отказа в выводе и блокировки Счёта.'),
 
-  h('8. Интеллектуальная собственность'),
-  p('Оформление, исходный код, тексты, изображения и звуковое сопровождение ' +
-    'Сервиса принадлежат правообладателю. Копирование и использование этих ' +
+  h('6. Пополнение Счёта'),
+  p('Пополнение производится способами, доступными в разделе «Касса». Средства ' +
+    'зачисляются после получения Оператором подтверждения от платёжного ' +
+    'провайдера. Комиссии платёжных систем и сетей перевода оплачивает ' +
+    'Пользователь, если иное прямо не указано при оформлении платежа.'),
+  p('Пополнять Счёт допускается только платёжными инструментами, принадлежащими ' +
+    'самому Пользователю. Использование чужих платёжных средств является ' +
+    'нарушением и влечёт блокировку Счёта.'),
+  p('Счёт не является банковским, депозитным или расчётным. На остаток средств ' +
+    'проценты не начисляются. Сервис не предназначен для хранения средств, ' +
+    'перевода их третьим лицам или обмена валют.'),
+
+  h('7. Вывод средств'),
+  p('Заявка на вывод оформляется в разделе «Касса». Порядок обработки:'),
+  ul([
+    'сумма заявки списывается с баланса в момент её создания — это исключает ' +
+      'повторное распоряжение одними и теми же средствами;',
+    'пока заявка имеет статус «в обработке», Пользователь вправе отменить её ' +
+      'самостоятельно, и сумма немедленно возвращается на баланс;',
+    'заявка рассматривается Оператором, по итогам ей присваивается статус ' +
+      '«выплачено» либо «отклонено» с указанием причины;',
+    'при отклонении сумма возвращается на баланс в полном объёме;',
+    'после присвоения окончательного статуса заявка отмене не подлежит.',
+  ]),
+  p('Минимальная сумма вывода указана в интерфейсе раздела «Касса». Оператор ' +
+    'вправе установить лимиты на сумму и частоту выводов, а также запросить ' +
+    'верификацию до исполнения заявки.'),
+  p('Вывод производится на реквизиты, принадлежащие Пользователю. Оператор ' +
+    'вправе отказать в выводе на реквизиты третьих лиц.'),
+  p('Оператор вправе отказать в выводе полностью или частично, если установлено ' +
+    'нарушение Соглашения, признаки мошенничества, злоупотребления бонусами ' +
+    'либо использование ошибок в работе Сервиса.'),
+
+  h('8. Бонусы и акции'),
+  p('Оператор вправе предоставлять бонусы: бесплатные открытия, фриспины, ' +
+    'множители и иные преимущества. Каждая акция может иметь собственные ' +
+    'условия, которые публикуются вместе с ней и являются частью Соглашения ' +
+    'на период её действия.'),
+  p('Бонус предоставляется на усмотрение Оператора и не является обязательством. ' +
+    'Оператор вправе изменить или прекратить акцию, а также отозвать бонус, ' +
+    'предоставленный ошибочно.'),
+  p('Злоупотреблением бонусами считается, в частности: создание нескольких ' +
+    'Счетов ради повторного получения бонуса; согласованная игра нескольких ' +
+    'Пользователей; использование бонусов способом, не соответствующим их ' +
+    'назначению. При выявлении злоупотребления бонус и связанные с ним выигрыши ' +
+    'аннулируются.'),
+
+  h('9. Правила игр и определение результата'),
+  p('Исход каждого Раунда определяется на сервере Оператора до начала анимации ' +
+    'в интерфейсе. Интерфейс лишь отображает уже полученный результат и не ' +
+    'влияет на него.'),
+  p('Применяется схема provably fair. Хеш серверного значения (server seed) ' +
+    'публикуется до начала игры; Пользователь вправе задать собственное ' +
+    'значение (client seed); после смены серверного значения прежнее ' +
+    'раскрывается, и любой прошлый Раунд может быть пересчитан Пользователем ' +
+    'самостоятельно по формуле HMAC-SHA256. Необходимые данные собраны в ' +
+    'разделе «Честность».'),
+  p('Состав каждого кейса — полный перечень предметов и их номиналов — доступен ' +
+    'в интерфейсе до открытия. Вероятности фиксированы конфигурацией игры и ' +
+    'одинаковы для всех Пользователей. Они не зависят от истории Раундов ' +
+    'конкретного Пользователя, размера его Счёта, суммы предыдущих ставок или ' +
+    'времени, проведённого в Сервисе.'),
+  p('Средняя отдача всех игр Сервиса меньше 100%. Это означает, что на ' +
+    'длительной дистанции суммарный результат Пользователя закономерно ' +
+    'отрицателен. Это свойство математики игр, а не сбой. Отдельные Раунды ' +
+    'могут дать выигрыш, многократно превышающий ставку, однако предсказать ' +
+    'их невозможно, а стратегии, гарантирующей выигрыш, не существует.'),
+  p('Ставка считается принятой с момента её подтверждения в интерфейсе и ' +
+    'списания с баланса. Отменить принятую ставку невозможно.'),
+
+  h('10. Запрещённые действия'),
+  p('Пользователю запрещается:'),
+  ul([
+    'использовать программы, скрипты, эмуляторы и иные средства автоматизации ' +
+      'игровых действий;',
+    'вмешиваться в работу Сервиса, исследовать его на предмет уязвимостей без ' +
+      'письменного согласия Оператора, вносить изменения в передаваемые данные;',
+    'создавать несколько Счетов, в том числе через третьих лиц;',
+    'действовать согласованно с другими Пользователями для получения ' +
+      'преимущества;',
+    'использовать Сервис для отмывания денежных средств, финансирования ' +
+      'терроризма или иной противоправной деятельности;',
+    'умышленно использовать выявленные ошибки в работе Сервиса вместо ' +
+      'сообщения о них Оператору.',
+  ]),
+
+  h('11. Ошибки и технические сбои'),
+  p('Раунд, проведённый с технической ошибкой, признаётся недействительным. ' +
+    'Оператор вправе отменить такой Раунд, вернуть ставку и скорректировать ' +
+    'баланс независимо от того, был ли результат в пользу Пользователя.'),
+  p('Оператор вправе исправить очевидные ошибки в отображении коэффициентов, ' +
+    'сумм и результатов, а также пересчитать баланс, если он изменился ' +
+    'вследствие такой ошибки. Выигрыш, полученный исключительно за счёт ' +
+    'ошибки, не подлежит выплате.'),
+
+  h('12. Приостановление и закрытие Счёта'),
+  p('Оператор вправе приостановить операции по Счёту или закрыть его, если ' +
+    'Пользователь нарушил Соглашение, отказался от верификации, предоставил ' +
+    'недостоверные сведения либо если операции по Счёту имеют признаки ' +
+    'противоправных.'),
+  p('Пользователь вправе в любой момент закрыть Счёт, обратившись в поддержку. ' +
+    'Остаток средств выплачивается после завершения проверок, предусмотренных ' +
+    'разделами 5 и 14 Соглашения.'),
+
+  h('13. Неактивные Счета'),
+  p('Счёт считается неактивным, если по нему не совершалось операций в течение ' +
+    '12 месяцев подряд. Оператор уведомляет Пользователя об этом по доступным ' +
+    'каналам связи. Оператор вправе установить плату за обслуживание неактивного ' +
+    'Счёта в размере, не превышающем остаток на нём; такая плата не может ' +
+    'привести к отрицательному балансу.'),
+
+  h('14. Противодействие отмыванию средств'),
+  p('Оператор осуществляет мониторинг операций и обязан выявлять и сообщать о ' +
+    'подозрительных операциях в порядке, установленном применимым ' +
+    'законодательством. Оператор вправе запросить подтверждение источника ' +
+    'средств и приостановить операции до его получения.'),
+
+  h('15. Ответственная игра'),
+  p('Игры Сервиса построены на случайности и способны затягивать. Оператор ' +
+    'рекомендует относиться к ним как к платному развлечению, а не как к ' +
+    'способу заработка, и придерживаться простых правил: играть только на ' +
+    'средства, потеря которых не отразится на вашем положении; заранее ' +
+    'определять предел расходов и времени; не пытаться отыграть проигрыш ' +
+    'увеличением ставок; не играть в состоянии, при котором вы не контролируете ' +
+    'решения.'),
+  p('По обращению Пользователя Оператор устанавливает ограничение на сумму ' +
+    'пополнений либо приостанавливает доступ к Счёту (самоисключение) на срок ' +
+    'от одного месяца. До истечения срока самоисключение не отменяется, в том ' +
+    'числе по просьбе самого Пользователя. Заявление направляется на адрес ' +
+    'поддержки, указанный в разделе «Контакты».'),
+  p('Если игра перестала быть развлечением, обратитесь за независимой помощью — ' +
+    'к специалисту по зависимостям или в профильную службу поддержки в вашей ' +
+    'стране.'),
+
+  h('16. Претензии и разрешение споров'),
+  p('Претензия направляется на адрес поддержки с описанием обстоятельств и ' +
+    'указанием даты и времени спорного Раунда. Оператор рассматривает претензию ' +
+    'в течение 14 календарных дней и направляет мотивированный ответ.'),
+  p('Данные сервера Оператора — записи Раундов, значения seed и номера ' +
+    'nonce — являются основным доказательством при рассмотрении спора. ' +
+    'Пользователь вправе самостоятельно проверить любой Раунд средствами ' +
+    'раздела «Честность» и приложить расчёт к обращению.'),
+  p('Стороны стремятся урегулировать спор путём переговоров. При недостижении ' +
+    'согласия спор подлежит рассмотрению по месту регистрации Оператора.'),
+
+  h('17. Ограничение ответственности'),
+  p('Сервис предоставляется на условиях «как есть». Оператор не гарантирует ' +
+    'бесперебойную и безошибочную работу Сервиса и вправе приостанавливать ' +
+    'доступ для обновления и технического обслуживания.'),
+  p('Оператор не несёт ответственности за: убытки, возникшие вследствие ' +
+    'действий Пользователя или третьих лиц; сбои каналов связи, платёжных ' +
+    'систем и платформы Telegram; утрату доступа к учётной записи Telegram; ' +
+    'упущенную выгоду и косвенные убытки.'),
+  p('Совокупная ответственность Оператора перед Пользователем по любому ' +
+    'основанию ограничена суммой средств, находившихся на Счёте Пользователя ' +
+    'на момент возникновения основания.'),
+
+  h('18. Интеллектуальная собственность'),
+  p('Оформление, программный код, тексты, изображения, звуковое сопровождение ' +
+    'и товарные обозначения Сервиса принадлежат Оператору либо используются им ' +
+    'на законных основаниях. Копирование, распространение и использование этих ' +
     'материалов вне Сервиса без письменного разрешения не допускается.'),
 
-  h('9. Изменения условий'),
-  p('Мы вправе изменять настоящее соглашение. Актуальная редакция всегда ' +
-    'доступна в подвале Сервиса. Продолжение использования Сервиса после ' +
-    'изменений означает согласие с новой редакцией.'),
+  h('19. Персональные данные'),
+  p('Обработка персональных данных осуществляется в соответствии с Политикой ' +
+    'конфиденциальности, которая является неотъемлемой частью Соглашения и ' +
+    'доступна в подвале Сервиса.'),
 
-  h('10. Контакт'),
-  p(`Вопросы по настоящему соглашению направляйте на ${COMPANY.email}.`),
+  h('20. Изменение условий'),
+  p('Оператор вправе вносить изменения в Соглашение. Актуальная редакция ' +
+    'публикуется в Сервисе. Существенные изменения Оператор сопровождает ' +
+    'уведомлением в интерфейсе. Продолжение использования Сервиса после ' +
+    'вступления изменений в силу означает согласие с новой редакцией.'),
+
+  h('21. Заключительные положения'),
+  p('Если отдельное положение Соглашения будет признано недействительным, ' +
+    'остальные положения сохраняют силу. Недействительное положение подлежит ' +
+    'замене на действительное, наиболее близкое по смыслу.'),
+  p('К Соглашению применяется право страны регистрации Оператора. Соглашение ' +
+    'составлено на русском языке; при наличии переводов преимущественную силу ' +
+    'имеет русская редакция.'),
+
+  h('22. Контакты'),
+  p(`Вопросы по настоящему Соглашению направляйте на ${COMPANY.email}.`),
 ].join('');
 
 /* ============================================================
@@ -5024,60 +5275,129 @@ const TERMS = [
    ============================================================ */
 
 const PRIVACY = [
-  p('Мы стараемся собирать как можно меньше данных. Ниже — полный перечень ' +
-    'того, что Сервис хранит, зачем и как долго.'),
+  p('Настоящая Политика описывает, какие данные Сервис собирает, для чего их ' +
+    'использует, кому передаёт и как долго хранит. Политика является ' +
+    'неотъемлемой частью Пользовательского соглашения.'),
+  p('Мы придерживаемся принципа минимизации: собираем только те данные, без ' +
+    'которых Сервис не может работать или которые мы обязаны собирать по закону.'),
 
-  h('1. Какие данные мы обрабатываем'),
+  h('1. Кто обрабатывает данные'),
+  p('Оператором обработки персональных данных является юридическое лицо, ' +
+    'реквизиты которого указаны в разделе «Контакты» и в подвале Сервиса. ' +
+    'Обращения по вопросам обработки данных направляйте на ' + COMPANY.email + '.'),
+
+  h('2. Какие данные мы обрабатываем'),
   ul([
-    '<b>Идентификатор Telegram</b> — числовой ID вашей учётной записи. Нужен, чтобы отличать один аккаунт от другого.',
-    '<b>Имя и никнейм из Telegram</b> — отображаются в интерфейсе и в административной панели.',
-    '<b>Игровые данные</b> — баланс условных единиц, история раундов, накопленные внутриигровые бонусы, статистика ставок и выигрышей.',
-    '<b>Криптографические seed-значения</b> — служебные строки, обеспечивающие проверяемость результатов.',
+    '<b>Данные учётной записи Telegram</b> — числовой идентификатор, имя и ' +
+      'никнейм. Используются для создания и идентификации Счёта.',
+    '<b>Игровые данные</b> — баланс, история Раундов, ставки и выигрыши, ' +
+      'начисленные бонусы, статистика.',
+    '<b>Криптографические значения</b> — серверные и пользовательские seed, ' +
+      'номера nonce. Обеспечивают проверяемость результатов.',
+    '<b>Данные о платежах</b> — суммы, даты, статусы, идентификаторы операций ' +
+      'платёжного провайдера, реквизиты вывода. Полные реквизиты платёжных ' +
+      'карт нам не передаются и у нас не хранятся.',
+    '<b>Данные верификации</b> — при прохождении проверки: документ, ' +
+      'удостоверяющий личность, подтверждение адреса и принадлежности ' +
+      'платёжного инструмента. Запрашиваются только при наличии оснований.',
+    '<b>Технические данные</b> — IP-адрес, сведения об устройстве и браузере, ' +
+      'журналы обращений к серверу. Нужны для безопасности и расследования ' +
+      'инцидентов.',
   ]),
-  p('Мы <b>не</b> запрашиваем и не храним: номер телефона, адрес электронной ' +
-    'почты, платёжные реквизиты, документы, удостоверяющие личность, ' +
-    'геолокацию, содержимое переписки.'),
 
-  h('2. Основание и цель обработки'),
-  p('Данные обрабатываются для одной цели — обеспечить работу Сервиса: показать ' +
-    'ваш баланс, сохранить историю, дать возможность проверить честность ' +
-    'результатов. Основанием является ваше согласие, выраженное началом ' +
-    'использования Сервиса.'),
+  h('3. Цели и правовые основания'),
+  ul([
+    '<b>Исполнение договора</b> — создание Счёта, проведение Раундов, учёт ' +
+      'баланса, приём платежей и исполнение заявок на вывод.',
+    '<b>Исполнение обязанностей по закону</b> — верификация, противодействие ' +
+      'отмыванию средств, хранение сведений об операциях, ответы на законные ' +
+      'запросы уполномоченных органов.',
+    '<b>Законный интерес</b> — обеспечение безопасности Сервиса, выявление ' +
+      'мошенничества, злоупотребления бонусами и множественных Счетов, ' +
+      'разрешение споров.',
+    '<b>Согласие</b> — рассылка информации об акциях, если вы на неё ' +
+      'подписались. Согласие можно отозвать в любой момент.',
+  ]),
 
-  h('3. Передача третьим лицам'),
-  p('Мы не продаём, не сдаём в аренду и не передаём ваши данные третьим лицам ' +
-    'в рекламных целях. Передача возможна только по мотивированному требованию ' +
-    'уполномоченного государственного органа в порядке, установленном законом.'),
+  h('4. Файлы cookie и локальное хранилище'),
+  p('Сервис не использует рекламные и трекинговые cookie и не передаёт данные ' +
+    'рекламным сетям. В локальном хранилище браузера сохраняются только ' +
+    'пользовательские настройки интерфейса, например состояние звука.'),
+
+  h('5. Кому мы передаём данные'),
+  p('Мы не продаём и не сдаём в аренду персональные данные. Передача возможна ' +
+    'только следующим категориям получателей и только в объёме, необходимом ' +
+    'для достижения цели:'),
+  ul([
+    '<b>Платёжные провайдеры</b> — для проведения пополнений и выплат.',
+    '<b>Поставщики инфраструктуры</b> — размещение серверов, резервное ' +
+      'копирование, защита от атак. Такие поставщики действуют по нашему ' +
+      'поручению и не вправе использовать данные в своих целях.',
+    '<b>Уполномоченные органы</b> — по мотивированному требованию в порядке, ' +
+      'установленном законом.',
+    '<b>Профессиональные консультанты</b> — юристы и аудиторы при ' +
+      'необходимости, с обязательством конфиденциальности.',
+  ]),
   p('Сервис работает поверх платформы Telegram. Взаимодействие с самой ' +
     'платформой регулируется политикой конфиденциальности Telegram, на которую ' +
-    'мы не влияем.'),
+    'Оператор не влияет.'),
 
-  h('4. Хранение и защита'),
-  p('Данные хранятся на серверах, доступ к которым ограничен администрацией ' +
-    'Сервиса. Соединение с Сервисом защищено шифрованием TLS. Подпись данных ' +
-    'запуска мини-приложения проверяется на сервере, поэтому играть от чужого ' +
-    'имени, подменив идентификатор, невозможно.'),
+  h('6. Трансграничная передача'),
+  p('Серверы и поставщики услуг могут находиться за пределами страны вашего ' +
+    'проживания. При передаче данных в другие юрисдикции мы обеспечиваем ' +
+    'уровень защиты, сопоставимый с описанным в настоящей Политике, в том ' +
+    'числе договорными обязательствами получателей.'),
 
-  h('5. Срок хранения'),
-  p('Игровые данные хранятся, пока существует аккаунт. Если вы хотите удалить ' +
-    'свои данные, напишите на ' + COMPANY.email + ' с того аккаунта Telegram, ' +
-    'который используется в Сервисе. Мы удалим запись об аккаунте, историю ' +
-    'раундов и связанные с ними значения в течение 30 дней.'),
+  h('7. Сроки хранения'),
+  ul([
+    'данные Счёта и игровая история — в течение действия Счёта и далее в ' +
+      'сроки, установленные законодательством для операций такого рода;',
+    'данные о платежах и верификации — в сроки, предписанные требованиями ' +
+      'противодействия отмыванию средств;',
+    'технические журналы — как правило, до 12 месяцев;',
+    'данные, срок хранения которых истёк, удаляются или обезличиваются.',
+  ]),
 
-  h('6. Файлы cookie и аналитика'),
-  p('Сервис не использует рекламные и трекинговые cookie. В локальном хранилище ' +
-    'браузера сохраняется только пользовательская настройка звука. В автономной ' +
-    'демонстрационной версии там же хранится игровой прогресс, который никуда ' +
-    'не передаётся.'),
+  h('8. Безопасность'),
+  p('Доступ к данным ограничен кругом сотрудников, которым он необходим по ' +
+    'должностным обязанностям. Соединение с Сервисом защищено шифрованием TLS. ' +
+    'Подпись данных запуска мини-приложения проверяется на сервере, поэтому ' +
+    'действовать от чужого имени, подменив идентификатор, невозможно. Данные ' +
+    'резервируются, доступ к резервным копиям ограничен.'),
+  p('Ни один способ передачи и хранения данных не даёт абсолютной гарантии. ' +
+    'При инциденте, влекущем риск для ваших прав, мы уведомляем вас и ' +
+    'уполномоченный орган в сроки, установленные применимым правом.'),
 
-  h('7. Дети'),
-  p('Сервис не предназначен для лиц младше 18 лет и не собирает данные о них ' +
-    'осознанно. Если вам стало известно, что несовершеннолетний пользуется ' +
-    'Сервисом, сообщите нам, и мы закроем доступ.'),
+  h('9. Ваши права'),
+  p('Вы вправе: получить сведения об обрабатываемых данных и их копию; ' +
+    'потребовать исправления неточных данных; потребовать удаления данных; ' +
+    'ограничить обработку или возразить против неё; отозвать согласие там, где ' +
+    'обработка на нём основана; получить данные в машиночитаемом формате; ' +
+    'подать жалобу в уполномоченный орган по защите данных.'),
+  p('Обращение направляйте на ' + COMPANY.email + ' с того аккаунта Telegram, ' +
+    'который используется в Сервисе. Мы отвечаем в течение 30 дней. Обратите ' +
+    'внимание: удаление данных возможно после исполнения обязательств по ' +
+    'Счёту и с учётом сроков, установленных законом для сведений о финансовых ' +
+    'операциях, — такие сведения мы обязаны сохранить даже после закрытия Счёта.'),
 
-  h('8. Изменения политики'),
-  p('При изменении политики актуальная редакция публикуется здесь же. ' +
-    'Существенные изменения мы стараемся сопровождать уведомлением в интерфейсе.'),
+  h('10. Автоматизированные решения'),
+  p('Мы используем автоматические проверки для выявления мошенничества, ' +
+    'множественных Счетов и злоупотребления бонусами. Решение, существенно ' +
+    'затрагивающее ваши права, — например, блокировка Счёта или отказ в ' +
+    'выводе — принимается с участием человека. Вы вправе оспорить такое ' +
+    'решение, обратившись в поддержку.'),
+
+  h('11. Несовершеннолетние'),
+  p('Сервис не предназначен для лиц младше 18 лет и не собирает их данные ' +
+    'осознанно. Если нам станет известно, что данные получены от ' +
+    'несовершеннолетнего, они будут удалены, а доступ закрыт.'),
+
+  h('12. Изменения Политики'),
+  p('Актуальная редакция всегда доступна в подвале Сервиса. Существенные ' +
+    'изменения мы сопровождаем уведомлением в интерфейсе.'),
+
+  h('13. Контакты'),
+  p(`Вопросы об обработке данных и реализации прав — ${COMPANY.email}.`),
 ].join('');
 
 /* ============================================================
@@ -5085,25 +5405,35 @@ const PRIVACY = [
    ============================================================ */
 
 const FAQ = [
+  h('Как пополнить счёт?'),
+  p('Нажмите на баланс в шапке, чтобы открыть «Кассу», затем «Пополнить» и ' +
+    'выберите способ. Средства зачисляются после подтверждения платежа. ' +
+    'Пополнять счёт можно только своими платёжными инструментами.'),
+
   h('Как вывести средства?'),
-  p('Откройте «Кассу», нажав на баланс в шапке, затем «Вывести». Укажите сумму ' +
-    'не меньше минимальной и подтвердите. Сумма спишется с баланса сразу, а ' +
-    'заявка уйдёт в обработку.'),
+  p('Откройте «Кассу», нажмите «Вывести», укажите сумму не меньше минимальной ' +
+    'и подтвердите. Сумма спишется с баланса сразу, а заявка уйдёт в обработку. ' +
+    'Перед первой выплатой может потребоваться верификация.'),
 
   h('Можно ли отменить заявку на вывод?'),
   p('Да, пока у неё статус «в обработке» — кнопка «Отменить» находится рядом с ' +
-    'заявкой, средства возвращаются на баланс мгновенно. После того как ' +
-    'администратор присвоил статус «выплачено» или «отклонено», кнопка ' +
-    'пропадает: решение окончательное.'),
+    'заявкой, средства возвращаются на баланс мгновенно. После присвоения ' +
+    'статуса «выплачено» или «отклонено» кнопка пропадает: решение окончательное.'),
 
   h('Заявку отклонили. Что со средствами?'),
   p('При отклонении сумма возвращается на баланс полностью. Причину ' +
     'администратор указывает в комментарии, он виден в истории выводов.'),
 
   h('Почему сумма списалась сразу, а не после одобрения?'),
-  p('Иначе одни и те же средства можно было бы заявить к выводу несколько раз ' +
-    'подряд, а затем проиграть их в кейсах. Списание в момент создания заявки ' +
+  p('Иначе одними и теми же средствами можно было бы распорядиться несколько ' +
+    'раз подряд, а затем проиграть их. Списание в момент создания заявки ' +
     'делает баланс и заявки согласованными в любой момент времени.'),
+
+  h('Зачем нужна верификация?'),
+  p('Она подтверждает, что счётом пользуется его владелец, и требуется по ' +
+    'правилам противодействия отмыванию средств. Документы запрашиваются не у ' +
+    'всех и не всегда — как правило, перед крупной выплатой или при вопросах ' +
+    'к операциям по счёту.'),
 
   h('Результаты честные? Как это проверить?'),
   p('Каждый раунд считается по формуле, которую можно воспроизвести вручную. До ' +
@@ -5113,15 +5443,21 @@ const FAQ = [
     'результат. Всё нужное собрано на экране «Честность».'),
 
   h('Почему баланс на дистанции уменьшается?'),
-  p('Средняя отдача любой игры Сервиса меньше внесённой ставки — так устроены ' +
-    'все игры такого типа. Отдельные раунды могут дать выигрыш многократно ' +
-    'больше ставки, но чем больше раундов сыграно, тем ближе итог к средней ' +
-    'величине, а она не в пользу игрока.'),
+  p('Средняя отдача любой игры меньше внесённой ставки — так устроены все игры ' +
+    'этого типа. Отдельные раунды могут дать выигрыш многократно больше ставки, ' +
+    'но чем больше раундов сыграно, тем ближе итог к средней величине, а она не ' +
+    'в пользу игрока. Стратегии, которая делала бы её положительной, не ' +
+    'существует.'),
 
   h('Шансы зависят от того, сколько я уже проиграл?'),
   p('Нет. Таблица вероятностей у кейса фиксированная и одинаковая для всех. ' +
     'Ни история раундов, ни размер баланса, ни время в игре на неё не влияют. ' +
     'Каждый раунд независим от предыдущих.'),
+
+  h('Что такое апгрейд?'),
+  p('Вы ставите сумму и выбираете цель дороже. На кольце подсвечен сектор: ' +
+    'указатель остановился в нём — цель ваша, мимо — ставка сгорает. Чем крупнее ' +
+    'цель, тем уже сектор.'),
 
   h('Что означает ×2 и подарочный кейс?'),
   p('×2 удваивает выплату следующего открытия того же кейса, который его выдал. ' +
@@ -5149,16 +5485,22 @@ const FAQ = [
   p('Да, до пяти одинаковых за раз. Ленты крутятся одновременно, в конце ' +
     'показывается сводка. Списание и начисление происходят одной операцией.'),
 
-  h('Я потерял прогресс. Можно восстановить?'),
-  p('Прогресс привязан к аккаунту Telegram и сохраняется на сервере. Если он ' +
-    'пропал, напишите нам. В автономной демонстрационной версии прогресс лежит ' +
-    'в браузере и теряется при очистке данных сайта — это ожидаемо.'),
+  h('Я потерял доступ к счёту. Что делать?'),
+  p('Счёт привязан к аккаунту Telegram и хранится на сервере. Если доступ к ' +
+    'аккаунту Telegram восстановлен, счёт откроется сам. Если нет — напишите ' +
+    'в поддержку.'),
 
   h('Мне кажется, я играю слишком много'),
-  p('Это симулятор без денежных ставок, но механика намеренно воспроизводит ' +
-    'азартные игры и способна затягивать. Если вы ловите себя на том, что ' +
-    'играете дольше, чем собирались, сделайте перерыв. Напишите нам, и мы ' +
-    'закроем доступ к аккаунту по вашей просьбе.'),
+  p('Игры здесь построены на случайности и способны затягивать. Относитесь к ' +
+    'ним как к платному развлечению, а не как к способу заработка: играйте ' +
+    'только на средства, потеря которых не отразится на вашем положении, ' +
+    'заранее определяйте предел расходов и времени и не пытайтесь отыграть ' +
+    'проигрыш увеличением ставок.'),
+  p('По вашей просьбе мы установим ограничение на пополнения или закроем ' +
+    'доступ к счёту на срок от одного месяца — до его истечения ограничение ' +
+    'не снимается. Напишите в поддержку. Если игра перестала быть ' +
+    'развлечением, обратитесь также за независимой помощью в профильную ' +
+    'службу в вашей стране.'),
 ].join('');
 
 /* ============================================================
@@ -5166,19 +5508,22 @@ const FAQ = [
    ============================================================ */
 
 const CONTACTS = [
-  p('По любым вопросам — поддержка, удаление данных, сообщения об ошибках, ' +
-    'запрос на закрытие доступа — пишите на почту ниже. Мы отвечаем в течение ' +
-    'трёх рабочих дней.'),
+  p('Поддержка работает по электронной почте. Пишите по любым вопросам: ' +
+    'пополнение и вывод, верификация, спорный раунд, ограничение или закрытие ' +
+    'счёта, обработка персональных данных, сообщения об ошибках.'),
   p(`<a class="doc-mail" href="mailto:${COMPANY.email}">${COMPANY.email}</a>`),
+  p('Мы отвечаем в течение трёх рабочих дней. Претензии по спорным раундам ' +
+    'рассматриваются в течение 14 календарных дней — укажите дату, время и ' +
+    'номер раунда, это ускорит разбор.'),
 
   h('Реквизиты'),
   ...COMPANY.entities.map((e) =>
     `<div class="doc-entity"><b>${e.name}</b>${e.lines.map((l) => `<span>${l}</span>`).join('')}</div>`),
 
-  h('О чём писать не нужно'),
-  p('Мы не принимаем платежи и не выводим средства, поэтому вопросы о ' +
-    'пополнении, выводе и обмене баланса решить не сможем — таких механизмов в ' +
-    'Сервисе нет.'),
+  h('Ответственная игра'),
+  p('Участие в играх допускается с 18 лет. По вашему обращению мы установим ' +
+    'ограничение на сумму пополнений или приостановим доступ к счёту на срок ' +
+    'от одного месяца.'),
 ].join('');
 
 const DOCS = {
@@ -5304,10 +5649,7 @@ async function api(path, body) {
 
 const fmt = (n) => Number(n).toLocaleString('ru-RU');
 
-/**
- * Сумма с символом валюты. Символ добавлен только ради вида — баланс
- * остаётся условными единицами, платежей и вывода в проекте нет.
- */
+/** Сумма с символом валюты. */
 const money = (n) => fmt(n) + ' ₽';
 const esc = (s) => String(s ?? '').replace(/[<>&"]/g, (c) =>
   ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]));
@@ -6069,6 +6411,14 @@ function showCaseResult(data, caseData) {
   updateOpenerBalance();
   loadCaseHistory(caseData.name);
   state.busy = false;
+
+  // Крупный выигрыш игрока должен попасть в ленту сразу, а не в следующий
+  // плановый опрос: сервер уже записал раунд, осталось его забрать.
+  const feedMin = state.config?.feed;
+  if (feedMin && item.value >= feedMin.minValue
+      && item.value / caseData.price >= feedMin.minMultiplier) {
+    setTimeout(pollFeed, 400);
+  }
 
   sndReveal(item.tier);
   if (item.multiplier >= 5) sndBigWin();
@@ -7204,26 +7554,48 @@ document.getElementById('withdrawSubmit').addEventListener('click', async () => 
 });
 
 /* ============================================================
-   ВИТРИНА КРУПНЫХ ВЫПАДЕНИЙ
+   ЛЕНТА ВЫИГРЫШЕЙ
    ============================================================ */
 
 /**
- * Лента под шапкой. Показывает только дорогие выпадения — обычный серый
- * исход в неё не попадает, поэтому и подписана «Крупные выпадения».
+ * Лента под шапкой. Показывает только крупные выигрыши — обычный исход в
+ * неё не попадает, поэтому и подписана «Последние большие выигрыши».
  *
- * Часть записей приходит с сервера как выдуманные: пока живых игроков нет,
- * настоящая лента была бы пустой. Подробности — в NEDOSTATOK.md.
+ * ПОЧЕМУ НЕ ПЕРЕРИСОВЫВАЕМ ЦЕЛИКОМ. Раньше опрос заменял содержимое ленты
+ * разом, и она моргала. Теперь новые выигрыши въезжают по одному слева,
+ * сдвигая остальные вправо, — как настоящая живая лента.
+ *
+ * ПОЧЕМУ ОЧЕРЕДЬ. Сервер добавляет выигрыш каждые две секунды, но сеть
+ * отвечает неровно: опрос с тем же периодом приносил бы то ноль записей,
+ * то сразу две, и лента дёргалась бы. Поэтому опрос идёт реже и складывает
+ * новое в очередь, а отдельный таймер достаёт оттуда ровно по одной штуке
+ * раз в две секунды.
+ *
+ * Выигрыш самого игрока попадает в ленту так же, как чужие: сервер отдаёт
+ * его из истории раундов. Чтобы он появился сразу, а не в следующий опрос,
+ * после крупного выпадения дёргаем pollFeed() вручную.
  */
 const FEED_LIMIT = 24;
-const FEED_POLL_MS = 3000;
 
-/** Ключи уже показанных записей — чтобы анимировать только новые. */
+/** Как часто спрашиваем сервер о новых выигрышах. */
+const FEED_POLL_MS = 6000;
+
+/** С каким шагом они въезжают в ленту. */
+const FEED_STEP_MS = 2000;
+
+/** Сколько карточек держим в DOM. */
+const FEED_MAX_CARDS = 20;
+
+/** Ключи уже показанных записей — иначе один выигрыш въехал бы дважды. */
 const feedSeen = new Set();
 
-function feedCardHtml(drop, isNew) {
+/** Выигрыши, дождавшиеся своей очереди на показ. */
+const feedQueue = [];
+
+function feedCardHtml(drop) {
   const color = tierColor(drop.tier);
   const art = itemArt(drop.name, color) || iconTier(drop.tier, color);
-  return `<div class="feed-card${isNew ? ' is-new' : ''}" style="--tier-color:${color}">
+  return `<div class="feed-card is-new" style="--tier-color:${color}">
     <div class="feed-art">${art}</div>
     <div class="feed-name">${esc(drop.name)}</div>
     <div class="feed-value">${money(drop.value)}</div>
@@ -7231,33 +7603,63 @@ function feedCardHtml(drop, isNew) {
   </div>`;
 }
 
-async function loadFeed() {
+/** Ставит одну карточку в начало ленты и убирает лишнее с хвоста. */
+function pushFeedCard(drop, animate = true) {
   const track = document.getElementById('feedTrack');
   if (!track) return;
 
+  track.insertAdjacentHTML('afterbegin', feedCardHtml(drop));
+  if (!animate) track.firstElementChild.classList.remove('is-new');
+
+  while (track.children.length > FEED_MAX_CARDS) track.lastElementChild.remove();
+  document.getElementById('feed').hidden = false;
+}
+
+async function pollFeed() {
   let drops;
   try {
     const res = await fetch(`/api/feed?limit=${FEED_LIMIT}`);
     ({ drops } = await res.json());
   } catch {
-    return; // Витрина необязательна: молча ждём следующего опроса.
+    return; // Лента необязательна: молча ждём следующего опроса.
   }
   if (!drops?.length) return;
 
-  const first = feedSeen.size === 0;
-  track.innerHTML = drops.map((d) => feedCardHtml(d, !first && !feedSeen.has(d.id))).join('');
+  // Первый заход наполняет ленту сразу, без анимации: пустая полоса,
+  // которая заполняется по одной карточке за две секунды, выглядит поломкой.
+  if (feedSeen.size === 0) {
+    for (const d of drops.slice(0, FEED_MAX_CARDS).reverse()) {
+      feedSeen.add(d.id);
+      pushFeedCard(d, false);
+    }
+    for (const d of drops) feedSeen.add(d.id);
+    return;
+  }
 
-  // Множество могло бы расти бесконечно — держим только то, что на экране.
-  feedSeen.clear();
-  for (const d of drops) feedSeen.add(d.id);
+  // Сервер отдаёт свежие первыми, а въезжать они должны в обратном порядке.
+  for (const d of [...drops].reverse()) {
+    if (feedSeen.has(d.id)) continue;
+    feedSeen.add(d.id);
+    feedQueue.push(d);
+  }
 
-  document.getElementById('feed').hidden = false;
+  // Множество не должно расти бесконечно: помним только последнюю партию.
+  if (feedSeen.size > 400) {
+    feedSeen.clear();
+    for (const d of drops) feedSeen.add(d.id);
+  }
 }
 
 function startFeed() {
-  loadFeed();
-  if (state.feedTimer) clearInterval(state.feedTimer);
-  state.feedTimer = setInterval(loadFeed, FEED_POLL_MS);
+  pollFeed();
+  if (state.feedTimers) state.feedTimers.forEach(clearInterval);
+  state.feedTimers = [
+    setInterval(pollFeed, FEED_POLL_MS),
+    setInterval(() => {
+      const next = feedQueue.shift();
+      if (next) pushFeedCard(next);
+    }, FEED_STEP_MS),
+  ];
 }
 
 /* ============================================================

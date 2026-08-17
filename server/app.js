@@ -800,7 +800,7 @@ const PORT = Number(process.env.PORT || 3000);
 app.listen(PORT, () => {
   startFeed();
 
-  console.log(`\n  Кейс-симулятор запущен на http://localhost:${PORT}`);
+  console.log(`\n  LUCKYBOX запущен на http://localhost:${PORT}`);
   if (process.env.DEV_MODE === 'true') {
     console.log('  DEV_MODE включён — подпись Telegram не проверяется.');
   }

@@ -94,32 +94,76 @@ check('меню: разделы на месте',
       ['Кейсы', 'Апгрейд', 'Краш', 'Рулетка', 'Касса', 'Честность'].every((t) => nav.includes(t)),
       nav.join(', '));
 
-/* ---------- Витрина крупных выпадений ---------- */
+/* ---------- Размеры меню ---------- */
 
 {
-  await page.waitForTimeout(1200);
-  const feed = await page.evaluate(() => {
+  await page.click('#menuBtn');
+  await page.waitForSelector('.menu-tile', { state: 'visible' });
+  const box = await page.evaluate(() => {
+    const sheet = document.querySelector('.menu-sheet').getBoundingClientRect();
+    const tile = document.querySelector('.menu-tile').getBoundingClientRect();
+    return {
+      top: Math.round(sheet.top),
+      fits: sheet.bottom <= window.innerHeight,
+      tileHeight: Math.round(tile.height),
+      // Плитка не должна быть почти квадратной: содержимого в ней на
+      // квадрат не набирается, а первый экран она занимала целиком.
+      ratio: tile.height / tile.width,
+    };
+  });
+  await page.click('#menuClose');
+  await page.waitForTimeout(300);
+
+  check('меню: сдвинуто вниз от шапки', box.top >= 60, `отступ сверху ${box.top}px`);
+  check('меню: помещается на экран', box.fits);
+  check('меню: плитки невысокие', box.tileHeight <= 96, `высота плитки ${box.tileHeight}px`);
+  check('меню: плитка не квадратная', box.ratio < 0.7, `отношение ${box.ratio.toFixed(2)}`);
+}
+
+/* ---------- Лента выигрышей ---------- */
+
+{
+  await page.waitForTimeout(1500);
+  const snapshot = () => page.evaluate(() => {
     const cards = [...document.querySelectorAll('#feedTrack .feed-card')];
     return {
       visible: !document.getElementById('feed').hidden,
+      title: document.querySelector('.feed-title')?.textContent.trim() || '',
+      height: Math.round(document.getElementById('feed').getBoundingClientRect().height),
       count: cards.length,
+      first: cards[0]?.textContent || '',
       drawn: cards.filter((c) => c.querySelector('.feed-art svg')).length,
       withValue: cards.filter((c) => /\d/.test(c.querySelector('.feed-value')?.textContent || '')).length,
       withNick: cards.filter((c) => (c.querySelector('.feed-nick')?.textContent || '').trim()).length,
-      // Витрина не должна выдавать шансы — как и остальной интерфейс.
+      // Лента не должна выдавать шансы — как и остальной интерфейс.
       percents: cards.filter((c) => c.textContent.includes('%')).length,
     };
   });
 
-  check('витрина: лента показана', feed.visible);
-  check('витрина: карточки заполнены', feed.count > 0, `карточек ${feed.count}`);
-  check('витрина: у каждой карточки есть рисунок', feed.drawn === feed.count,
+  const feed = await snapshot();
+
+  check('лента: показана', feed.visible);
+  check('лента: заголовок «Последние большие выигрыши»',
+        feed.title === 'Последние большие выигрыши', feed.title);
+  check('лента: карточки заполнены', feed.count > 0, `карточек ${feed.count}`);
+  check('лента: у каждой карточки есть рисунок', feed.drawn === feed.count,
         `${feed.drawn} из ${feed.count}`);
-  check('витрина: у каждой карточки есть сумма', feed.withValue === feed.count,
+  check('лента: у каждой карточки есть сумма', feed.withValue === feed.count,
         `${feed.withValue} из ${feed.count}`);
-  check('витрина: у каждой карточки есть ник', feed.withNick === feed.count,
+  check('лента: у каждой карточки есть ник', feed.withNick === feed.count,
         `${feed.withNick} из ${feed.count}`);
-  check('витрина: проценты не показаны', feed.percents === 0, `нарушений ${feed.percents}`);
+  check('лента: проценты не показаны', feed.percents === 0, `нарушений ${feed.percents}`);
+  // Полоса не должна разрастаться вниз — она под шапкой, над самими кейсами.
+  check('лента: занимает узкую полосу', feed.height <= 175, `высота ${feed.height}px`);
+
+  // Новые выигрыши въезжают по одному, а не перерисовывают ленту целиком:
+  // счётчик карточек держится на потолке, а первая карточка меняется.
+  await page.waitForTimeout(7000);
+  const later = await snapshot();
+  check('лента: пополняется новыми выигрышами', later.first !== feed.first,
+        `первая карточка не изменилась за 7 с`);
+  check('лента: длина не растёт бесконечно', later.count === feed.count && later.count <= 20,
+        `было ${feed.count}, стало ${later.count}`);
 }
 
 /* ---------- Апгрейд ---------- */
@@ -195,6 +239,64 @@ await page.waitForSelector('#upgradeBtn', { state: 'visible' });
   check('апгрейд: указатель внутри сектора ⇔ выигрыш',
         spun.won === (spun.angle < spun.sector),
         `угол ${spun.angle.toFixed(1)}°, сектор ${spun.sector.toFixed(1)}°, выигрыш ${spun.won}`);
+
+  // Кнопка запуска обязана быть видна без прокрутки: тянуться вниз перед
+  // каждым запуском — лишнее движение на самом частом действии раздела.
+  const fit = await page.evaluate(() => {
+    window.scrollTo(0, 0);
+    const btn = document.getElementById('upgradeBtn').getBoundingClientRect();
+    const ring = document.querySelector('.upg-stage').getBoundingClientRect();
+    return {
+      overflow: Math.round(btn.bottom - window.innerHeight),
+      ringVisible: ring.top >= 0 && ring.bottom <= window.innerHeight,
+    };
+  });
+  check('апгрейд: кнопка видна без прокрутки', fit.overflow <= 0,
+        `не помещается на ${fit.overflow}px`);
+  check('апгрейд: кольцо целиком на экране', fit.ringVisible);
+}
+
+/* ---------- Тексты: проект подан как действующий сервис ---------- */
+
+{
+  const FORBIDDEN = [
+    'симулятор', 'условны', 'виртуальн', 'реальных денег',
+    'ничего не стоят', 'вывода не существует', 'демонстрационн',
+  ];
+
+  const texts = await page.evaluate(() => {
+    const out = { shell: document.body.innerText, docs: {} };
+    for (const btn of document.querySelectorAll('.footer-link[data-doc]')) {
+      btn.click();
+      out.docs[btn.textContent.trim()] = document.getElementById('docBody').innerText;
+    }
+    document.getElementById('docBackdrop').hidden = true;
+    return out;
+  });
+
+  const hits = [];
+  for (const [where, text] of [['интерфейс', texts.shell], ...Object.entries(texts.docs)]) {
+    for (const word of FORBIDDEN) {
+      if (text.toLowerCase().includes(word)) hits.push(`${where}: «${word}»`);
+    }
+  }
+  check('тексты: нет оговорок про симулятор и условные единицы',
+        hits.length === 0, hits.join('; '));
+
+  const docs = Object.keys(texts.docs);
+  check('документы: соглашение и политика открываются',
+        docs.some((d) => /соглашение/i.test(d)) && docs.some((d) => /конфиденциальн/i.test(d)),
+        docs.join(', '));
+
+  // Полноценные документы, а не пара абзацев для вёрстки.
+  const terms = Object.entries(texts.docs).find(([k]) => /соглашение/i.test(k))?.[1] || '';
+  const privacy = Object.entries(texts.docs).find(([k]) => /конфиденциальн/i.test(k))?.[1] || '';
+  check('соглашение: разделы про вывод, верификацию и ответственную игру',
+        /вывод/i.test(terms) && /верификац/i.test(terms) && /ответственн/i.test(terms));
+  check('политика: разделы про права, хранение и передачу данных',
+        /ваши права/i.test(privacy) && /срок/i.test(privacy) && /переда/i.test(privacy));
+  check('документы: объём как у настоящих', terms.length > 6000 && privacy.length > 3000,
+        `соглашение ${terms.length}, политика ${privacy.length}`);
 }
 
 /**
