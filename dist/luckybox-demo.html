@@ -2952,18 +2952,18 @@ const randHex = (n) => {
 
 /* ---------- Хранилище ---------- */
 
-const STORE_KEY = 'luckybox-demo-v2';
+const STORE_KEY = 'luckybox-demo-v3';
 
 function freshUser() {
   const serverSeed = randHex(32);
   return {
     id: 1, username: 'demo', firstName: 'Гость',
-    balance: 1_000_000,
+    balance: 5_000_000,
     serverSeed, serverSeedHash: sha256Hex(serverSeed),
     clientSeed: randHex(8), nonce: 0,
     prevServerSeed: null, prevServerHash: null,
     x2CaseId: null, vouchers: {}, gambleStake: 0,
-    deposits: [{ amount: 1_000_000, source: 'start', comment: 'Стартовый баланс',
+    deposits: [{ amount: 5_000_000, source: 'start', comment: 'Стартовый баланс',
                  created_at: Date.now() }],
     payouts: [],
     stats: { rounds: 0, spent: 0, won: 0, bestMultiplier: 0 },
