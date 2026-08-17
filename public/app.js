@@ -13,6 +13,7 @@ import {
   iconGrid, iconKey, iconPeople, iconMail, iconTelegram,
 } from './icons.js';
 import { caseCover, porschePhotoSrc } from './covers.js';
+import { itemArt } from './item-art.js';
 import { DOCS, footerHtml } from './legal.js';
 import {
   sndTick, sndSpinStart, sndLand, sndReveal,
@@ -365,7 +366,8 @@ function openCase(caseId) {
   // Витринный предмет идёт первой карточкой и честно подписан.
   const showcaseCard = c.showcase ? `
     <div class="drop-card is-showcase" style="--tier-color:${tierColor(c.showcase.tier)}">
-      <div class="drop-ico">${iconTier(c.showcase.tier, tierColor(c.showcase.tier))}</div>
+      <div class="drop-ico">${itemArt(c.showcase.name, tierColor(c.showcase.tier))
+        || iconTier(c.showcase.tier, tierColor(c.showcase.tier))}</div>
       <div class="drop-name">${esc(c.showcase.name)}</div>
       <div class="drop-note">${esc(c.showcase.note)}</div>
     </div>` : '';
@@ -377,7 +379,7 @@ function openCase(caseId) {
       const color = tierColor(it.tier);
       const isPerk = it.kind === 'perk';
       return `<div class="drop-card" style="--tier-color:${color}">
-        <div class="drop-ico">${iconTier(it.tier, color)}</div>
+        <div class="drop-ico">${itemArt(it.name, color) || iconTier(it.tier, color)}</div>
         <div class="drop-name">${esc(it.name)}</div>
         <div class="drop-value">${isPerk && !it.value ? esc(it.perkLabel) : money(it.value)}</div>
       </div>`;
@@ -494,7 +496,7 @@ function tileHtml(item) {
   // он в ленте и крутится.
   const icon = item.photo
     ? `<img class="tile-photo" src="${item.photo}" alt="">`
-    : iconTier(item.tier, color);
+    : (itemArt(item.name, color) || iconTier(item.tier, color));
 
   return `<div class="reel-tile ${item.showcase ? 'is-showcase' : ''}"
       style="--tier-color:${color}">

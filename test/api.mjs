@@ -257,8 +257,11 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
   for (const c of config.cases) {
     for (const it of c.items) {
       if (it.kind !== 'item') continue;
-      const step = it.value < 100 ? 5 : it.value < 1000 ? 10 : it.value < 10000 ? 50
-                 : it.value < 100000 ? 500 : it.value < 1000000 ? 1000 : 10000;
+      // Шкала повторяет niceStep из cases.js: до полусотни шаг единичный,
+      // иначе нижние ступени лестницы слипались бы в один номинал.
+      const step = it.value < 50 ? 1 : it.value < 100 ? 5 : it.value < 1000 ? 10
+                 : it.value < 10000 ? 50 : it.value < 100000 ? 500
+                 : it.value < 1000000 ? 1000 : 10000;
       if (it.value % step !== 0) ugly++;
     }
   }

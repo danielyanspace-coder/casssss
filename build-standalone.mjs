@@ -82,6 +82,7 @@ const html = read('./public/index.html');
 const icons = read('./public/icons.js');
 const covers = read('./public/covers.js');
 const sounds = read('./public/sounds.js');
+const itemArt = read('./public/item-art.js');
 const legal = read('./public/legal.js');
 const app = read('./public/app.js');
 
@@ -920,6 +921,8 @@ ${strip(icons)}
 ${strip(covers)}
 
 ${strip(sounds)}
+
+${strip(itemArt)}
 
 ${strip(legal)}
 
