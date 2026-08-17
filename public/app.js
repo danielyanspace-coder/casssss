@@ -699,7 +699,9 @@ function runFreeSpins(grant, caseData) {
 
   const runOne = (i) => new Promise((done) => {
     const spin = grant.spins[i];
-    leftEl.textContent = `${i + 1} из ${grant.count}`;
+    // Длина серии растёт по ходу: перезапуск добавляет прокруты, поэтому
+    // знаменатель берётся из фактического числа, а не из начального обещания.
+    leftEl.textContent = `${i + 1} из ${grant.spins.length}`;
 
     const strip = [];
     for (let k = 0; k < SPIN_LEN; k++) strip.push(k === SPIN_WIN ? spin : pickFiller());
@@ -728,10 +730,21 @@ function runFreeSpins(grant, caseData) {
         void totalEl.offsetWidth;
         totalEl.classList.add('bump');
 
+        const label = spin.perkType === 'freespins' ? `+${spin.added} прокрутов`
+                    : spin.perkType === 'x2' ? '×2 дальше'
+                    : spin.perkType === 'voucher' ? 'подарок'
+                    : money(spin.value) + (spin.x2 ? ' ×2' : '');
         logEl.insertAdjacentHTML('beforeend',
-          `<span class="fs-chip" style="--tier-color:${tierColor(spin.tier)}">` +
-          `${money(spin.value)}</span>`);
-        haptic('light');
+          `<span class="fs-chip${spin.added ? ' retrigger' : ''}" ` +
+          `style="--tier-color:${tierColor(spin.tier)}">${label}</span>`);
+
+        if (spin.added) {
+          leftEl.textContent = `${i + 1} из ${grant.spins.length}`;
+          sndBigWin();
+          haptic('success');
+        } else {
+          haptic('light');
+        }
         done();
       }, SPIN_MS + 60);
     });
@@ -813,7 +826,9 @@ function showCaseResult(data, caseData) {
     if (g.type === 'x2') parts.push('получен ×2 на следующий прокрут');
     if (g.type === 'voucher') parts.push(`подарок: кейс «${g.caseName}»`);
     if (g.type === 'credits') parts.push(`бонус +${fmt(g.amount)}`);
-    if (g.type === 'freespins') parts.push(`${g.count} фриспинов: +${fmt(g.total)}`);
+    if (g.type === 'freespins') {
+      parts.push(`${g.spins.length} фриспинов: +${fmt(g.total)}`);
+    }
   }
   const netText = data.net >= 0 ? `+${money(data.net)}` : `−${money(Math.abs(data.net))}`;
   net.innerHTML = `${netText}${parts.length ? '<br>' + esc(parts.join(' · ')) : ''}`;

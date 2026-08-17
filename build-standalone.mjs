@@ -69,12 +69,6 @@ const drawTables = CASES.map((c) => ({
     perkLabel: it.perkLabel || null,
     cumulative: it.cumulative,
   })),
-  freeItems: c.freeItems.map((it) => ({
-    name: it.name,
-    value: it.value,
-    tier: it.tier,
-    cumulative: it.cumulative,
-  })),
 }));
 
 /* ---------- Исходники клиента ---------- */
@@ -304,11 +298,7 @@ function pickItem(table, roll) {
   return table.items[table.items.length - 1];
 }
 
-/* Фриспин крутит обычную часть таблицы: плюшки и джекпот в неё не входят. */
-function pickFreeItem(table, roll) {
-  for (const it of table.freeItems) if (roll < it.cumulative) return it;
-  return table.freeItems[table.freeItems.length - 1];
-}
+
 
 function pushRound(round) {
   store.user.rounds.unshift({ ...round, created_at: Date.now() });
@@ -342,22 +332,52 @@ function openOnce(table) {
       }
       if (item.perk.type === 'x2') granted.push({ type: 'x2', caseId: table.id });
       if (item.perk.type === 'freespins') {
+        // Серия крутит ту же полную таблицу и может сама себя продлить.
         const spins = [];
-        for (let i = 0; i < item.perk.count; i++) {
+        let remaining = item.perk.count;
+        let granted2 = item.perk.count;
+        let seriesX2 = false;
+
+        while (remaining > 0 && spins.length < 300) {
+          remaining--;
           u.nonce++;
           const fRoll = computeRoll(u.serverSeed, u.clientSeed, u.nonce);
-          const fItem = pickFreeItem(table, fRoll);
-          freeSpinsPayout += fItem.value;
-          spins.push({ name: fItem.name, value: fItem.value, tier: fItem.tier,
+          const fItem = pickItem(table, fRoll);
+
+          const doubled = seriesX2 && fItem.value > 0;
+          const value = fItem.value * (doubled ? 2 : 1);
+          seriesX2 = false;
+
+          let added = 0;
+          if (fItem.perk) {
+            if (fItem.perk.type === 'freespins') {
+              added = fItem.perk.count; remaining += added; granted2 += added;
+            }
+            if (fItem.perk.type === 'x2') seriesX2 = true;
+            if (fItem.perk.type === 'voucher') {
+              u.vouchers[fItem.perk.caseId] = (u.vouchers[fItem.perk.caseId] || 0) + 1;
+            }
+          }
+
+          freeSpinsPayout += value;
+          spins.push({ name: fItem.name, value, tier: fItem.tier, kind: fItem.kind,
+            perkType: fItem.perk?.type || null, added, x2: doubled,
             roll: fRoll, nonce: u.nonce });
         }
+
+        if (seriesX2) granted.push({ type: 'x2', caseId: table.id });
         granted.push({ type: 'freespins', caseId: table.id,
-          count: item.perk.count, spins, total: freeSpinsPayout });
+          count: granted2, spins, total: freeSpinsPayout });
       }
     }
 
     if (free) u.vouchers[table.id]--;
-    u.x2CaseId = item.perk?.type === 'x2' ? table.id : (x2Active ? null : u.x2CaseId);
+    // ×2 расходуется только если действительно что-то удвоил.
+    const x2Used = x2Active && item.value > 0;
+    const seriesX2Granted = granted.some((g) => g.type === 'x2' && item.perk?.type !== 'x2');
+    u.x2CaseId = (item.perk?.type === 'x2' || seriesX2Granted)
+      ? table.id
+      : (x2Used ? null : u.x2CaseId);
 
     const spent = free ? 0 : table.price;
     const totalPayout = payout + freeSpinsPayout;

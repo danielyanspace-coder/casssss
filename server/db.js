@@ -497,6 +497,9 @@ function addVoucher(userId, caseId, delta = 1) {
  *
  * resolve(serverSeed, clientSeed, nonce) должен вернуть выпавший предмет.
  */
+/** Потолок длины серии фриспинов — предохранитель, см. розыгрыш ниже. */
+export const MAX_FREE_SPINS = 300;
+
 export const playCaseRound = db.transaction((userId, caseData, resolve, resolveFree) => {
   const before = getUserById(userId);
 
@@ -531,24 +534,59 @@ export const playCaseRound = db.transaction((userId, caseData, resolve, resolveF
     }
     if (item.perk.type === 'x2') granted.push({ type: 'x2', caseId: caseData.id });
     if (item.perk.type === 'freespins') {
+      /*
+       * Серия крутит ту же полную таблицу, поэтому внутри неё может выпасть
+       * что угодно, включая новые фриспины: они просто добавляются к остатку.
+       * Ряд сходится — ожидаемое число довесков равно share < 1 на прокрут, —
+       * но предохранитель всё равно нужен: без него единственная невероятная
+       * последовательность подвесила бы транзакцию.
+       */
       const spins = [];
-      for (let i = 0; i < item.perk.count; i++) {
+      let remaining = item.perk.count;
+      let granted2 = item.perk.count;
+      let seriesX2 = false;
+
+      while (remaining > 0 && spins.length < MAX_FREE_SPINS) {
+        remaining--;
         const spinNonce = bumpNonce(userId);
         const u = getUserById(userId);
         const spin = resolveFree(u.server_seed, u.client_seed, spinNonce);
-        freeSpinsPayout += spin.item.value;
+        const fi = spin.item;
+
+        // ×2, выпавший внутри серии, удваивает следующий её прокрут.
+        const doubled = seriesX2 && fi.value > 0;
+        const value = fi.value * (doubled ? 2 : 1);
+        seriesX2 = false;
+
+        let added = 0;
+        if (fi.perk) {
+          if (fi.perk.type === 'freespins') { added = fi.perk.count; remaining += added; granted2 += added; }
+          if (fi.perk.type === 'x2') seriesX2 = true;
+          if (fi.perk.type === 'voucher') addVoucher(userId, fi.perk.caseId, 1);
+        }
+
+        freeSpinsPayout += value;
         spins.push({
-          name: spin.item.name,
-          value: spin.item.value,
-          tier: spin.item.tier,
+          name: fi.name,
+          value,
+          tier: fi.tier,
+          kind: fi.kind,
+          perkType: fi.perk?.type || null,
+          added,
+          x2: doubled,
           roll: spin.roll,
           nonce: spinNonce,
         });
       }
+
+      // ×2, доставшийся на последнем прокруте, не должен пропасть.
+      if (seriesX2) granted.push({ type: 'x2', caseId: caseData.id });
+
       granted.push({
         type: 'freespins',
         caseId: caseData.id,
-        count: item.perk.count,
+        count: granted2,
+        capped: spins.length >= MAX_FREE_SPINS,
         spins,
         total: freeSpinsPayout,
       });
@@ -565,7 +603,11 @@ export const playCaseRound = db.transaction((userId, caseData, resolve, resolveF
   const newBalance = before.balance - spent + totalPayout;
 
   // Новый ×2 ставится после того, как старый уже применён к этому прокруту.
-  const nextX2 = item.perk?.type === 'x2' ? caseData.id : (x2Active ? null : user.x2_case_id);
+  const x2Used = x2Active && item.value > 0;
+  const seriesX2Granted = granted.some((g) => g.type === 'x2' && item.perk?.type !== 'x2');
+  const nextX2 = (item.perk?.type === 'x2' || seriesX2Granted)
+    ? caseData.id
+    : (x2Used ? null : user.x2_case_id);
 
   // Бесплатный раунд не идёт в лучший множитель: делить на нулевую ставку
   // бессмысленно, а price там условная.

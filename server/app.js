@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 import {
-  CASES, CATEGORIES, getCase, pickItem, pickFreeItem, publicCase, validateCases, TIERS,
+  CASES, CATEGORIES, getCase, pickItem, publicCase, validateCases, TIERS,
 } from './cases.js';
 import {
   CRASH_CONFIG,
@@ -224,8 +224,9 @@ app.post('/api/open', auth, (req, res) => {
       const roll = computeRoll(serverSeed, clientSeed, nonce);
       return { item: pickItem(caseData, roll), roll };
     }, (serverSeed, clientSeed, nonce) => {
+      // Фриспин крутит ту же полную таблицу, что и платное открытие.
       const roll = computeRoll(serverSeed, clientSeed, nonce);
-      return { item: pickFreeItem(caseData, roll), roll };
+      return { item: pickItem(caseData, roll), roll };
     });
   } catch (err) {
     if (err.code === 'INSUFFICIENT_FUNDS') return sendInsufficient(res, need - user.balance);

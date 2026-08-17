@@ -389,43 +389,74 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
 
 /* ---------- Фриспины и джекпот ---------- */
 {
-  // Фриспины прокручиваются на сервере в той же транзакции, что и выдача,
-  // поэтому проверяем именно баланс: он обязан учесть и предмет, и серию.
-  const fsCase = config.cases.find((c) =>
+  const withFs = config.cases.filter((c) =>
     c.items.some((it) => it.kind === 'perk' && /фриспин/i.test(it.name)));
-  check('в конфиге есть кейс с фриспинами', !!fsCase);
+  check('фриспины есть во всех кейсах', withFs.length === config.cases.length,
+        `${withFs.length} из ${config.cases.length}`);
 
-  if (fsCase) {
-    let hit = null;
-    let balanceOk = true;
-    for (let i = 0; i < 900 && !hit; i++) {
-      const before = (await post('/api/me')).data.user;
-      const { data } = await post('/api/open', { caseId: fsCase.id });
-      const fs = (data.granted || []).find((g) => g.type === 'freespins');
+  // Ряд сходится, только если ожидаемое продление меньше единицы: p·N = share.
+  let diverging = 0;
+  for (const c of config.cases) {
+    const fs = c.items.find((it) => /фриспин/i.test(it.name));
+    const count = Number(String(fs.name).match(/\d+/)[0]);
+    if (fs.probability * count >= 1) diverging++;
+  }
+  check('серия фриспинов сходится у всех кейсов', diverging === 0, `расходится ${diverging}`);
 
-      const expected = before.balance - fsCase.price + data.item.value + (fs ? fs.total : 0);
-      if (data.balance !== expected) balanceOk = false;
-      if (fs) hit = { fs, data };
+  const fsCase = config.cases.find((c) => c.id === 'dubai_5000');
+  /*
+   * Серия ловится редко, поэтому открытий много и баланса на них нужно больше.
+   * Баланс именно ВЫСТАВЛЯЕТСЯ, а не доначисляется: база между прогонами не
+   * чистится, и накопительное пополнение раздувало её так, что проверки из
+   * более ранних разделов переставали иметь смысл.
+   */
+  const setBalance = async (target) => {
+    const now = (await post('/api/me')).data.user.balance;
+    if (now !== target) {
+      await post('/api/admin/balance', { userId: me.id, amount: target - now, note: 'фриспины' });
     }
+  };
+  await setBalance(20_000_000);
 
-    check('баланс сходится с учётом фриспинов', balanceOk);
+  let hit = null;
+  let balanceOk = true;
+  for (let i = 0; i < 900 && !hit; i++) {
+    const before = (await post('/api/me')).data.user;
+    if (before.balance < fsCase.price * 50) { await setBalance(20_000_000); continue; }
 
-    if (check('фриспины выпали за 900 открытий', !!hit)) {
-      const { fs } = hit;
-      check('фриспинов ровно столько, сколько обещано',
-            fs.spins.length === fs.count, `${fs.spins.length} из ${fs.count}`);
-      check('сумма серии равна сумме прокрутов',
-            fs.spins.reduce((a, s) => a + s.value, 0) === fs.total);
-      check('у каждого прокрута свой nonce',
-            new Set(fs.spins.map((s) => s.nonce)).size === fs.spins.length);
-      // Фриспин крутит обычную часть таблицы: плюшек в серии быть не может.
-      const names = new Set(fsCase.items.filter((it) => it.kind === 'item').map((it) => it.name));
-      check('в серии только обычные предметы', fs.spins.every((s) => names.has(s.name)));
-    }
+    const r = await post('/api/open', { caseId: fsCase.id });
+    if (r.status !== 200) { failures.push(`открытие вернуло ${r.status}`); break; }
+
+    const data = r.data;
+    const fs = (data.granted || []).find((g) => g.type === 'freespins');
+    const expected = before.balance - fsCase.price + data.item.value + (fs ? fs.total : 0);
+    if (data.balance !== expected) balanceOk = false;
+    if (fs) hit = fs;
   }
 
-  const jackpotCase = config.cases.find((c) => c.id === 'geneva_6000');
-  if (check('в конфиге есть кейс с джекпотом', !!jackpotCase)) {
+  check('баланс сходится с учётом серии', balanceOk);
+
+  if (check('фриспины выпали за 900 открытий', !!hit)) {
+    check('сумма серии равна сумме прокрутов',
+          hit.spins.reduce((a, s) => a + s.value, 0) === hit.total);
+    check('у каждого прокрута свой nonce',
+          new Set(hit.spins.map((s) => s.nonce)).size === hit.spins.length);
+    // Серия крутит полную таблицу, поэтому длина равна обещанной плюс всё,
+    // что добавили перезапуски.
+    const added = hit.spins.reduce((a, s) => a + (s.added || 0), 0);
+    check('длина серии = обещано + перезапуски',
+          hit.spins.length === hit.count || hit.capped,
+          `${hit.spins.length} против ${hit.count}`);
+    check('счётчик серии учитывает перезапуски', hit.count >= 10 && hit.count === 10 + added,
+          `${hit.count} при добавке ${added}`);
+    const names = new Set(fsCase.items.map((it) => it.name));
+    check('предметы серии из таблицы кейса', hit.spins.every((s) => names.has(s.name)));
+    check('серия не упёрлась в предохранитель', !hit.capped);
+  }
+
+  const jackpotCase = config.cases.find((c) => c.id === 'rolex_6000');
+  if (check('кейс Rolex есть в конфиге', !!jackpotCase)) {
+    check('кейс называется Rolex', jackpotCase.name === 'Rolex', jackpotCase.name);
     const rolex = jackpotCase.items.find((it) => /rolex/i.test(it.name));
     check('джекпот есть в таблице розыгрыша', !!rolex);
     check('шанс джекпота крайне мал', rolex.probability < 0.0001,
@@ -436,6 +467,7 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
 
   const country = config.cases.filter((c) => c.category === 'country');
   check('блок направлений собран', country.length >= 5, `кейсов ${country.length}`);
+  check('Rolex не в направлениях', !country.some((c) => c.id === 'rolex_6000'));
 }
 
 /* ---------- Сезонный кейс ---------- */

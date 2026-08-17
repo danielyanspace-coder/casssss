@@ -8,7 +8,7 @@
  * таблице вероятностей.
  */
 
-import { CASES, pickItem, pickFreeItem, validateCases } from './cases.js';
+import { CASES, pickItem, validateCases } from './cases.js';
 import {
   CRASH_CONFIG,
   ROULETTE_CONFIG,
@@ -95,10 +95,16 @@ console.log('\n=== Кейсы с плюшками: симуляция цепоч
 
 {
   // Здесь проверяется самое хрупкое место экономики. Плюшки не выдают единицы
-  // напрямую: ×2 действует на СЛЕДУЮЩЕЕ открытие, а подарок даёт бесплатный
-  // прокрут другого кейса. Симуляция проигрывает эти цепочки как в игре и
-  // сверяет фактическую отдачу с заявленным RTP.
-  const perkCases = CASES.filter((c) => c.hasPerks);
+  // напрямую: ×2 действует на СЛЕДУЮЩЕЕ открытие, подарок даёт бесплатный
+  // прокрут другого кейса, а фриспины — серию, которая может продлить сама
+  // себя. Симуляция проигрывает эти цепочки как в игре и сверяет фактическую
+  // отдачу с заявленной.
+  //
+  // Кейсы берутся все: фриспины теперь есть у каждого, поэтому «кейс без
+  // цепочек» больше не существует. Раундов на кейс меньше — внутри каждого
+  // раунда может прокрутиться целая серия.
+  const perkCases = CASES;
+  const CHAIN_ROUNDS = Math.max(20_000, Math.round(ROUNDS / 4));
   const rows = [];
 
   for (const c of perkCases) {
@@ -111,7 +117,7 @@ console.log('\n=== Кейсы с плюшками: симуляция цепоч
     let sumX = 0;
     let sumX2 = 0;
 
-    for (let n = 1; n <= ROUNDS; n++) {
+    for (let n = 1; n <= CHAIN_ROUNDS; n++) {
       spent += c.price;
       const roll = computeRoll(serverSeed, `perk:${c.id}`, n);
       const item = pickItem(c, roll);
@@ -129,11 +135,29 @@ console.log('\n=== Кейсы с плюшками: симуляция цепоч
           round += gift.price * gift.rtp;
         }
         if (item.perk.type === 'freespins') {
-          // Серия проигрывается так же, как в игре: по обычной части таблицы,
-          // каждый прокрут со своим роллом.
-          for (let k = 0; k < item.perk.count; k++) {
-            const fRoll = computeRoll(serverSeed, `perk:${c.id}:fs`, n * 100 + k);
-            round += pickFreeItem(c, fRoll).value;
+          // Серия проигрывается как в игре: по полной таблице, с перезапуском
+          // и с ×2 внутри. Именно здесь и проверяется, что рекурсия сходится к
+          // заявленной отдаче, а не уводит кейс в плюс игроку.
+          let remaining = item.perk.count;
+          let seriesX2 = false;
+          let done = 0;
+
+          while (remaining > 0 && done < 300) {
+            remaining--;
+            const fRoll = computeRoll(serverSeed, `perk:${c.id}:fs`, n * 1000 + done);
+            const fi = pickItem(c, fRoll);
+            done++;
+
+            const doubled = seriesX2 && fi.value > 0;
+            round += fi.value * (doubled ? 2 : 1);
+            seriesX2 = false;
+
+            if (fi.perk?.type === 'freespins') remaining += fi.perk.count;
+            if (fi.perk?.type === 'x2') seriesX2 = true;
+            if (fi.perk?.type === 'voucher') {
+              const g = CASES.find((x) => x.id === fi.perk.caseId);
+              round += g.price * g.rtp;
+            }
           }
         }
       }
@@ -150,9 +174,9 @@ console.log('\n=== Кейсы с плюшками: симуляция цепоч
     // Допуск от фактического разброса, а не фиксированные 0.02: подняв потолок
     // кейсов до 500x, мы увеличили дисперсию на порядок, и прежний общий порог
     // начал ругаться на совершенно нормальные прогоны.
-    const mean = sumX / ROUNDS;
-    const variance = Math.max(0, sumX2 / ROUNDS - mean * mean);
-    const se = Math.sqrt(variance / ROUNDS);
+    const mean = sumX / CHAIN_ROUNDS;
+    const variance = Math.max(0, sumX2 / CHAIN_ROUNDS - mean * mean);
+    const se = Math.sqrt(variance / CHAIN_ROUNDS);
     const ok = drift < 4 * se;
     if (!ok) failures++;
 
@@ -162,7 +186,7 @@ console.log('\n=== Кейсы с плюшками: симуляция цепоч
       'RTP заявлен': c.rtp.toFixed(4),
       'RTP факт': empirical.toFixed(4),
       'допуск ±4σ': (4 * se).toFixed(4),
-      'плюшек выпало': `${((perkHits / ROUNDS) * 100).toFixed(2)}%`,
+      'плюшек выпало': `${((perkHits / CHAIN_ROUNDS) * 100).toFixed(2)}%`,
       статус: ok ? 'ок' : 'РАСХОЖДЕНИЕ',
     });
   }
