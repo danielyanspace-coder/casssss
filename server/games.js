@@ -179,6 +179,93 @@ export function gambleAceFromRoll(roll) {
   return Math.min(Math.floor(roll * GAMBLE_CONFIG.cards), GAMBLE_CONFIG.cards - 1);
 }
 
+/* ============================================================
+   АПГРЕЙД
+   ============================================================ */
+
+/**
+ * Игрок ставит сумму и выбирает цель дороже. Попал в сектор — забрал цель,
+ * промахнулся — ставка сгорела.
+ *
+ * ПОЧЕМУ ОТДАЧА ТОЧНАЯ. Соблазн считать шанс как rtp / множитель, но цель
+ * округляется до целых рублей, и после округления множитель уже не тот.
+ * Поэтому порядок обратный — тот же, что в кейсах: сначала округляем цель,
+ * потом из неё выводим шанс.
+ *
+ *   target = round(stake * multiplier)
+ *   p      = rtp * stake / target
+ *   EV     = p * target = rtp * stake
+ *
+ * Последнее равенство точное при ЛЮБОМ округлении цели, поэтому отдача
+ * апгрейда совпадает с отдачей кейсов до последнего знака.
+ */
+const UPGRADE_RTP = 0.7;
+
+/** Ставку ниже этой округление цели уже заметно перекашивает. */
+const UPGRADE_MIN_STAKE = 10;
+
+/**
+ * Множители на выбор. Верхняя граница 100x: при ней сектор занимает 0.7%
+ * круга — тонкая, но ещё различимая глазом полоска.
+ */
+const UPGRADE_MULTIPLIERS = [1.5, 2, 3, 5, 10, 20, 50, 100];
+
+export const UPGRADE_CONFIG = {
+  rtp: UPGRADE_RTP,
+  minStake: UPGRADE_MIN_STAKE,
+  multipliers: UPGRADE_MULTIPLIERS,
+};
+
+/** Цель апгрейда в рублях — округляется ДО расчёта шанса. */
+export function upgradeTarget(stake, multiplier) {
+  return Math.round(stake * multiplier);
+}
+
+/** Шанс попадания, выведенный из уже округлённой цели. */
+export function upgradeChance(stake, target) {
+  return (UPGRADE_RTP * stake) / target;
+}
+
+/**
+ * Сектор выигрыша лежит в начале круга: [0, chance). Ролл — это и есть
+ * положение стрелки, поэтому картинку можно проверить руками — угол
+ * стрелки равен roll * 360 градусов от верхней точки.
+ */
+export function upgradeWinFromRoll(roll, chance) {
+  return roll < chance;
+}
+
+export function validateUpgrade() {
+  if (UPGRADE_RTP >= 1) {
+    throw new Error(`Апгрейд: отдача ${UPGRADE_RTP} >= 1, заведение в убытке`);
+  }
+
+  for (const m of UPGRADE_MULTIPLIERS) {
+    if (m <= UPGRADE_RTP) {
+      throw new Error(`Апгрейд: множитель ${m} не больше отдачи ${UPGRADE_RTP} — шанс вышел бы >= 1`);
+    }
+  }
+
+  // Отдача обязана держаться ровно 0.70 на всей сетке ставок и множителей.
+  for (const stake of [10, 37, 100, 999, 5000, 123_456]) {
+    for (const m of UPGRADE_MULTIPLIERS) {
+      const target = upgradeTarget(stake, m);
+      const chance = upgradeChance(stake, target);
+      if (!(chance > 0 && chance < 1)) {
+        throw new Error(`Апгрейд: ставка ${stake}, множитель ${m} — шанс ${chance} вне (0, 1)`);
+      }
+      const ev = chance * target;
+      if (Math.abs(ev - UPGRADE_RTP * stake) > 1e-9) {
+        throw new Error(
+          `Апгрейд: ставка ${stake}, множитель ${m} — отдача ${(ev / stake).toFixed(6)} вместо ${UPGRADE_RTP}`
+        );
+      }
+    }
+  }
+
+  return { rtp: UPGRADE_RTP, multipliers: UPGRADE_MULTIPLIERS.length };
+}
+
 export function validateGamble() {
   const { cards, aces, payout, rtp } = GAMBLE_CONFIG;
   if (aces < 1 || aces >= cards) {

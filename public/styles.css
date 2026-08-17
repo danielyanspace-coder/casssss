@@ -2115,3 +2115,265 @@ select.seed-input {
   .brand-sub { display: none; }
   .balance-value { font-size: 14px; }
 }
+
+/* ============================================================
+   ВИТРИНА КРУПНЫХ ВЫПАДЕНИЙ
+   ============================================================ */
+
+.feed {
+  margin: 0 0 16px;
+  padding: 12px 0 14px;
+  border-radius: var(--radius);
+  background: linear-gradient(180deg, rgba(160, 32, 255, 0.16), rgba(13, 3, 24, 0));
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+
+.feed-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 0 16px 10px;
+}
+
+/* Пульсирующая точка: единственный намёк, что лента живая. */
+.feed-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 10px var(--green);
+  animation: feedPulse 1.8s ease-in-out infinite;
+}
+
+@keyframes feedPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.35; transform: scale(0.7); }
+}
+
+.feed-title {
+  font-size: 11px; font-weight: 900; letter-spacing: 1.4px;
+  text-transform: uppercase; color: var(--muted);
+}
+
+/* Горизонтальная лента. Свайп пальцем работает, полосу прокрутки прячем. */
+.feed-track {
+  display: flex; gap: 10px;
+  padding: 0 16px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.feed-track::-webkit-scrollbar { display: none; }
+
+.feed-card {
+  flex: 0 0 auto;
+  width: 128px;
+  padding: 10px;
+  border-radius: 14px;
+  background: var(--card);
+  border: 1px solid var(--tier-color, var(--line));
+  border-top: 3px solid var(--tier-color, var(--line));
+  text-align: center;
+}
+
+/* Новые карточки въезжают слева, а не появляются рывком. */
+.feed-card.is-new { animation: feedIn 0.5s cubic-bezier(0.22, 1, 0.36, 1); }
+
+@keyframes feedIn {
+  from { opacity: 0; transform: translateX(-26px) scale(0.9); }
+  to   { opacity: 1; transform: none; }
+}
+
+.feed-art {
+  width: 42px; height: 42px; margin: 0 auto 6px;
+  display: flex; align-items: center; justify-content: center;
+}
+.feed-art svg { width: 100%; height: 100%; }
+
+.feed-name {
+  font-size: 10.5px; font-weight: 700; line-height: 1.25;
+  height: 26px; overflow: hidden;
+  color: var(--text);
+}
+
+.feed-value {
+  font-size: 13px; font-weight: 900;
+  color: var(--tier-color, var(--text));
+  margin-top: 4px;
+}
+
+.feed-nick {
+  font-size: 9.5px; color: var(--muted);
+  margin-top: 3px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* ============================================================
+   БЕСПЛАТНЫЙ КЕЙС ЗА ПОДПИСКУ
+   ============================================================ */
+
+.free-case {
+  display: flex; align-items: center; gap: 14px;
+  width: 100%;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  border-radius: var(--radius);
+  background: linear-gradient(135deg, rgba(0, 240, 255, 0.2), rgba(160, 32, 255, 0.16));
+  border: 2px solid var(--cyan);
+  box-shadow: 0 0 26px rgba(0, 240, 255, 0.24);
+  color: var(--text);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.free-case[disabled] {
+  opacity: 0.55;
+  border-color: var(--line);
+  box-shadow: none;
+  cursor: default;
+}
+
+.free-case-ico { width: 34px; height: 34px; flex: 0 0 auto; }
+.free-case-ico svg { width: 100%; height: 100%; }
+.free-case-text { flex: 1; min-width: 0; }
+.free-case-title { display: block; font-size: 15px; font-weight: 900; }
+.free-case-sub { display: block; font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+
+.free-case-go {
+  flex: 0 0 auto;
+  padding: 8px 14px;
+  border-radius: 12px;
+  background: var(--cyan);
+  color: #04121a;
+  font-size: 12px; font-weight: 900;
+}
+.free-case[disabled] .free-case-go { background: var(--line); color: var(--muted); }
+
+/* ============================================================
+   АПГРЕЙД
+   ============================================================ */
+
+.upg-stage {
+  position: relative;
+  max-width: 340px;
+  margin: 0 auto;
+  aspect-ratio: 1;
+}
+
+.upg-ring { width: 100%; height: 100%; display: block; }
+
+/* Подложка под кольцом — свечение, а не заливка, иначе центр глушит цифры. */
+.upg-halo {
+  fill: none;
+  stroke: rgba(160, 32, 255, 0.12);
+  stroke-width: 24;
+}
+
+.upg-track {
+  fill: none;
+  stroke: #1b0b33;
+  stroke-width: 22;
+}
+
+/* Сектор выигрыша. Длина дуги приходит с сервера вместе с результатом.
+   Концы обязательно butt, а не round: скруглением дуга растягивается на
+   половину толщины с каждой стороны — это лишние 12 градусов, и указатель
+   вставал бы «внутри» нарисованного сектора при проигрыше. */
+.upg-arc {
+  fill: none;
+  stroke: url(#upgArcGrad);
+  stroke-width: 22;
+  stroke-linecap: butt;
+  stroke-dasharray: 0 999;
+  transition: stroke-dasharray 0.35s ease;
+}
+
+.upg-ticks line { stroke: rgba(255, 242, 255, 0.16); stroke-width: 2; }
+
+.upg-needle {
+  transform-origin: 130px 130px;
+  transform: rotate(0deg);
+  filter: drop-shadow(0 0 8px rgba(255, 214, 10, 0.8));
+}
+
+.upg-needle.is-spinning {
+  /* Долгий выкат: быстрый старт, длинное затухание к результату. */
+  transition: transform 3.4s cubic-bezier(0.12, 0.72, 0.12, 1);
+}
+
+.upg-needle-tip { fill: var(--gold); }
+
+.upg-center {
+  position: absolute;
+  inset: 0;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  pointer-events: none;
+}
+
+.upg-label {
+  font-size: 10px; font-weight: 900; letter-spacing: 2px;
+  color: var(--muted);
+}
+
+.upg-target {
+  font-size: 34px; font-weight: 900; line-height: 1.1;
+  margin-top: 4px;
+  background: linear-gradient(90deg, var(--cyan), var(--pink));
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.upg-mult {
+  margin-top: 6px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: rgba(255, 214, 10, 0.14);
+  border: 1px solid var(--gold);
+  color: var(--gold);
+  font-size: 13px; font-weight: 900;
+}
+
+.upg-outcome {
+  min-height: 30px;
+  margin: 10px 0 4px;
+  text-align: center;
+  font-size: 17px; font-weight: 900;
+}
+.upg-outcome.win  { color: var(--green); text-shadow: 0 0 18px rgba(0, 255, 157, 0.6); }
+.upg-outcome.lose { color: var(--muted); }
+
+.upg-picker {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.upg-opt {
+  padding: 12px 4px;
+  border-radius: 14px;
+  border: 2px solid var(--line);
+  background: var(--card);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 15px; font-weight: 900;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.upg-opt.active {
+  border-color: var(--gold);
+  background: linear-gradient(135deg, rgba(255, 214, 10, 0.24), rgba(255, 107, 53, 0.14));
+  color: var(--gold);
+  box-shadow: 0 0 20px rgba(255, 214, 10, 0.3);
+}
+
+.btn-upgrade {
+  background: linear-gradient(135deg, var(--cyan), var(--violet), var(--pink));
+  color: #fff;
+  box-shadow: 0 8px 30px rgba(160, 32, 255, 0.5);
+}
+
+@media (min-width: 700px) {
+  .upg-picker { grid-template-columns: repeat(8, 1fr); }
+  .feed-card { width: 148px; }
+}

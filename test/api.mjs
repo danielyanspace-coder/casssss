@@ -127,6 +127,91 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
   check('риск: некорректный индекс карты отклонён', bad.status === 400);
 }
 
+/* ---------- 4б. Апгрейд ---------- */
+
+{
+  check('апгрейд: конфигурация отдаётся клиенту',
+        Array.isArray(config.upgrade?.multipliers) && config.upgrade.multipliers.length > 0);
+
+  // Отдача обязана держаться на всех множителях, поэтому проверяем каждый.
+  let balanceMismatch = 0;
+  let targetMismatch = 0;
+  let chanceMismatch = 0;
+  let sectorMismatch = 0;
+
+  for (const m of config.upgrade.multipliers) {
+    const stake = 1000;
+    const before = (await post('/api/me')).data.user.balance;
+    const r = (await post('/api/upgrade', { stake, multiplier: m })).data;
+
+    if (r.target !== Math.round(stake * m)) targetMismatch++;
+
+    // Шанс выводится из округлённой цели: p * target === rtp * stake ровно.
+    if (Math.abs(r.chance * r.target - 0.7 * stake) > 1e-6) chanceMismatch++;
+
+    // Картинка и расчёт обязаны совпадать: исход определяется тем же роллом,
+    // по которому клиент ставит указатель.
+    if (r.won !== (r.fair.roll < r.chance)) sectorMismatch++;
+
+    const expected = before - stake + (r.won ? r.target : 0);
+    if (r.balance !== expected) balanceMismatch++;
+  }
+
+  check('апгрейд: цель = ставка × множитель', targetMismatch === 0, `расхождений ${targetMismatch}`);
+  check('апгрейд: шанс даёт ровно 70% отдачи', chanceMismatch === 0, `расхождений ${chanceMismatch}`);
+  check('апгрейд: исход совпадает с сектором указателя', sectorMismatch === 0,
+        `расхождений ${sectorMismatch}`);
+  check('апгрейд: баланс сходится', balanceMismatch === 0, `расхождений ${balanceMismatch}`);
+
+  const badMult = await post('/api/upgrade', { stake: 1000, multiplier: 3.7 });
+  check('апгрейд: множитель вне списка отклонён', badMult.status === 400, `статус ${badMult.status}`);
+
+  const tiny = await post('/api/upgrade', { stake: 1, multiplier: 2 });
+  check('апгрейд: ставка ниже минимальной отклонена', tiny.status === 400, `статус ${tiny.status}`);
+}
+
+/* ---------- 4в. Витрина крупных выпадений ---------- */
+
+{
+  const feed = await get('/api/feed?limit=12');
+  check('витрина: лента не пустая', Array.isArray(feed.drops) && feed.drops.length > 0,
+        `записей ${feed.drops?.length}`);
+
+  const belowMultiplier = feed.drops.filter((d) => d.multiplier < feed.minMultiplier).length;
+  const belowValue = feed.drops.filter((d) => d.value < feed.minValue).length;
+  check('витрина: мелкие множители отфильтрованы', belowMultiplier === 0, `нарушений ${belowMultiplier}`);
+  check('витрина: мелкие суммы отфильтрованы', belowValue === 0, `нарушений ${belowValue}`);
+
+  const ids = new Set(feed.drops.map((d) => d.id));
+  check('витрина: ключи записей уникальны', ids.size === feed.drops.length,
+        `${ids.size} из ${feed.drops.length}`);
+
+  // Наружу уходит только витринное — ни идентификаторов, ни балансов.
+  const leaked = feed.drops.filter((d) => 'userId' in d || 'balance' in d || 'tgId' in d).length;
+  check('витрина: приватные поля не утекают', leaked === 0, `утечек ${leaked}`);
+
+  const sorted = feed.drops.every((d, i) => i === 0 || feed.drops[i - 1].at >= d.at);
+  check('витрина: свежие записи первыми', sorted);
+}
+
+/* ---------- 4г. Бесплатный кейс за подписку ---------- */
+
+{
+  // Раздел выключен, пока не заданы канал, токен и кейс. Ручка обязана
+  // говорить об этом внятно, а не падать.
+  const state = await post('/api/free-case/state');
+  check('бесплатный кейс: состояние отдаётся', state.status === 200,
+        `статус ${state.status}`);
+  check('бесплатный кейс: выключен без настроек',
+        state.data.enabled === config.freeCase.enabled);
+
+  if (!config.freeCase.enabled) {
+    const claim = await post('/api/free-case/claim');
+    check('бесплатный кейс: попытка получить отклонена с 503', claim.status === 503,
+          `статус ${claim.status}`);
+  }
+}
+
 /* ---------- 5. Рулетка ---------- */
 
 {

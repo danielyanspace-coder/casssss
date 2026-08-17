@@ -1779,6 +1779,12 @@ function switchView(name) {
   if (name === 'wallet') loadWallet();
   if (name === 'roulette') renderRouletteReel(2);
   if (name === 'admin') loadAdminOverview();
+  if (name === 'cases') loadFreeCase();
+  if (name === 'upgrade') {
+    renderUpgradeTicks();
+    renderUpgradePicker();
+    renderUpgradeStage();
+  }
 }
 
 /* ============================================================
@@ -1794,6 +1800,7 @@ function switchView(name) {
  */
 const MENU_ITEMS = [
   { view: 'cases', ico: 'cases', title: 'Кейсы', sub: 'Открыть и крутить' },
+  { view: 'upgrade', ico: 'x2', title: 'Апгрейд', sub: 'Поднять ставку' },
   { view: 'crash', ico: 'crash', title: 'Краш', sub: 'Успеть забрать' },
   { view: 'roulette', ico: 'roulette', title: 'Рулетка', sub: 'Красное и чёрное' },
   { view: 'wallet', ico: 'coin', title: 'Касса', sub: 'Пополнить и вывести' },
@@ -1964,6 +1971,278 @@ document.getElementById('withdrawSubmit').addEventListener('click', async () => 
 });
 
 /* ============================================================
+   ВИТРИНА КРУПНЫХ ВЫПАДЕНИЙ
+   ============================================================ */
+
+/**
+ * Лента под шапкой. Показывает только дорогие выпадения — обычный серый
+ * исход в неё не попадает, поэтому и подписана «Крупные выпадения».
+ *
+ * Часть записей приходит с сервера как выдуманные: пока живых игроков нет,
+ * настоящая лента была бы пустой. Подробности — в NEDOSTATOK.md.
+ */
+const FEED_LIMIT = 24;
+const FEED_POLL_MS = 3000;
+
+/** Ключи уже показанных записей — чтобы анимировать только новые. */
+const feedSeen = new Set();
+
+function feedCardHtml(drop, isNew) {
+  const color = tierColor(drop.tier);
+  const art = itemArt(drop.name, color) || iconTier(drop.tier, color);
+  return `<div class="feed-card${isNew ? ' is-new' : ''}" style="--tier-color:${color}">
+    <div class="feed-art">${art}</div>
+    <div class="feed-name">${esc(drop.name)}</div>
+    <div class="feed-value">${money(drop.value)}</div>
+    <div class="feed-nick">${esc(drop.nick)}</div>
+  </div>`;
+}
+
+async function loadFeed() {
+  const track = document.getElementById('feedTrack');
+  if (!track) return;
+
+  let drops;
+  try {
+    const res = await fetch(`/api/feed?limit=${FEED_LIMIT}`);
+    ({ drops } = await res.json());
+  } catch {
+    return; // Витрина необязательна: молча ждём следующего опроса.
+  }
+  if (!drops?.length) return;
+
+  const first = feedSeen.size === 0;
+  track.innerHTML = drops.map((d) => feedCardHtml(d, !first && !feedSeen.has(d.id))).join('');
+
+  // Множество могло бы расти бесконечно — держим только то, что на экране.
+  feedSeen.clear();
+  for (const d of drops) feedSeen.add(d.id);
+
+  document.getElementById('feed').hidden = false;
+}
+
+function startFeed() {
+  loadFeed();
+  if (state.feedTimer) clearInterval(state.feedTimer);
+  state.feedTimer = setInterval(loadFeed, FEED_POLL_MS);
+}
+
+/* ============================================================
+   БЕСПЛАТНЫЙ КЕЙС ЗА ПОДПИСКУ
+   ============================================================ */
+
+/**
+ * Плитка появляется, только когда раздел настроен на сервере: заданы канал,
+ * токен бота и выдаваемый кейс. Пока их нет, кнопки просто не существует —
+ * лучше, чем висящая заглушка, которая ничего не делает.
+ */
+function renderFreeCase(info) {
+  const btn = document.getElementById('freeCase');
+  if (!btn) return;
+
+  if (!info?.enabled) {
+    btn.hidden = true;
+    return;
+  }
+
+  const waiting = info.readyAt && Date.now() < info.readyAt;
+  btn.hidden = false;
+  btn.disabled = Boolean(waiting);
+  document.getElementById('freeCaseSub').textContent = waiting
+    ? `следующий ${new Date(info.readyAt).toLocaleString('ru-RU',
+        { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}`
+    : 'за подписку на канал';
+}
+
+async function loadFreeCase() {
+  if (!state.config?.freeCase?.enabled) return;
+  try {
+    renderFreeCase(await api('/api/free-case/state'));
+  } catch { /* раздел необязательный */ }
+}
+
+document.getElementById('freeCase').addEventListener('click', async () => {
+  const btn = document.getElementById('freeCase');
+  if (btn.disabled) return;
+  btn.disabled = true;
+
+  try {
+    const res = await api('/api/free-case/claim');
+    toast('Бесплатный кейс ваш — он в плашке сверху');
+    sndCollect();
+    haptic('success');
+    const me = await api('/api/me');
+    applyUser(me.user);
+    renderFreeCase({ enabled: true, readyAt: res.readyAt });
+  } catch (err) {
+    toast(err.message);
+    haptic('error');
+    // Не подписан — открываем канал, чтобы не искать его руками.
+    const url = state.config?.freeCase?.channelUrl;
+    if (url && /подпиш/i.test(err.message)) {
+      if (tg?.openTelegramLink) tg.openTelegramLink(url);
+      else window.open(url, '_blank', 'noopener');
+    }
+    btn.disabled = false;
+  }
+});
+
+/* ============================================================
+   АПГРЕЙД
+   ============================================================ */
+
+/**
+ * Ставка против цели. Сектор выигрыша нарисован на кольце, стрелка
+ * останавливается на угле roll * 360 градусов от верхней точки — то есть
+ * картинка ровно повторяет то, что посчитал сервер, и её можно проверить
+ * через раздел «Честность».
+ */
+const UPG_RADIUS = 104;
+const UPG_CIRC = 2 * Math.PI * UPG_RADIUS;
+
+/** Сколько полных оборотов стрелка делает до остановки. */
+const UPG_TURNS = 6;
+
+function upgEls() {
+  return {
+    arc: document.getElementById('upgArc'),
+    needle: document.getElementById('upgNeedle'),
+    target: document.getElementById('upgTarget'),
+    mult: document.getElementById('upgMult'),
+    outcome: document.getElementById('upgOutcome'),
+    btn: document.getElementById('upgradeBtn'),
+  };
+}
+
+function renderUpgradePicker() {
+  const picker = document.getElementById('upgPicker');
+  const list = state.config?.upgrade?.multipliers || [];
+  if (!list.length) return;
+
+  if (!state.upgradeMultiplier) state.upgradeMultiplier = list[1] ?? list[0];
+
+  picker.innerHTML = list.map((m) =>
+    `<button class="upg-opt${m === state.upgradeMultiplier ? ' active' : ''}"
+             data-mult="${m}">x${m}</button>`).join('');
+
+  picker.querySelectorAll('.upg-opt').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      // Во время прокрута множитель не меняем: сектор перерисовался бы
+      // на лету, и указатель сел бы уже в другую дугу.
+      if (state.busy) return;
+      state.upgradeMultiplier = Number(btn.dataset.mult);
+      renderUpgradePicker();
+      renderUpgradeStage();
+      haptic('light');
+    });
+  });
+}
+
+/** Насечки по кругу — иначе кольцо выглядит пустым до первого прокрута. */
+function renderUpgradeTicks() {
+  const g = document.getElementById('upgTicks');
+  if (!g || g.childElementCount) return;
+
+  let html = '';
+  for (let i = 0; i < 36; i++) {
+    const a = (i / 36) * Math.PI * 2 - Math.PI / 2;
+    const r1 = UPG_RADIUS - 14;
+    const r2 = UPG_RADIUS - 19;
+    html += `<line x1="${(130 + Math.cos(a) * r1).toFixed(2)}"
+                   y1="${(130 + Math.sin(a) * r1).toFixed(2)}"
+                   x2="${(130 + Math.cos(a) * r2).toFixed(2)}"
+                   y2="${(130 + Math.sin(a) * r2).toFixed(2)}"/>`;
+  }
+  g.innerHTML = html;
+}
+
+/**
+ * Пересчитывает цель и длину сектора под текущую ставку.
+ *
+ * Формулы те же, что на сервере, — но результат раунда клиент всё равно
+ * не решает: сюда приходит только оформление, исход считает сервер.
+ */
+function renderUpgradeStage() {
+  const { arc, target, mult } = upgEls();
+  if (!arc) return;
+
+  const rtp = 0.7;
+  const m = state.upgradeMultiplier || 2;
+  const stake = betValue('upgStake') || 0;
+  const goal = Math.round(stake * m);
+
+  target.textContent = goal ? money(goal) : '—';
+  mult.textContent = `x${m}`;
+
+  const chance = goal ? (rtp * stake) / goal : 0;
+  arc.style.strokeDasharray = `${(chance * UPG_CIRC).toFixed(2)} ${UPG_CIRC.toFixed(2)}`;
+}
+
+document.getElementById('upgradeBtn').addEventListener('click', async () => {
+  if (state.busy) return;
+
+  const { arc, needle, outcome, btn } = upgEls();
+  const stake = betValue('upgStake');
+  const multiplier = state.upgradeMultiplier;
+  const min = state.config?.upgrade?.minStake ?? 10;
+
+  if (!stake || stake < min) return toast(`Минимальная ставка — ${min}`);
+  if (stake > (state.user?.balance ?? 0)) return toast('Не хватает средств');
+
+  state.busy = true;
+  btn.disabled = true;
+  outcome.textContent = '';
+  outcome.className = 'upg-outcome';
+
+  let data;
+  try {
+    data = await api('/api/upgrade', { stake, multiplier });
+  } catch (err) {
+    toast(err.message);
+    haptic('error');
+    state.busy = false;
+    btn.disabled = false;
+    return;
+  }
+
+  applyUser(data.user);
+  arc.style.strokeDasharray = `${(data.chance * UPG_CIRC).toFixed(2)} ${UPG_CIRC.toFixed(2)}`;
+
+  // Стрелка всегда крутится вперёд: копим абсолютный угол, а не задаём его
+  // заново, иначе после второго прокрута она отматывала бы назад.
+  const current = state.upgradeAngle || 0;
+  const currentMod = ((current % 360) + 360) % 360;
+  const wanted = data.fair.roll * 360;
+  const delta = wanted - currentMod + (wanted < currentMod ? 360 : 0);
+  state.upgradeAngle = current + UPG_TURNS * 360 + delta;
+
+  needle.classList.add('is-spinning');
+  needle.style.transform = `rotate(${state.upgradeAngle.toFixed(3)}deg)`;
+
+  sndSpinStart();
+  sndBet();
+  haptic('medium');
+
+  setTimeout(() => {
+    if (data.won) {
+      outcome.textContent = `Забрали ${money(data.target)}`;
+      outcome.className = 'upg-outcome win';
+      sndBigWin();
+      sndCollect();
+      haptic('success');
+    } else {
+      outcome.textContent = 'Мимо сектора';
+      outcome.className = 'upg-outcome lose';
+      sndLose();
+      haptic('error');
+    }
+    state.busy = false;
+    btn.disabled = false;
+    renderUpgradeStage();
+  }, 3500);
+});
+
+/* ============================================================
    ПОДВАЛ И ПРАВОВЫЕ ДОКУМЕНТЫ
    ============================================================ */
 
@@ -2037,6 +2316,19 @@ async function init() {
 
     wireBetPanel('crashBet', 'data-crash-add', 'data-crash-bet');
     wireBetPanel('rouletteBet', 'data-roul-add', 'data-roul-bet');
+    wireBetPanel('upgStake', 'data-upg-add', 'data-upg-bet');
+
+    // Цель пересчитывается на лету — иначе игрок жмёт «Апгрейд», не увидев,
+    // за что играет.
+    document.getElementById('upgStake').addEventListener('input', () => {
+    if (!state.busy) renderUpgradeStage();
+  });
+    renderUpgradeTicks();
+    renderUpgradePicker();
+    renderUpgradeStage();
+
+    startFeed();
+    loadFreeCase();
   } catch (err) {
     document.getElementById('app').innerHTML =
       `<div class="empty">Не удалось загрузить приложение.<br>${esc(err.message)}</div>`;

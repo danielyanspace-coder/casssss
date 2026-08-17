@@ -172,6 +172,7 @@ ensureColumn('users', 'x2_case_id', 'TEXT');
 ensureColumn('rounds', 'free', 'INTEGER NOT NULL DEFAULT 0');
 ensureColumn('users', 'gamble_stake', 'INTEGER NOT NULL DEFAULT 0');
 ensureColumn('users', 'gamble_case', 'TEXT');
+ensureColumn('users', 'free_case_at', 'INTEGER NOT NULL DEFAULT 0');
 
 const STARTING_BALANCE = Number(process.env.STARTING_BALANCE || 1000);
 
@@ -488,6 +489,68 @@ function addVoucher(userId, caseId, delta = 1) {
     INSERT INTO vouchers (user_id, case_id, count) VALUES (?, ?, ?)
     ON CONFLICT(user_id, case_id) DO UPDATE SET count = count + excluded.count
   `).run(userId, caseId, delta);
+}
+
+/* ---------- Бесплатный кейс за подписку ---------- */
+
+/**
+ * Выдача бесплатного прокрута. Проверка подписки к этому моменту уже
+ * пройдена — здесь только кулдаун и сам ваучер.
+ *
+ * Кулдаун проверяется ВНУТРИ транзакции, а не до неё: два одновременных
+ * запроса иначе успели бы прочитать старую метку и выдать два ваучера.
+ */
+export const grantFreeCase = db.transaction((userId, caseId, cooldownMs) => {
+  const user = getUserById(userId);
+  const now = Date.now();
+  const readyAt = user.free_case_at + cooldownMs;
+
+  if (user.free_case_at && now < readyAt) {
+    return { ok: false, reason: 'cooldown', readyAt };
+  }
+
+  addVoucher(userId, caseId, 1);
+  db.prepare('UPDATE users SET free_case_at = ? WHERE id = ?').run(now, userId);
+
+  return { ok: true, caseId, readyAt: now + cooldownMs };
+});
+
+/** Когда игроку снова доступен бесплатный кейс. */
+export function freeCaseState(userId, cooldownMs) {
+  const user = getUserById(userId);
+  const readyAt = user.free_case_at ? user.free_case_at + cooldownMs : 0;
+  return { readyAt, ready: Date.now() >= readyAt };
+}
+
+/* ---------- Витрина выпадений ---------- */
+
+/**
+ * Крупные выпадения живых игроков для витрины.
+ *
+ * Ник берём из username, а если его нет — из имени. Ни Telegram ID, ни
+ * баланс наружу не уходят: витрина видна всем.
+ */
+export function recentPublicDrops(limit = 24, minMultiplier = 3, minValue = 500) {
+  return db.prepare(`
+    SELECT r.id, r.title AS case_name, r.subtitle AS name, r.tier,
+           r.payout AS value, r.multiplier, r.created_at,
+           u.username, u.first_name
+      FROM rounds r
+      JOIN users u ON u.id = r.user_id
+     WHERE r.game = 'case' AND r.multiplier >= ? AND r.payout >= ?
+     ORDER BY r.id DESC
+     LIMIT ?
+  `).all(minMultiplier, minValue, limit).map((row) => ({
+    id: `r${row.id}`,
+    nick: row.username || row.first_name || 'игрок',
+    caseName: row.case_name,
+    name: row.name,
+    tier: row.tier,
+    value: row.value,
+    multiplier: Number(row.multiplier.toFixed(2)),
+    at: row.created_at,
+    real: true,
+  }));
 }
 
 /**

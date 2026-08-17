@@ -27,6 +27,11 @@ import {
   GAMBLE_CONFIG,
   gambleAceFromRoll,
   validateGamble,
+  UPGRADE_CONFIG,
+  upgradeTarget,
+  upgradeChance,
+  upgradeWinFromRoll,
+  validateUpgrade,
 } from './games.js';
 import { computeRoll, generateClientSeed } from './fair.js';
 import {
@@ -63,13 +68,26 @@ import {
   resolvePayout,
   adminPayouts,
   payoutStats,
+  grantFreeCase,
+  freeCaseState,
+  recentPublicDrops,
 } from './db.js';
 import { resolveUser } from './auth.js';
+import {
+  startFeed, getFeed, FEED_CONFIG, FEED_MIN_MULTIPLIER, FEED_MIN_VALUE,
+} from './feed.js';
+import {
+  isConfigured as subscriptionConfigured,
+  isSubscribed,
+  subscriptionConfig,
+  FREE_CASE_COOLDOWN_MS,
+} from './subscription.js';
 
 // Если математика поехала — падаем на старте, до первого игрока.
 const caseReport = validateCases();
 const gameReport = validateGames();
 const gambleReport = validateGamble();
+const upgradeReport = validateUpgrade();
 
 // Администраторы задаются Telegram ID через настройки — не через базу,
 // чтобы права нельзя было получить, дописав себе строку в таблицу.
@@ -180,10 +198,37 @@ app.get('/api/config', (req, res) => {
       chance: GAMBLE_CONFIG.chance,
       rtp: GAMBLE_CONFIG.rtp,
     },
+    upgrade: {
+      minStake: UPGRADE_CONFIG.minStake,
+      multipliers: UPGRADE_CONFIG.multipliers,
+    },
+    feed: { minMultiplier: FEED_CONFIG.minMultiplier, minValue: FEED_CONFIG.minValue },
+    freeCase: subscriptionConfig(),
     bonus: { enabled: false },
     maxBatch: MAX_BATCH,
     minPayout: MIN_PAYOUT,
   });
+});
+
+/* ============================================================
+   ВИТРИНА КРУПНЫХ ВЫПАДЕНИЙ
+   ============================================================ */
+
+/**
+ * Лента открыта без авторизации: она видна и до входа в Telegram.
+ * Наружу уходят только ник, кейс и предмет — ни ID, ни балансов.
+ */
+app.get('/api/feed', (req, res) => {
+  const limit = Math.min(Math.max(Number(req.query.limit) || 24, 1), 40);
+  const real = recentPublicDrops(limit, FEED_MIN_MULTIPLIER, FEED_MIN_VALUE);
+  const shown = FEED_CONFIG.synthetic ? getFeed(limit) : [];
+
+  // Настоящие выпадения идут первыми при равной свежести.
+  const merged = [...real, ...shown]
+    .sort((a, b) => b.at - a.at)
+    .slice(0, limit);
+
+  res.json({ drops: merged, minMultiplier: FEED_MIN_MULTIPLIER, minValue: FEED_MIN_VALUE });
 });
 
 app.post('/api/me', auth, (req, res) => {
@@ -532,6 +577,108 @@ app.post('/api/gamble/skip', auth, (req, res) => {
   res.json({ user: publicUser(getUserById(req.player.id)) });
 });
 
+/* ============================================================
+   АПГРЕЙД
+   ============================================================ */
+
+app.post('/api/upgrade', auth, (req, res) => {
+  const stake = parseBet(req.body?.stake);
+  const multiplier = Number(req.body?.multiplier);
+
+  if (!stake || stake < UPGRADE_CONFIG.minStake) {
+    return res.status(400).json({ error: `Минимальная ставка — ${UPGRADE_CONFIG.minStake}` });
+  }
+  if (!UPGRADE_CONFIG.multipliers.includes(multiplier)) {
+    return res.status(400).json({ error: 'Недоступный множитель' });
+  }
+  if (req.player.balance < stake) return sendInsufficient(res, stake);
+
+  const target = upgradeTarget(stake, multiplier);
+  const chance = upgradeChance(stake, target);
+
+  const result = playInstantRound(req.player.id, stake, (serverSeed, clientSeed, nonce) => {
+    const roll = computeRoll(serverSeed, clientSeed, nonce);
+    const won = upgradeWinFromRoll(roll, chance);
+    return {
+      game: 'upgrade',
+      title: 'Апгрейд',
+      subtitle: won ? `x${multiplier} — попал` : `x${multiplier} — мимо`,
+      payout: won ? target : 0,
+      tier: won ? 'legendary' : 'common',
+      roll,
+      won,
+    };
+  });
+
+  res.json({
+    won: result.won,
+    stake,
+    target,
+    multiplier,
+    // Угол стрелки: ролл — это доля круга от верхней точки. Сектор выигрыша
+    // клиент рисует сам от нуля до chance, поэтому картинка проверяема.
+    chance,
+    balance: result.balance,
+    fair: { roll: result.roll, nonce: result.nonce },
+    user: publicUser(getUserById(req.player.id)),
+  });
+});
+
+/* ============================================================
+   БЕСПЛАТНЫЙ КЕЙС ЗА ПОДПИСКУ
+   ============================================================ */
+
+app.post('/api/free-case/state', auth, (req, res) => {
+  if (!subscriptionConfigured()) return res.json({ enabled: false });
+  const state = freeCaseState(req.player.id, FREE_CASE_COOLDOWN_MS);
+  res.json({ enabled: true, ...subscriptionConfig(), ...state });
+});
+
+app.post('/api/free-case/claim', auth, async (req, res) => {
+  if (!subscriptionConfigured()) {
+    return res.status(503).json({
+      error: 'Бесплатный кейс ещё не настроен',
+      message: 'Раздел включится, когда будут заданы канал и кейс — см. NEDOSTATOK.md',
+    });
+  }
+
+  const { caseId } = subscriptionConfig();
+  if (!getCase(caseId)) {
+    return res.status(500).json({ error: `Кейс ${caseId} не найден в конфигурации` });
+  }
+
+  const check = await isSubscribed(req.player.tg_id);
+
+  if (!check.ok) {
+    // Сеть или права бота — это наша проблема, а не игрока, и говорить
+    // ему «вы не подписаны» в такой ситуации нельзя.
+    const message = check.reason === 'network'
+      ? 'Telegram не ответил, попробуйте ещё раз'
+      : 'Проверка подписки недоступна, мы уже чиним';
+    return res.status(503).json({ error: message });
+  }
+
+  if (!check.subscribed) {
+    return res.status(403).json({
+      error: 'Подпишитесь на канал',
+      channelUrl: subscriptionConfig().channelUrl,
+    });
+  }
+
+  const granted = grantFreeCase(req.player.id, caseId, FREE_CASE_COOLDOWN_MS);
+  if (!granted.ok) {
+    return res.status(429).json({ error: 'Кейс уже получен', readyAt: granted.readyAt });
+  }
+
+  res.json({
+    ok: true,
+    caseId,
+    readyAt: granted.readyAt,
+    vouchers: getVouchers(req.player.id),
+    user: publicUser(getUserById(req.player.id)),
+  });
+});
+
 app.post('/api/fair/client-seed', auth, (req, res) => {
   const raw = String(req.body?.seed ?? '').trim();
   const seed = raw || generateClientSeed();
@@ -651,12 +798,18 @@ app.use((err, req, res, next) => {
 const PORT = Number(process.env.PORT || 3000);
 
 app.listen(PORT, () => {
+  startFeed();
+
   console.log(`\n  Кейс-симулятор запущен на http://localhost:${PORT}`);
   if (process.env.DEV_MODE === 'true') {
     console.log('  DEV_MODE включён — подпись Telegram не проверяется.');
   }
   console.log(`  Краш RTP: ${(gameReport.crashRtp * 100).toFixed(2)}%  ` +
               `Рулетка RTP: ${(gameReport.rouletteRtp * 100).toFixed(2)}%  ` +
-              `Риск-игра RTP: ${(gambleReport.rtp * 100).toFixed(2)}%\n`);
+              `Риск-игра RTP: ${(gambleReport.rtp * 100).toFixed(2)}%  ` +
+              `Апгрейд RTP: ${(upgradeReport.rtp * 100).toFixed(2)}%`);
+  console.log(`  Витрина: ${FEED_CONFIG.synthetic ? 'выдуманные выпадения включены' : 'только живые игроки'}` +
+              `, порог x${FEED_CONFIG.minMultiplier}, пул ${FEED_CONFIG.poolSize}`);
+  console.log(`  Бесплатный кейс за подписку: ${subscriptionConfigured() ? 'настроен' : 'выключен (нет канала/кейса)'}\n`);
   console.table(caseReport);
 });

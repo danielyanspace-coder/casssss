@@ -91,8 +91,111 @@ check('меню: нижняя панель убрана',
       await page.evaluate(() => document.querySelectorAll('.bottom-nav, .nav-btn').length === 0));
 check('меню: «История» убрана', !nav.some((n) => n.includes('История')), nav.join(', '));
 check('меню: разделы на месте',
-      ['Кейсы', 'Краш', 'Рулетка', 'Касса', 'Честность'].every((t) => nav.includes(t)),
+      ['Кейсы', 'Апгрейд', 'Краш', 'Рулетка', 'Касса', 'Честность'].every((t) => nav.includes(t)),
       nav.join(', '));
+
+/* ---------- Витрина крупных выпадений ---------- */
+
+{
+  await page.waitForTimeout(1200);
+  const feed = await page.evaluate(() => {
+    const cards = [...document.querySelectorAll('#feedTrack .feed-card')];
+    return {
+      visible: !document.getElementById('feed').hidden,
+      count: cards.length,
+      drawn: cards.filter((c) => c.querySelector('.feed-art svg')).length,
+      withValue: cards.filter((c) => /\d/.test(c.querySelector('.feed-value')?.textContent || '')).length,
+      withNick: cards.filter((c) => (c.querySelector('.feed-nick')?.textContent || '').trim()).length,
+      // Витрина не должна выдавать шансы — как и остальной интерфейс.
+      percents: cards.filter((c) => c.textContent.includes('%')).length,
+    };
+  });
+
+  check('витрина: лента показана', feed.visible);
+  check('витрина: карточки заполнены', feed.count > 0, `карточек ${feed.count}`);
+  check('витрина: у каждой карточки есть рисунок', feed.drawn === feed.count,
+        `${feed.drawn} из ${feed.count}`);
+  check('витрина: у каждой карточки есть сумма', feed.withValue === feed.count,
+        `${feed.withValue} из ${feed.count}`);
+  check('витрина: у каждой карточки есть ник', feed.withNick === feed.count,
+        `${feed.withNick} из ${feed.count}`);
+  check('витрина: проценты не показаны', feed.percents === 0, `нарушений ${feed.percents}`);
+}
+
+/* ---------- Апгрейд ---------- */
+
+await goto('upgrade');
+await page.waitForSelector('#upgradeBtn', { state: 'visible' });
+
+{
+  const stage = await page.evaluate(() => {
+    const el = document.getElementById('upgStake');
+    el.value = '1000';
+    el.dispatchEvent(new Event('input'));
+    return {
+      options: document.querySelectorAll('.upg-opt').length,
+      active: document.querySelectorAll('.upg-opt.active').length,
+      ticks: document.querySelectorAll('#upgTicks line').length,
+      percents: document.getElementById('view-upgrade').textContent.includes('%'),
+    };
+  });
+
+  check('апгрейд: множители на выбор', stage.options >= 4, `вариантов ${stage.options}`);
+  check('апгрейд: выбран ровно один множитель', stage.active === 1, `активных ${stage.active}`);
+  check('апгрейд: кольцо размечено насечками', stage.ticks > 0, `насечек ${stage.ticks}`);
+  check('апгрейд: процент шанса не показан', !stage.percents);
+
+  // Сектор обязан меняться вместе с множителем: на x100 он заметно уже,
+  // чем на x1.5, иначе картинка врёт о том, за что играет игрок.
+  const arcFor = async (mult) => page.evaluate((m) => {
+    document.querySelector(`.upg-opt[data-mult="${m}"]`).click();
+    const el = document.getElementById('upgStake');
+    el.value = '1000';
+    el.dispatchEvent(new Event('input'));
+    const [len] = document.getElementById('upgArc').style.strokeDasharray.split(' ');
+    return { arc: parseFloat(len), target: document.getElementById('upgTarget').textContent };
+  }, mult);
+
+  const low = await arcFor('1.5');
+  const high = await arcFor('100');
+  check('апгрейд: у крупного множителя сектор уже', high.arc < low.arc,
+        `x1.5 → ${low.arc}, x100 → ${high.arc}`);
+  check('апгрейд: цель растёт вместе с множителем',
+        parseInt(high.target.replace(/\D/g, ''), 10) > parseInt(low.target.replace(/\D/g, ''), 10),
+        `${low.target} → ${high.target}`);
+
+  // Прокрут: указатель обязан встать на угол ролла, а исход — совпасть
+  // с тем, попал ли этот угол в нарисованный сектор.
+  await page.evaluate(() => {
+    document.querySelector('.upg-opt[data-mult="1.5"]').click();
+    const el = document.getElementById('upgStake');
+    el.value = '1000';
+    el.dispatchEvent(new Event('input'));
+  });
+  await page.click('#upgradeBtn');
+  await page.waitForFunction(() => !document.getElementById('upgradeBtn').disabled,
+    { timeout: 25000 });
+  await page.waitForTimeout(300);
+
+  const spun = await page.evaluate(() => {
+    const style = document.getElementById('upgNeedle').style.transform;
+    const deg = parseFloat(/rotate\(([-\d.]+)deg\)/.exec(style)?.[1] ?? 'NaN');
+    const [len, circ] = document.getElementById('upgArc').style.strokeDasharray
+      .split(' ').map(parseFloat);
+    return {
+      angle: ((deg % 360) + 360) % 360,
+      sector: (len / circ) * 360,
+      outcome: document.getElementById('upgOutcome').textContent.trim(),
+      won: document.getElementById('upgOutcome').classList.contains('win'),
+    };
+  });
+
+  check('апгрейд: указатель довёрнут до результата', Number.isFinite(spun.angle));
+  check('апгрейд: исход показан', spun.outcome.length > 0, spun.outcome);
+  check('апгрейд: указатель внутри сектора ⇔ выигрыш',
+        spun.won === (spun.angle < spun.sector),
+        `угол ${spun.angle.toFixed(1)}°, сектор ${spun.sector.toFixed(1)}°, выигрыш ${spun.won}`);
+}
 
 /**
  * Определяет, какая плитка стоит под маркером, и сверяет с результатом.

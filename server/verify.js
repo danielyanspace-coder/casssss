@@ -20,6 +20,11 @@ import {
   GAMBLE_CONFIG,
   gambleAceFromRoll,
   validateGamble,
+  UPGRADE_CONFIG,
+  upgradeTarget,
+  upgradeChance,
+  upgradeWinFromRoll,
+  validateUpgrade,
 } from './games.js';
 import { computeRoll, generateClientSeed, generateServerSeed, hashSeed } from './fair.js';
 
@@ -339,6 +344,49 @@ console.log('\n=== Риск-игра ===\n');
   console.log('Распределение позиции туза:', spread.join('  '));
   console.log('Максимальное отклонение от равномерного:', (maxDev * 100).toFixed(2) + '%');
   if (maxDev > 0.05) { console.error('Позиция туза распределена неравномерно'); failures++; }
+}
+
+console.log('\n=== Апгрейд ===\n');
+
+{
+  validateUpgrade();
+
+  // Отдача обязана держаться одинаковой на всех множителях: если она поедет
+  // на крупных, апгрейд превратится в ловушку для тех, кто целится высоко.
+  const rows = [];
+  const stake = 1000;
+
+  for (const m of UPGRADE_CONFIG.multipliers) {
+    const target = upgradeTarget(stake, m);
+    const chance = upgradeChance(stake, target);
+
+    let payout = 0;
+    let hits = 0;
+    for (let n = 1; n <= ROUNDS; n++) {
+      const roll = computeRoll(serverSeed, `upgrade:${m}`, n);
+      if (upgradeWinFromRoll(roll, chance)) { hits++; payout += target; }
+    }
+
+    const rtp = payout / (stake * ROUNDS);
+    // Дисперсия растёт с множителем, поэтому допуск считаем от неё, а не
+    // фиксированным числом: иначе x100 «расходился» бы на каждом прогоне.
+    const se = (target / stake) * Math.sqrt((chance * (1 - chance)) / ROUNDS);
+    const ok = Math.abs(rtp - UPGRADE_CONFIG.rtp) < 4 * se;
+    if (!ok) failures++;
+
+    rows.push({
+      множитель: `x${m}`,
+      цель: target,
+      'сектор, °': (chance * 360).toFixed(1),
+      'шанс факт': (hits / ROUNDS).toFixed(4),
+      'шанс теория': chance.toFixed(4),
+      'RTP факт': rtp.toFixed(4),
+      статус: ok ? 'ок' : 'РАСХОЖДЕНИЕ',
+    });
+  }
+
+  console.log(`Ставка ${stake}, отдача по формуле p = rtp * ставка / цель\n`);
+  console.table(rows);
 }
 
 console.log('\n=== Проверка provably fair ===\n');

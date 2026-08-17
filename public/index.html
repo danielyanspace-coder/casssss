@@ -55,10 +55,98 @@
         <div class="hero-fade"></div>
       </div>
 
+      <!-- Витрина крупных выпадений. Обычные исходы сюда не попадают. -->
+      <div class="feed" id="feed" hidden>
+        <div class="feed-head">
+          <span class="feed-dot"></span>
+          <span class="feed-title">Крупные выпадения</span>
+        </div>
+        <div class="feed-track" id="feedTrack"></div>
+      </div>
+
       <div class="perk-bar" id="perkBar" hidden></div>
+
+      <!-- Появляется, только когда канал и кейс заданы в настройках. -->
+      <button class="free-case" id="freeCase" hidden>
+        <span class="free-case-ico" data-ico="gift"></span>
+        <span class="free-case-text">
+          <span class="free-case-title">Бесплатный кейс</span>
+          <span class="free-case-sub" id="freeCaseSub">за подписку на канал</span>
+        </span>
+        <span class="free-case-go">Забрать</span>
+      </button>
 
       <div class="shelves" id="caseShelves"></div>
 
+    </section>
+
+    <!-- ══════════ АПГРЕЙД ══════════ -->
+    <section class="view" id="view-upgrade">
+      <div class="game-head">
+        <h1 class="game-title">АПГРЕЙД</h1>
+        <p class="game-sub">Ставка против цели. Указатель встал в ваш сектор — цель ваша.</p>
+      </div>
+
+      <div class="upg-stage">
+        <svg class="upg-ring" id="upgRing" viewBox="0 0 260 260" aria-hidden="true">
+          <defs>
+            <linearGradient id="upgArcGrad" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stop-color="#00f0ff"/>
+              <stop offset="50%" stop-color="#a020ff"/>
+              <stop offset="100%" stop-color="#ff2e8a"/>
+            </linearGradient>
+            <linearGradient id="upgNeedleGrad" x1="0" y1="1" x2="0" y2="0">
+              <stop offset="0%" stop-color="#ffd60a" stop-opacity="0.2"/>
+              <stop offset="100%" stop-color="#ffd60a"/>
+            </linearGradient>
+            <filter id="upgGlow" x="-60%" y="-60%" width="220%" height="220%">
+              <feGaussianBlur stdDeviation="5" result="b"/>
+              <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+            </filter>
+          </defs>
+
+          <circle class="upg-halo" cx="130" cy="130" r="112"/>
+          <circle class="upg-track" cx="130" cy="130" r="104"/>
+          <circle class="upg-arc" id="upgArc" cx="130" cy="130" r="104"
+                  transform="rotate(-90 130 130)" filter="url(#upgGlow)"/>
+          <g class="upg-ticks" id="upgTicks"></g>
+
+          <!-- Указатель едет по самому кольцу, а не выходит из центра:
+               стрелка из центра перечёркивала бы сумму цели. -->
+          <g class="upg-needle" id="upgNeedle">
+            <rect x="126.5" y="11" width="7" height="30" rx="3.5" fill="url(#upgNeedleGrad)"/>
+            <path d="M130 50 L123 38 L137 38 Z" class="upg-needle-tip"/>
+          </g>
+        </svg>
+
+        <div class="upg-center">
+          <div class="upg-label">ЦЕЛЬ</div>
+          <div class="upg-target" id="upgTarget">—</div>
+          <div class="upg-mult" id="upgMult">—</div>
+        </div>
+      </div>
+
+      <div class="upg-outcome" id="upgOutcome"></div>
+
+      <div class="upg-picker" id="upgPicker"></div>
+
+      <div class="bet-panel">
+        <div class="bet-row">
+          <input class="bet-input" id="upgStake" type="number" inputmode="numeric" min="1" value="100">
+          <div class="bet-quick">
+            <button class="chip" data-upg-bet="half">½</button>
+            <button class="chip" data-upg-bet="double">×2</button>
+            <button class="chip" data-upg-bet="max">Max</button>
+          </div>
+        </div>
+        <div class="bet-chips">
+          <button class="chip chip-val" data-upg-add="50">+50</button>
+          <button class="chip chip-val" data-upg-add="100">+100</button>
+          <button class="chip chip-val" data-upg-add="500">+500</button>
+          <button class="chip chip-val" data-upg-add="1000">+1000</button>
+        </div>
+        <button class="btn btn-huge btn-upgrade" id="upgradeBtn">АПГРЕЙД</button>
+      </div>
     </section>
 
     <!-- ══════════ КРАШ ══════════ -->

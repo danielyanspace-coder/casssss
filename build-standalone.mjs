@@ -16,7 +16,10 @@
 
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { CASES, CATEGORIES, TIERS, publicCase } from './server/cases.js';
-import { CRASH_CONFIG, ROULETTE_CONFIG, ROULETTE_WHEEL, GAMBLE_CONFIG } from './server/games.js';
+import {
+  CRASH_CONFIG, ROULETTE_CONFIG, ROULETTE_WHEEL, GAMBLE_CONFIG, UPGRADE_CONFIG,
+} from './server/games.js';
+import { FEED_MIN_MULTIPLIER, FEED_MIN_VALUE } from './server/feed.js';
 
 const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
 
@@ -45,10 +48,40 @@ const config = {
     chance: GAMBLE_CONFIG.chance,
     rtp: GAMBLE_CONFIG.rtp,
   },
+  upgrade: {
+    minStake: UPGRADE_CONFIG.minStake,
+    multipliers: UPGRADE_CONFIG.multipliers,
+    rtp: UPGRADE_CONFIG.rtp,
+  },
+  feed: { minMultiplier: FEED_MIN_MULTIPLIER, minValue: FEED_MIN_VALUE },
+  // Бесплатный кейс требует живого Telegram — в автономной сборке его нет.
+  freeCase: { enabled: false },
   bonus: { enabled: false },
   maxBatch: 5,
   minPayout: 1000,
 };
+
+/**
+ * Пул витрины считается на сборке: в браузере нет ни базы, ни других игроков,
+ * поэтому лента целиком выдуманная. Веса те же, что на сервере, — доля редких
+ * предметов внутри крупных выпадений приподнята показателем 0.45.
+ */
+const feedPool = [];
+for (const c of CASES) {
+  for (const item of c.items) {
+    if (item.kind !== 'item' || !item.value) continue;
+    const multiplier = item.value / c.price;
+    if (multiplier < FEED_MIN_MULTIPLIER || item.value < FEED_MIN_VALUE) continue;
+    feedPool.push({
+      caseName: c.name,
+      name: item.name,
+      tier: item.tier,
+      value: item.value,
+      multiplier: Number(multiplier.toFixed(2)),
+      weight: Math.pow(item.probability, 0.45),
+    });
+  }
+}
 
 // Кумулятивные границы и плюшки нужны заглушке для розыгрыша, но в publicCase
 // их нет — сервер не отдаёт их клиенту. Для демо добавляем.
@@ -113,6 +146,21 @@ const shim = `
 const DRAW = ${JSON.stringify(drawTables)};
 const CONFIG = ${JSON.stringify(config)};
 const DRAW_BY_ID = new Map(DRAW.map((c) => [c.id, c]));
+
+/* Витрина крупных выпадений: пул и ники. Ленту наполняет Math.random, а не
+   provably fair, — ни один результат отсюда не влияет на баланс. */
+const FEED_POOL = ${JSON.stringify(feedPool)};
+const FEED_NICK_HEAD = ${JSON.stringify([
+  'nova', 'lucky', 'shadow', 'astra', 'volt', 'delta', 'orbit', 'grim',
+  'echo', 'frost', 'blaze', 'onyx', 'rune', 'vega', 'kilo', 'zen',
+  'drift', 'crimson', 'quartz', 'pixel', 'raven', 'atlas', 'noir', 'mango',
+  'сова', 'барс', 'вихрь', 'туман', 'кобальт', 'янтарь', 'сокол', 'кремень',
+])};
+const FEED_NICK_TAIL = ${JSON.stringify([
+  '', '', '_', 'x', 'ka', 'off', 'ov', '77', '01', '_ru', 'pro', 'dev',
+  '2k', 'ix', 'er', 'yy', '99', '13', '_tg', 'zz',
+])};
+let feedSeq = 1;
 
 /* ---------- SHA-256 и HMAC на чистом JS ----------
    Своя реализация, а не crypto.subtle: тот доступен только в защищённом
@@ -483,6 +531,75 @@ const routes = {
              fair: { roll, nonce: u.nonce }, user: publicUser() };
   },
 
+  'POST /api/upgrade': (body) => {
+    const u = store.user;
+    u.gambleStake = 0;
+    const stake = Math.floor(Number(body.stake));
+    const multiplier = Number(body.multiplier);
+    const cfg = CONFIG.upgrade;
+
+    if (!stake || stake < cfg.minStake) {
+      return { status: 400, body: { error: 'Минимальная ставка — ' + cfg.minStake } };
+    }
+    if (!cfg.multipliers.includes(multiplier)) {
+      return { status: 400, body: { error: 'Недоступный множитель' } };
+    }
+    if (u.balance < stake) {
+      return { status: 400, body: { error: 'INSUFFICIENT_FUNDS',
+        message: 'Не хватает ' + (stake - u.balance) + ' ед.' } };
+    }
+
+    // Цель округляем ДО расчёта шанса — иначе отдача уезжает на округлении.
+    const target = Math.round(stake * multiplier);
+    const chance = (cfg.rtp * stake) / target;
+
+    u.nonce++;
+    const roll = computeRoll(u.serverSeed, u.clientSeed, u.nonce);
+    const won = roll < chance;
+    const payout = won ? target : 0;
+
+    u.balance += payout - stake;
+    u.stats.rounds++; u.stats.spent += stake; u.stats.won += payout;
+    u.stats.bestMultiplier = Math.max(u.stats.bestMultiplier, payout / stake);
+
+    pushRound({ game: 'upgrade', title: 'Апгрейд',
+      subtitle: 'x' + multiplier + (won ? ' — попал' : ' — мимо'),
+      bet: stake, payout, multiplier: payout / stake,
+      tier: won ? 'legendary' : 'common', free: 0 });
+    save();
+
+    return { won, stake, target, multiplier, chance, balance: u.balance,
+             fair: { roll, nonce: u.nonce }, user: publicUser() };
+  },
+
+  /* Витрина: в автономной сборке других игроков нет, лента целиком
+     выдуманная. Обычные исходы в неё не попадают — см. NEDOSTATOK.md. */
+  'GET /api/feed': () => {
+    const total = FEED_POOL.reduce((s, p) => s + p.weight, 0);
+    const drops = [];
+
+    for (let i = 0; i < 24; i++) {
+      let r = Math.random() * total;
+      let pick = FEED_POOL[FEED_POOL.length - 1];
+      for (const entry of FEED_POOL) {
+        r -= entry.weight;
+        if (r <= 0) { pick = entry; break; }
+      }
+      const head = FEED_NICK_HEAD[Math.floor(Math.random() * FEED_NICK_HEAD.length)];
+      const tail = FEED_NICK_TAIL[Math.floor(Math.random() * FEED_NICK_TAIL.length)];
+      drops.push({ id: 'd' + (feedSeq++), nick: head + tail, ...pick, at: Date.now() - i * 2500 });
+    }
+
+    return { drops, minMultiplier: CONFIG.feed.minMultiplier, minValue: CONFIG.feed.minValue };
+  },
+
+  'POST /api/free-case/state': () => ({ enabled: false }),
+
+  'POST /api/free-case/claim': () => ({
+    status: 503,
+    body: { error: 'Бесплатный кейс работает только внутри Telegram' },
+  }),
+
   'POST /api/crash/start': (body) => {
     const u = store.user;
     u.gambleStake = 0;
@@ -833,7 +950,9 @@ window.fetch = async (input, init = {}) => {
   if (!url.startsWith('/api/')) return realFetch(input, init);
 
   const method = (init.method || 'GET').toUpperCase();
-  const key = method + ' ' + url;
+  // Строку запроса отбрасываем: маршруты заданы без неё, а витрина
+  // ходит с ?limit=… — иначе она получала бы 404.
+  const key = method + ' ' + url.split('?')[0];
   const handler = routes[key];
 
   if (!handler) {
