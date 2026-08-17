@@ -2121,23 +2121,9 @@ select.seed-input {
 
 /* ---------- Только для автономной версии ---------- */
 
-.demo-note {
-  position: relative; z-index: 3;
-  margin: 0 0 16px;
-  padding: 13px 15px;
-  border-radius: 14px;
-  font-size: 12.5px;
-  line-height: 1.5;
-  color: var(--muted);
-  background: var(--bg-soft);
-  border: 1.5px solid var(--gold);
-}
-.demo-note b { color: var(--gold); }
-.demo-note code {
-  font-family: ui-monospace, Menlo, monospace;
-  color: var(--cyan);
-  font-size: 11.5px;
-}
+
+
+
 </style>
 </head>
 <body>
@@ -2603,18 +2589,19 @@ const randHex = (n) => {
 
 /* ---------- Хранилище ---------- */
 
-const STORE_KEY = 'luckybox-demo-v1';
+const STORE_KEY = 'luckybox-demo-v2';
 
 function freshUser() {
   const serverSeed = randHex(32);
   return {
     id: 1, username: 'demo', firstName: 'Гость',
-    balance: 5000,
+    balance: 1_000_000,
     serverSeed, serverSeedHash: sha256Hex(serverSeed),
     clientSeed: randHex(8), nonce: 0,
     prevServerSeed: null, prevServerHash: null,
     x2CaseId: null, vouchers: {}, gambleStake: 0,
-    deposits: [{ amount: 5000, source: 'start', comment: 'Стартовый баланс', created_at: Date.now() }],
+    deposits: [{ amount: 1_000_000, source: 'start', comment: 'Стартовый баланс',
+                 created_at: Date.now() }],
     payouts: [],
     stats: { rounds: 0, spent: 0, won: 0, bestMultiplier: 0 },
     rounds: [],
@@ -6422,20 +6409,19 @@ function startFooterCounters() {
 }
 
 
-// Пояснение про демо — над полками.
-const shelves = document.getElementById('caseShelves');
-if (shelves) {
-  const note = document.createElement('div');
-  note.className = 'demo-note';
-  note.innerHTML = '<b>Это автономное демо.</b> Вся математика считается прямо ' +
-    'в браузере, прогресс хранится локально и никуда не уходит. В рабочей версии ' +
-    'исход раундов считает сервер, а серверный seed игроку недоступен — здесь это ' +
-    'невозможно по определению. Игроки в админке выдуманы для наглядности. ' +
-    'Кнопка «Админ» скрыта — в рабочей версии её видят только Telegram ID ' +
-    'из ADMIN_TG_IDS; посмотреть панель здесь: <code>demoAdmin()</code>. ' +
-    'Сбросить прогресс: <code>resetDemo()</code>.';
-  shelves.parentNode.insertBefore(note, shelves);
-}
+/*
+ * Плашка с пояснением про демо убрана: она занимала первый экран и мешала
+ * смотреть саму игру. Оговорки никуда не делись — они в шапке файла и в
+ * README, а demoAdmin() и resetDemo() по-прежнему работают из консоли.
+ */
+console.info(
+  '%cLUCKYBOX — автономное демо',
+  'font-weight:700;color:#ff2e8a',
+  '\n· вся математика считается в браузере, прогресс хранится локально;'
+  + '\n· в рабочей версии исход считает сервер, серверный seed игроку недоступен;'
+  + '\n· игроки в админке выдуманы; панель: demoAdmin()'
+  + '\n· сбросить прогресс: resetDemo()',
+);
 })();
 </script>
 </body>
