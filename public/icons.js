@@ -187,3 +187,47 @@ export function iconSound(on = true) {
   return svg(`<path d="M4 9.5h3.2L12 5.4v13.2L7.2 14.5H4a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1Z"
       fill="currentColor"/>${waves}`);
 }
+
+/** Сетка 2×2 — кнопка меню в шапке. */
+export function iconGrid() {
+  return svg(`<rect x="3.5" y="3.5" width="7.5" height="7.5" rx="2.2" fill="currentColor"/>
+    <rect x="13" y="3.5" width="7.5" height="7.5" rx="2.2" fill="currentColor" opacity="0.75"/>
+    <rect x="3.5" y="13" width="7.5" height="7.5" rx="2.2" fill="currentColor" opacity="0.75"/>
+    <rect x="13" y="13" width="7.5" height="7.5" rx="2.2" fill="currentColor"/>`);
+}
+
+/** Ключ — счётчик открытых кейсов. */
+export function iconKey(color = '#ffd60a') {
+  return svg(`<circle cx="8" cy="8" r="4.4" fill="none" stroke="${color}" stroke-width="2.1"/>
+    <path d="m11.2 11.2 8 8" stroke="${color}" stroke-width="2.1" stroke-linecap="round"/>
+    <path d="m16.4 16.4 2 2M14.2 18.6l1.6 1.6" stroke="${color}" stroke-width="2.1"
+      stroke-linecap="round"/>`);
+}
+
+/** Три фигурки — счётчик игроков. */
+export function iconPeople(color = '#00f0ff') {
+  return svg(`<circle cx="12" cy="7.6" r="3.1" fill="${color}"/>
+    <path d="M6.4 19.4c0-3.1 2.5-5.2 5.6-5.2s5.6 2.1 5.6 5.2Z" fill="${color}"/>
+    <circle cx="4.6" cy="9.4" r="2.2" fill="${color}" opacity="0.55"/>
+    <path d="M1 18.2c0-2.1 1.6-3.5 3.6-3.5.5 0 1 .1 1.4.3" fill="none" stroke="${color}"
+      stroke-width="1.7" stroke-linecap="round" opacity="0.55"/>
+    <circle cx="19.4" cy="9.4" r="2.2" fill="${color}" opacity="0.55"/>
+    <path d="M23 18.2c0-2.1-1.6-3.5-3.6-3.5-.5 0-1 .1-1.4.3" fill="none" stroke="${color}"
+      stroke-width="1.7" stroke-linecap="round" opacity="0.55"/>`);
+}
+
+/** Конверт — перед адресом почты в подвале. */
+export function iconMail(color = 'currentColor') {
+  return svg(`<rect x="2.6" y="5" width="18.8" height="14" rx="2.6" fill="none"
+      stroke="${color}" stroke-width="1.9"/>
+    <path d="m3.4 7.2 8.6 6 8.6-6" fill="none" stroke="${color}" stroke-width="1.9"
+      stroke-linecap="round" stroke-linejoin="round"/>`);
+}
+
+/** Бумажный самолётик Telegram. */
+export function iconTelegram(color = '#00f0ff') {
+  return svg(`<path d="M21.3 4.3 2.9 11.4c-1 .4-1 1.3.1 1.6l4.6 1.4 1.8 5.4c.2.7.9.8 1.4.3l2.6-2.5
+      4.6 3.4c.8.6 1.5.2 1.7-.8l3-13.9c.2-1-.5-1.5-1.4-1Z" fill="${color}"/>
+    <path d="M8.2 14.6 17.6 8l-6.9 7.1-.4 3.4" fill="none" stroke="#0d0316" stroke-width="1"
+      opacity="0.35" stroke-linejoin="round"/>`);
+}

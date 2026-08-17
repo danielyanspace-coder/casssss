@@ -106,7 +106,8 @@ body {
   border-bottom: 1px solid var(--line);
 }
 
-.brand { display: flex; align-items: center; gap: 12px; }
+.brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.brand-text { min-width: 0; overflow: hidden; }
 
 .brand-mark {
   width: 46px; height: 46px;
@@ -131,18 +132,25 @@ body {
 .brand-name span { -webkit-text-fill-color: var(--cyan); }
 .brand-sub { font-size: 11px; color: var(--muted); letter-spacing: 2px; margin-top: 4px; }
 
+/* Баланс поджат: рядом с ним теперь кнопка меню, и прежний размер выдавливал
+   логотип за край, стоило балансу вырасти до семизначного. */
 .balance-chip {
-  display: flex; align-items: center; gap: 8px;
-  padding: 12px 18px;
+  display: flex; align-items: center; gap: 6px;
+  padding: 8px 13px;
   border-radius: 999px;
   background: linear-gradient(135deg, rgba(255, 46, 138, 0.3), rgba(160, 32, 255, 0.28));
-  border: 2px solid var(--pink);
-  box-shadow: 0 0 22px rgba(255, 46, 138, 0.4);
+  border: 1.5px solid var(--pink);
+  box-shadow: 0 0 18px rgba(255, 46, 138, 0.35);
   transition: transform 0.25s;
+  min-width: 0;
 }
-.balance-chip.bump { transform: scale(1.16); }
-.balance-ico { font-size: 18px; }
-.balance-value { font-size: 21px; font-weight: 900; font-variant-numeric: tabular-nums; }
+.balance-chip.bump { transform: scale(1.12); }
+.balance-ico { width: 16px; height: 16px; flex: 0 0 auto; }
+.balance-ico svg { width: 100%; height: 100%; }
+.balance-value {
+  font-size: 15px; font-weight: 900; font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
 
 /* ---------- Общее ---------- */
 
@@ -818,36 +826,12 @@ main { position: relative; z-index: 2; padding: 18px; }
 
 /* ---------- Нижнее меню ---------- */
 
-.bottom-nav {
-  position: fixed;
-  bottom: 0; left: 0; right: 0;
-  z-index: 40;
-  display: flex;
-  background: rgba(13, 3, 24, 0.96);
-  backdrop-filter: blur(16px);
-  border-top: 2px solid var(--line);
-  padding-bottom: var(--safe-bottom);
-}
 
-.nav-btn {
-  flex: 1;
-  border: none;
-  background: none;
-  color: var(--muted);
-  font-family: inherit;
-  font-size: 10.5px;
-  font-weight: 700;
-  padding: 12px 2px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  cursor: pointer;
-  transition: color 0.2s;
-}
-.nav-btn.active { color: var(--pink); }
-.nav-btn.active .nav-ico { transform: scale(1.25); filter: drop-shadow(0 0 10px var(--pink)); }
-.nav-ico { font-size: 20px; transition: transform 0.2s; }
+
+
+
+
+
 
 /* ---------- Тост ---------- */
 
@@ -921,14 +905,14 @@ main { position: relative; z-index: 2; padding: 18px; }
 .ico { width: 100%; height: 100%; display: block; }
 
 [data-ico] { display: inline-block; line-height: 0; }
-.nav-ico[data-ico] { width: 24px; height: 24px; }
+
 .balance-ico[data-ico] { width: 22px; height: 22px; }
 .brand-mark[data-ico] { padding: 10px; }
 .crash-rocket[data-ico] { width: 30px; height: 30px; }
 .history-ico[data-ico] { width: 26px; height: 26px; }
 .tier-ico { width: 100%; height: 100%; }
 
-.nav-btn.active .nav-ico { transform: scale(1.2); }
+
 
 /* ============================================================
    ОБЛОЖКИ КЕЙСОВ
@@ -1253,7 +1237,7 @@ main { position: relative; z-index: 2; padding: 18px; }
 .log-row .plus { color: var(--green); }
 .log-row .minus { color: var(--red); }
 
-.nav-admin .nav-ico { filter: drop-shadow(0 0 8px var(--gold)); }
+.nav-admin 
 
 /* ---------- Правки под новую карточку кейса ---------- */
 
@@ -1299,13 +1283,15 @@ select.seed-input {
 
 .shelves { display: flex; flex-direction: column; gap: 26px; }
 
+/* Заголовок полки по центру: ряд больше не листается вбок, и выключка влево
+   с ценой справа выглядела остатком от прежней карусели. */
 .shelf-head {
-  display: flex; align-items: flex-end; justify-content: space-between;
-  gap: 12px; margin-bottom: 12px;
+  display: flex; flex-direction: column; align-items: center;
+  gap: 3px; margin-bottom: 14px; text-align: center;
 }
 
 .shelf-title {
-  font-size: 20px; font-weight: 900; margin: 0; line-height: 1.1;
+  font-size: 23px; font-weight: 900; margin: 0; line-height: 1.1;
   background: linear-gradient(90deg, var(--pink), var(--gold));
   -webkit-background-clip: text; background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -1316,25 +1302,18 @@ select.seed-input {
   white-space: nowrap; padding-bottom: 2px;
 }
 
-/* Ряд выходит за поля экрана, чтобы карточки уезжали под край, а не
-   обрывались по отступу — так видно, что полку можно листать. */
+/* Сетка вместо карусели: на телефоне два кейса в ряд. Горизонтальная
+   прокрутка прятала половину полки — до дальних кейсов никто не долистывал. */
 .shelf-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
   gap: 12px;
-  overflow-x: auto;
-  scroll-snap-type: x proximity;
-  padding: 4px 18px 8px;
-  margin: 0 -18px;
-  scrollbar-width: none;
-  -webkit-overflow-scrolling: touch;
 }
-.shelf-row::-webkit-scrollbar { display: none; }
 
 /* ---------- Компактная карточка ---------- */
 
 .shelf-row .case-card {
-  flex: 0 0 178px;
-  width: 178px;
+  width: 100%;
   min-height: 0;
   padding: 0 0 12px;
   border-radius: 18px;
@@ -1351,13 +1330,13 @@ select.seed-input {
 /* Обложка вытянутая, а не квадратная: 178x74 — это 2.4:1, близко к пропорции
    самого рисунка (340x130), поэтому сундук не обрезается по бокам. */
 .shelf-row .case-cover {
-  height: 74px;
+  height: 104px;
   margin: 0 0 10px;
   border-radius: 16px 16px 0 0;
 }
 
 .shelf-row .case-name {
-  font-size: 14px;
+  font-size: 15.5px;
   font-weight: 800;
   line-height: 1.15;
   margin: 0 12px 8px;
@@ -1392,8 +1371,8 @@ select.seed-input {
 .shelf-row .cover-top { font-size: 9px; bottom: 5px; left: 9px; }
 
 @media (min-width: 620px) {
-  .shelf-row .case-card { flex-basis: 208px; width: 208px; }
-  .shelf-row .case-cover { height: 86px; }
+  .shelf-row { grid-template-columns: repeat(4, 1fr); }
+  .shelf-row .case-cover { height: 120px; }
 }
 
 /* ============================================================
@@ -1697,26 +1676,11 @@ select.seed-input {
   text-align: center;
 }
 
-.footer-links {
-  display: flex; flex-wrap: wrap; justify-content: center;
-  gap: 8px 10px;
-  margin-bottom: 18px;
-}
 
-.footer-link {
-  padding: 9px 14px;
-  border-radius: 999px;
-  border: 1.5px solid var(--line);
-  background: var(--card);
-  color: var(--muted);
-  font-family: inherit;
-  font-size: 12px;
-  font-weight: 700;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-.footer-link:active { transform: scale(0.95); }
-.footer-link:hover { border-color: var(--pink); color: var(--text); }
+
+
+
+
 
 .footer-note {
   font-size: 11.5px;
@@ -1726,33 +1690,13 @@ select.seed-input {
   margin: 0 auto 20px;
 }
 
-.footer-entities {
-  display: flex; flex-wrap: wrap; justify-content: center;
-  gap: 18px 26px;
-  margin-bottom: 20px;
-}
 
-.footer-entity {
-  display: flex; flex-direction: column; gap: 2px;
-  font-size: 10.5px;
-  line-height: 1.45;
-  color: var(--muted);
-  opacity: 0.75;
-  max-width: 260px;
-}
-.footer-entity b { color: var(--text); font-size: 11.5px; letter-spacing: 0.3px; opacity: 0.9; }
 
-.footer-mail {
-  display: inline-block;
-  font-size: 14px;
-  font-weight: 800;
-  color: var(--cyan);
-  text-decoration: none;
-  padding: 10px 18px;
-  border-radius: 999px;
-  border: 1.5px solid var(--line);
-}
-.footer-mail:active { transform: scale(0.96); }
+
+
+
+
+
 
 /* ---------- Читалка документов ---------- */
 
@@ -1902,10 +1846,7 @@ select.seed-input {
 .payout-row.admin .admin-actions { margin-bottom: 0; }
 
 .log-row small { color: var(--muted); font-size: 11px; }
-.footer-age {
-  font-size: 12px; font-weight: 900; color: var(--muted);
-  letter-spacing: 1px; margin-bottom: 18px;
-}
+
 
 /* ============================================================
    ФРИСПИНЫ
@@ -1980,4 +1921,192 @@ select.seed-input {
   color: #1a0510;
   background: linear-gradient(135deg, var(--gold), #ff9b2e);
   box-shadow: 0 0 16px -3px var(--gold);
+}
+
+/* ============================================================
+   МЕНЮ-СЕТКА
+   ============================================================ */
+
+.top-right { display: flex; align-items: center; gap: 8px; }
+
+.menu-btn {
+  width: 42px; height: 42px;
+  border-radius: 13px;
+  display: grid; place-items: center;
+  color: var(--cyan);
+  background: rgba(20, 6, 34, 0.85);
+  border: 1.5px solid var(--line);
+}
+.menu-btn svg { width: 21px; height: 21px; }
+.menu-btn:active { transform: scale(0.94); }
+
+.menu-backdrop {
+  position: fixed; inset: 0; z-index: 60;
+  background: rgba(6, 1, 12, 0.82);
+  backdrop-filter: blur(6px);
+  display: flex; align-items: flex-start; justify-content: center;
+  padding: 16px;
+  overflow-y: auto;
+}
+
+.menu-sheet {
+  width: 100%; max-width: 560px;
+  background: linear-gradient(170deg, #22093a, #12051f);
+  border: 1.5px solid var(--line);
+  border-radius: 24px;
+  padding: 16px;
+}
+
+.menu-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.menu-title { font-size: 18px; font-weight: 900; }
+
+/* Почти квадратные плитки: два в ряд на телефоне. */
+.menu-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+
+.menu-tile {
+  aspect-ratio: 1 / 0.82;
+  display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-end;
+  gap: 2px;
+  padding: 14px;
+  text-align: left;
+  border-radius: 18px;
+  background: linear-gradient(155deg, rgba(255, 46, 138, 0.16), rgba(10, 2, 18, 0.7));
+  border: 1.5px solid var(--line);
+  position: relative;
+  overflow: hidden;
+}
+.menu-tile:active { transform: scale(0.96); }
+.menu-tile::after {
+  content: ''; position: absolute; inset: -40% -40% auto auto;
+  width: 120px; height: 120px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(0, 240, 255, 0.22), transparent 70%);
+}
+.menu-tile-ico { width: 30px; height: 30px; color: var(--cyan); margin-bottom: auto; }
+.menu-tile-ico svg { width: 100%; height: 100%; }
+.menu-tile-title { font-size: 15.5px; font-weight: 900; }
+.menu-tile-sub { font-size: 11px; color: var(--muted); }
+
+@media (min-width: 560px) {
+  .menu-grid { grid-template-columns: repeat(3, 1fr); }
+}
+
+/* ============================================================
+   ЭКРАН КЕЙСА: СОСТАВ ПОД КНОПКОЙ
+   ============================================================ */
+
+.case-panel { margin-top: 14px; }
+
+.drops-head {
+  display: flex; justify-content: space-between; align-items: baseline;
+  margin: 20px 0 10px;
+  font-size: 12.5px; font-weight: 800; color: var(--muted);
+  letter-spacing: 0.6px;
+}
+
+/* Два предмета в ряд на телефоне, от дорогого к дешёвому. */
+.drops-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+
+.drop-card {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 14px 10px;
+  border-radius: 16px;
+  text-align: center;
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.05), rgba(10, 2, 18, 0.6));
+  border: 1.5px solid var(--tier-color);
+  box-shadow: inset 0 0 22px -14px var(--tier-color);
+}
+.drop-card.is-showcase { border-style: dashed; }
+.drop-ico { width: 34px; height: 34px; filter: drop-shadow(0 0 10px var(--tier-color)); }
+.drop-ico svg { width: 100%; height: 100%; }
+.drop-name { font-size: 12.5px; font-weight: 700; line-height: 1.25; }
+.drop-value { font-size: 15px; font-weight: 900; color: var(--tier-color); }
+.drop-note { font-size: 10.5px; color: var(--muted); font-style: italic; }
+
+@media (min-width: 560px) {
+  .drops-grid { grid-template-columns: repeat(4, 1fr); }
+}
+
+/* ============================================================
+   ПОДВАЛ
+   ============================================================ */
+
+.site-footer { padding: 26px 16px 40px; text-align: center; }
+
+/* Ссылки — тонкий текст, без плиток: это служебная часть страницы. */
+.footer-links {
+  display: flex; flex-wrap: wrap; justify-content: center; align-items: center;
+  gap: 6px 8px;
+  margin-bottom: 22px;
+}
+.footer-link {
+  background: none; border: none; padding: 0;
+  font-size: 12px; font-weight: 500;
+  color: var(--muted);
+  text-decoration: none;
+}
+.footer-link:hover { color: var(--cyan); }
+.footer-dot { color: var(--line); font-size: 11px; }
+
+.footer-counters {
+  display: flex; justify-content: center; gap: 30px;
+  margin-bottom: 20px;
+}
+.footer-counter { display: flex; flex-direction: column; align-items: center; gap: 3px; }
+.footer-counter-ico { width: 24px; height: 24px; }
+.footer-counter-ico svg { width: 100%; height: 100%; }
+.footer-counter-value {
+  font-size: 19px; font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+.footer-counter-label { font-size: 10.5px; color: var(--muted); letter-spacing: 0.4px; }
+
+/* Обёртка нужна, чтобы кнопка не вставала в одну строку с «18+»:
+   inline-flex сам по себе перенос не создаёт. */
+.footer-tg-row { display: block; margin-bottom: 22px; }
+.footer-tg {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 9px 18px;
+  border-radius: 999px;
+  border: 1.5px solid var(--cyan);
+  color: var(--cyan);
+  font-size: 12.5px; font-weight: 800;
+  text-decoration: none;
+}
+.footer-tg:active { transform: scale(0.96); }
+.footer-tg-ico { width: 18px; height: 18px; }
+.footer-tg-ico svg { width: 100%; height: 100%; }
+
+.footer-age {
+  display: inline-block;
+  font-size: 11px; font-weight: 900;
+  color: var(--muted);
+  border: 1.5px solid var(--line);
+  border-radius: 999px;
+  padding: 3px 10px;
+  margin-bottom: 14px;
+}
+
+/* Реквизиты — строкой во всю ширину, а не узким столбиком. */
+.footer-entities { max-width: 760px; margin: 0 auto 14px; }
+.footer-entity {
+  font-size: 10.5px; line-height: 1.55; color: var(--muted);
+  margin: 0 0 5px;
+}
+.footer-entity b { color: var(--text); font-weight: 800; }
+
+.footer-mail {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-size: 12px; color: var(--muted); text-decoration: none;
+}
+.footer-mail:hover { color: var(--cyan); }
+.footer-mail-ico { width: 16px; height: 16px; }
+.footer-mail-ico svg { width: 100%; height: 100%; }
+
+/* На узком экране логотип сжимается первым: важнее уместить баланс и меню. */
+@media (max-width: 420px) {
+  .brand-mark { width: 38px; height: 38px; }
+  .brand-name { font-size: 17px; }
+  .brand-sub { display: none; }
+  .balance-value { font-size: 14px; }
 }

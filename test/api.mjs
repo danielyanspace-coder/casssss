@@ -51,7 +51,10 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
     const before = (await post('/api/me')).data.user;
     const { data } = await post('/api/open', { caseId: cheap.id });
 
-    const expected = before.balance - cheap.price + data.item.value;
+    // Фриспины есть теперь у каждого кейса, и серия зачисляется тем же
+    // ответом — без её учёта ожидание расходится каждый раз, когда она выпала.
+    const fs = (data.granted || []).find((g) => g.type === 'freespins');
+    const expected = before.balance - cheap.price + data.item.value + (fs ? fs.total : 0);
     if (data.balance !== expected) {
       mismatches++;
       if (mismatches === 1) {
@@ -234,9 +237,14 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
 
   const won = r.data.opened.reduce((s, o) => s + o.item.value, 0);
   check('пачка: сумма выигрышей сходится', r.data.totalWon === won);
-  check('пачка: баланс сходится',
-        r.data.balance === before.balance - r.data.totalSpent + r.data.totalWon,
-        `${r.data.balance} vs ${before.balance - r.data.totalSpent + r.data.totalWon}`);
+
+  // Любое из пяти открытий могло выдать серию фриспинов — она начисляется
+  // тем же ответом и в totalWon не входит, поэтому считаем её отдельно.
+  const fsTotal = r.data.opened.reduce((s, o) =>
+    s + (o.granted || []).reduce((a, g) => a + (g.type === 'freespins' ? g.total : 0), 0), 0);
+  const expectedBalance = before.balance - r.data.totalSpent + r.data.totalWon + fsTotal;
+  check('пачка: баланс сходится', r.data.balance === expectedBalance,
+        `${r.data.balance} vs ${expectedBalance}`);
 
   const tooMany = await post('/api/open', { caseId: c.id, count: 99 });
   check('пачка: количество ограничено сверху', tooMany.data.count <= 5, `count ${tooMany.data.count}`);

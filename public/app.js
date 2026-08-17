@@ -10,6 +10,7 @@ import {
   iconCases, iconCrash, iconRoulette, iconHistory, iconFair, iconAdmin,
   iconCoin, iconX2, iconGift, iconBolt, iconSearch, iconPlus, iconMinus,
   iconBlock, iconBack, iconTier, iconStar, iconRouletteMark,
+  iconGrid, iconKey, iconPeople, iconMail, iconTelegram,
 } from './icons.js';
 import { caseCover, porschePhotoSrc } from './covers.js';
 import { DOCS, footerHtml } from './legal.js';
@@ -37,7 +38,8 @@ const ICONS = {
   history: iconHistory, fair: iconFair, admin: iconAdmin,
   coin: iconCoin, x2: iconX2, gift: iconGift, bolt: iconBolt,
   search: iconSearch, plus: iconPlus, minus: iconMinus,
-  block: iconBlock, back: iconBack,
+  block: iconBlock, back: iconBack, grid: iconGrid,
+  key: iconKey, people: iconPeople, mail: iconMail, telegram: iconTelegram,
 };
 
 /** Расставляет иконки во все элементы с data-ico. */
@@ -156,38 +158,16 @@ function renderPerkBar() {
   bar.querySelectorAll('[data-goto]').forEach((el) => {
     el.addEventListener('click', () => {
       haptic('light');
-      openSheet(el.dataset.goto);
+      openCase(el.dataset.goto);
     });
   });
-}
-
-function renderStats() {
-  const s = state.user.stats;
-  const cards = [
-    { label: 'Сыграно раундов', value: fmt(s.rounds) },
-    { label: 'Лучший множитель', value: s.bestMultiplier ? `${s.bestMultiplier}x` : '—' },
-    { label: 'Поставлено', value: fmt(s.spent) },
-    { label: 'Выиграно', value: fmt(s.won) },
-    {
-      label: 'Итог',
-      value: `${s.profit >= 0 ? '+' : ''}${fmt(s.profit)}`,
-      cls: s.profit > 0 ? 'plus' : s.profit < 0 ? 'minus' : '',
-    },
-  ];
-
-  document.getElementById('statsGrid').innerHTML = cards
-    .map((c) => `<div class="stat-card">
-        <div class="stat-label">${c.label}</div>
-        <div class="stat-value ${c.cls || ''}">${c.value}</div>
-      </div>`).join('');
 }
 
 function applyUser(user) {
   state.user = user;
   renderBalance();
-  renderStats();
   renderCases();
-  document.getElementById('navAdmin').hidden = !user.isAdmin;
+  renderMenu();
 }
 
 /* ============================================================
@@ -353,67 +333,62 @@ function renderCases() {
   root.innerHTML = blocks.join('');
 
   root.querySelectorAll('.case-card, .featured-card').forEach((card) => {
-    card.addEventListener('click', () => openSheet(card.dataset.case));
+    card.addEventListener('click', () => openCase(card.dataset.case));
   });
 }
 
-function openSheet(caseId) {
+/**
+ * Экран кейса.
+ *
+ * Раньше состав показывался шторкой снизу, а лента появлялась только после
+ * нажатия. Теперь это один экран: сверху лента в покое, под ней кнопка
+ * прокрута, а ещё ниже — сетка того, что может выпасть, от дорогого к
+ * дешёвому. Так видно и содержимое, и сам барабан до первого открытия.
+ */
+function openCase(caseId) {
   const c = state.config.cases.find((x) => x.id === caseId);
   if (!c) return;
   haptic('light');
 
+  state.openingCaseId = caseId;
   const freeCount = (state.user.vouchers || []).find((v) => v.case_id === c.id)?.count || 0;
-  const x2 = state.user.x2CaseId === c.id;
   const locked = lockedUntil(c);
 
-  // Витринный предмет показывается отдельной строкой над таблицей и честно
-  // подписан: он крутится в ленте, но в розыгрыше не участвует.
-  const showcaseRow = c.showcase ? `
-    <div class="item-row showcase-row" style="--tier-color:${tierColor(c.showcase.tier)}">
-      <span class="item-ico">${iconTier(c.showcase.tier, tierColor(c.showcase.tier))}</span>
-      <div class="item-info">
-        <div class="item-name">${esc(c.showcase.name)}</div>
-        <div class="item-mult">${esc(c.showcase.note)}</div>
-      </div>
-      <div class="item-right"><div class="item-chance">не разыгрывается</div></div>
+  document.getElementById('openerCaseName').innerHTML =
+    `${esc(c.name)} · <span>${money(c.price)}</span>`;
+  document.getElementById('openerViewers').textContent =
+    `этот кейс крутят ${viewersFor(c.id)} игроков`;
+
+  // Лента в покое: барабан уже собран, но никуда не едет.
+  renderIdleReel(c);
+
+  // Витринный предмет идёт первой карточкой и честно подписан.
+  const showcaseCard = c.showcase ? `
+    <div class="drop-card is-showcase" style="--tier-color:${tierColor(c.showcase.tier)}">
+      <div class="drop-ico">${iconTier(c.showcase.tier, tierColor(c.showcase.tier))}</div>
+      <div class="drop-name">${esc(c.showcase.name)}</div>
+      <div class="drop-note">${esc(c.showcase.note)}</div>
     </div>` : '';
 
-  const rows = c.items
+  const cards = c.items
     .slice()
     .sort((a, b) => (b.evValue ?? b.value) - (a.evValue ?? a.value))
     .map((it) => {
       const color = tierColor(it.tier);
       const isPerk = it.kind === 'perk';
-      return `<div class="item-row" style="--tier-color:${color}">
-        <span class="item-ico">${iconTier(it.tier, color)}</span>
-        <div class="item-info">
-          <div class="item-name">${esc(it.name)}</div>
-          <div class="item-mult">${isPerk ? esc(it.perkLabel) : `${it.multiplier}x от цены`}</div>
-        </div>
-        <div class="item-right">
-          <div class="item-value">${isPerk && !it.value ? '—' : money(it.value)}</div>
-        </div>
+      return `<div class="drop-card" style="--tier-color:${color}">
+        <div class="drop-ico">${iconTier(it.tier, color)}</div>
+        <div class="drop-name">${esc(it.name)}</div>
+        <div class="drop-value">${isPerk && !it.value ? esc(it.perkLabel) : money(it.value)}</div>
       </div>`;
     }).join('');
 
-  document.getElementById('sheetContent').innerHTML = `
-    <div class="sheet-title">${esc(c.name)}</div>
-    <div class="sheet-tagline">${esc(c.tagline)}</div>
-    <div class="sheet-badges">
-      <span class="badge">Цена: <strong>${money(c.price)}</strong></span>
-      <span class="badge">Максимум: <strong>${c.maxMultiplier}x</strong></span>
-      ${x2 ? '<span class="badge">Активен: <strong>×2</strong></span>' : ''}
-      ${locked ? `<span class="badge badge-soon">Старт: <strong>${locked}</strong></span>` : ''}
-    </div>
-    <div class="items-title"><span>Содержимое</span><span>цена</span></div>
-    ${showcaseRow}
-    ${rows}
-    <div class="count-row" id="countRow">
-      ${[1, 2, 3, 4, 5].slice(0, state.config.maxBatch || 5).map((n) =>
-        `<button class="count-btn ${n === 1 ? 'active' : ''}" data-count="${n}">×${n}</button>`).join('')}
-    </div>
-    <button class="btn btn-primary sheet-open-btn" id="doOpenBtn"></button>
-  `;
+  document.getElementById('dropsGrid').innerHTML = showcaseCard + cards;
+  document.getElementById('dropsCount').textContent = `${c.items.length} предметов`;
+
+  document.getElementById('countRow').innerHTML =
+    [1, 2, 3, 4, 5].slice(0, state.config.maxBatch || 5).map((k) =>
+      `<button class="count-btn ${k === 1 ? 'active' : ''}" data-count="${k}">×${k}</button>`).join('');
 
   const openBtn = document.getElementById('doOpenBtn');
   let count = 1;
@@ -443,20 +418,39 @@ function openSheet(caseId) {
     });
   });
 
-  document.getElementById('sheetBackdrop').hidden = false;
-  openBtn.addEventListener('click', () => {
-    closeSheet();
-    startOpening(c.id, count);
+  openBtn.onclick = () => startOpening(c.id, count);
+
+  document.getElementById('result').hidden = true;
+  document.getElementById('gamble').hidden = true;
+  document.getElementById('gambleStartBtn').hidden = true;
+  document.getElementById('batchSummary').hidden = true;
+  document.getElementById('freespins').hidden = true;
+  document.getElementById('casePanel').hidden = false;
+
+  document.getElementById('opener').hidden = false;
+  document.querySelector('.opener-scroll').scrollTop = 0;
+  updateOpenerBalance();
+  loadCaseHistory(c.name);
+}
+
+/** Лента до первого прокрута: стоит на месте, показывает содержимое кейса. */
+function renderIdleReel(c) {
+  const reels = document.getElementById('reels');
+  reels.innerHTML = reelWrapHtml();
+  const reel = reels.querySelector('.reel');
+
+  const strip = [];
+  for (let i = 0; i < 24; i++) strip.push(weightedSample(c.items));
+  reel.innerHTML = strip.map(tileHtml).join('');
+
+  reel.style.transition = 'none';
+  requestAnimationFrame(() => {
+    const viewport = reel.parentElement.clientWidth;
+    const { tileW, step } = measureReel(reel);
+    // Ставим ленту так, чтобы под маркером оказалась целая плитка, а не стык.
+    reel.style.transform = `translateX(${-(6 * step + tileW / 2 - viewport / 2)}px)`;
   });
 }
-
-function closeSheet() {
-  document.getElementById('sheetBackdrop').hidden = true;
-}
-
-document.getElementById('sheetBackdrop').addEventListener('click', (e) => {
-  if (e.target.id === 'sheetBackdrop') closeSheet();
-});
 
 const STRIP_LENGTH = 62;
 const WINNER_INDEX = 54;
@@ -587,6 +581,7 @@ async function startOpening(caseId, count = 1) {
   document.getElementById('gambleStartBtn').hidden = true;
   document.getElementById('batchSummary').hidden = true;
   document.getElementById('freespins').hidden = true;
+  document.getElementById('casePanel').hidden = true;
   opener.hidden = false;
   document.querySelector('.opener-scroll').scrollTop = 0;
   updateOpenerBalance();
@@ -1774,12 +1769,78 @@ document.getElementById('adminSearchBtn').addEventListener('click', () => {
    ============================================================ */
 
 function switchView(name) {
-  document.querySelectorAll('.nav-btn').forEach((b) =>
-    b.classList.toggle('active', b.dataset.view === name));
   document.querySelectorAll('.view').forEach((v) => v.classList.remove('active'));
   document.getElementById(`view-${name}`).classList.add('active');
   window.scrollTo({ top: 0 });
+
+  if (name === 'fair') renderFair();
+  if (name === 'wallet') loadWallet();
+  if (name === 'roulette') renderRouletteReel(2);
+  if (name === 'admin') loadAdminOverview();
 }
+
+/* ============================================================
+   МЕНЮ
+   ============================================================ */
+
+/**
+ * Разделы меню.
+ *
+ * Нижней панели больше нет: на неё уходила полоса экрана, а разделов стало
+ * больше, чем в неё помещается. Вместо этого — кнопка-сетка в шапке и
+ * плитки во весь экран.
+ */
+const MENU_ITEMS = [
+  { view: 'cases', ico: 'cases', title: 'Кейсы', sub: 'Открыть и крутить' },
+  { view: 'crash', ico: 'crash', title: 'Краш', sub: 'Успеть забрать' },
+  { view: 'roulette', ico: 'roulette', title: 'Рулетка', sub: 'Красное и чёрное' },
+  { view: 'wallet', ico: 'coin', title: 'Касса', sub: 'Пополнить и вывести' },
+  { view: 'fair', ico: 'fair', title: 'Честность', sub: 'Проверить раунд' },
+  { view: 'admin', ico: 'admin', title: 'Админ', sub: 'Панель управления', adminOnly: true },
+];
+
+function renderMenu() {
+  const grid = document.getElementById('menuGrid');
+  if (!grid) return;
+
+  grid.innerHTML = MENU_ITEMS
+    .filter((m) => !m.adminOnly || state.user?.isAdmin)
+    .map((m) => `<button class="menu-tile" data-view="${m.view}">
+      <span class="menu-tile-ico" data-ico="${m.ico}"></span>
+      <span class="menu-tile-title">${m.title}</span>
+      <span class="menu-tile-sub">${m.sub}</span>
+    </button>`).join('');
+
+  mountIcons(grid);
+
+  grid.querySelectorAll('.menu-tile').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      if (state.crash && !state.crash.finished && btn.dataset.view !== 'crash') {
+        toast('Сначала закончите раунд краша');
+        return;
+      }
+      closeMenu();
+      switchView(btn.dataset.view);
+      haptic('light');
+    });
+  });
+}
+
+function openMenu() {
+  renderMenu();
+  document.getElementById('menuBackdrop').hidden = false;
+  haptic('light');
+}
+
+function closeMenu() {
+  document.getElementById('menuBackdrop').hidden = true;
+}
+
+document.getElementById('menuBtn').addEventListener('click', openMenu);
+document.getElementById('menuClose').addEventListener('click', closeMenu);
+document.getElementById('menuBackdrop').addEventListener('click', (e) => {
+  if (e.target.id === 'menuBackdrop') closeMenu();
+});
 
 document.getElementById('balanceChip').addEventListener('click', () => {
   if (state.crash && !state.crash.finished) {
@@ -1788,7 +1849,6 @@ document.getElementById('balanceChip').addEventListener('click', () => {
   }
   haptic('light');
   switchView('wallet');
-  loadWallet();
 });
 
 const STATUS_LABEL = {
@@ -1909,10 +1969,12 @@ function buildFooter() {
   const footer = document.getElementById('siteFooter');
   footer.innerHTML = footerHtml();
 
+  mountIcons(footer);
+  startFooterCounters();
+
   footer.querySelectorAll('[data-view]').forEach((btn) => {
     btn.addEventListener('click', () => {
       switchView(btn.dataset.view);
-      renderFair();
       haptic('light');
     });
   });
@@ -1943,27 +2005,6 @@ document.getElementById('docBackdrop').addEventListener('click', (e) => {
 /* ============================================================
    НАВИГАЦИЯ И СТАРТ
    ============================================================ */
-
-document.querySelectorAll('.nav-btn').forEach((btn) => {
-  btn.addEventListener('click', () => {
-    if (state.crash && !state.crash.finished && btn.dataset.view !== 'crash') {
-      toast('Сначала закончите раунд краша');
-      return;
-    }
-
-    document.querySelectorAll('.nav-btn').forEach((b) => b.classList.remove('active'));
-    document.querySelectorAll('.view').forEach((v) => v.classList.remove('active'));
-    btn.classList.add('active');
-    document.getElementById(`view-${btn.dataset.view}`).classList.add('active');
-    window.scrollTo({ top: 0 });
-    haptic('light');
-
-    if (btn.dataset.view === 'fair') renderFair();
-    if (btn.dataset.view === 'wallet') loadWallet();
-    if (btn.dataset.view === 'roulette') renderRouletteReel(2);
-    if (btn.dataset.view === 'admin') loadAdminOverview();
-  });
-});
 
 async function init() {
   try {
@@ -2001,3 +2042,46 @@ async function init() {
 }
 
 init();
+
+
+/* ============================================================
+   СЧЁТЧИКИ В ПОДВАЛЕ
+   ============================================================ */
+
+/**
+ * Витринные счётчики: открытых кейсов и игроков.
+ *
+ * Числа не приходят с сервера и ничего не измеряют — это оформление, как и
+ * счётчик зрителей на экране кейса. Кейсы прибавляются каждую секунду,
+ * игроки — примерно раз в десять минут, иначе рост выглядел бы неправдоподобно.
+ *
+ * Стартовая точка сдвигается по реальному времени, поэтому у зашедшего завтра
+ * счётчик не откатится к исходному значению.
+ */
+function startFooterCounters() {
+  // Константы объявлены внутри намеренно: функция вызывается при отрисовке
+  // подвала, а это происходит раньше, чем выполнится конец файла, — вынесенные
+  // наружу const попали бы в мёртвую зону и уронили бы страницу.
+  const ORIGIN = Date.parse('2026-08-17T00:00:00Z');
+  const BASE = { cases: 1_567_266, players: 45_678 };
+
+  const casesEl = document.getElementById('statCases');
+  const playersEl = document.getElementById('statPlayers');
+  if (!casesEl || !playersEl) return;
+
+  const elapsed = Math.max(0, Date.now() - ORIGIN) / 1000;
+  let cases = BASE.cases + Math.floor(elapsed * 1.5);
+  let players = BASE.players + Math.floor(elapsed / 600);
+
+  const paint = () => {
+    casesEl.textContent = fmt(cases);
+    playersEl.textContent = fmt(players);
+  };
+  paint();
+
+  if (state.counterTimers) state.counterTimers.forEach(clearInterval);
+  state.counterTimers = [
+    setInterval(() => { cases += 1 + Math.floor(Math.random() * 2); paint(); }, 1000),
+    setInterval(() => { players += 1 + Math.floor(Math.random() * 2); paint(); }, 600_000),
+  ];
+}

@@ -12,6 +12,8 @@
 export const COMPANY = {
   brand: 'LUCKYBOX',
   email: 'support-luckybox@gmail.com',
+  // ЗАПОЛНИТЬ: адрес канала. Пока ведёт на заглушку — см. NEDOSTATOK.md.
+  telegram: 'https://t.me/',
   entities: [
     {
       name: 'LUCKYBOX INTERACTIVE N.V.',
@@ -289,27 +291,57 @@ const CONTACTS = [
 export const DOCS = {
   terms: { title: 'Пользовательское соглашение', body: TERMS },
   privacy: { title: 'Политика конфиденциальности', body: PRIVACY },
-  faq: { title: 'Частые вопросы', body: FAQ },
+  faq: { title: 'FAQ', body: FAQ },
   contacts: { title: 'Контакты', body: CONTACTS },
 };
 
-/** Разметка подвала. */
+/**
+ * Разметка подвала.
+ *
+ * Ссылки набраны обычным тонким текстом, а не плитками: это служебная часть
+ * страницы, и неоновые блоки перетягивали на себя внимание с самой игры.
+ * Реквизиты идут строкой во всю ширину, а не узким столбиком.
+ */
 export function footerHtml() {
+  const links = [
+    '<button class="footer-link" data-view="fair">Честность игры</button>',
+    ...Object.entries(DOCS).map(([key, d]) =>
+      `<button class="footer-link" data-doc="${key}">${d.title}</button>`),
+  ].join('<span class="footer-dot">·</span>');
+
   return `
-    <div class="footer-links">
-      <button class="footer-link" data-view="fair">Честность игры</button>
-      ${Object.entries(DOCS).map(([key, d]) =>
-        `<button class="footer-link" data-doc="${key}">${d.title}</button>`).join('')}
+    <div class="footer-links">${links}</div>
+
+    <div class="footer-counters">
+      <div class="footer-counter">
+        <span class="footer-counter-ico" data-ico="key"></span>
+        <span class="footer-counter-value" id="statCases">—</span>
+        <span class="footer-counter-label">Открыто кейсов</span>
+      </div>
+      <div class="footer-counter">
+        <span class="footer-counter-ico" data-ico="people"></span>
+        <span class="footer-counter-value" id="statPlayers">—</span>
+        <span class="footer-counter-label">Игроков</span>
+      </div>
+    </div>
+
+    <div class="footer-tg-row">
+      <a class="footer-tg" id="footerTelegram" href="${COMPANY.telegram}" target="_blank"
+         rel="noopener noreferrer">
+        <span class="footer-tg-ico" data-ico="telegram"></span>
+        <span>Наш канал в Telegram</span>
+      </a>
     </div>
 
     <div class="footer-age">18+</div>
 
     <div class="footer-entities">
       ${COMPANY.entities.map((e) =>
-        `<div class="footer-entity"><b>${e.name}</b>${
-          e.lines.map((l) => `<span>${l}</span>`).join('')}</div>`).join('')}
+        `<p class="footer-entity"><b>${e.name}</b> — ${e.lines.join(', ')}</p>`).join('')}
     </div>
 
-    <a class="footer-mail" href="mailto:${COMPANY.email}">${COMPANY.email}</a>
+    <a class="footer-mail" href="mailto:${COMPANY.email}">
+      <span class="footer-mail-ico" data-ico="mail"></span>${COMPANY.email}
+    </a>
   `;
 }

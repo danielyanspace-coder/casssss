@@ -22,11 +22,25 @@
         <div class="brand-sub">симулятор</div>
       </div>
     </div>
-    <button class="balance-chip" id="balanceChip">
-      <span class="balance-ico" data-ico="coin"></span>
-      <span class="balance-value" id="balanceValue">—</span>
-    </button>
+    <div class="top-right">
+      <button class="balance-chip" id="balanceChip">
+        <span class="balance-ico" data-ico="coin"></span>
+        <span class="balance-value" id="balanceValue">—</span>
+      </button>
+      <button class="menu-btn" id="menuBtn" aria-label="Меню" data-ico="grid"></button>
+    </div>
   </header>
+
+  <!-- Меню-сетка вместо нижней панели -->
+  <div class="menu-backdrop" id="menuBackdrop" hidden>
+    <div class="menu-sheet">
+      <div class="menu-head">
+        <div class="menu-title">Меню</div>
+        <button class="opener-close" id="menuClose" data-ico="back"></button>
+      </div>
+      <div class="menu-grid" id="menuGrid"></div>
+    </div>
+  </div>
 
   <main id="app">
 
@@ -135,9 +149,6 @@
 
     <!-- ══════════ ЧЕСТНОСТЬ ══════════ -->
     <section class="view" id="view-fair">
-      <h2 class="section-title">Ваша статистика</h2>
-      <div class="stats-grid" id="statsGrid"></div>
-
       <h2 class="section-title">Provably fair</h2>
       <p class="fair-intro">
         Результат каждого раунда считается заранее заданной формулой, а не
@@ -267,22 +278,6 @@
     </div>
   </div>
 
-  <nav class="bottom-nav">
-    <button class="nav-btn active" data-view="cases"><span class="nav-ico" data-ico="cases"></span><span>Кейсы</span></button>
-    <button class="nav-btn" data-view="crash"><span class="nav-ico" data-ico="crash"></span><span>Краш</span></button>
-    <button class="nav-btn" data-view="roulette"><span class="nav-ico" data-ico="roulette"></span><span>Рулетка</span></button>
-    <button class="nav-btn" data-view="wallet"><span class="nav-ico" data-ico="coin"></span><span>Касса</span></button>
-    <button class="nav-btn nav-admin" data-view="admin" id="navAdmin" hidden><span class="nav-ico" data-ico="admin"></span><span>Админ</span></button>
-  </nav>
-
-  <!-- Шторка кейса -->
-  <div class="sheet-backdrop" id="sheetBackdrop" hidden>
-    <div class="sheet" id="caseSheet">
-      <div class="sheet-handle"></div>
-      <div id="sheetContent"></div>
-    </div>
-  </div>
-
   <!-- Экран открытия кейса -->
   <div class="opener" id="opener" hidden>
     <div class="opener-scroll">
@@ -304,6 +299,16 @@
         <div class="reels" id="reels"></div>
 
         <div class="batch-summary" id="batchSummary" hidden></div>
+
+        <div class="case-panel" id="casePanel">
+          <div class="count-row" id="countRow"></div>
+          <button class="btn btn-primary sheet-open-btn" id="doOpenBtn"></button>
+          <div class="drops-head">
+            <span>Содержимое</span>
+            <span id="dropsCount"></span>
+          </div>
+          <div class="drops-grid" id="dropsGrid"></div>
+        </div>
 
         <div class="freespins" id="freespins" hidden>
           <div class="fs-head">

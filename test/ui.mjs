@@ -72,9 +72,27 @@ check('полки: в каждой есть кейсы', shelves.every((s) => s.
 
 /* ---------- Меню ---------- */
 
+/** Переход в раздел через меню-сетку: нижней панели больше нет. */
+async function goto(view) {
+  await page.click('#menuBtn');
+  await page.waitForSelector(`.menu-tile[data-view="${view}"]`, { state: 'visible' });
+  await page.click(`.menu-tile[data-view="${view}"]`);
+  await page.waitForTimeout(400);
+}
+
+await page.click('#menuBtn');
+await page.waitForSelector('.menu-tile', { state: 'visible' });
 const nav = await page.evaluate(() =>
-  [...document.querySelectorAll('.nav-btn')].filter((b) => !b.hidden).map((b) => b.textContent.trim()));
+  [...document.querySelectorAll('.menu-tile')].map((b) => b.querySelector('.menu-tile-title').textContent.trim()));
+await page.click('#menuClose');
+await page.waitForTimeout(300);
+
+check('меню: нижняя панель убрана',
+      await page.evaluate(() => document.querySelectorAll('.bottom-nav, .nav-btn').length === 0));
 check('меню: «История» убрана', !nav.some((n) => n.includes('История')), nav.join(', '));
+check('меню: разделы на месте',
+      ['Кейсы', 'Краш', 'Рулетка', 'Касса', 'Честность'].every((t) => nav.includes(t)),
+      nav.join(', '));
 
 /**
  * Определяет, какая плитка стоит под маркером, и сверяет с результатом.
@@ -162,7 +180,7 @@ check('лента: маркер не встаёт на границу плито
 /* ---------- Рулетка ---------- */
 
 await ensureOpenerClosed();
-await page.click('.nav-btn[data-view="roulette"]');
+await goto('roulette');
 await page.waitForSelector('#rouletteSpinBtn', { state: 'visible' });
 
 let roulMismatch = 0;
@@ -197,7 +215,7 @@ check('рулетка: сектор под маркером совпадает �
 
 /* ---------- Риск-игра ---------- */
 
-await page.click('.nav-btn[data-view="cases"]');
+await goto('cases');
 await page.waitForTimeout(400);
 
 let gambleTested = false;
@@ -247,7 +265,7 @@ check('риск: сценарий проигран', gambleTested);
 /* ---------- Сезонный кейс ---------- */
 
 await ensureOpenerClosed();
-await page.click('.nav-btn[data-view="cases"]');
+await goto('cases');
 await page.waitForSelector('.case-card', { timeout: 10000 });
 
 const seasonal = await page.evaluate(async () => {
@@ -299,14 +317,17 @@ if (check('сезонный кейс есть в конфиге', seasonal !== n
 
   const sheet = await page.evaluate(() => ({
     disabled: document.getElementById('doOpenBtn').disabled,
-    showcase: document.querySelectorAll('.showcase-row').length,
+    showcase: document.querySelectorAll('.drop-card.is-showcase').length,
     // Витринный предмет не должен встречаться в таблице розыгрыша.
-    inTable: [...document.querySelectorAll('.item-row:not(.showcase-row) .item-name')]
+    inTable: [...document.querySelectorAll('.drop-card:not(.is-showcase) .drop-name')]
       .map((n) => n.textContent.trim()),
-    showcaseName: document.querySelector('.showcase-row .item-name')?.textContent.trim() || '',
-    // Числовые шансы и RTP из карточки кейса убраны.
-    chances: document.querySelectorAll('.item-row:not(.showcase-row) .item-chance').length,
-    badges: [...document.querySelectorAll('.sheet-badges .badge')].map((b) => b.textContent),
+    showcaseName: document.querySelector('.drop-card.is-showcase .drop-name')?.textContent.trim() || '',
+    // Числовых шансов в составе быть не должно.
+    chances: document.querySelectorAll('.item-chance').length,
+    badges: [...document.querySelectorAll('.drop-card')].map((b) => b.textContent),
+    // Состав отсортирован от дорогого к дешёвому.
+    values: [...document.querySelectorAll('.drop-card:not(.is-showcase) .drop-value')]
+      .map((v) => Number(v.textContent.replace(/[^\d]/g, ''))).filter((x) => x > 0),
   }));
 
   check('сезонный: кнопка открытия заблокирована до старта',
@@ -314,8 +335,13 @@ if (check('сезонный кейс есть в конфиге', seasonal !== n
   check('карточка кейса: шансы предметов не показаны', sheet.chances === 0,
         `найдено ${sheet.chances}`);
   check('карточка кейса: RTP не показан',
-        !sheet.badges.some((b) => /RTP/i.test(b)), sheet.badges.join(' | '));
-  check('сезонный: витринная строка показана', sheet.showcase === 1);
+        !sheet.badges.some((b) => /RTP/i.test(b)));
+  // Состав идёт от дорогого к дешёвому.
+  const sorted = [...sheet.values].sort((a, b) => b - a);
+  check('состав отсортирован по убыванию цены',
+        JSON.stringify(sheet.values) === JSON.stringify(sorted),
+        sheet.values.join(', '));
+  check('сезонный: витринная карточка показана', sheet.showcase === 1);
   check('сезонный: витрина вне таблицы розыгрыша',
         !sheet.inTable.includes(sheet.showcaseName), sheet.showcaseName);
 
@@ -327,20 +353,14 @@ if (check('сезонный кейс есть в конфиге', seasonal !== n
 /* ---------- Экраны ---------- */
 
 await ensureOpenerClosed();
-await page.click('.nav-btn[data-view="crash"]');
+await goto('crash');
 await page.waitForTimeout(400);
 check('краш: экран открывается',
       await page.isVisible('#crashActionBtn'));
 
 /* ---------- Касса и честность ---------- */
 
-const menu = await page.evaluate(() =>
-  [...document.querySelectorAll('.nav-btn')].filter((b) => !b.hidden)
-    .map((b) => b.textContent.trim()));
-check('меню: «Честность» убрана', !menu.some((m) => /Честность/.test(m)), menu.join(', '));
-check('меню: появилась «Касса»', menu.some((m) => /Касса/.test(m)), menu.join(', '));
-
-await page.click('.nav-btn[data-view="wallet"]');
+await goto('wallet');
 await page.waitForTimeout(500);
 check('касса: экран открывается по кнопке меню',
       await page.isVisible('#walletBalance'));
@@ -354,12 +374,12 @@ await page.evaluate(() => {
 await page.waitForTimeout(500);
 const fair = await page.evaluate(() => ({
   hash: document.getElementById('serverHash').textContent.trim().length,
-  stats: document.querySelectorAll('#statsGrid .stat-card').length,
+  stats: document.querySelectorAll('#statsGrid').length,
   visible: document.getElementById('view-fair').classList.contains('active'),
 }));
 check('честность: открывается ссылкой из подвала', fair.visible);
 check('честность: хеш серверного seed показан', fair.hash === 64, `длина ${fair.hash}`);
-check('честность: статистика на месте', fair.stats > 0, `карточек ${fair.stats}`);
+check('честность: личная статистика убрана', fair.stats === 0, `блоков ${fair.stats}`);
 
 /* ---------- Итог ---------- */
 
