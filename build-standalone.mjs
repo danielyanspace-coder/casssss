@@ -306,6 +306,9 @@ function freshUser() {
     stats: { rounds: 0, spent: 0, won: 0, bestMultiplier: 0 },
     rounds: [],
     lastBonusAt: 0,
+    // Промокоды и партнёрка: то же, что в базе рабочей версии.
+    wagerRequired: 0, bonusGranted: 0, depositsCount: 0,
+    partnerId: null, redemptions: [], pendingDeposit: null,
   };
 }
 
@@ -344,7 +347,8 @@ function load() {
       if (parsed && parsed.user) return parsed;
     }
   } catch { /* повреждённое хранилище просто игнорируем */ }
-  return { user: freshUser(), players: demoPlayers(), adminLog: [], showAdmin: false };
+  return { user: freshUser(), players: demoPlayers(), adminLog: [], showAdmin: false,
+           promos: [], partners: [], partnerPayouts: [], seq: 1 };
 }
 
 function save() {
@@ -365,6 +369,9 @@ function publicUser() {
     gambleStake: u.gambleStake || 0,
     vouchers: Object.entries(u.vouchers).filter(([, n]) => n > 0)
       .map(([case_id, count]) => ({ case_id, count })),
+    wagerRequired: u.wagerRequired || 0,
+    // В демо партнёр - это сам игрок, если его завели в админке под id 1.
+    isPartner: (store.partners || []).some((p) => p.tg_id === '1'),
     stats: {
       rounds: u.stats.rounds, spent: u.stats.spent, won: u.stats.won,
       bestMultiplier: Number(u.stats.bestMultiplier.toFixed(2)),
@@ -394,6 +401,84 @@ function pushRound(round) {
 let crashRound = null;
 
 
+/**
+ * Серия фриспинов. Крутит ту же полную таблицу и может сама себя продлить.
+ * Общая часть для выпавших фриспинов и для купленной пачки.
+ */
+function runFreeSpinSeries(table, startCount) {
+  const u = store.user;
+  const spins = [];
+  let remaining = startCount;
+  let count = startCount;
+  let seriesX2 = false;
+  let total = 0;
+
+  while (remaining > 0 && spins.length < 300) {
+    remaining--;
+    u.nonce++;
+    const fRoll = computeRoll(u.serverSeed, u.clientSeed, u.nonce);
+    const fItem = pickItem(table, fRoll);
+
+    const doubled = seriesX2 && fItem.value > 0;
+    const value = fItem.value * (doubled ? 2 : 1);
+    seriesX2 = false;
+
+    let added = 0;
+    if (fItem.perk) {
+      if (fItem.perk.type === 'freespins') {
+        added = fItem.perk.count; remaining += added; count += added;
+      }
+      if (fItem.perk.type === 'x2') seriesX2 = true;
+      if (fItem.perk.type === 'voucher') {
+        u.vouchers[fItem.perk.caseId] = (u.vouchers[fItem.perk.caseId] || 0) + 1;
+      }
+    }
+
+    total += value;
+    spins.push({ name: fItem.name, value, tier: fItem.tier, kind: fItem.kind,
+      perkType: fItem.perk?.type || null, added, x2: doubled,
+      roll: fRoll, nonce: u.nonce });
+  }
+
+  return { spins, total, count, seriesX2 };
+}
+
+/**
+ * Статистика партнёра. Считается так же, как на сервере: чистая прибыль это
+ * ставки минус выигрыши минус выданные бонусы, минус переносится.
+ *
+ * В демо реферал ровно один - сам игрок, если он ввёл промокод партнёра.
+ */
+function partnerStats(partnerId) {
+  const partner = (store.partners || []).find((p) => p.id === partnerId);
+  if (!partner) return null;
+
+  const u = store.user;
+  const mine = u.partnerId === partnerId;
+  const wagered = mine ? u.stats.spent : 0;
+  const paid = mine ? u.stats.won : 0;
+  const bonuses = mine ? (u.bonusGranted || 0) : 0;
+  const profit = wagered - paid - bonuses;
+  const accrued = profit > 0 ? Math.floor((profit * partner.share_pct) / 100) : 0;
+  const paidOut = (store.partnerPayouts || [])
+    .filter((x) => x.partner_id === partnerId)
+    .reduce((sum, x) => sum + x.amount, 0);
+
+  return {
+    partner,
+    referrals: mine ? 1 : 0,
+    active: mine && u.stats.rounds > 0 ? 1 : 0,
+    wagered, paid, bonuses, profit, accrued, paidOut,
+    pending: accrued - paidOut,
+  };
+}
+
+/** Гасит долг по обороту сделанной ставкой - как consumeWager на сервере. */
+function consumeWager(bet) {
+  const u = store.user;
+  if (bet > 0) u.wagerRequired = Math.max(0, (u.wagerRequired || 0) - Math.round(bet));
+}
+
 /** Одно открытие кейса. Общая часть для одиночного открытия и пачки. */
 function openOnce(table) {
     const u = store.user;
@@ -416,42 +501,11 @@ function openOnce(table) {
       }
       if (item.perk.type === 'x2') granted.push({ type: 'x2', caseId: table.id });
       if (item.perk.type === 'freespins') {
-        // Серия крутит ту же полную таблицу и может сама себя продлить.
-        const spins = [];
-        let remaining = item.perk.count;
-        let granted2 = item.perk.count;
-        let seriesX2 = false;
-
-        while (remaining > 0 && spins.length < 300) {
-          remaining--;
-          u.nonce++;
-          const fRoll = computeRoll(u.serverSeed, u.clientSeed, u.nonce);
-          const fItem = pickItem(table, fRoll);
-
-          const doubled = seriesX2 && fItem.value > 0;
-          const value = fItem.value * (doubled ? 2 : 1);
-          seriesX2 = false;
-
-          let added = 0;
-          if (fItem.perk) {
-            if (fItem.perk.type === 'freespins') {
-              added = fItem.perk.count; remaining += added; granted2 += added;
-            }
-            if (fItem.perk.type === 'x2') seriesX2 = true;
-            if (fItem.perk.type === 'voucher') {
-              u.vouchers[fItem.perk.caseId] = (u.vouchers[fItem.perk.caseId] || 0) + 1;
-            }
-          }
-
-          freeSpinsPayout += value;
-          spins.push({ name: fItem.name, value, tier: fItem.tier, kind: fItem.kind,
-            perkType: fItem.perk?.type || null, added, x2: doubled,
-            roll: fRoll, nonce: u.nonce });
-        }
-
-        if (seriesX2) granted.push({ type: 'x2', caseId: table.id });
+        const series = runFreeSpinSeries(table, item.perk.count);
+        freeSpinsPayout = series.total;
+        if (series.seriesX2) granted.push({ type: 'x2', caseId: table.id });
         granted.push({ type: 'freespins', caseId: table.id,
-          count: granted2, spins, total: freeSpinsPayout });
+          count: series.count, spins: series.spins, total: series.total });
       }
     }
 
@@ -481,6 +535,7 @@ function openOnce(table) {
       bet: spent, payout: totalPayout, multiplier: free ? 0 : totalPayout / table.price,
       tier: item.tier, free: free ? 1 : 0,
     });
+    consumeWager(spent);
     return {
       item: { id: item.id, name: item.name, kind: item.kind, value: payout,
               tier: item.tier, perkLabel: item.perkLabel,
@@ -530,6 +585,227 @@ const routes = {
       user: publicUser(),
     };
   },
+  'POST /api/freespins/buy': (body) => {
+    const table = DRAW_BY_ID.get(body.caseId);
+    if (!table) return { status: 404, body: { error: 'Кейс не найден' } };
+
+    const pack = (CONFIG.freeSpinPacks || []).find((p) => p.count === Number(body.count));
+    if (!pack) return { status: 400, body: { error: 'Такой пачки нет' } };
+
+    const cost = Math.round(table.price * pack.count * (1 - pack.discount));
+    const u = store.user;
+    if (u.balance < cost) {
+      return { status: 400, body: { error: 'INSUFFICIENT_FUNDS',
+        message: 'Не хватает ' + (cost - u.balance) + ' ед.' } };
+    }
+
+    const series = runFreeSpinSeries(table, pack.count);
+    u.balance += series.total - cost;
+    u.stats.rounds++;
+    u.stats.spent += cost;
+    u.stats.won += series.total;
+    u.stats.bestMultiplier = Math.max(u.stats.bestMultiplier, series.total / cost);
+    if (series.seriesX2) u.x2CaseId = table.id;
+
+    pushRound({ game: 'case', title: table.name, subtitle: pack.count + ' фриспинов',
+      bet: cost, payout: series.total, multiplier: series.total / cost,
+      tier: 'unique', free: 0 });
+    consumeWager(cost);
+    save();
+
+    return {
+      grant: { type: 'freespins', caseId: table.id, count: series.count,
+               spins: series.spins, total: series.total },
+      cost, balance: u.balance, user: publicUser(),
+    };
+  },
+
+  /* ---------- Промокоды ---------- */
+
+  'POST /api/promo/redeem': (body) => {
+    const u = store.user;
+    const code = String(body.code || '').trim().toUpperCase().replace(/\\s+/g, '');
+    const bad = (m) => ({ status: 400, body: { error: m } });
+
+    if (!code) return bad('Введите промокод');
+    const promo = (store.promos || []).find((p) => p.code === code);
+    if (!promo || !promo.is_active) return bad('Промокод не найден');
+
+    const now = Date.now();
+    if (promo.starts_at && now < promo.starts_at) return bad('Промокод ещё не начал действовать');
+    if (promo.expires_at && now > promo.expires_at) return bad('Срок действия промокода истёк');
+    if (promo.max_uses > 0 && promo.used_count >= promo.max_uses) {
+      return bad('Промокод уже использован максимальное число раз');
+    }
+
+    const mine = (u.redemptions || []).filter((r) => r.promo_id === promo.id).length;
+    if (promo.per_user_limit > 0 && mine >= promo.per_user_limit) {
+      return bad('Вы уже активировали этот промокод');
+    }
+    if (promo.new_players_only && u.depositsCount > 0) {
+      return bad('Промокод только для игроков без пополнений');
+    }
+
+    let granted = 0;
+    let result;
+
+    if (promo.type === 'balance') {
+      granted = promo.amount;
+      u.balance += granted;
+      u.bonusGranted += granted;
+      u.wagerRequired = (u.wagerRequired || 0) + Math.round(granted * promo.wager_multiplier);
+      result = { type: 'balance', amount: granted };
+    } else if (promo.type === 'free_case') {
+      const target = DRAW_BY_ID.get(promo.case_id);
+      if (!target) return bad('Промокод настроен неверно');
+      const count = Math.max(1, promo.case_count);
+      u.vouchers[promo.case_id] = (u.vouchers[promo.case_id] || 0) + count;
+      granted = Math.round(target.price * 0.7 * count);
+      u.bonusGranted += granted;
+      u.wagerRequired = (u.wagerRequired || 0) + Math.round(granted * promo.wager_multiplier);
+      result = { type: 'free_case', caseId: promo.case_id, caseName: target.name, count };
+    } else {
+      u.pendingDeposit = { pct: promo.pct, max_bonus: promo.max_bonus,
+        min_deposit: promo.min_deposit, wager_multiplier: promo.wager_multiplier };
+      result = { type: 'deposit_pct', pct: promo.pct, maxBonus: promo.max_bonus,
+        minDeposit: promo.min_deposit };
+    }
+
+    if (promo.partner_id && !u.partnerId) u.partnerId = promo.partner_id;
+
+    promo.used_count++;
+    u.redemptions = u.redemptions || [];
+    u.redemptions.unshift({ promo_id: promo.id, code: promo.code, type: promo.type,
+      granted, created_at: now });
+    save();
+
+    return { result: { ...result, wagerRequired: u.wagerRequired, balance: u.balance },
+             user: publicUser() };
+  },
+
+  'POST /api/promo/state': () => ({
+    pendingDeposit: store.user.pendingDeposit || null,
+    history: store.user.redemptions || [],
+    wagerRequired: store.user.wagerRequired || 0,
+  }),
+
+  /* ---------- Партнёру ---------- */
+
+  'POST /api/partner/stats': () => {
+    const partner = (store.partners || []).find((p) => p.tg_id === '1');
+    if (!partner) return { status: 403, body: { error: 'Вы не партнёр' } };
+    const s = partnerStats(partner.id);
+    return {
+      ...s,
+      referrals: store.user.partnerId === partner.id ? [{
+        id: store.user.id, username: store.user.username, first_name: store.user.firstName,
+        created_at: Date.now(), total_rounds: store.user.stats.rounds,
+        total_spent: store.user.stats.spent, total_won: store.user.stats.won,
+        bonus_granted: store.user.bonusGranted,
+      }] : [],
+      referralCount: s.referrals,
+      payouts: (store.partnerPayouts || []).filter((x) => x.partner_id === partner.id),
+      promos: (store.promos || []).filter((p) => p.partner_id === partner.id)
+        .map((p) => ({ code: p.code, type: p.type, used: p.used_count })),
+    };
+  },
+
+  /* ---------- Админка: промокоды ---------- */
+
+  'POST /api/admin/promos': () => ({
+    rows: (store.promos || []).map((p) => {
+      const partner = (store.partners || []).find((x) => x.id === p.partner_id);
+      return { ...p, partner_name: partner?.name, partner_tg: partner?.tg_id };
+    }),
+    cases: DRAW.map((c) => ({ id: c.id, name: c.name, price: c.price })),
+  }),
+
+  'POST /api/admin/promo/save': (body) => {
+    const code = String(body.code || '').trim().toUpperCase().replace(/\\s+/g, '');
+    if (!code) return { status: 400, body: { error: 'Укажите код' } };
+
+    const row = {
+      code, type: body.type,
+      amount: Math.max(0, Math.trunc(Number(body.amount) || 0)),
+      pct: Math.max(0, Math.trunc(Number(body.pct) || 0)),
+      max_bonus: Math.max(0, Math.trunc(Number(body.max_bonus) || 0)),
+      min_deposit: Math.max(0, Math.trunc(Number(body.min_deposit) || 0)),
+      case_id: body.case_id || null,
+      case_count: Math.max(1, Math.trunc(Number(body.case_count) || 1)),
+      wager_multiplier: Math.max(0, Number(body.wager_multiplier) || 0),
+      max_uses: Math.max(0, Math.trunc(Number(body.max_uses) || 0)),
+      per_user_limit: Math.max(0, Math.trunc(Number(body.per_user_limit) || 1)),
+      new_players_only: body.new_players_only ? 1 : 0,
+      starts_at: body.starts_at || null,
+      expires_at: body.expires_at || null,
+      partner_id: body.partner_id ? Number(body.partner_id) : null,
+      is_active: 1,
+      note: body.note || null,
+    };
+
+    store.promos = store.promos || [];
+    const existing = store.promos.find((p) => p.code === code);
+    if (existing) {
+      Object.assign(existing, row);
+      save();
+      return { id: existing.id, code, created: false };
+    }
+    const id = store.seq++;
+    store.promos.unshift({ id, used_count: 0, created_at: Date.now(), ...row });
+    save();
+    return { id, code, created: true };
+  },
+
+  'POST /api/admin/promo/delete': (body) => {
+    const promo = (store.promos || []).find((p) => p.id === Number(body.id));
+    if (!promo) return { status: 404, body: { error: 'Промокод не найден' } };
+    if (promo.used_count > 0) promo.is_active = 0;
+    else store.promos = store.promos.filter((p) => p.id !== promo.id);
+    save();
+    return { disabled: promo.used_count > 0 };
+  },
+
+  /* ---------- Админка: партнёры ---------- */
+
+  'POST /api/admin/partners': () => ({
+    rows: (store.partners || []).map((p) => partnerStats(p.id)),
+  }),
+
+  'POST /api/admin/partner/save': (body) => {
+    const tg = String(body.tg_id || '').trim();
+    if (!/^\\d+$/.test(tg)) return { status: 400, body: { error: 'Telegram ID - это число' } };
+
+    const share = Math.min(100, Math.max(0, Number(body.share_pct) || 0));
+    store.partners = store.partners || [];
+    const existing = store.partners.find((p) => p.tg_id === tg);
+    if (existing) {
+      Object.assign(existing, { name: body.name || null, share_pct: share,
+        note: body.note || null });
+      save();
+      return { id: existing.id, created: false };
+    }
+    const id = store.seq++;
+    store.partners.unshift({ id, tg_id: tg, name: body.name || null, share_pct: share,
+      is_active: 1, note: body.note || null, created_at: Date.now() });
+    save();
+    return { id, created: true };
+  },
+
+  'POST /api/admin/partner/pay': (body) => {
+    const s = partnerStats(Number(body.partnerId));
+    if (!s) return { status: 400, body: { error: 'Партнёр не найден' } };
+    const sum = Math.trunc(Number(body.amount) || 0);
+    if (sum <= 0) return { status: 400, body: { error: 'Укажите сумму' } };
+    if (sum > s.pending) {
+      return { status: 400, body: { error: 'К выплате доступно ' + s.pending } };
+    }
+    store.partnerPayouts = store.partnerPayouts || [];
+    store.partnerPayouts.unshift({ partner_id: s.partner.id, amount: sum,
+      comment: body.comment || null, created_at: Date.now() });
+    save();
+    return partnerStats(s.partner.id);
+  },
+
   'POST /api/roulette': (body) => {
     const u = store.user;
     u.gambleStake = 0;
@@ -552,6 +828,7 @@ const routes = {
     const label = CONFIG.roulette.colors.find((c) => c.id === landed).label;
 
     u.balance += payout - bet;
+    consumeWager(bet);
     u.stats.rounds++; u.stats.spent += bet; u.stats.won += payout;
     u.stats.bestMultiplier = Math.max(u.stats.bestMultiplier, payout / bet);
 
@@ -593,6 +870,7 @@ const routes = {
     const payout = won ? target : 0;
 
     u.balance += payout - stake;
+    consumeWager(stake);
     u.stats.rounds++; u.stats.spent += stake; u.stats.won += payout;
     u.stats.bestMultiplier = Math.max(u.stats.bestMultiplier, payout / stake);
 
@@ -652,6 +930,7 @@ const routes = {
     const crashPoint = Math.max(1, Math.min(Math.floor(raw * 100) / 100, CONFIG.crash.maxMultiplier));
 
     u.balance -= bet;
+    consumeWager(bet);
     crashRound = { id: Date.now(), bet, crashPoint, startedAt: Date.now(), status: 'running', nonce: u.nonce };
     save();
 
@@ -706,6 +985,10 @@ const routes = {
     }
     if (amount > u.balance) {
       return { status: 400, body: { error: 'INSUFFICIENT_FUNDS', message: 'Недостаточно средств' } };
+    }
+    if (u.wagerRequired > 0) {
+      return { status: 400, body: { error: 'WAGER',
+        message: 'Бонус не отыгран: осталось поставить ' + u.wagerRequired } };
     }
 
     // Списываем сразу — как на сервере: иначе один баланс можно заявить дважды.
@@ -919,12 +1202,30 @@ const routes = {
     target.balance = Math.max(0, before + amount);
     store.adminLog.unshift({ target_id: id, action: amount > 0 ? 'credit' : 'debit',
       amount: target.balance - before, note: body.note || null, created_at: Date.now() });
-    if (target.balance > before && target === store.user) {
-      store.user.deposits.unshift({ amount: target.balance - before, source: 'admin',
+    const applied = target.balance - before;
+    if (applied > 0 && target === store.user) {
+      const u = store.user;
+      u.deposits.unshift({ amount: applied, source: 'admin',
         comment: body.note || 'Начисление администратором', created_at: Date.now() });
+      u.depositsCount = (u.depositsCount || 0) + 1;
+
+      // Обещанный процент к пополнению - как applyDepositBonus на сервере.
+      const pd = u.pendingDeposit;
+      if (pd && applied >= pd.min_deposit) {
+        let bonus = Math.floor((applied * pd.pct) / 100);
+        if (pd.max_bonus > 0) bonus = Math.min(bonus, pd.max_bonus);
+        if (bonus > 0) {
+          u.balance += bonus;
+          u.bonusGranted = (u.bonusGranted || 0) + bonus;
+          u.wagerRequired = (u.wagerRequired || 0) + Math.round(bonus * pd.wager_multiplier);
+          u.deposits.unshift({ amount: bonus, source: 'promo',
+            comment: 'Бонус к пополнению +' + pd.pct + '%', created_at: Date.now() });
+          u.pendingDeposit = null;
+        }
+      }
     }
     save();
-    return { balance: target.balance, applied: target.balance - before };
+    return { balance: target.balance, applied };
   },
 
   'POST /api/admin/block': (body) => {
