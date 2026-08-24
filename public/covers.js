@@ -7,8 +7,8 @@
  * id кейса: обложка одного и того же кейса всегда одинаковая, но соседние
  * не совпадают ни расположением монет, ни узором, ни формой сундука.
  *
- * Исключение одно — сезонный кейс: у него на обложке стоит готовый баннер,
- * присланный владельцем проекта (см. porscheCover).
+ * Исключения — кейсы с полем art: у них на обложке стоит готовая картинка,
+ * присланная владельцем проекта (см. PHOTO_COVERS в конце файла).
  */
 
 /** Хеш строки в 32-битное число — семя для генератора. */
@@ -194,10 +194,11 @@ function sparks(r, count, color) {
  * @param {{id:string, palette:string[], hasPerks:boolean}} caseData
  */
 export function caseCover(caseData) {
-  // Сезонные кейсы рисуются собственной обложкой: у них своя сцена, а не
-  // процедурный сундук. Диспетчеризация здесь, а не у вызывающего кода, —
-  // чтобы и приложение, и офлайн-сборка получили её без отдельной правки.
-  if (caseData.art === 'porsche') return porscheCover(caseData);
+  // Кейсы с присланной картинкой рисуются ею, а не процедурным сундуком.
+  // Диспетчеризация здесь, а не у вызывающего кода, — чтобы и приложение, и
+  // офлайн-сборка получили обложку без отдельной правки.
+  const photo = PHOTO_COVERS[caseData.art];
+  if (photo) return photoCover(caseData, photo());
 
   const seed = hashString(caseData.id);
   const r = rng(seed);
@@ -250,40 +251,47 @@ export function caseCover(caseData) {
 }
 
 /* ============================================================
-   СЕЗОННАЯ ОБЛОЖКА: PORSCHE 911
-   ============================================================ */
-
-
-/* ============================================================
-   СЕЗОННАЯ ОБЛОЖКА
+   ОБЛОЖКИ-КАРТИНКИ
    ============================================================ */
 
 /**
- * Пути к картинкам сезонного кейса.
+ * Пути к присланным картинкам.
  *
  * В автономной сборке подменяются на data-URI: файл открывают с диска, где
  * относительных путей к папке assets уже нет. Сборка выставляет глобальные
- * переменные до подключения этого кода.
+ * переменные до подключения этого кода, поэтому читать их надо в момент
+ * вызова, а не при загрузке модуля.
  */
-const PORSCHE_BANNER_SRC = (typeof window !== 'undefined' && window.__PORSCHE_BANNER_SRC)
-  || '/assets/porsche-banner.webp';
-const PORSCHE_SRC = (typeof window !== 'undefined' && window.__PORSCHE_SRC)
-  || '/assets/porsche.webp';
+const asset = (globalName, path) => () =>
+  (typeof window !== 'undefined' && window[globalName]) || path;
+
+const porscheBannerSrc = asset('__PORSCHE_BANNER_SRC', '/assets/porsche-banner.webp');
+const porscheSrc = asset('__PORSCHE_SRC', '/assets/porsche.webp');
+const dustCoverSrc = asset('__DUST_COVER_SRC', '/assets/dust-cover.webp');
+
+/** Какому art какая картинка соответствует. */
+const PHOTO_COVERS = {
+  porsche: porscheBannerSrc,
+  dust: dustCoverSrc,
+};
 
 /** Вырезанная машина для плитки в ленте — баннер туда слишком широкий. */
 export function porschePhotoSrc() {
-  return PORSCHE_SRC;
+  return porscheSrc();
 }
 
 /**
- * Обложка сезонного кейса — готовый баннер, присланный владельцем проекта.
+ * Обложка из готовой картинки.
  *
- * Своей графики здесь нет намеренно: на баннере уже есть и заголовок, и
- * плашка «сезонный кейс». Рисовать поверх него ещё один слой текста значило
- * бы спорить с макетом, поэтому карточка вокруг тоже отдаёт ему свои подписи
+ * Своей графики здесь нет намеренно: на присланных обложках уже есть и
+ * заголовок, и оформление. Рисовать поверх ещё один слой значило бы спорить
+ * с макетом, поэтому карточка вокруг тоже отдаёт им свои подписи
  * (см. featuredHtml).
+ *
+ * Картинки заранее собраны под пропорцию слота — см. tools/dust-cover.mjs,
+ * там же объяснено, почему объект не растягивается на весь холст.
  */
-export function porscheCover(caseData) {
+export function photoCover(caseData, src) {
   const alt = `Обложка кейса «${caseData.name}»`;
-  return `<img class="cover-photo" src="${PORSCHE_BANNER_SRC}" alt="${alt}">`;
+  return `<img class="cover-photo" src="${src}" alt="${alt}">`;
 }

@@ -109,6 +109,7 @@ const drawTables = CASES.map((c) => ({
 const heroData = readFileSync(new URL('./public/assets/hero.webp', import.meta.url)).toString('base64');
 const porscheData = readFileSync(new URL('./public/assets/porsche.webp', import.meta.url)).toString('base64');
 const bannerData = readFileSync(new URL('./public/assets/porsche-banner.webp', import.meta.url)).toString('base64');
+const dustCoverData = readFileSync(new URL('./public/assets/dust-cover.webp', import.meta.url)).toString('base64');
 
 const css = read('./public/styles.css');
 const html = read('./public/index.html');
@@ -1049,10 +1050,11 @@ ${shim}
 </script>
 
 <script>
-/* Картинки сезонного кейса уезжают в файл целиком: с диска относительных
-   путей нет. Присваивание идёт до кода обложек — оттуда они и читаются. */
+/* Обложки-картинки уезжают в файл целиком: с диска относительных путей нет.
+   Присваивание идёт до кода обложек — оттуда они и читаются. */
 window.__PORSCHE_SRC = 'data:image/webp;base64,${porscheData}';
 window.__PORSCHE_BANNER_SRC = 'data:image/webp;base64,${bannerData}';
+window.__DUST_COVER_SRC = 'data:image/webp;base64,${dustCoverData}';
 </script>
 
 <script>
