@@ -320,14 +320,15 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
   check('пачка: открыто ровно столько, сколько просили',
         r.data.count === 5 && r.data.opened?.length === 5, `count ${r.data.count}`);
 
-  const won = r.data.opened.reduce((s, o) => s + o.item.value, 0);
-  check('пачка: сумма выигрышей сходится', r.data.totalWon === won);
-
-  // Любое из пяти открытий могло выдать серию фриспинов — она начисляется
-  // тем же ответом и в totalWon не входит, поэтому считаем её отдельно.
+  // Любое из пяти открытий могло выдать серию фриспинов — она начисляется тем
+  // же ответом и должна попадать в totalWon наравне с обычным предметом,
+  // иначе выигрыш остальных кейсов пачки на экране выглядел бы пропавшим.
   const fsTotal = r.data.opened.reduce((s, o) =>
     s + (o.granted || []).reduce((a, g) => a + (g.type === 'freespins' ? g.total : 0), 0), 0);
-  const expectedBalance = before.balance - r.data.totalSpent + r.data.totalWon + fsTotal;
+  const won = r.data.opened.reduce((s, o) => s + o.item.value, 0) + fsTotal;
+  check('пачка: сумма выигрышей сходится', r.data.totalWon === won);
+
+  const expectedBalance = before.balance - r.data.totalSpent + r.data.totalWon;
   check('пачка: баланс сходится', r.data.balance === expectedBalance,
         `${r.data.balance} vs ${expectedBalance}`);
 

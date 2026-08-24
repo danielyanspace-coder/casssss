@@ -336,6 +336,46 @@ function renderCases() {
 }
 
 /**
+ * Экран «Бонусы»: кейсы, выигранные в подарок (ваучеры), и активный ×2 —
+ * та же плюшка, что и в плашке над полками, только с собственным экраном,
+ * куда можно вернуться позже, если не открыл сразу.
+ */
+function renderBonuses() {
+  const perks = document.getElementById('bonusPerks');
+  const list = document.getElementById('bonusList');
+  if (!list) return;
+
+  if (perks) {
+    perks.innerHTML = '';
+    if (state.user.x2CaseId) {
+      const c = state.config.cases.find((x) => x.id === state.user.x2CaseId);
+      if (c) perks.innerHTML = `<span class="perk-chip"><span data-ico="x2"></span>
+        ×2 на «${esc(c.name)}»</span>`;
+    }
+    perks.hidden = !perks.innerHTML;
+    mountIcons(perks);
+  }
+
+  const cards = (state.user.vouchers || [])
+    .map((v) => ({ c: state.config.cases.find((x) => x.id === v.case_id), count: v.count }))
+    .filter((x) => x.c && x.count > 0);
+
+  if (!cards.length) {
+    list.innerHTML = '<div class="empty" style="grid-column:1/-1">Пока нет выигранных кейсов — '
+      + 'они появятся здесь, когда выпадут в подарок из других кейсов.</div>';
+    return;
+  }
+
+  list.innerHTML = cards
+    .map(({ c, count }) => caseCardHtml(c, new Map([[c.id, count]])))
+    .join('');
+
+  list.querySelectorAll('.case-card').forEach((card) => {
+    card.addEventListener('click', () => openCase(card.dataset.case));
+  });
+}
+
+/**
  * Экран кейса.
  *
  * Раньше состав показывался шторкой снизу, а лента появлялась только после
@@ -684,7 +724,7 @@ function runFreeSpins(grant, caseData) {
 
   const SPIN_LEN = 26;
   const SPIN_WIN = 20;
-  const SPIN_MS = 1000;
+  const SPIN_MS = 1700;
 
   const filler = caseData.items.filter((it) => it.kind === 'item');
   const pickFiller = () => filler[Math.floor(Math.random() * filler.length)];
@@ -739,7 +779,7 @@ function runFreeSpins(grant, caseData) {
         } else {
           haptic('light');
         }
-        done();
+        setTimeout(done, 350);
       }, SPIN_MS + 60);
     });
   });
@@ -771,15 +811,18 @@ function showBatchResult(data, caseData) {
   const best = opened.reduce((a, b) => (b.item.value > a.item.value ? b : a));
 
   box.innerHTML = `
-    <div class="batch-total ${net >= 0 ? 'plus' : 'minus'}">
-      ${net >= 0 ? '+' : '−'}${money(Math.abs(net))}
-    </div>
+    ${net > 0 ? `<div class="batch-total plus">+${money(net)}</div>` : ''}
     <div class="batch-sub">потрачено ${money(data.totalSpent)} · выиграно ${money(data.totalWon)}</div>
     <div class="batch-list">
-      ${opened.map((o) => `<div class="mini-row" style="--tier-color:${tierColor(o.item.tier)}">
-        <span class="mini-name">${esc(o.item.name)}${o.x2Applied ? ' (×2)' : ''}</span>
-        <span class="mini-val">${money(o.item.value)}</span>
-      </div>`).join('')}
+      ${opened.map((o) => {
+        const fs = o.granted.find((g) => g.type === 'freespins');
+        const rowValue = o.item.value + (fs?.total || 0);
+        const rowName = fs ? `${esc(o.item.name)} + ${fs.spins.length} фриспинов` : esc(o.item.name);
+        return `<div class="mini-row" style="--tier-color:${tierColor(o.item.tier)}">
+        <span class="mini-name">${rowName}${o.x2Applied ? ' (×2)' : ''}</span>
+        <span class="mini-val">${money(rowValue)}</span>
+      </div>`;
+      }).join('')}
     </div>
     <div class="result-actions">
       <button class="btn btn-outline" id="batchClose">Забрать</button>
@@ -796,7 +839,7 @@ function showBatchResult(data, caseData) {
   sndReveal(best.item.tier);
   if (net > 0) { sndCollect(); haptic('success'); } else { sndLose(); haptic('light'); }
 
-  document.getElementById('batchClose').addEventListener('click', closeOpener);
+  document.getElementById('batchClose').addEventListener('click', returnToCaseIdle);
   document.getElementById('batchAgain').addEventListener('click', () =>
     startOpening(caseData.id, data.count));
 }
@@ -824,9 +867,12 @@ function showCaseResult(data, caseData) {
       parts.push(`${g.spins.length} фриспинов: +${fmt(g.total)}`);
     }
   }
-  const netText = data.net >= 0 ? `+${money(data.net)}` : `−${money(Math.abs(data.net))}`;
-  net.innerHTML = `${netText}${parts.length ? '<br>' + esc(parts.join(' · ')) : ''}`;
-  net.className = `result-net ${data.net >= 0 ? 'plus' : 'minus'}`;
+  // Проигрыш крупными цифрами не пишем — только выигрыш. Если net в минус,
+  // от строки остаётся разве что список плюшек (×2, подарок, фриспины).
+  const netText = data.net > 0 ? `+${money(data.net)}` : '';
+  net.innerHTML = [netText, parts.length ? esc(parts.join(' · ')) : ''].filter(Boolean).join('<br>');
+  net.className = `result-net ${data.net > 0 ? 'plus' : 'minus'}`;
+  net.hidden = !netText && !parts.length;
 
   result.hidden = false;
   applyUser(data.user);
@@ -868,8 +914,9 @@ function showCaseResult(data, caseData) {
 function viewersFor(caseId) {
   let h = 0;
   for (let i = 0; i < caseId.length; i++) h = (h * 31 + caseId.charCodeAt(i)) >>> 0;
-  // Небольшой дрейф по времени, чтобы число выглядело живым.
-  return 40 + ((h + Math.floor(Date.now() / 60000)) % 760);
+  // Небольшой дрейф по времени, чтобы число выглядело живым. Диапазон 30–110:
+  // цифры покрупнее на дешёвом кейсе выглядели неправдоподобно.
+  return 30 + ((h + Math.floor(Date.now() / 60000)) % 81);
 }
 
 function updateOpenerBalance() {
@@ -904,7 +951,18 @@ function closeOpener() {
   document.getElementById('gamble').hidden = true;
 }
 
-document.getElementById('closeOpener').addEventListener('click', closeOpener);
+/**
+ * «Забрать» после результата не должно выкидывать из кейса — игрок почти
+ * наверняка захочет крутить ещё. Экран просто возвращается в исходное
+ * состояние, как при первом входе в кейс, а не закрывается целиком.
+ */
+function returnToCaseIdle() {
+  document.getElementById('gamble').hidden = true;
+  if (state.openingCaseId) openCase(state.openingCaseId);
+  else closeOpener();
+}
+
+document.getElementById('closeOpener').addEventListener('click', returnToCaseIdle);
 document.getElementById('closeOpenerTop').addEventListener('click', closeOpener);
 
 /* ============================================================
@@ -1785,6 +1843,7 @@ function switchView(name) {
   if (name === 'roulette') renderRouletteReel(2);
   if (name === 'admin') loadAdminOverview();
   if (name === 'cases') loadFreeCase();
+  if (name === 'bonuses') renderBonuses();
   if (name === 'upgrade') {
     renderUpgradeTicks();
     renderUpgradePicker();
@@ -1805,6 +1864,7 @@ function switchView(name) {
  */
 const MENU_ITEMS = [
   { view: 'cases', ico: 'cases', title: 'Кейсы', sub: 'Открыть и крутить' },
+  { view: 'bonuses', ico: 'gift', title: 'Бонусы', sub: 'Выигранные кейсы' },
   { view: 'upgrade', ico: 'x2', title: 'Апгрейд', sub: 'Поднять ставку' },
   { view: 'crash', ico: 'crash', title: 'Краш', sub: 'Успеть забрать' },
   { view: 'roulette', ico: 'roulette', title: 'Рулетка', sub: 'Красное и чёрное' },

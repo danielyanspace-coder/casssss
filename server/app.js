@@ -300,13 +300,19 @@ app.post('/api/open', auth, (req, res) => {
 
   const last = results[results.length - 1];
 
+  // Выигрыш фриспинов реально зачислен на баланс в той же транзакции, что и
+  // сам предмет, — его нельзя терять при подсчёте суммы пачки, иначе итог
+  // на экране разойдётся с тем, что реально начислено.
+  const freeSpinsTotal = (o) =>
+    o.granted.find((g) => g.type === 'freespins')?.total || 0;
+
   res.json({
     count,
     opened,
     // Поля одиночного открытия сохранены: на них опирается вся анимация.
     ...opened[0],
     totalSpent: opened.reduce((s, o) => s + (o.free ? 0 : caseData.price), 0),
-    totalWon: opened.reduce((s, o) => s + o.item.value, 0),
+    totalWon: opened.reduce((s, o) => s + o.item.value + freeSpinsTotal(o), 0),
     balance: last.balance,
     user: publicUser(getUserById(user.id)),
   });

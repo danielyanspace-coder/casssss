@@ -1922,6 +1922,28 @@ select.seed-input {
   -webkit-background-clip: text; background-clip: text; color: transparent;
 }
 
+/* Обложки направлений крупнее обычных: карточка тут же ведёт к покупке
+   тура, и мелкий сундук на фоне города теряется. Ширина карточки — те же
+   62.5% строки, что дал бы 2-колоночный ряд с шагом 1.25x, поэтому ряд
+   листается вбок вместо переноса на новую строку. */
+.shelf-country .shelf-row {
+  display: flex;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+  padding-bottom: 2px;
+}
+.shelf-country .shelf-row::-webkit-scrollbar { display: none; }
+.shelf-country .shelf-row .case-card {
+  flex: 0 0 62.5%;
+  scroll-snap-align: start;
+}
+
+@media (min-width: 620px) {
+  .shelf-country .shelf-row .case-card { flex-basis: 31.25%; }
+}
+
 /* Перезапуск серии — редкое и приятное событие, его стоит выделить. */
 .fs-chip.retrigger {
   border-color: var(--gold);
