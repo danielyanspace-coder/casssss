@@ -15,7 +15,7 @@ const failures = [];
 
 function check(name, condition, detail = '') {
   if (condition) { passed++; return true; }
-  failures.push(`${name}${detail ? ' — ' + detail : ''}`);
+  failures.push(`${name}${detail ? ' - ' + detail : ''}`);
   return false;
 }
 
@@ -589,6 +589,137 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
             Math.abs(c.items.reduce((s, it) => s + it.probability, 0) - 1) < 1e-9);
     }
   }
+}
+
+/* ---------- Покупка фриспинов ---------- */
+
+{
+  await post('/api/admin/balance', { userId: me.id, amount: 5_000_000, note: 'фриспины' });
+  const c = config.cases.find((x) => x.id === 'warmup_100');
+
+  check('конфиг отдаёт пачки фриспинов',
+        Array.isArray(config.freeSpinPacks) && config.freeSpinPacks.length === 3);
+
+  for (const pack of config.freeSpinPacks) {
+    const expected = Math.round(c.price * pack.count * (1 - pack.discount));
+    const before = (await post('/api/me')).data.user.balance;
+    const r = await post('/api/freespins/buy', { caseId: c.id, count: pack.count });
+
+    check(`пачка ${pack.count}: цена считается сервером`, r.data.cost === expected,
+          `${r.data.cost} vs ${expected}`);
+    check(`пачка ${pack.count}: пачка дешевле поштучных прокрутов`,
+          r.data.cost < c.price * pack.count);
+    check(`пачка ${pack.count}: прокрутов не меньше купленного`,
+          r.data.grant.spins.length >= pack.count);
+
+    const after = (await post('/api/me')).data.user.balance;
+    check(`пачка ${pack.count}: баланс сходится`,
+          after === before - r.data.cost + r.data.grant.total,
+          `${before} - ${r.data.cost} + ${r.data.grant.total} != ${after}`);
+  }
+
+  const bad = await post('/api/freespins/buy', { caseId: c.id, count: 17 });
+  check('несуществующая пачка отклонена', bad.status === 400, `HTTP ${bad.status}`);
+}
+
+/* ---------- Промокоды ---------- */
+
+{
+  const uniq = (p) => `${p}${Date.now().toString(36).toUpperCase()}`;
+
+  // Начисление на баланс с отыгрышем.
+  const codeBalance = uniq('BAL');
+  await post('/api/admin/promo/save', {
+    code: codeBalance, type: 'balance', amount: 1000,
+    wager_multiplier: 2, per_user_limit: 1,
+  });
+
+  const before = (await post('/api/me')).data.user;
+  const r = await post('/api/promo/redeem', { code: codeBalance.toLowerCase() });
+  check('промокод принят без учёта регистра', r.status === 200, `HTTP ${r.status}`);
+  check('баланс вырос на сумму промокода',
+        r.data.user.balance === before.balance + 1000);
+  check('отыгрыш начислен множителем',
+        r.data.user.wagerRequired === before.wagerRequired + 2000,
+        `${r.data.user.wagerRequired}`);
+
+  const again = await post('/api/promo/redeem', { code: codeBalance });
+  check('повторная активация отклонена', again.status === 400);
+
+  // Пока отыгрыш не закрыт, вывод недоступен.
+  const blocked = await post('/api/payout/create', { amount: config.minPayout });
+  check('вывод закрыт до отыгрыша', blocked.data.error === 'WAGER', blocked.data.error);
+
+  // Отыгрываем ставками и проверяем, что вывод открылся.
+  let guard = 0;
+  while ((await post('/api/me')).data.user.wagerRequired > 0 && guard++ < 200) {
+    await post('/api/open', { caseId: 'warmup_100', count: 5 });
+  }
+  check('ставки гасят отыгрыш',
+        (await post('/api/me')).data.user.wagerRequired === 0);
+
+  const allowed = await post('/api/payout/create', { amount: config.minPayout });
+  check('после отыгрыша вывод открылся', allowed.status === 200, `HTTP ${allowed.status}`);
+  if (allowed.data.id) await post('/api/payout/cancel', { id: allowed.data.id });
+
+  // Бесплатный кейс.
+  const codeCase = uniq('BOX');
+  await post('/api/admin/promo/save', {
+    code: codeCase, type: 'free_case', case_id: 'dust_25', case_count: 2,
+  });
+  const box = await post('/api/promo/redeem', { code: codeCase });
+  const voucher = (box.data.user?.vouchers || []).find((v) => v.case_id === 'dust_25');
+  check('промокод выдал подарочные открытия', voucher && voucher.count >= 2);
+
+  // Просроченный код не принимается.
+  const codeOld = uniq('OLD');
+  await post('/api/admin/promo/save', {
+    code: codeOld, type: 'balance', amount: 100, expires_at: Date.now() - 1000,
+  });
+  const expired = await post('/api/promo/redeem', { code: codeOld });
+  check('просроченный промокод отклонён', expired.status === 400);
+
+  // Лимит активаций на всех.
+  const codeOnce = uniq('ONE');
+  await post('/api/admin/promo/save', {
+    code: codeOnce, type: 'balance', amount: 50, max_uses: 1, per_user_limit: 5,
+  });
+  const first = await post('/api/promo/redeem', { code: codeOnce });
+  const second = await post('/api/promo/redeem', { code: codeOnce });
+  check('лимит активаций соблюдается',
+        first.status === 200 && second.status === 400);
+
+  const nonsense = await post('/api/promo/redeem', { code: 'НЕТТАКОГО' });
+  check('несуществующий промокод отклонён', nonsense.status === 400);
+}
+
+/* ---------- Партнёры ---------- */
+
+{
+  const tg = String(700000000 + (Date.now() % 1000000));
+  const saved = await post('/api/admin/partner/save', {
+    tg_id: tg, name: 'Тестовый партнёр', share_pct: 30,
+  });
+  check('партнёр создан', saved.status === 200 && saved.data.created === true);
+
+  const bad = await post('/api/admin/partner/save', { tg_id: 'не-число' });
+  check('нечисловой Telegram ID отклонён', bad.status === 400);
+
+  const list = await post('/api/admin/partners');
+  const row = list.data.rows.find((r) => r.partner.tg_id === tg);
+  check('партнёр виден в списке со статистикой', !!row);
+  check('прибыль считается как ставки минус выигрыши минус бонусы',
+        row.profit === row.wagered - row.paid - row.bonuses);
+  check('в минусе доля не начисляется',
+        row.profit > 0 ? row.accrued === Math.floor(row.profit * 0.3) : row.accrued === 0);
+
+  const over = await post('/api/admin/partner/pay',
+                          { partnerId: row.partner.id, amount: row.pending + 1000 });
+  check('выплата сверх начисленного отклонена', over.status === 400);
+
+  // Чужой аккаунт не должен видеть партнёрскую статистику.
+  const mine = await post('/api/partner/stats');
+  check('не партнёр не видит чужую статистику', mine.status === 403, `HTTP ${mine.status}`);
 }
 
 /* ---------- Итог ---------- */

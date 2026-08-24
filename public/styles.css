@@ -1032,6 +1032,26 @@ main { position: relative; z-index: 2; padding: 18px; }
 .cover-photo { display: block; width: 100%; height: 100%; object-fit: cover; }
 .featured-card.own-art .featured-cover::after { display: none; }
 
+/* Присланный арт с прозрачным фоном.
+   contain, а не cover: у картинки нет своей подложки, она ложится прямо на
+   фон карточки. При cover прозрачные поля обрезались бы вместе с объектом, и
+   у высоких обложек срезало бы верх и низ композиции. */
+/* Присланный арт: вырезанная композиция на прозрачном фоне.
+   contain, а не cover: у картинки нет своей подложки, обрезка съела бы её
+   края вместе с рисунком. Тень отделяет арт от фона страницы - без неё
+   композиция выглядит наклеенной. */
+.cover-art {
+  display: block;
+  width: 100%; height: 100%;
+  object-fit: contain;
+  /* Прижат к низу слота. Высота слота одна на всю полку, а пропорции обложек
+     внутри неё чуть разные - при выравнивании по центру каждая вторая обложка
+     висела бы на своей высоте. Прижатые к низу они стоят на общей линии, а
+     разница уходит наверх, в воздух между полками. */
+  object-position: 50% 100%;
+  filter: drop-shadow(0 14px 18px rgba(0, 0, 0, 0.5));
+}
+
 .featured-cover::after {
   content: '';
   position: absolute; inset: 0;
@@ -1164,7 +1184,16 @@ main { position: relative; z-index: 2; padding: 18px; }
    АДМИНКА
    ============================================================ */
 
-.admin-tabs { display: flex; gap: 8px; margin-bottom: 18px; }
+/* Вкладок стало пять, и в ширину телефона они уже не помещаются. Ряд
+   листается вбок, а не переносится: перенос сдвигал бы всю панель вниз. */
+.admin-tabs {
+  display: flex; gap: 8px; margin-bottom: 18px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.admin-tabs::-webkit-scrollbar { display: none; }
+.admin-tabs .tab { flex: 0 0 auto; }
 .admin-pane { display: none; }
 .admin-pane.active { display: block; }
 
@@ -1336,6 +1365,7 @@ select.seed-input {
   margin: 0 0 10px;
   border-radius: 16px 16px 0 0;
 }
+
 
 .shelf-row .case-name {
   font-size: 15.5px;
@@ -1620,6 +1650,207 @@ select.seed-input {
   border-color: var(--magenta);
   color: #fff;
   box-shadow: 0 4px 18px rgba(255, 46, 138, 0.5);
+}
+
+/* ---------- Промокоды и партнёрский экран ---------- */
+
+.promo-card {
+  padding: 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(0, 255, 157, 0.28);
+  background: linear-gradient(150deg, rgba(0, 255, 157, 0.08), rgba(0, 212, 255, 0.05));
+  margin-bottom: 14px;
+}
+.promo-head { margin-bottom: 12px; }
+.promo-title {
+  display: block; font-size: 15px; font-weight: 900; color: var(--green);
+  letter-spacing: 0.04em; text-transform: uppercase;
+}
+.promo-hint { display: block; font-size: 11.5px; color: var(--muted); margin-top: 3px; }
+
+#promoInput { text-transform: uppercase; }
+
+.promo-result {
+  margin-top: 12px; padding: 10px 12px;
+  border-radius: 12px;
+  font-size: 13px; font-weight: 700;
+  background: rgba(0, 255, 157, 0.12);
+  border: 1px solid rgba(0, 255, 157, 0.35);
+  color: var(--green);
+}
+.promo-result.bad {
+  background: rgba(255, 23, 68, 0.12);
+  border-color: rgba(255, 23, 68, 0.35);
+  color: #ff8199;
+}
+
+/* Долг по обороту закрывает вывод, поэтому он должен бросаться в глаза, а не
+   всплывать неожиданной ошибкой в кассе. */
+.wager-note {
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 214, 10, 0.4);
+  background: rgba(255, 214, 10, 0.1);
+  color: var(--gold);
+  font-size: 12.5px; font-weight: 700;
+  margin-bottom: 14px;
+}
+
+.partner-kpis { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 18px; }
+
+.promo-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  margin-bottom: 8px;
+}
+.promo-row.off { opacity: 0.5; }
+.promo-code {
+  font-family: ui-monospace, monospace;
+  font-size: 14px; font-weight: 900; color: var(--gold);
+  letter-spacing: 0.08em;
+}
+.promo-meta { font-size: 11.5px; color: var(--muted); margin-top: 3px; line-height: 1.45; }
+.promo-actions { display: flex; gap: 6px; flex: 0 0 auto; }
+
+.admin-form {
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: rgba(10, 2, 18, 0.4);
+  margin-bottom: 16px;
+}
+.admin-form .form-grid {
+  display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 10px;
+}
+/* Ячейки обязаны сжиматься: по умолчанию элемент сетки не уже своего
+   минимального содержимого, а у полей ввода оно около 170 px. Двух таких
+   колонок хватает, чтобы распереть страницу вширь на телефоне. */
+.admin-form .form-grid > div { min-width: 0; }
+.admin-form .form-grid .seed-input { width: 100%; }
+.admin-form label {
+  display: block; font-size: 10.5px; font-weight: 800; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px;
+}
+.admin-form .wide { grid-column: 1 / -1; }
+.admin-form .check {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12.5px; color: var(--text); font-weight: 700;
+  text-transform: none; letter-spacing: 0;
+}
+
+/* ---------- Покупка фриспинов ---------- */
+
+.fsbuy {
+  margin-top: 20px;
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 214, 10, 0.28);
+  background: linear-gradient(150deg, rgba(255, 214, 10, 0.08), rgba(160, 32, 255, 0.06));
+}
+.fsbuy-head { text-align: center; margin-bottom: 12px; }
+.fsbuy-title {
+  display: block;
+  font-size: 14px; font-weight: 900; color: var(--gold);
+  letter-spacing: 0.04em; text-transform: uppercase;
+}
+.fsbuy-hint { display: block; font-size: 11.5px; color: var(--muted); margin-top: 3px; }
+
+.fsbuy-row { display: flex; gap: 8px; }
+
+.fsbuy-btn {
+  flex: 1;
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 10px 4px;
+  border-radius: 12px;
+  border: 2px solid var(--line);
+  background: var(--card);
+  color: var(--text);
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.fsbuy-btn:not(:disabled):active { transform: scale(0.96); }
+.fsbuy-btn:disabled { opacity: 0.42; cursor: default; }
+
+.fsbuy-count { font-size: 16px; font-weight: 900; color: var(--gold); }
+.fsbuy-price { font-size: 12.5px; font-weight: 800; font-variant-numeric: tabular-nums; }
+
+/* Выгода - главный довод в пользу пачки, поэтому она отдельной строкой и
+   зелёным: без неё цена читается просто как «дорого». */
+.fsbuy-save { font-size: 10.5px; font-weight: 800; color: var(--green); }
+
+/* ---------- Автооткрытие ---------- */
+
+/* Ряд авто идёт отдельной строкой под количеством: это не «сколько кейсов за
+   один прокрут», а «сколько прокрутов подряд», и смешивать их в одну строку
+   значило бы предлагать выбрать одно вместо другого. */
+.auto-row { display: flex; gap: 8px; margin-top: 8px; align-items: center; }
+
+.auto-row-label {
+  font-size: 11px; font-weight: 800; color: var(--muted);
+  letter-spacing: 0.06em; text-transform: uppercase;
+  flex: 0 0 auto; padding-right: 2px;
+}
+
+.auto-btn {
+  flex: 1;
+  padding: 9px 0;
+  border-radius: 10px;
+  border: 2px solid var(--line);
+  background: var(--card);
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 900;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.auto-btn.active {
+  background: linear-gradient(135deg, var(--cyan), var(--violet));
+  border-color: var(--cyan);
+  color: #06121c;
+  box-shadow: 0 4px 18px rgba(0, 212, 255, 0.4);
+}
+
+.auto-panel {
+  margin-top: 16px;
+  padding: 16px;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: rgba(10, 2, 18, 0.5);
+  text-align: center;
+}
+.auto-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; margin-bottom: 10px;
+}
+.auto-left { font-size: 13px; font-weight: 800; color: var(--muted); }
+
+.auto-total {
+  font-size: 40px; font-weight: 900; line-height: 1;
+  color: var(--green);
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 30px rgba(0, 255, 157, 0.45);
+}
+.auto-total.bump { animation: bump 0.3s ease; }
+.auto-sub { font-size: 12px; color: var(--muted); margin: 6px 0 12px; }
+
+/* Лог держит фиксированную высоту: без неё панель дёргалась бы по вертикали
+   на каждом прокруте, и лента над ней прыгала бы вместе с ней. */
+.auto-log {
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 6px;
+  max-height: 68px; overflow: hidden;
+}
+.auto-chip {
+  font-size: 11px; font-weight: 800;
+  padding: 4px 9px; border-radius: 999px;
+  border: 1.5px solid var(--tier-color, var(--line));
+  color: var(--tier-color, var(--text));
+  background: rgba(10, 2, 18, 0.6);
+  animation: fsChip 0.3s ease both;
 }
 
 .reels { display: flex; flex-direction: column; gap: 10px; }
@@ -1922,26 +2153,65 @@ select.seed-input {
   -webkit-background-clip: text; background-clip: text; color: transparent;
 }
 
-/* Обложки направлений крупнее обычных: карточка тут же ведёт к покупке
-   тура, и мелкий сундук на фоне города теряется. Ширина карточки — те же
-   62.5% строки, что дал бы 2-колоночный ряд с шагом 1.25x, поэтому ряд
-   листается вбок вместо переноса на новую строку. */
-.shelf-country .shelf-row {
-  display: flex;
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  scroll-snap-type: x mandatory;
-  scrollbar-width: none;
-  padding-bottom: 2px;
+/* ============================================================
+   КАРТОЧКА С ПРИСЛАННЫМ АРТОМ
+   ============================================================ */
+
+/* Оправы нет вовсе: ни рамки, ни подложки, ни тени блока. Арт вырезан по
+   контуру и ложится прямо на фон страницы, поэтому любой прямоугольник вокруг
+   него сразу читается как лишняя рамка вокруг пустоты. */
+.shelf-row .case-card.has-art,
+.shelf-row .case-card.has-art.free-ready {
+  padding: 0 0 14px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  overflow: visible;
 }
-.shelf-country .shelf-row::-webkit-scrollbar { display: none; }
-.shelf-country .shelf-row .case-card {
-  flex: 0 0 62.5%;
-  scroll-snap-align: start;
+.shelf-row .case-card.has-art::after { display: none; }
+
+/* Высота слота идёт от пропорции самих обложек: её проставляет полка в
+   переменной --art-ar (см. renderCases). Так вертикальные городские, почти
+   квадратные и горизонтальные престольные арты получают каждый свою высоту,
+   и ни один не оказывается ни обрезан, ни утоплен в пустой полосе.
+   Отрицательные поля по бокам дают арту выйти за колонку - между карточками
+   и так только прозрачный воздух. */
+.shelf-row .case-card.has-art .case-cover {
+  aspect-ratio: var(--art-ar, 1);
+  height: auto;
+  margin: 0 -8px 2px;
+  border-radius: 0;
+  overflow: visible;
+  background: transparent;
 }
 
-@media (min-width: 620px) {
-  .shelf-country .shelf-row .case-card { flex-basis: 31.25%; }
+.shelf-row .case-card.has-art .case-name {
+  min-height: 0;
+  margin: -2px 4px 8px;
+  text-align: center;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.shelf-row .case-card.has-art .case-foot { justify-content: center; margin: 0; }
+
+/* Цена - единственный акцент под артом, поэтому она плашкой, а не строкой:
+   иначе на пёстром рисунке её просто не видно. */
+.shelf-row .case-card.has-art .case-price {
+  padding: 6px 13px;
+  border-radius: 7px;
+  background: linear-gradient(135deg, #ffb04a, #ff8438);
+  color: #241307;
+  box-shadow: 0 5px 16px rgba(255, 139, 56, 0.25);
+}
+
+.shelf-country .shelf-row,
+.shelf-got .shelf-row { gap: 8px 14px; }
+
+.shelf-got .shelf-title {
+  background: linear-gradient(100deg, #e8c56a, #c2410c);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
 }
 
 /* Перезапуск серии — редкое и приятное событие, его стоит выделить. */

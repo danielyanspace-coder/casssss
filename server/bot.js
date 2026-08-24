@@ -16,7 +16,7 @@ if (!token) {
   process.exit(1);
 }
 if (!webAppUrl || !webAppUrl.startsWith('https://')) {
-  console.error('WEBAPP_URL не задан или не https — Telegram открывает мини-аппы только по HTTPS');
+  console.error('WEBAPP_URL не задан или не https - Telegram открывает мини-аппы только по HTTPS');
   process.exit(1);
 }
 
@@ -26,7 +26,7 @@ const keyboard = new InlineKeyboard().webApp('Открыть кейсы', webApp
 
 bot.command('start', (ctx) =>
   ctx.reply(
-    'LUCKYBOX — кейсы, апгрейд, краш и рулетка.\n\n' +
+    'LUCKYBOX - кейсы, апгрейд, краш и рулетка.\n\n' +
       'Содержимое каждого кейса показано целиком до открытия, ' +
       'а результат любого раунда можно перепроверить самостоятельно ' +
       'через provably fair.\n\n' +
@@ -44,7 +44,7 @@ bot.command('help', (ctx) =>
       '• Шансы одинаковы для всех и не зависят от вашей истории.\n' +
       '• Provably fair: хеш серверного seed показан заранее, ' +
       'после смены seed любой ролл можно пересчитать.\n\n' +
-      '/play — открыть приложение'
+      '/play - открыть приложение'
   )
 );
 

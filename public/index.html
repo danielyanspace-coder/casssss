@@ -25,7 +25,7 @@
     <div class="top-right">
       <button class="balance-chip" id="balanceChip">
         <span class="balance-ico" data-ico="coin"></span>
-        <span class="balance-value" id="balanceValue">—</span>
+        <span class="balance-value" id="balanceValue">-</span>
       </button>
       <button class="menu-btn" id="menuBtn" aria-label="Меню" data-ico="grid"></button>
     </div>
@@ -84,7 +84,7 @@
     <section class="view" id="view-upgrade">
       <div class="game-head">
         <h1 class="game-title">АПГРЕЙД</h1>
-        <p class="game-sub">Ставка против цели. Указатель встал в ваш сектор — цель ваша.</p>
+        <p class="game-sub">Ставка против цели. Указатель встал в ваш сектор - цель ваша.</p>
       </div>
 
       <div class="upg-stage">
@@ -121,8 +121,8 @@
 
         <div class="upg-center">
           <div class="upg-label">ЦЕЛЬ</div>
-          <div class="upg-target" id="upgTarget">—</div>
-          <div class="upg-mult" id="upgMult">—</div>
+          <div class="upg-target" id="upgTarget">-</div>
+          <div class="upg-mult" id="upgMult">-</div>
         </div>
       </div>
 
@@ -153,7 +153,7 @@
     <section class="view" id="view-crash">
       <div class="game-head">
         <h1 class="game-title">КРАШ</h1>
-        <p class="game-sub">Забирай до взрыва. Ждёшь дольше — рискуешь больше.</p>
+        <p class="game-sub">Забирай до взрыва. Ждёшь дольше - рискуешь больше.</p>
       </div>
 
       <div class="crash-stage" id="crashStage">
@@ -240,13 +240,13 @@
       <h2 class="section-title">Provably fair</h2>
       <p class="fair-intro">
         Результат каждого раунда считается заранее заданной формулой, а не
-        «на усмотрение сервера». Хеш серверного seed вы видите до игры —
+        «на усмотрение сервера». Хеш серверного seed вы видите до игры -
         подменить seed задним числом невозможно, хеш не сойдётся.
       </p>
 
       <div class="fair-card">
         <label class="fair-label">Хеш серверного seed</label>
-        <div class="mono-box" id="serverHash">—</div>
+        <div class="mono-box" id="serverHash">-</div>
 
         <label class="fair-label">Ваш client seed</label>
         <div class="seed-row">
@@ -255,7 +255,7 @@
         </div>
 
         <label class="fair-label">Nonce (номер раунда)</label>
-        <div class="mono-box" id="nonceBox">—</div>
+        <div class="mono-box" id="nonceBox">-</div>
 
         <button class="btn btn-outline btn-wide" id="rotateBtn">
           Сменить серверный seed и раскрыть текущий
@@ -264,9 +264,9 @@
 
       <div class="fair-card" id="revealedCard" hidden>
         <label class="fair-label">Раскрытый серверный seed</label>
-        <div class="mono-box" id="revealedSeed">—</div>
+        <div class="mono-box" id="revealedSeed">-</div>
         <label class="fair-label">Его хеш (сверьте с тем, что видели раньше)</label>
-        <div class="mono-box" id="revealedHash">—</div>
+        <div class="mono-box" id="revealedHash">-</div>
       </div>
 
       <div class="fair-card">
@@ -275,7 +275,7 @@
 число = первые 8 hex-символов / 2^32</pre>
         <p class="fair-note">
           <strong>Кейс:</strong> число попадает в интервал предмета по таблице шансов.<br>
-          <strong>Краш:</strong> точка взрыва = 0.95 / (1 − число), округлённая вниз до сотых.<br>
+          <strong>Краш:</strong> точка взрыва = 0.95 / (1 - число), округлённая вниз до сотых.<br>
           <strong>Рулетка:</strong> сектор = ⌊число × 15⌋.
         </p>
       </div>
@@ -285,7 +285,7 @@
     <section class="view" id="view-wallet">
       <div class="wallet-card">
         <div class="wallet-label">Ваш баланс</div>
-        <div class="wallet-balance" id="walletBalance">—</div>
+        <div class="wallet-balance" id="walletBalance">-</div>
         <div class="wallet-rows" id="walletRows"></div>
       </div>
 
@@ -321,10 +321,38 @@
     <section class="view" id="view-bonuses">
       <div class="game-head">
         <h1 class="game-title">БОНУСЫ</h1>
-        <p class="game-sub">Кейсы и плюшки, которые выпали в подарок, — открывайте бесплатно.</p>
+        <p class="game-sub">Кейсы и плюшки, которые выпали в подарок, - открывайте бесплатно.</p>
       </div>
+      <div class="promo-card">
+        <div class="promo-head">
+          <span class="promo-title">Промокод</span>
+          <span class="promo-hint">баланс, процент к пополнению или бесплатный кейс</span>
+        </div>
+        <div class="seed-row">
+          <input class="seed-input" id="promoInput" maxlength="32" placeholder="введите код"
+                 autocapitalize="characters" autocomplete="off">
+          <button class="btn btn-primary" id="promoBtn">Применить</button>
+        </div>
+        <div class="promo-result" id="promoResult" hidden></div>
+      </div>
+
+      <div class="wager-note" id="wagerNote" hidden></div>
+
       <div class="perk-bar" id="bonusPerks" hidden></div>
+
+      <h2 class="section-title" id="bonusCasesTitle">Выигранные кейсы</h2>
       <div class="shelf-row" id="bonusList"></div>
+
+      <div id="promoHistory"></div>
+    </section>
+
+    <!-- ══════════ ПАРТНЁРУ ══════════ -->
+    <section class="view" id="view-partner">
+      <div class="game-head">
+        <h1 class="game-title">ПАРТНЁРУ</h1>
+        <p class="game-sub">Статистика по игрокам, пришедшим по вашим промокодам.</p>
+      </div>
+      <div id="partnerBody"></div>
     </section>
 
     <!-- ══════════ АДМИНКА ══════════ -->
@@ -333,6 +361,8 @@
         <button class="tab active" data-admin-tab="overview">Сводка</button>
         <button class="tab" data-admin-tab="users">Игроки</button>
         <button class="tab" data-admin-tab="payouts">Выплаты</button>
+        <button class="tab" data-admin-tab="promos">Промокоды</button>
+        <button class="tab" data-admin-tab="partners">Партнёры</button>
         <button class="tab" data-admin-tab="feed">Лента</button>
       </div>
 
@@ -356,6 +386,8 @@
         <div id="payoutAdminList"></div>
       </div>
 
+      <div class="admin-pane" id="admin-promos"></div>
+      <div class="admin-pane" id="admin-partners"></div>
       <div class="admin-pane" id="admin-feed"></div>
 
       <div class="admin-detail" id="adminDetail" hidden></div>
@@ -397,16 +429,38 @@
         <div class="opener-balance">
           <span class="opener-balance-ico" data-ico="coin"></span>
           <span>Баланс</span>
-          <b id="openerBalance">—</b>
+          <b id="openerBalance">-</b>
         </div>
 
         <div class="reels" id="reels"></div>
 
         <div class="batch-summary" id="batchSummary" hidden></div>
 
+        <!-- Серия автооткрытий: показывается вместо панели кейса, пока идёт
+             прокрут за прокрутом. -->
+        <div class="auto-panel" id="autoPanel" hidden>
+          <div class="auto-head">
+            <span class="auto-left" id="autoLeft"></span>
+            <button class="btn btn-outline btn-sm" id="autoStop">СТОП</button>
+          </div>
+          <div class="auto-total" id="autoTotal">0 ₽</div>
+          <div class="auto-sub">выигрыш за серию</div>
+          <div class="auto-log" id="autoLog"></div>
+        </div>
+
         <div class="case-panel" id="casePanel">
           <div class="count-row" id="countRow"></div>
+          <div class="auto-row" id="autoRow"></div>
           <button class="btn btn-primary sheet-open-btn" id="doOpenBtn"></button>
+          <!-- Покупка фриспинов: серия прокрутов сразу, дешевле поштучных. -->
+          <div class="fsbuy" id="fsBuy" hidden>
+            <div class="fsbuy-head">
+              <span class="fsbuy-title">Купить фриспины</span>
+              <span class="fsbuy-hint">выгоднее, чем открывать по одному</span>
+            </div>
+            <div class="fsbuy-row" id="fsBuyRow"></div>
+          </div>
+
           <div class="drops-head">
             <span>Содержимое</span>
             <span id="dropsCount"></span>

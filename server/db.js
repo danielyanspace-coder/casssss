@@ -117,6 +117,81 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_deposits_user ON deposits(user_id, id DESC);
 
+  -- Промокоды. Один код - один набор условий; всё, чем он ограничен, лежит
+  -- здесь же, чтобы правила выдачи не расползались по коду.
+  CREATE TABLE IF NOT EXISTS promocodes (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    code              TEXT    NOT NULL UNIQUE,
+    -- balance: сразу на баланс; deposit_pct: процент к следующему пополнению;
+    -- free_case: подарочные открытия кейса.
+    type              TEXT    NOT NULL,
+    amount            INTEGER NOT NULL DEFAULT 0,
+    pct               INTEGER NOT NULL DEFAULT 0,
+    max_bonus         INTEGER NOT NULL DEFAULT 0,
+    min_deposit       INTEGER NOT NULL DEFAULT 0,
+    case_id           TEXT,
+    case_count        INTEGER NOT NULL DEFAULT 1,
+    -- Во сколько раз бонус надо прокрутить ставками, прежде чем выводить.
+    wager_multiplier  REAL    NOT NULL DEFAULT 0,
+    max_uses          INTEGER NOT NULL DEFAULT 0,
+    used_count        INTEGER NOT NULL DEFAULT 0,
+    per_user_limit    INTEGER NOT NULL DEFAULT 1,
+    new_players_only  INTEGER NOT NULL DEFAULT 0,
+    starts_at         INTEGER,
+    expires_at        INTEGER,
+    partner_id        INTEGER REFERENCES partners(id),
+    is_active         INTEGER NOT NULL DEFAULT 1,
+    note              TEXT,
+    created_at        INTEGER NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS promo_redemptions (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    promo_id   INTEGER NOT NULL REFERENCES promocodes(id),
+    user_id    INTEGER NOT NULL REFERENCES users(id),
+    granted    INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_promo_red_user ON promo_redemptions(user_id, id DESC);
+  CREATE INDEX IF NOT EXISTS idx_promo_red_promo ON promo_redemptions(promo_id);
+
+  -- Обещанный процент к пополнению. Ждёт здесь, пока игрок не пополнит счёт:
+  -- платёжного шлюза ещё нет, и применить его прямо сейчас не к чему.
+  CREATE TABLE IF NOT EXISTS pending_deposit_bonus (
+    user_id          INTEGER PRIMARY KEY REFERENCES users(id),
+    promo_id         INTEGER NOT NULL REFERENCES promocodes(id),
+    pct              INTEGER NOT NULL,
+    max_bonus        INTEGER NOT NULL DEFAULT 0,
+    min_deposit      INTEGER NOT NULL DEFAULT 0,
+    wager_multiplier REAL    NOT NULL DEFAULT 0,
+    created_at       INTEGER NOT NULL
+  );
+
+  -- Партнёры реферальной программы. Заводятся по Telegram ID: партнёр видит
+  -- свою статистику тем же аккаунтом, которым заходит в приложение.
+  CREATE TABLE IF NOT EXISTS partners (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    tg_id      TEXT    NOT NULL UNIQUE,
+    name       TEXT,
+    share_pct  REAL    NOT NULL DEFAULT 30,
+    is_active  INTEGER NOT NULL DEFAULT 1,
+    note       TEXT,
+    created_at INTEGER NOT NULL
+  );
+
+  -- Выплаты партнёру. Начисления не хранятся: они считаются запросом из
+  -- раундов рефералов, поэтому не могут разойтись с фактической игрой.
+  CREATE TABLE IF NOT EXISTS partner_payouts (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    partner_id INTEGER NOT NULL REFERENCES partners(id),
+    amount     INTEGER NOT NULL,
+    comment    TEXT,
+    created_at INTEGER NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_partner_payouts ON partner_payouts(partner_id, id DESC);
+
   -- Журнал действий администратора: любое изменение баланса извне видно.
   CREATE TABLE IF NOT EXISTS admin_log (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -173,6 +248,15 @@ ensureColumn('rounds', 'free', 'INTEGER NOT NULL DEFAULT 0');
 ensureColumn('users', 'gamble_stake', 'INTEGER NOT NULL DEFAULT 0');
 ensureColumn('users', 'gamble_case', 'TEXT');
 ensureColumn('users', 'free_case_at', 'INTEGER NOT NULL DEFAULT 0');
+
+// Отыгрыш бонусов: сколько ещё надо поставить, прежде чем выводить средства.
+ensureColumn('users', 'wager_required', 'INTEGER NOT NULL DEFAULT 0');
+// Сумма выданных игроку бонусов - вычитается из прибыли при расчёте партнёру.
+ensureColumn('users', 'bonus_granted', 'INTEGER NOT NULL DEFAULT 0');
+// Сколько раз игрок пополнял счёт: по нему работает условие «только новым».
+ensureColumn('users', 'deposits_count', 'INTEGER NOT NULL DEFAULT 0');
+// К какому партнёру привязан игрок. Ставится один раз, первым промокодом.
+ensureColumn('users', 'partner_id', 'INTEGER');
 
 const STARTING_BALANCE = Number(process.env.STARTING_BALANCE || 1000);
 
@@ -262,6 +346,8 @@ export const settleRound = db.transaction((userId, round) => {
          multiplier, round.tier, round.roll, round.nonce, user.server_seed_hash,
          user.client_seed, Date.now());
 
+  consumeWager(userId, round.bet);
+
   return newBalance;
 });
 
@@ -300,6 +386,7 @@ export const startCrashRound = db.transaction((userId, bet, computeCrashPoint) =
 
   // Ставка списывается сразу: выплата придёт отдельно, при выводе.
   db.prepare('UPDATE users SET balance = balance - ? WHERE id = ?').run(bet, userId);
+  consumeWager(userId, bet);
 
   const info = db.prepare(`
     INSERT INTO crash_rounds (user_id, bet, crash_point, started_at, roll, nonce,
@@ -563,6 +650,61 @@ export function recentPublicDrops(limit = 24, minMultiplier = 3, minValue = 500)
 /** Потолок длины серии фриспинов — предохранитель, см. розыгрыш ниже. */
 export const MAX_FREE_SPINS = 300;
 
+/**
+ * Прокручивает серию фриспинов и возвращает её итог.
+ *
+ * Серия крутит ту же полную таблицу, что и платное открытие, поэтому внутри
+ * неё может выпасть что угодно, включая новые фриспины: они просто добавляются
+ * к остатку. Ряд сходится - ожидаемое число довесков равно share < 1 на
+ * прокрут, - но предохранитель всё равно нужен: без него единственная
+ * невероятная последовательность подвесила бы транзакцию.
+ *
+ * Каждый прокрут берёт свой nonce, поэтому проверяется так же, как обычный.
+ * Вызывать только внутри транзакции: функция двигает nonce и тратит ваучеры.
+ */
+function runFreeSpinSeries(userId, caseData, startCount, resolveFree) {
+  const spins = [];
+  let remaining = startCount;
+  let count = startCount;
+  let seriesX2 = false;
+  let payout = 0;
+
+  while (remaining > 0 && spins.length < MAX_FREE_SPINS) {
+    remaining--;
+    const spinNonce = bumpNonce(userId);
+    const u = getUserById(userId);
+    const spin = resolveFree(u.server_seed, u.client_seed, spinNonce);
+    const fi = spin.item;
+
+    // ×2, выпавший внутри серии, удваивает следующий её прокрут.
+    const doubled = seriesX2 && fi.value > 0;
+    const value = fi.value * (doubled ? 2 : 1);
+    seriesX2 = false;
+
+    let added = 0;
+    if (fi.perk) {
+      if (fi.perk.type === 'freespins') { added = fi.perk.count; remaining += added; count += added; }
+      if (fi.perk.type === 'x2') seriesX2 = true;
+      if (fi.perk.type === 'voucher') addVoucher(userId, fi.perk.caseId, 1);
+    }
+
+    payout += value;
+    spins.push({
+      name: fi.name,
+      value,
+      tier: fi.tier,
+      kind: fi.kind,
+      perkType: fi.perk?.type || null,
+      added,
+      x2: doubled,
+      roll: spin.roll,
+      nonce: spinNonce,
+    });
+  }
+
+  return { spins, payout, count, capped: spins.length >= MAX_FREE_SPINS, seriesX2 };
+}
+
 export const playCaseRound = db.transaction((userId, caseData, resolve, resolveFree) => {
   const before = getUserById(userId);
 
@@ -597,61 +739,19 @@ export const playCaseRound = db.transaction((userId, caseData, resolve, resolveF
     }
     if (item.perk.type === 'x2') granted.push({ type: 'x2', caseId: caseData.id });
     if (item.perk.type === 'freespins') {
-      /*
-       * Серия крутит ту же полную таблицу, поэтому внутри неё может выпасть
-       * что угодно, включая новые фриспины: они просто добавляются к остатку.
-       * Ряд сходится — ожидаемое число довесков равно share < 1 на прокрут, —
-       * но предохранитель всё равно нужен: без него единственная невероятная
-       * последовательность подвесила бы транзакцию.
-       */
-      const spins = [];
-      let remaining = item.perk.count;
-      let granted2 = item.perk.count;
-      let seriesX2 = false;
-
-      while (remaining > 0 && spins.length < MAX_FREE_SPINS) {
-        remaining--;
-        const spinNonce = bumpNonce(userId);
-        const u = getUserById(userId);
-        const spin = resolveFree(u.server_seed, u.client_seed, spinNonce);
-        const fi = spin.item;
-
-        // ×2, выпавший внутри серии, удваивает следующий её прокрут.
-        const doubled = seriesX2 && fi.value > 0;
-        const value = fi.value * (doubled ? 2 : 1);
-        seriesX2 = false;
-
-        let added = 0;
-        if (fi.perk) {
-          if (fi.perk.type === 'freespins') { added = fi.perk.count; remaining += added; granted2 += added; }
-          if (fi.perk.type === 'x2') seriesX2 = true;
-          if (fi.perk.type === 'voucher') addVoucher(userId, fi.perk.caseId, 1);
-        }
-
-        freeSpinsPayout += value;
-        spins.push({
-          name: fi.name,
-          value,
-          tier: fi.tier,
-          kind: fi.kind,
-          perkType: fi.perk?.type || null,
-          added,
-          x2: doubled,
-          roll: spin.roll,
-          nonce: spinNonce,
-        });
-      }
+      const series = runFreeSpinSeries(userId, caseData, item.perk.count, resolveFree);
+      freeSpinsPayout = series.payout;
 
       // ×2, доставшийся на последнем прокруте, не должен пропасть.
-      if (seriesX2) granted.push({ type: 'x2', caseId: caseData.id });
+      if (series.seriesX2) granted.push({ type: 'x2', caseId: caseData.id });
 
       granted.push({
         type: 'freespins',
         caseId: caseData.id,
-        count: granted2,
-        capped: spins.length >= MAX_FREE_SPINS,
-        spins,
-        total: freeSpinsPayout,
+        count: series.count,
+        capped: series.capped,
+        spins: series.spins,
+        total: series.payout,
       });
     }
   }
@@ -698,12 +798,77 @@ export const playCaseRound = db.transaction((userId, caseData, resolve, resolveF
          spent, totalPayout, multiplier, item.tier, isFree ? 1 : 0,
          roll, nonce, user.server_seed_hash, user.client_seed, Date.now());
 
+  consumeWager(userId, spent);
+
   return {
     item, roll, nonce, payout, granted,
     freeSpinsPayout,
     totalPayout,
     free: isFree,
     x2Applied: x2Active && item.value > 0,
+    balance: newBalance,
+  };
+});
+
+/**
+ * Покупка серии фриспинов.
+ *
+ * Отдельная транзакция, а не открытие кейса: игрок платит не за прокрут, а
+ * сразу за серию, и по цене серия дешевле, чем те же прокруты поодиночке
+ * (лесенка скидок в FREESPIN_PACKS). Внутри крутится ровно та же таблица и
+ * тот же provably fair, что и в обычной игре.
+ *
+ * В историю пишется одной строкой: ставка - цена пачки, выплата - итог серии.
+ * Ролл и nonce берутся с первого прокрута, чтобы серию можно было проверить с
+ * её начала.
+ */
+export const buyFreeSpins = db.transaction((userId, caseData, count, cost, resolveFree) => {
+  const before = getUserById(userId);
+  if (before.balance < cost) {
+    throw Object.assign(new Error('Недостаточно средств'), { code: 'INSUFFICIENT_FUNDS' });
+  }
+
+  const user = getUserById(userId);
+  const series = runFreeSpinSeries(userId, caseData, count, resolveFree);
+
+  const newBalance = before.balance - cost + series.payout;
+  const multiplier = series.payout / cost;
+
+  // ×2 с последнего прокрута серии не должен пропасть - он переходит на
+  // следующее открытие этого же кейса, как и при обычной выдаче.
+  const nextX2 = series.seriesX2 ? caseData.id : user.x2_case_id;
+
+  db.prepare(`
+    UPDATE users
+       SET balance = ?, x2_case_id = ?,
+           gamble_stake = ?, gamble_case = ?,
+           total_rounds = total_rounds + 1,
+           total_spent = total_spent + ?,
+           total_won = total_won + ?,
+           best_multiplier = MAX(best_multiplier, ?)
+     WHERE id = ?
+  `).run(newBalance, nextX2,
+         series.payout > 0 ? series.payout : 0,
+         series.payout > 0 ? caseData.id : null,
+         cost, series.payout, multiplier, userId);
+
+  const first = series.spins[0];
+  db.prepare(`
+    INSERT INTO rounds (user_id, game, title, subtitle, bet, payout, multiplier,
+                        tier, free, roll, nonce, server_hash, client_seed, created_at)
+    VALUES (?, 'case', ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)
+  `).run(userId, caseData.name, `${count} фриспинов`,
+         cost, series.payout, multiplier, 'unique',
+         first.roll, first.nonce, user.server_seed_hash, user.client_seed, Date.now());
+
+  consumeWager(userId, cost);
+
+  return {
+    count: series.count,
+    capped: series.capped,
+    spins: series.spins,
+    total: series.payout,
+    cost,
     balance: newBalance,
   };
 });
@@ -722,6 +887,253 @@ export const playCaseBatch = db.transaction((userId, caseData, count, resolve, r
   }
   return results;
 });
+
+/* ============================================================
+   ОТЫГРЫШ БОНУСОВ
+   ============================================================ */
+
+/**
+ * Отыгрыш - это защита от простой схемы: ввёл промокод на 1000, тут же заказал
+ * вывод, ушёл. Ни во что не сыграв, игрок вынес бы подаренные деньги.
+ *
+ * Схема выбрана самая простая из работающих: бонус не хранится отдельным
+ * кошельком, вместо этого игроку записывается долг по обороту. Выдали бонус B
+ * с множителем M - к долгу прибавилось B * M. Каждая ставка гасит долг на свой
+ * размер. Пока долг не погашен, вывод закрыт.
+ *
+ * Почему не отдельный «бонусный баланс»: тогда пришлось бы решать, из какого
+ * кошелька идёт каждая ставка и в какой попадает выигрыш, и любая ошибка в
+ * этой развилке видна игроку как пропавшие деньги. Долг по обороту такой
+ * развилки не создаёт вовсе.
+ *
+ * Отыграть можно любой игрой: кейсами, крашем, рулеткой, апгрейдом. Ограничить
+ * отыгрыш одной игрой было бы честнее к заведению, но игроку это правило почти
+ * всегда объясняют плохо, и оно превращается в ловушку.
+ */
+
+/** Добавляет долг по обороту за выданный бонус. */
+function addWager(userId, bonusAmount, multiplier) {
+  if (!(bonusAmount > 0) || !(multiplier > 0)) return;
+  db.prepare('UPDATE users SET wager_required = wager_required + ? WHERE id = ?')
+    .run(Math.round(bonusAmount * multiplier), userId);
+}
+
+/**
+ * Гасит долг по обороту сделанной ставкой.
+ *
+ * Вызывается из каждой игры. Долг не уходит в минус: лишнее просто сгорает.
+ */
+export function consumeWager(userId, bet) {
+  if (!(bet > 0)) return;
+  db.prepare('UPDATE users SET wager_required = MAX(0, wager_required - ?) WHERE id = ?')
+    .run(Math.round(bet), userId);
+}
+
+/* ============================================================
+   ПРОМОКОДЫ
+   ============================================================ */
+
+const PROMO_TYPES = new Set(['balance', 'deposit_pct', 'free_case']);
+
+/** Приводит код к каноническому виду: регистр и пробелы не должны мешать. */
+export function normalizePromoCode(raw) {
+  return String(raw || '').trim().toUpperCase().replace(/\s+/g, '');
+}
+
+export function getPromoByCode(code) {
+  return db.prepare('SELECT * FROM promocodes WHERE code = ?').get(normalizePromoCode(code));
+}
+
+/**
+ * Активация промокода игроком.
+ *
+ * resolveCase(caseId) отдаёт { name, price, rtp } - знание о кейсах живёт в
+ * cases.js, и тащить его в хранилище незачем.
+ *
+ * Возвращает описание того, что игрок получил, чтобы интерфейс мог сказать это
+ * словами, а не «код принят».
+ */
+export const redeemPromo = db.transaction((userId, rawCode, resolveCase) => {
+  const code = normalizePromoCode(rawCode);
+  const fail = (message, codeName) =>
+    Object.assign(new Error(message), { code: codeName || 'PROMO' });
+
+  if (!code) throw fail('Введите промокод');
+
+  const promo = db.prepare('SELECT * FROM promocodes WHERE code = ?').get(code);
+  if (!promo || !promo.is_active) throw fail('Промокод не найден');
+
+  const now = Date.now();
+  if (promo.starts_at && now < promo.starts_at) throw fail('Промокод ещё не начал действовать');
+  if (promo.expires_at && now > promo.expires_at) throw fail('Срок действия промокода истёк');
+  if (promo.max_uses > 0 && promo.used_count >= promo.max_uses) {
+    throw fail('Промокод уже использован максимальное число раз');
+  }
+
+  const mine = db.prepare(
+    'SELECT COUNT(*) AS n FROM promo_redemptions WHERE promo_id = ? AND user_id = ?'
+  ).get(promo.id, userId).n;
+  if (promo.per_user_limit > 0 && mine >= promo.per_user_limit) {
+    throw fail('Вы уже активировали этот промокод');
+  }
+
+  const user = getUserById(userId);
+  if (promo.new_players_only && user.deposits_count > 0) {
+    throw fail('Промокод только для игроков без пополнений');
+  }
+
+  let granted = 0;
+  let result;
+
+  if (promo.type === 'balance') {
+    if (!(promo.amount > 0)) throw fail('Промокод настроен неверно');
+    granted = promo.amount;
+    db.prepare('UPDATE users SET balance = balance + ?, bonus_granted = bonus_granted + ? WHERE id = ?')
+      .run(granted, granted, userId);
+    addWager(userId, granted, promo.wager_multiplier);
+    result = { type: 'balance', amount: granted };
+
+  } else if (promo.type === 'free_case') {
+    const target = resolveCase(promo.case_id);
+    if (!target) throw fail('Промокод настроен неверно');
+    const count = Math.max(1, promo.case_count);
+    addVoucher(userId, promo.case_id, count);
+
+    // Подарочный кейс стоит заведению своё матожидание, а не цену: игрок
+    // получает не деньги, а прокрут. Эта же сумма потом вычитается из прибыли
+    // при расчёте доли партнёра.
+    granted = Math.round(target.price * target.rtp * count);
+    db.prepare('UPDATE users SET bonus_granted = bonus_granted + ? WHERE id = ?')
+      .run(granted, userId);
+    addWager(userId, granted, promo.wager_multiplier);
+    result = { type: 'free_case', caseId: promo.case_id, caseName: target.name, count };
+
+  } else if (promo.type === 'deposit_pct') {
+    if (!(promo.pct > 0)) throw fail('Промокод настроен неверно');
+    // Процент вешается на следующее пополнение: сейчас начислять нечего.
+    db.prepare(`
+      INSERT INTO pending_deposit_bonus
+        (user_id, promo_id, pct, max_bonus, min_deposit, wager_multiplier, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(user_id) DO UPDATE SET
+        promo_id = excluded.promo_id, pct = excluded.pct,
+        max_bonus = excluded.max_bonus, min_deposit = excluded.min_deposit,
+        wager_multiplier = excluded.wager_multiplier, created_at = excluded.created_at
+    `).run(userId, promo.id, promo.pct, promo.max_bonus, promo.min_deposit,
+           promo.wager_multiplier, now);
+    result = { type: 'deposit_pct', pct: promo.pct, maxBonus: promo.max_bonus,
+               minDeposit: promo.min_deposit };
+
+  } else {
+    throw fail('Промокод настроен неверно');
+  }
+
+  // Привязка к партнёру ставится один раз и навсегда: если игрок уже чей-то,
+  // второй промокод его не переманивает.
+  if (promo.partner_id && !user.partner_id) {
+    db.prepare('UPDATE users SET partner_id = ? WHERE id = ?').run(promo.partner_id, userId);
+  }
+
+  db.prepare('UPDATE promocodes SET used_count = used_count + 1 WHERE id = ?').run(promo.id);
+  db.prepare(`INSERT INTO promo_redemptions (promo_id, user_id, granted, created_at)
+              VALUES (?, ?, ?, ?)`).run(promo.id, userId, granted, now);
+
+  const after = getUserById(userId);
+  return {
+    ...result,
+    wagerRequired: after.wager_required,
+    balance: after.balance,
+  };
+});
+
+/** Ожидающий процент к пополнению - показывается игроку в разделе бонусов. */
+export function pendingDepositBonus(userId) {
+  return db.prepare('SELECT * FROM pending_deposit_bonus WHERE user_id = ?').get(userId) || null;
+}
+
+/** История активаций игрока. */
+export function myPromoRedemptions(userId, limit = 20) {
+  return db.prepare(`
+    SELECT r.granted, r.created_at, p.code, p.type
+      FROM promo_redemptions r
+      JOIN promocodes p ON p.id = r.promo_id
+     WHERE r.user_id = ?
+     ORDER BY r.id DESC
+     LIMIT ?
+  `).all(userId, limit);
+}
+
+/* ============================================================
+   ПАРТНЁРЫ
+   ============================================================ */
+
+export function getPartnerByTgId(tgId) {
+  return db.prepare('SELECT * FROM partners WHERE tg_id = ?').get(String(tgId)) || null;
+}
+
+/**
+ * Статистика партнёра.
+ *
+ * Прибыль считается запросом по раундам его рефералов, а не копится отдельной
+ * колонкой: колонка рано или поздно разошлась бы с фактической игрой, а запрос
+ * разойтись не может.
+ *
+ * Берётся чистая прибыль: ставки минус выплаты минус выданные этим игрокам
+ * бонусы. Без вычета бонусов партнёр получал бы долю с прибыли, которой не
+ * было, - игрок ведь играл на подаренные деньги.
+ *
+ * Минус переносится сам собой, потому что считается за всё время: если реферал
+ * крупно выиграл, доля партнёра снова станет положительной только после того,
+ * как эта прибыль отыграется обратно. Это обычная практика партнёрских
+ * программ, и она защищает от схемы «привёл себя, выиграл, забрал долю».
+ */
+export function partnerStats(partnerId) {
+  const partner = db.prepare('SELECT * FROM partners WHERE id = ?').get(partnerId);
+  if (!partner) return null;
+
+  const totals = db.prepare(`
+    SELECT
+      (SELECT COUNT(*) FROM users WHERE partner_id = @pid) AS referrals,
+      (SELECT COUNT(*) FROM users WHERE partner_id = @pid AND total_rounds > 0) AS active,
+      COALESCE((SELECT SUM(r.bet) FROM rounds r
+                  JOIN users u ON u.id = r.user_id
+                 WHERE u.partner_id = @pid), 0) AS wagered,
+      COALESCE((SELECT SUM(r.payout) FROM rounds r
+                  JOIN users u ON u.id = r.user_id
+                 WHERE u.partner_id = @pid), 0) AS paid,
+      COALESCE((SELECT SUM(u.bonus_granted) FROM users u
+                 WHERE u.partner_id = @pid), 0) AS bonuses,
+      COALESCE((SELECT SUM(amount) FROM partner_payouts WHERE partner_id = @pid), 0) AS payouts
+  `).get({ pid: partnerId });
+
+  const profit = totals.wagered - totals.paid - totals.bonuses;
+  const accrued = profit > 0 ? Math.floor((profit * partner.share_pct) / 100) : 0;
+
+  return {
+    partner,
+    referrals: totals.referrals,
+    active: totals.active,
+    wagered: totals.wagered,
+    paid: totals.paid,
+    bonuses: totals.bonuses,
+    profit,
+    accrued,
+    paidOut: totals.payouts,
+    pending: accrued - totals.payouts,
+  };
+}
+
+/** Рефералы партнёра списком - для его собственного экрана. */
+export function partnerReferrals(partnerId, limit = 50) {
+  return db.prepare(`
+    SELECT u.id, u.username, u.first_name, u.created_at, u.total_rounds,
+           u.total_spent, u.total_won, u.bonus_granted
+      FROM users u
+     WHERE u.partner_id = ?
+     ORDER BY u.id DESC
+     LIMIT ?
+  `).all(partnerId, limit);
+}
 
 /* ============================================================
    АДМИНКА
@@ -848,10 +1260,43 @@ export const adminAdjustBalance = db.transaction((adminId, targetId, amount, not
     db.prepare(`INSERT INTO deposits (user_id, amount, source, comment, created_at)
                 VALUES (?, ?, 'admin', ?, ?)`)
       .run(targetId, applied, note || 'Начисление администратором', Date.now());
+    db.prepare('UPDATE users SET deposits_count = deposits_count + 1 WHERE id = ?')
+      .run(targetId);
+    applyDepositBonus(targetId, applied);
   }
 
-  return { balance: newBalance, applied };
+  return { balance: getUserById(targetId).balance, applied };
 });
+
+/**
+ * Применяет обещанный процент к пополнению.
+ *
+ * Начисления руками администратора - единственный вид пополнения, который
+ * сейчас есть в проекте (платёжного шлюза нет). Когда касса появится, вызов
+ * надо будет добавить и туда, а логика останется прежней.
+ *
+ * Бонус одноразовый: сработал - запись убирается.
+ */
+function applyDepositBonus(userId, depositAmount) {
+  const pending = db.prepare('SELECT * FROM pending_deposit_bonus WHERE user_id = ?').get(userId);
+  if (!pending) return 0;
+  if (depositAmount < pending.min_deposit) return 0;
+
+  let bonus = Math.floor((depositAmount * pending.pct) / 100);
+  if (pending.max_bonus > 0) bonus = Math.min(bonus, pending.max_bonus);
+  if (bonus <= 0) return 0;
+
+  db.prepare('UPDATE users SET balance = balance + ?, bonus_granted = bonus_granted + ? WHERE id = ?')
+    .run(bonus, bonus, userId);
+  addWager(userId, bonus, pending.wager_multiplier);
+
+  db.prepare(`INSERT INTO deposits (user_id, amount, source, comment, created_at)
+              VALUES (?, ?, 'promo', ?, ?)`)
+    .run(userId, bonus, `Бонус к пополнению +${pending.pct}%`, Date.now());
+
+  db.prepare('DELETE FROM pending_deposit_bonus WHERE user_id = ?').run(userId);
+  return bonus;
+}
 
 export const adminSetBlocked = db.transaction((adminId, targetId, blocked) => {
   const target = getUserById(targetId);
@@ -933,7 +1378,7 @@ export const playGamble = db.transaction((userId, pickIndex, config, resolve) =>
                         tier, free, roll, nonce, server_hash, client_seed, created_at)
     VALUES (?, 'gamble', 'Риск-игра', ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)
   `).run(userId,
-         won ? `Нашёл туза — ${config.payout}x` : 'Промах',
+         won ? `Нашёл туза - ${config.payout}x` : 'Промах',
          stake, payout, won ? config.payout : 0,
          won ? 'unique' : 'common',
          roll, nonce, fresh.server_seed_hash, fresh.client_seed, Date.now());
@@ -947,6 +1392,154 @@ export const playGamble = db.transaction((userId, pickIndex, config, resolve) =>
 /** Сбрасывает предложенный риск, если игрок им не воспользовался. */
 export function clearGamble(userId) {
   db.prepare('UPDATE users SET gamble_stake = 0, gamble_case = NULL WHERE id = ?').run(userId);
+}
+
+/* ---------- Админка: промокоды ---------- */
+
+/** Поля, которые администратор может задать у промокода. */
+const PROMO_FIELDS = [
+  'type', 'amount', 'pct', 'max_bonus', 'min_deposit', 'case_id', 'case_count',
+  'wager_multiplier', 'max_uses', 'per_user_limit', 'new_players_only',
+  'starts_at', 'expires_at', 'partner_id', 'is_active', 'note',
+];
+
+export const adminSavePromo = db.transaction((adminId, data) => {
+  const code = normalizePromoCode(data.code);
+  if (!code) throw Object.assign(new Error('Укажите код'), { code: 'BAD' });
+  if (!PROMO_TYPES.has(data.type)) {
+    throw Object.assign(new Error('Неизвестный тип промокода'), { code: 'BAD' });
+  }
+
+  const row = {
+    code,
+    type: data.type,
+    amount: Math.max(0, Math.trunc(Number(data.amount) || 0)),
+    pct: Math.max(0, Math.trunc(Number(data.pct) || 0)),
+    max_bonus: Math.max(0, Math.trunc(Number(data.max_bonus) || 0)),
+    min_deposit: Math.max(0, Math.trunc(Number(data.min_deposit) || 0)),
+    case_id: data.case_id || null,
+    case_count: Math.max(1, Math.trunc(Number(data.case_count) || 1)),
+    wager_multiplier: Math.max(0, Number(data.wager_multiplier) || 0),
+    max_uses: Math.max(0, Math.trunc(Number(data.max_uses) || 0)),
+    per_user_limit: Math.max(0, Math.trunc(Number(data.per_user_limit) || 1)),
+    new_players_only: data.new_players_only ? 1 : 0,
+    starts_at: data.starts_at ? Number(data.starts_at) : null,
+    expires_at: data.expires_at ? Number(data.expires_at) : null,
+    partner_id: data.partner_id ? Number(data.partner_id) : null,
+    is_active: data.is_active === false ? 0 : 1,
+    note: data.note || null,
+  };
+
+  const existing = db.prepare('SELECT id FROM promocodes WHERE code = ?').get(code);
+
+  if (existing) {
+    // Счётчик активаций при правке не трогаем: это факт, а не настройка.
+    const sets = PROMO_FIELDS.map((f) => `${f} = @${f}`).join(', ');
+    db.prepare(`UPDATE promocodes SET ${sets} WHERE id = @id`).run({ ...row, id: existing.id });
+    db.prepare(`INSERT INTO admin_log (admin_id, target_id, action, amount, note, created_at)
+                VALUES (?, 0, 'promo_edit', NULL, ?, ?)`).run(adminId, code, Date.now());
+    return { id: existing.id, code, created: false };
+  }
+
+  const cols = ['code', ...PROMO_FIELDS];
+  const info = db.prepare(`
+    INSERT INTO promocodes (${cols.join(', ')}, created_at)
+    VALUES (${cols.map((c) => '@' + c).join(', ')}, @created_at)
+  `).run({ ...row, created_at: Date.now() });
+
+  db.prepare(`INSERT INTO admin_log (admin_id, target_id, action, amount, note, created_at)
+              VALUES (?, 0, 'promo_add', NULL, ?, ?)`).run(adminId, code, Date.now());
+
+  return { id: info.lastInsertRowid, code, created: true };
+});
+
+export function adminListPromos() {
+  return db.prepare(`
+    SELECT p.*, pa.name AS partner_name, pa.tg_id AS partner_tg
+      FROM promocodes p
+      LEFT JOIN partners pa ON pa.id = p.partner_id
+     ORDER BY p.id DESC
+  `).all();
+}
+
+export const adminDeletePromo = db.transaction((adminId, id) => {
+  const promo = db.prepare('SELECT * FROM promocodes WHERE id = ?').get(id);
+  if (!promo) throw Object.assign(new Error('Промокод не найден'), { code: 'NOT_FOUND' });
+
+  // Активации не удаляем: они часть истории начислений. Сам код просто гасим,
+  // если им уже пользовались, и удаляем, если нет.
+  if (promo.used_count > 0) {
+    db.prepare('UPDATE promocodes SET is_active = 0 WHERE id = ?').run(id);
+  } else {
+    db.prepare('DELETE FROM promocodes WHERE id = ?').run(id);
+  }
+
+  db.prepare(`INSERT INTO admin_log (admin_id, target_id, action, amount, note, created_at)
+              VALUES (?, 0, 'promo_del', NULL, ?, ?)`).run(adminId, promo.code, Date.now());
+
+  return { disabled: promo.used_count > 0 };
+});
+
+/* ---------- Админка: партнёры ---------- */
+
+export const adminSavePartner = db.transaction((adminId, data) => {
+  const tgId = String(data.tg_id || '').trim();
+  if (!/^\d+$/.test(tgId)) {
+    throw Object.assign(new Error('Telegram ID - это число'), { code: 'BAD' });
+  }
+
+  const share = Math.min(100, Math.max(0, Number(data.share_pct) || 0));
+  const existing = db.prepare('SELECT id FROM partners WHERE tg_id = ?').get(tgId);
+
+  if (existing) {
+    db.prepare(`UPDATE partners SET name = ?, share_pct = ?, is_active = ?, note = ?
+                 WHERE id = ?`)
+      .run(data.name || null, share, data.is_active === false ? 0 : 1,
+           data.note || null, existing.id);
+    return { id: existing.id, created: false };
+  }
+
+  const info = db.prepare(`
+    INSERT INTO partners (tg_id, name, share_pct, is_active, note, created_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(tgId, data.name || null, share, data.is_active === false ? 0 : 1,
+         data.note || null, Date.now());
+
+  db.prepare(`INSERT INTO admin_log (admin_id, target_id, action, amount, note, created_at)
+              VALUES (?, 0, 'partner_add', NULL, ?, ?)`).run(adminId, tgId, Date.now());
+
+  return { id: info.lastInsertRowid, created: true };
+});
+
+/** Все партнёры со сведённой статистикой - для списка в админке. */
+export function adminListPartners() {
+  return db.prepare('SELECT id FROM partners ORDER BY id DESC')
+    .all()
+    .map((row) => partnerStats(row.id));
+}
+
+export const adminPayPartner = db.transaction((adminId, partnerId, amount, comment) => {
+  const stats = partnerStats(partnerId);
+  if (!stats) throw Object.assign(new Error('Партнёр не найден'), { code: 'NOT_FOUND' });
+
+  const sum = Math.trunc(Number(amount) || 0);
+  if (sum <= 0) throw Object.assign(new Error('Укажите сумму'), { code: 'BAD' });
+  if (sum > stats.pending) {
+    throw Object.assign(new Error(`К выплате доступно ${stats.pending}`), { code: 'BAD' });
+  }
+
+  db.prepare(`INSERT INTO partner_payouts (partner_id, amount, comment, created_at)
+              VALUES (?, ?, ?, ?)`).run(partnerId, sum, comment || null, Date.now());
+  db.prepare(`INSERT INTO admin_log (admin_id, target_id, action, amount, note, created_at)
+              VALUES (?, 0, 'partner_payout', ?, ?, ?)`)
+    .run(adminId, sum, `партнёр #${partnerId}`, Date.now());
+
+  return partnerStats(partnerId);
+});
+
+export function partnerPayoutHistory(partnerId, limit = 30) {
+  return db.prepare(`SELECT * FROM partner_payouts WHERE partner_id = ?
+                      ORDER BY id DESC LIMIT ?`).all(partnerId, limit);
 }
 
 /* ============================================================
@@ -987,10 +1580,16 @@ export const createPayout = db.transaction((userId, amount) => {
   const user = getUserById(userId);
 
   if (amount < MIN_PAYOUT) {
-    throw Object.assign(new Error(`Минимальная сумма вывода — ${MIN_PAYOUT}`), { code: 'MIN' });
+    throw Object.assign(new Error(`Минимальная сумма вывода - ${MIN_PAYOUT}`), { code: 'MIN' });
   }
   if (amount > user.balance) {
     throw Object.assign(new Error('Недостаточно средств'), { code: 'INSUFFICIENT_FUNDS' });
+  }
+  if (user.wager_required > 0) {
+    throw Object.assign(
+      new Error(`Бонус не отыгран: осталось поставить ${user.wager_required}`),
+      { code: 'WAGER' }
+    );
   }
 
   db.prepare('UPDATE users SET balance = balance - ? WHERE id = ?').run(amount, userId);

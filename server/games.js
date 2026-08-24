@@ -112,7 +112,7 @@ export function validateGames() {
   const first = rtps[0];
   for (const r of rtps) {
     if (Math.abs(r - first) > 1e-9) {
-      throw new Error(`Рулетка: RTP ставок разошёлся — ${rtps.join(', ')}`);
+      throw new Error(`Рулетка: RTP ставок разошёлся - ${rtps.join(', ')}`);
     }
   }
   if (first >= 1) {
@@ -127,7 +127,7 @@ export function validateGames() {
   for (const c of ROULETTE_COLORS) {
     const actual = ROULETTE_WHEEL.filter((x) => x === c.id).length;
     if (actual !== c.slots) {
-      throw new Error(`Рулетка: ${c.id} — на колесе ${actual}, в описании ${c.slots}`);
+      throw new Error(`Рулетка: ${c.id} - на колесе ${actual}, в описании ${c.slots}`);
     }
   }
 
@@ -242,7 +242,7 @@ export function validateUpgrade() {
 
   for (const m of UPGRADE_MULTIPLIERS) {
     if (m <= UPGRADE_RTP) {
-      throw new Error(`Апгрейд: множитель ${m} не больше отдачи ${UPGRADE_RTP} — шанс вышел бы >= 1`);
+      throw new Error(`Апгрейд: множитель ${m} не больше отдачи ${UPGRADE_RTP} - шанс вышел бы >= 1`);
     }
   }
 
@@ -252,12 +252,12 @@ export function validateUpgrade() {
       const target = upgradeTarget(stake, m);
       const chance = upgradeChance(stake, target);
       if (!(chance > 0 && chance < 1)) {
-        throw new Error(`Апгрейд: ставка ${stake}, множитель ${m} — шанс ${chance} вне (0, 1)`);
+        throw new Error(`Апгрейд: ставка ${stake}, множитель ${m} - шанс ${chance} вне (0, 1)`);
       }
       const ev = chance * target;
       if (Math.abs(ev - UPGRADE_RTP * stake) > 1e-9) {
         throw new Error(
-          `Апгрейд: ставка ${stake}, множитель ${m} — отдача ${(ev / stake).toFixed(6)} вместо ${UPGRADE_RTP}`
+          `Апгрейд: ставка ${stake}, множитель ${m} - отдача ${(ev / stake).toFixed(6)} вместо ${UPGRADE_RTP}`
         );
       }
     }

@@ -14,8 +14,8 @@
  * Запуск: node build-standalone.mjs
  */
 
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
-import { CASES, CATEGORIES, TIERS, publicCase } from './server/cases.js';
+import { readFileSync, writeFileSync, mkdirSync, readdirSync } from 'node:fs';
+import { CASES, CATEGORIES, TIERS, publicCase, FREESPIN_PACKS } from './server/cases.js';
 import {
   CRASH_CONFIG, ROULETTE_CONFIG, ROULETTE_WHEEL, GAMBLE_CONFIG, UPGRADE_CONFIG,
 } from './server/games.js';
@@ -58,6 +58,7 @@ const config = {
   freeCase: { enabled: false },
   bonus: { enabled: false },
   maxBatch: 5,
+  freeSpinPacks: FREESPIN_PACKS,
   minPayout: 1000,
 };
 
@@ -109,7 +110,17 @@ const drawTables = CASES.map((c) => ({
 const heroData = readFileSync(new URL('./public/assets/hero.webp', import.meta.url)).toString('base64');
 const porscheData = readFileSync(new URL('./public/assets/porsche.webp', import.meta.url)).toString('base64');
 const bannerData = readFileSync(new URL('./public/assets/porsche-banner.webp', import.meta.url)).toString('base64');
-const dustCoverData = readFileSync(new URL('./public/assets/dust-cover.webp', import.meta.url)).toString('base64');
+// Присланные обложки уезжают в файл все разом: с диска относительных путей
+// нет. Список берётся из папки, чтобы добавленная обложка не потерялась.
+const coverDir = new URL('./public/assets/covers/', import.meta.url);
+const coverArt = Object.fromEntries(
+  readdirSync(coverDir)
+    .filter((f) => f.endsWith('.webp'))
+    .map((f) => [
+      f.replace(/\.webp$/, ''),
+      'data:image/webp;base64,' + readFileSync(new URL(f, coverDir)).toString('base64'),
+    ])
+);
 
 const css = read('./public/styles.css');
 const html = read('./public/index.html');
@@ -545,7 +556,7 @@ const routes = {
     u.stats.bestMultiplier = Math.max(u.stats.bestMultiplier, payout / bet);
 
     pushRound({ game: 'roulette', title: 'Рулетка',
-      subtitle: won ? label + ' — забрал ' + payout : label + ' — мимо',
+      subtitle: won ? label + ' - забрал ' + payout : label + ' - мимо',
       bet, payout, multiplier: payout / bet,
       tier: won ? (landed === 'green' ? 'unique' : 'epic') : 'common', free: 0 });
     save();
@@ -562,7 +573,7 @@ const routes = {
     const cfg = CONFIG.upgrade;
 
     if (!stake || stake < cfg.minStake) {
-      return { status: 400, body: { error: 'Минимальная ставка — ' + cfg.minStake } };
+      return { status: 400, body: { error: 'Минимальная ставка - ' + cfg.minStake } };
     }
     if (!cfg.multipliers.includes(multiplier)) {
       return { status: 400, body: { error: 'Недоступный множитель' } };
@@ -586,7 +597,7 @@ const routes = {
     u.stats.bestMultiplier = Math.max(u.stats.bestMultiplier, payout / stake);
 
     pushRound({ game: 'upgrade', title: 'Апгрейд',
-      subtitle: 'x' + multiplier + (won ? ' — попал' : ' — мимо'),
+      subtitle: 'x' + multiplier + (won ? ' - попал' : ' - мимо'),
       bet: stake, payout, multiplier: payout / stake,
       tier: won ? 'legendary' : 'common', free: 0 });
     save();
@@ -691,7 +702,7 @@ const routes = {
     if (!amount || amount <= 0) return { status: 400, body: { error: 'Укажите сумму вывода' } };
     if (amount < CONFIG.minPayout) {
       return { status: 400, body: { error: 'MIN',
-        message: 'Минимальная сумма вывода — ' + CONFIG.minPayout } };
+        message: 'Минимальная сумма вывода - ' + CONFIG.minPayout } };
     }
     if (amount > u.balance) {
       return { status: 400, body: { error: 'INSUFFICIENT_FUNDS', message: 'Недостаточно средств' } };
@@ -786,7 +797,7 @@ const routes = {
     u.stats.bestMultiplier = Math.max(u.stats.bestMultiplier, won ? CONFIG.gamble.payout : 0);
 
     pushRound({ game: 'gamble', title: 'Риск-игра',
-      subtitle: won ? 'Нашёл туза — ' + CONFIG.gamble.payout + 'x' : 'Промах',
+      subtitle: won ? 'Нашёл туза - ' + CONFIG.gamble.payout + 'x' : 'Промах',
       bet: stake, payout, multiplier: won ? CONFIG.gamble.payout : 0,
       tier: won ? 'unique' : 'common', free: 0 });
     save();
@@ -1025,7 +1036,7 @@ const page = `<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-<title>LUCKYBOX — демо</title>
+<title>LUCKYBOX - демо</title>
 <style>
 ${css}
 
@@ -1054,7 +1065,7 @@ ${shim}
    Присваивание идёт до кода обложек — оттуда они и читаются. */
 window.__PORSCHE_SRC = 'data:image/webp;base64,${porscheData}';
 window.__PORSCHE_BANNER_SRC = 'data:image/webp;base64,${bannerData}';
-window.__DUST_COVER_SRC = 'data:image/webp;base64,${dustCoverData}';
+window.__COVER_ART = ${JSON.stringify(coverArt)};
 </script>
 
 <script>
@@ -1079,7 +1090,7 @@ ${strip(app)}
  * README, а demoAdmin() и resetDemo() по-прежнему работают из консоли.
  */
 console.info(
-  '%cLUCKYBOX — автономное демо',
+  '%cLUCKYBOX - автономное демо',
   'font-weight:700;color:#ff2e8a',
   '\\n· вся математика считается в браузере, прогресс хранится локально;'
   + '\\n· в рабочей версии исход считает сервер, серверный seed игроку недоступен;'

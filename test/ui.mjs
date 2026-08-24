@@ -39,7 +39,7 @@ let passed = 0;
 const failures = [];
 const check = (name, ok, detail = '') => {
   if (ok) { passed++; return true; }
-  failures.push(`${name}${detail ? ' — ' + detail : ''}`);
+  failures.push(`${name}${detail ? ' - ' + detail : ''}`);
   return false;
 };
 

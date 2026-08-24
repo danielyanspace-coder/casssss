@@ -84,7 +84,7 @@ console.table(results);
 
 console.log('\n=== Таблица шансов ===\n');
 for (const c of CASES) {
-  console.log(`${c.name} — ${c.price} ед., RTP ${(c.actualRtp * 100).toFixed(2)}%`);
+  console.log(`${c.name} - ${c.price} ед., RTP ${(c.actualRtp * 100).toFixed(2)}%`);
   console.table(
     c.items.map((it) => ({
       предмет: it.name,
@@ -413,7 +413,7 @@ console.log('Распределение по децилям (ожидается 
 console.log(buckets.join('  '));
 
 if (failures > 0) {
-  console.error(`\nПРОВАЛЕНО: расхождений — ${failures}\n`);
+  console.error(`\nПРОВАЛЕНО: расхождений - ${failures}\n`);
   process.exit(1);
 }
 console.log('\nВсе проверки пройдены.\n');

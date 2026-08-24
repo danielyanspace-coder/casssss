@@ -14,6 +14,7 @@ import { dirname, join } from 'node:path';
 
 import {
   CASES, CATEGORIES, getCase, pickItem, publicCase, validateCases, TIERS,
+  FREESPIN_PACKS, freeSpinPackPrice,
 } from './cases.js';
 import {
   CRASH_CONFIG,
@@ -44,6 +45,7 @@ import {
   getUserById,
   playCaseRound,
   playCaseBatch,
+  buyFreeSpins,
   playInstantRound,
   rotateServerSeed,
   setClientSeed,
@@ -71,6 +73,19 @@ import {
   grantFreeCase,
   freeCaseState,
   recentPublicDrops,
+  redeemPromo,
+  pendingDepositBonus,
+  myPromoRedemptions,
+  getPartnerByTgId,
+  partnerStats,
+  partnerReferrals,
+  partnerPayoutHistory,
+  adminSavePromo,
+  adminListPromos,
+  adminDeletePromo,
+  adminSavePartner,
+  adminListPartners,
+  adminPayPartner,
 } from './db.js';
 import { resolveUser } from './auth.js';
 import {
@@ -139,6 +154,9 @@ function publicUser(user) {
     gambleStake: user.gamble_stake,
     gambleCase: user.gamble_case,
     vouchers: getVouchers(user.id),
+    // Долг по обороту закрывает вывод, поэтому игрок должен его видеть.
+    wagerRequired: user.wager_required || 0,
+    isPartner: Boolean(getPartnerByTgId(user.tg_id)),
     stats: {
       rounds: user.total_rounds,
       spent: user.total_spent,
@@ -206,6 +224,7 @@ app.get('/api/config', (req, res) => {
     freeCase: subscriptionConfig(),
     bonus: { enabled: false },
     maxBatch: MAX_BATCH,
+    freeSpinPacks: FREESPIN_PACKS,
     minPayout: MIN_PAYOUT,
   });
 });
@@ -318,6 +337,57 @@ app.post('/api/open', auth, (req, res) => {
   });
 });
 
+/**
+ * Покупка серии фриспинов.
+ *
+ * Цену считает сервер, клиент её только показывает: иначе подобранным запросом
+ * можно было бы купить серию за свою цену.
+ */
+app.post('/api/freespins/buy', auth, (req, res) => {
+  const caseData = getCase(req.body?.caseId);
+  if (!caseData) return res.status(404).json({ error: 'Кейс не найден' });
+
+  if (caseData.availableFrom && Date.now() < caseData.availableFrom) {
+    const starts = new Date(caseData.availableFrom).toLocaleDateString('ru-RU');
+    return res.status(403).json({ error: `Кейс откроется ${starts}` });
+  }
+
+  const count = Math.trunc(Number(req.body?.count));
+  const cost = freeSpinPackPrice(caseData, count);
+  if (!cost) return res.status(400).json({ error: 'Такой пачки нет' });
+
+  const user = req.player;
+  if (user.balance < cost) return sendInsufficient(res, cost - user.balance);
+
+  let result;
+  try {
+    result = buyFreeSpins(user.id, caseData, count, cost,
+      (serverSeed, clientSeed, nonce) => {
+        const roll = computeRoll(serverSeed, clientSeed, nonce);
+        return { item: pickItem(caseData, roll), roll };
+      });
+  } catch (err) {
+    if (err.code === 'INSUFFICIENT_FUNDS') return sendInsufficient(res, cost - user.balance);
+    throw err;
+  }
+
+  res.json({
+    // Форма ответа повторяет выдачу фриспинов из кейса: клиент проигрывает их
+    // той же анимацией, что и выпавшие.
+    grant: {
+      type: 'freespins',
+      caseId: caseData.id,
+      count: result.count,
+      capped: result.capped,
+      spins: result.spins,
+      total: result.total,
+    },
+    cost: result.cost,
+    balance: result.balance,
+    user: publicUser(getUserById(user.id)),
+  });
+});
+
 /* ============================================================
    РУЛЕТКА
    ============================================================ */
@@ -347,8 +417,8 @@ app.post('/api/roulette', auth, (req, res) => {
         game: 'roulette',
         title: 'Рулетка',
         subtitle: won
-          ? `${labelOf(landed)} — забрал ${payout}`
-          : `${labelOf(landed)} — мимо`,
+          ? `${labelOf(landed)} - забрал ${payout}`
+          : `${labelOf(landed)} - мимо`,
         payout,
         tier: won ? (landed === 'green' ? 'unique' : 'epic') : 'common',
         roll,
@@ -486,6 +556,115 @@ app.post('/api/crash/cashout', auth, (req, res) => {
 });
 
 /* ============================================================
+   ПРОМОКОДЫ
+   ============================================================ */
+
+/** Кейс для промокода описывается ровно тем, что нужно хранилищу. */
+function promoCaseResolver(caseId) {
+  const c = getCase(caseId);
+  return c ? { name: c.name, price: c.price, rtp: c.rtp } : null;
+}
+
+app.post('/api/promo/redeem', auth, (req, res) => {
+  let result;
+  try {
+    result = redeemPromo(req.player.id, req.body?.code, promoCaseResolver);
+  } catch (err) {
+    if (err.code === 'PROMO' || err.code === 'BAD') {
+      return res.status(400).json({ error: err.message });
+    }
+    throw err;
+  }
+
+  res.json({ result, user: publicUser(getUserById(req.player.id)) });
+});
+
+/** Всё, что показывается в разделе «Бонусы». */
+app.post('/api/promo/state', auth, (req, res) => {
+  res.json({
+    pendingDeposit: pendingDepositBonus(req.player.id),
+    history: myPromoRedemptions(req.player.id),
+    wagerRequired: req.player.wager_required || 0,
+  });
+});
+
+/* ============================================================
+   ПАРТНЁРУ
+   ============================================================ */
+
+/**
+ * Статистика партнёра для него самого.
+ *
+ * Партнёр опознаётся по Telegram ID своего аккаунта: отдельного входа нет,
+ * он открывает то же приложение, что и игроки.
+ */
+app.post('/api/partner/stats', auth, (req, res) => {
+  const partner = getPartnerByTgId(req.player.tg_id);
+  if (!partner) return res.status(403).json({ error: 'Вы не партнёр' });
+
+  const stats = partnerStats(partner.id);
+  res.json({
+    ...stats,
+    referrals: partnerReferrals(partner.id),
+    referralCount: stats.referrals,
+    payouts: partnerPayoutHistory(partner.id),
+    promos: adminListPromos().filter((p) => p.partner_id === partner.id)
+      .map((p) => ({ code: p.code, type: p.type, used: p.used_count })),
+  });
+});
+
+/* ============================================================
+   АДМИНКА: ПРОМОКОДЫ И ПАРТНЁРЫ
+   ============================================================ */
+
+app.post('/api/admin/promos', auth, adminOnly, (req, res) => {
+  res.json({ rows: adminListPromos(), cases: CASES.map((c) => ({ id: c.id, name: c.name, price: c.price })) });
+});
+
+app.post('/api/admin/promo/save', auth, adminOnly, (req, res) => {
+  try {
+    res.json(adminSavePromo(req.player.id, req.body || {}));
+  } catch (err) {
+    if (err.code === 'BAD') return res.status(400).json({ error: err.message });
+    throw err;
+  }
+});
+
+app.post('/api/admin/promo/delete', auth, adminOnly, (req, res) => {
+  try {
+    res.json(adminDeletePromo(req.player.id, Number(req.body?.id)));
+  } catch (err) {
+    if (err.code === 'NOT_FOUND') return res.status(404).json({ error: err.message });
+    throw err;
+  }
+});
+
+app.post('/api/admin/partners', auth, adminOnly, (req, res) => {
+  res.json({ rows: adminListPartners() });
+});
+
+app.post('/api/admin/partner/save', auth, adminOnly, (req, res) => {
+  try {
+    res.json(adminSavePartner(req.player.id, req.body || {}));
+  } catch (err) {
+    if (err.code === 'BAD') return res.status(400).json({ error: err.message });
+    throw err;
+  }
+});
+
+app.post('/api/admin/partner/pay', auth, adminOnly, (req, res) => {
+  try {
+    res.json(adminPayPartner(req.player.id, Number(req.body?.partnerId),
+                             req.body?.amount, req.body?.comment));
+  } catch (err) {
+    if (err.code === 'BAD' || err.code === 'NOT_FOUND') {
+      return res.status(400).json({ error: err.message });
+    }
+    throw err;
+  }
+});
+
+/* ============================================================
    ПРОЧЕЕ
    ============================================================ */
 
@@ -528,7 +707,7 @@ app.post('/api/payout/create', auth, (req, res) => {
     const result = createPayout(req.player.id, amount);
     res.json({ ...result, user: publicUser(getUserById(req.player.id)) });
   } catch (err) {
-    if (err.code === 'MIN' || err.code === 'INSUFFICIENT_FUNDS') {
+    if (err.code === 'MIN' || err.code === 'INSUFFICIENT_FUNDS' || err.code === 'WAGER') {
       return res.status(400).json({ error: err.code, message: err.message });
     }
     throw err;
@@ -592,7 +771,7 @@ app.post('/api/upgrade', auth, (req, res) => {
   const multiplier = Number(req.body?.multiplier);
 
   if (!stake || stake < UPGRADE_CONFIG.minStake) {
-    return res.status(400).json({ error: `Минимальная ставка — ${UPGRADE_CONFIG.minStake}` });
+    return res.status(400).json({ error: `Минимальная ставка - ${UPGRADE_CONFIG.minStake}` });
   }
   if (!UPGRADE_CONFIG.multipliers.includes(multiplier)) {
     return res.status(400).json({ error: 'Недоступный множитель' });
@@ -608,7 +787,7 @@ app.post('/api/upgrade', auth, (req, res) => {
     return {
       game: 'upgrade',
       title: 'Апгрейд',
-      subtitle: won ? `x${multiplier} — попал` : `x${multiplier} — мимо`,
+      subtitle: won ? `x${multiplier} - попал` : `x${multiplier} - мимо`,
       payout: won ? target : 0,
       tier: won ? 'legendary' : 'common',
       roll,
@@ -644,7 +823,7 @@ app.post('/api/free-case/claim', auth, async (req, res) => {
   if (!subscriptionConfigured()) {
     return res.status(503).json({
       error: 'Бесплатный кейс ещё не настроен',
-      message: 'Раздел включится, когда будут заданы канал и кейс — см. NEDOSTATOK.md',
+      message: 'Раздел включится, когда будут заданы канал и кейс - см. NEDOSTATOK.md',
     });
   }
 
@@ -808,7 +987,7 @@ app.listen(PORT, () => {
 
   console.log(`\n  LUCKYBOX запущен на http://localhost:${PORT}`);
   if (process.env.DEV_MODE === 'true') {
-    console.log('  DEV_MODE включён — подпись Telegram не проверяется.');
+    console.log('  DEV_MODE включён - подпись Telegram не проверяется.');
   }
   console.log(`  Краш RTP: ${(gameReport.crashRtp * 100).toFixed(2)}%  ` +
               `Рулетка RTP: ${(gameReport.rouletteRtp * 100).toFixed(2)}%  ` +

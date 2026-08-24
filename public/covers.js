@@ -197,8 +197,8 @@ export function caseCover(caseData) {
   // Кейсы с присланной картинкой рисуются ею, а не процедурным сундуком.
   // Диспетчеризация здесь, а не у вызывающего кода, — чтобы и приложение, и
   // офлайн-сборка получили обложку без отдельной правки.
-  const photo = PHOTO_COVERS[caseData.art];
-  if (photo) return photoCover(caseData, photo());
+  if (caseData.art === 'porsche') return porscheCover(caseData);
+  if (ART_COVERS.has(caseData.art)) return artCover(caseData);
 
   const seed = hashString(caseData.id);
   const r = rng(seed);
@@ -267,31 +267,53 @@ const asset = (globalName, path) => () =>
 
 const porscheBannerSrc = asset('__PORSCHE_BANNER_SRC', '/assets/porsche-banner.webp');
 const porscheSrc = asset('__PORSCHE_SRC', '/assets/porsche.webp');
-const dustCoverSrc = asset('__DUST_COVER_SRC', '/assets/dust-cover.webp');
 
-/** Какому art какая картинка соответствует. */
-const PHOTO_COVERS = {
-  porsche: porscheBannerSrc,
-  dust: dustCoverSrc,
-};
+/**
+ * Присланные обложки с прозрачным фоном.
+ *
+ * Ключ - это и значение поля art у кейса, и имя файла в public/assets/covers/.
+ */
+const ART_COVERS = new Set([
+  'dust', 'spark', 'copper', 'warmup', 'alley', 'frost', 'rune', 'deck',
+  'neon', 'mirage', 'pit', 'allin', 'lucky', 'double',
+  'santorini', 'rio', 'monaco', 'vegas', 'dubai', 'singapore',
+  'winterfell', 'braavos', 'highgarden', 'westeros',
+]);
 
-/** Вырезанная машина для плитки в ленте — баннер туда слишком широкий. */
+/** Автономная сборка складывает все обложки в один объект с data-URI. */
+function artSrc(name) {
+  const inlined = typeof window !== 'undefined' && window.__COVER_ART;
+  return (inlined && inlined[name]) || `/assets/covers/${name}.webp`;
+}
+
+/** Вырезанная машина для плитки в ленте - баннер туда слишком широкий. */
 export function porschePhotoSrc() {
   return porscheSrc();
 }
 
 /**
- * Обложка из готовой картинки.
+ * Обложка сезонного кейса - готовый баннер во всю ширину карточки.
  *
- * Своей графики здесь нет намеренно: на присланных обложках уже есть и
- * заголовок, и оформление. Рисовать поверх ещё один слой значило бы спорить
- * с макетом, поэтому карточка вокруг тоже отдаёт им свои подписи
- * (см. featuredHtml).
- *
- * Картинки заранее собраны под пропорцию слота — см. tools/dust-cover.mjs,
- * там же объяснено, почему объект не растягивается на весь холст.
+ * Он нарисован с собственным фоном под конкретную пропорцию, поэтому идёт
+ * через object-fit: cover, как обычная фотография.
  */
-export function photoCover(caseData, src) {
+export function porscheCover(caseData) {
   const alt = `Обложка кейса «${caseData.name}»`;
-  return `<img class="cover-photo" src="${src}" alt="${alt}">`;
+  return `<img class="cover-photo" src="${porscheBannerSrc()}" alt="${alt}">`;
+}
+
+/**
+ * Обложка-арт с прозрачным фоном.
+ *
+ * Подложки у неё нет: объект ложится прямо на фон карточки, поэтому рамки не
+ * видно и обложка выглядит частью интерфейса. Отсюда и object-fit: contain в
+ * стилях - при cover прозрачные поля обрезались бы вместе с объектом.
+ *
+ * Ленивая загрузка обязательна: обложек восемнадцать, и без неё первый экран
+ * тянул бы все полтора мегабайта разом.
+ */
+export function artCover(caseData) {
+  const alt = `Обложка кейса «${caseData.name}»`;
+  return `<img class="cover-art" src="${artSrc(caseData.art)}" alt="${alt}"
+    loading="lazy" decoding="async">`;
 }

@@ -18,7 +18,19 @@
  *    «приятную мелочь», случайно уведя кейс в минус для заведения, невозможно.
  */
 
+import { readFileSync } from 'node:fs';
+
 import { THEMES } from './themes.js';
+
+/**
+ * Пропорции присланных обложек, посчитанные при их подготовке
+ * (см. tools/case-covers.mjs). Нужны вёрстке, чтобы задать высоту слота под
+ * арт: она разная у вертикальных городских, горизонтальных престольных и
+ * почти квадратных обложек ценовых полок.
+ */
+const ART_ASPECTS = JSON.parse(
+  readFileSync(new URL('../public/assets/covers/aspects.json', import.meta.url), 'utf8')
+);
 
 export const TIERS = [
   { id: 'common', label: 'Обычный', color: '#9d8bb0' },
@@ -119,6 +131,7 @@ export const CATEGORIES = [
   { id: 'risk', name: 'Риск', description: 'Редкие, но огромные множители' },
   { id: 'bonus', name: 'Бонусные', description: 'С плюшками: x2, подарки, бонусы' },
   { id: 'country', name: 'Направления', description: 'Города, куда хочется попасть' },
+  { id: 'got', name: 'Игра престолов', description: 'Семь Королевств и всё, что в них' },
   { id: 'season', name: 'Сезонные', description: 'Открыты ограниченное время' },
 ];
 
@@ -137,20 +150,30 @@ const SPECS = [
   // ── Старт ───────────────────────────────────────────────
   ['dust_25', 'Пыль', 'Дешевле некуда', 'start', 24, 0.7, 60, 'soft', 'forge', [],
     { art: 'dust' }],
-  ['spark_50', 'Искра', 'С чего-то надо начинать', 'start', 49, 0.7, 90, 'soft', 'neon'],
-  ['copper_75', 'Медяк', 'Мелочь, а приятно', 'start', 74, 0.7, 90, 'soft', 'steampunk'],
-  ['warmup_100', 'Разогрев', 'Тот самый кейс на сотку', 'start', 99, 0.7, 130, 'soft', 'casino'],
-  ['alley_150', 'Подворотня', 'Что-то да найдётся', 'start', 149, 0.7, 120, 'soft', 'street'],
-  ['frost_300', 'Мерзлота', 'Холодный расчёт', 'start', 299, 0.7, 130, 'soft', 'arctic'],
-  ['rune_250', 'Первая руна', 'Начало пути', 'start', 249, 0.7, 130, 'soft', 'rune'],
+  ['spark_50', 'Искра', 'С чего-то надо начинать', 'start', 49, 0.7, 90, 'soft', 'neon', [],
+    { art: 'spark' }],
+  ['copper_75', 'Медяк', 'Мелочь, а приятно', 'start', 74, 0.7, 90, 'soft', 'steampunk', [],
+    { art: 'copper' }],
+  ['warmup_100', 'Разогрев', 'Тот самый кейс на сотку', 'start', 99, 0.7, 130, 'soft', 'casino', [],
+    { art: 'warmup' }],
+  ['alley_150', 'Подворотня', 'Что-то да найдётся', 'start', 149, 0.7, 120, 'soft', 'street', [],
+    { art: 'alley' }],
+  ['frost_300', 'Мерзлота', 'Холодный расчёт', 'start', 299, 0.7, 130, 'soft', 'arctic', [],
+    { art: 'frost' }],
+  ['rune_250', 'Первая руна', 'Начало пути', 'start', 249, 0.7, 130, 'soft', 'rune', [],
+    { art: 'rune' }],
 
   // ── Классика ────────────────────────────────────────────
-  ['deck_400', 'Колода', 'Раздача пошла', 'classic', 399, 0.7, 150, 'normal', 'casino'],
-  ['neon_500', 'Неоновый', 'Свет большого города', 'classic', 499, 0.7, 150, 'normal', 'neon'],
-  ['mirage_600', 'Мираж', 'Не всё то золото', 'classic', 599, 0.7, 170, 'normal', 'desert'],
+  ['deck_400', 'Колода', 'Раздача пошла', 'classic', 399, 0.7, 150, 'normal', 'casino', [],
+    { art: 'deck' }],
+  ['neon_500', 'Неоновый', 'Свет большого города', 'classic', 499, 0.7, 150, 'normal', 'neon', [],
+    { art: 'neon' }],
+  ['mirage_600', 'Мираж', 'Не всё то золото', 'classic', 599, 0.7, 170, 'normal', 'desert', [],
+    { art: 'mirage' }],
   ['forge_750', 'Горн', 'Куётся под давлением', 'classic', 749, 0.7, 170, 'normal', 'forge'],
-  ['pit_800', 'Пит-стоп', 'Три секунды на всё', 'classic', 799, 0.7, 170, 'normal', 'racing'],
-  ['vault_1000', 'Сейф', 'Что внутри — то ваше', 'classic', 999, 0.7, 180, 'normal', 'vault'],
+  ['pit_800', 'Пит-стоп', 'Три секунды на всё', 'classic', 799, 0.7, 170, 'normal', 'racing', [],
+    { art: 'pit' }],
+  ['vault_1000', 'Сейф', 'Что внутри - то ваше', 'classic', 999, 0.7, 180, 'normal', 'vault'],
   ['chapito_1200', 'Шапито', 'Представление начинается', 'classic', 1199, 0.7, 180, 'normal', 'circus'],
   ['blade_1500', 'Путь меча', 'Одно движение', 'classic', 1499, 0.7, 190, 'normal', 'samurai'],
   ['board_1800', 'Абордаж', 'На абордаж!', 'classic', 1799, 0.7, 190, 'normal', 'pirate'],
@@ -165,7 +188,7 @@ const SPECS = [
   ['shogun_8000', 'Сёгун', 'Власть в одних руках', 'themed', 7999, 0.7, 210, 'normal', 'samurai'],
   ['crypt_12000', 'Склеп', 'Не буди спящих', 'themed', 11999, 0.7, 225, 'normal', 'vampire'],
   ['quarantine_18000', 'Карантин', 'Вход только в костюме', 'themed', 17999, 0.7, 240, 'normal', 'toxic'],
-  ['ash_25000', 'Пепел', 'Из пепла — заново', 'themed', 24999, 0.7, 260, 'normal', 'phoenix'],
+  ['ash_25000', 'Пепел', 'Из пепла - заново', 'themed', 24999, 0.7, 260, 'normal', 'phoenix'],
   ['hoard_35000', 'Сокровищница', 'Дракон не делится', 'themed', 34999, 0.7, 280, 'normal', 'dragon'],
   ['diamond_60000', 'Алмазный фонд', 'Только чистая вода', 'themed', 59999, 0.7, 320, 'normal', 'crystal'],
 
@@ -184,7 +207,8 @@ const SPECS = [
   ['apex_100000', 'Вершина', 'Дороже в игре нет', 'elite', 99999, 0.7, 360, 'normal', 'galaxy'],
 
   // ── Риск ────────────────────────────────────────────────
-  ['allin_500', 'Ва-банк', 'Чаще пусто, реже густо', 'risk', 499, 0.7, 320, 'risky', 'casino'],
+  ['allin_500', 'Ва-банк', 'Чаще пусто, реже густо', 'risk', 499, 0.7, 320, 'risky', 'casino', [],
+    { art: 'allin' }],
   ['redonly_1000', 'Красное или ничего', 'Полумер не бывает', 'risk', 999, 0.7, 360, 'risky', 'casino'],
   ['crater_2500', 'Жерло', 'Горячо во всех смыслах', 'risk', 2499, 0.7, 360, 'risky', 'volcano'],
   ['reactor_5000', 'Реактор', 'Стержни на пределе', 'risk', 4999, 0.7, 400, 'wild', 'toxic'],
@@ -194,9 +218,9 @@ const SPECS = [
 
   // ── Бонусные (с плюшками) ───────────────────────────────
   ['lucky_200', 'Счастливый', 'Иногда просто везёт', 'bonus', 199, 0.7, 120, 'soft', 'casino',
-    [{ type: 'credits', amount: 1500, share: 0.07 }]],
-  ['double_500', 'Удвоитель', 'Следующий прокрут — вдвойне', 'bonus', 499, 0.7, 150, 'normal', 'neon',
-    [{ type: 'x2', share: 0.09 }]],
+    [{ type: 'credits', amount: 1500, share: 0.07 }], { art: 'lucky' }],
+  ['double_500', 'Удвоитель', 'Следующий прокрут - вдвойне', 'bonus', 499, 0.7, 150, 'normal', 'neon',
+    [{ type: 'x2', share: 0.09 }], { art: 'double' }],
   ['gift_1000', 'Подарочный', 'С подарком внутри', 'bonus', 999, 0.7, 170, 'normal', 'circus',
     [{ type: 'voucher', caseId: 'neon_500', share: 0.06 }]],
   ['chain_2000', 'Цепная реакция', 'Одно тянет другое', 'bonus', 1999, 0.7, 190, 'normal', 'toxic',
@@ -207,7 +231,7 @@ const SPECS = [
     [{ type: 'voucher', caseId: 'steam_4000', share: 0.07 }]],
   ['stake_10000', 'Двойная ставка', 'Удваивает следующий прокрут', 'bonus', 9999, 0.7, 240, 'normal', 'casino',
     [{ type: 'x2', share: 0.1 }]],
-  ['treasure_15000', 'Клад', 'Кто нашёл — того и есть', 'bonus', 14999, 0.7, 260, 'normal', 'pirate',
+  ['treasure_15000', 'Клад', 'Кто нашёл - того и есть', 'bonus', 14999, 0.7, 260, 'normal', 'pirate',
     [{ type: 'credits', amount: 400000, share: 0.07 }]],
   ['megabox_25000', 'Мегабокс', 'Подарок и удвоение', 'bonus', 24999, 0.7, 280, 'normal', 'royal',
     [{ type: 'voucher', caseId: 'crypt_12000', share: 0.06 }, { type: 'x2', share: 0.06 }]],
@@ -216,7 +240,7 @@ const SPECS = [
   ['legend_100000', 'Легенда', 'Вершина коллекции', 'bonus', 99999, 0.7, 360, 'normal', 'dragon',
     [{ type: 'voucher', caseId: 'abyss_50000', share: 0.07 }, { type: 'x2', share: 0.06 }]],
   // ── Сезонные ────────────────────────────────────────────
-  ['porsche_999', 'Porsche 911', 'Сезонный кейс — с 1 октября', 'season',
+  ['porsche_999', 'Porsche 911', 'Сезонный кейс - с 1 октября', 'season',
     999, 0.7, 180, 'normal', 'garage', [], {
       availableFrom: '2026-10-01T00:00:00Z',
       art: 'porsche',
@@ -231,7 +255,7 @@ const SPECS = [
        */
       showcase: {
         name: 'Porsche 911 (992.2)',
-        note: 'Витрина сезона — вне таблицы розыгрыша',
+        note: 'Витрина сезона - вне таблицы розыгрыша',
         tier: 'unique',
       },
     }],
@@ -243,16 +267,34 @@ const SPECS = [
     'normal', 'atelier', [], { jackpot: { name: 'Rolex Daytona', value: 2999500, share: 0.02 } }],
 
   // ── Направления ─────────────────────────────────────────
-  ['santorini_999', 'Санторини', 'Белое на синем', 'country', 999, 0.7, 180, 'soft', 'santorini'],
+  ['santorini_999', 'Санторини', 'Белое на синем', 'country', 999, 0.7, 180, 'soft', 'santorini',
+    [], { art: 'santorini' }],
   ['rio_1500', 'Рио-де-Жанейро', 'Карнавал не заканчивается', 'country', 1499, 0.7, 220,
-    'normal', 'rio'],
-  ['monaco_2500', 'Монако', 'Казино, яхты, Гран-при', 'country', 2499, 0.7, 260, 'normal', 'monaco'],
+    'normal', 'rio', [], { art: 'rio' }],
+  ['monaco_2500', 'Монако', 'Казино, яхты, Гран-при', 'country', 2499, 0.7, 260, 'normal', 'monaco',
+    [], { art: 'monaco' }],
   ['vegas_3000', 'Лас-Вегас', 'Город, который не спит', 'country', 2999, 0.7, 280, 'normal', 'vegas',
-    [{ type: 'freespins', count: 7, share: 0.09 }]],
+    [{ type: 'freespins', count: 7, share: 0.09 }], { art: 'vegas' }],
   ['dubai_5000', 'Дубай', 'Золото и небоскрёбы', 'country', 4999, 0.7, 300, 'normal', 'dubai',
-    [{ type: 'freespins', count: 10, share: 0.12 }]],
+    [{ type: 'freespins', count: 10, share: 0.12 }], { art: 'dubai' }],
   ['singapore_8000', 'Сингапур', 'Порядок и роскошь', 'country', 7999, 0.7, 340,
-    'normal', 'singapore', [{ type: 'freespins', count: 12, share: 0.10 }]],
+    'normal', 'singapore', [{ type: 'freespins', count: 12, share: 0.10 }],
+    { art: 'singapore' }],
+
+  // ── Игра престолов ──────────────────────────────────────
+  // Цены держатся в узком диапазоне намеренно: это одна коллекция, и разница
+  // между кейсами здесь в разбросе и плюшках, а не в стоимости входа.
+  ['winterfell_699', 'Винтерфелл', 'Зима уже пришла', 'got', 699, 0.7, 180,
+    'normal', 'winterfell', [{ type: 'x2', share: 0.07 }], { art: 'winterfell' }],
+  ['braavos_999', 'Браавос', 'Валар моргулис', 'got', 999, 0.7, 200,
+    'normal', 'braavos', [{ type: 'credits', amount: 25000, share: 0.07 }],
+    { art: 'braavos' }],
+  ['highgarden_1299', 'Хай Гарден', 'Золотая роза Простора', 'got', 1299, 0.7, 220,
+    'normal', 'highgarden', [{ type: 'voucher', caseId: 'winterfell_699', share: 0.06 }],
+    { art: 'highgarden' }],
+  ['westeros_1699', 'Вестерос', 'Игра, где либо побеждают, либо умирают', 'got', 1699, 0.7, 260,
+    'risky', 'westeros', [{ type: 'voucher', caseId: 'braavos_999', share: 0.06 },
+                          { type: 'x2', share: 0.06 }], { art: 'westeros' }],
 ];
 
 /* ============================================================
@@ -432,7 +474,7 @@ function buildCase(spec, builtById) {
     throw new Error(
       `[${id}] не удалось свести математику: q=${q.toFixed(4)}, p0=${p0.toFixed(4)}. ` +
       `Филлер ${v0} должен быть дешевле цели ${target.toFixed(0)}, ` +
-      `а средняя по остальным (${avgRest.toFixed(0)}) — дороже.`
+      `а средняя по остальным (${avgRest.toFixed(0)}) - дороже.`
     );
   }
 
@@ -501,6 +543,43 @@ for (const spec of withVoucher) {
 // Порядок как в SPECS, а не как в порядке сборки.
 export const CASES = SPECS.map((s) => builtById.get(s[0]));
 
+/* ============================================================
+   ПОКУПКА ФРИСПИНОВ
+   ============================================================ */
+
+/**
+ * Пачки фриспинов, которые можно купить прямо в кейсе.
+ *
+ * ПОЧЕМУ СКИДКА ПОДНИМАЕТ ОТДАЧУ И ЭТО НОРМАЛЬНО.
+ * Матожидание одного фриспина равно матожиданию кейса, то есть price * rtp
+ * (доказательство - в комментарии к freespins в buildCase). Значит серия из N
+ * фриспинов стоит игроку N * price, если продавать её по номиналу, и отдача
+ * такой покупки была бы ровно та же, что у N обычных открытий, - покупать её
+ * не было бы смысла.
+ *
+ * Поэтому пачка продаётся дешевле номинала, и вся скидка идёт прямо в отдачу:
+ *   отдача пачки = rtp / (1 - скидка).
+ * При лесенке ниже это 73.7%, 76.1% и 79.5% против обычных 70%. Заведение
+ * остаётся в плюсе на всех трёх ступенях, а покупка ощутимо выгоднее ручного
+ * открытия - ровно этого и добивались.
+ *
+ * Альтернатива - продавать дешевле, но крутить внутри ослабленную таблицу,
+ * чтобы отдача осталась 70%. Так делают в слотах, но здесь это был бы обман:
+ * игроку обещана та же таблица, что он видит в составе кейса.
+ */
+export const FREESPIN_PACKS = [
+  { count: 10, discount: 0.05 },
+  { count: 20, discount: 0.08 },
+  { count: 30, discount: 0.12 },
+];
+
+/** Цена пачки. Считается только здесь, клиент её лишь показывает. */
+export function freeSpinPackPrice(caseData, count) {
+  const pack = FREESPIN_PACKS.find((p) => p.count === count);
+  if (!pack) return null;
+  return Math.round(caseData.price * count * (1 - pack.discount));
+}
+
 export function getCase(id) {
   return builtById.get(id);
 }
@@ -560,8 +639,8 @@ export function validateCases(cases = CASES) {
         const ratio = gift.price / c.price;
         if (ratio < VOUCHER_RATIO[0] || ratio > VOUCHER_RATIO[1]) {
           throw new Error(
-            `[${c.id}] дарит кейс ${gift.id} за ${gift.price} — это ${(ratio * 100).toFixed(0)}% ` +
-            `от цены, допустимо ${VOUCHER_RATIO[0] * 100}–${VOUCHER_RATIO[1] * 100}%`
+            `[${c.id}] дарит кейс ${gift.id} за ${gift.price} - это ${(ratio * 100).toFixed(0)}% ` +
+            `от цены, допустимо ${VOUCHER_RATIO[0] * 100}-${VOUCHER_RATIO[1] * 100}%`
           );
         }
       }
@@ -603,6 +682,7 @@ export function publicCase(c) {
     showcase: c.showcase,
     availableFrom: c.availableFrom,
     art: c.art,
+    artAspect: ART_ASPECTS[c.art] || null,
     topValue: Math.max(...c.items.filter((i) => i.kind === 'item').map((i) => i.value)),
     items: c.items.map((it) => ({
       id: it.id,

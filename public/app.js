@@ -71,6 +71,19 @@ async function api(path, body) {
 
 const fmt = (n) => Number(n).toLocaleString('ru-RU');
 
+/**
+ * Склонение существительного по числу: 1 активация, 2 активации, 5 активаций.
+ * Без него счётчики читаются как машинный вывод.
+ */
+function plural(n, one, few, many) {
+  const abs = Math.abs(n) % 100;
+  const last = abs % 10;
+  if (abs > 10 && abs < 20) return many;
+  if (last > 1 && last < 5) return few;
+  if (last === 1) return one;
+  return many;
+}
+
 /** Сумма с символом валюты. */
 const money = (n) => fmt(n) + ' ₽';
 const esc = (s) => String(s ?? '').replace(/[<>&"]/g, (c) =>
@@ -79,6 +92,7 @@ const esc = (s) => String(s ?? '').replace(/[<>&"]/g, (c) =>
 const CATEGORY_COLORS = {
   start: '#00d4ff', classic: '#a020ff', themed: '#00ff9d',
   premium: '#ffd60a', elite: '#ff6b35', risk: '#ff1744', bonus: '#ff2e8a',
+  country: '#00d4ff', got: '#c9a227',
 };
 
 function tierColor(tier) {
@@ -138,7 +152,7 @@ function renderPerkBar() {
   if (state.user.x2CaseId) {
     const c = state.config.cases.find((x) => x.id === state.user.x2CaseId);
     chips.push(`<span class="perk-chip"><span data-ico="x2"></span>
-      ×2 на «${esc(c?.name || '—')}»</span>`);
+      ×2 на «${esc(c?.name || '-')}»</span>`);
   }
 
   for (const v of state.user.vouchers || []) {
@@ -178,6 +192,28 @@ function applyUser(user) {
  * Границы подобраны так, чтобы в ряду выходило 6–9 кейсов: полка короче
  * выглядит куцей, длиннее — заставляет листать слишком долго ради последнего.
  */
+/**
+ * Тематические полки собраны по идее, а не по цене, поэтому в ценовую сетку
+ * они не встают. Каждая привязана к ценовой полке, ПОСЛЕ которой её показать:
+ * коллекция должна попадаться игроку рано, а не в хвосте длинного списка.
+ */
+const THEMED_SHELVES = [
+  {
+    after: 'Первые шаги',
+    category: 'country',
+    cls: 'shelf-country',
+    title: 'Направления',
+    hint: 'Города, куда хочется попасть',
+  },
+  {
+    after: 'Разогрев',
+    category: 'got',
+    cls: 'shelf-got',
+    title: 'Игра престолов',
+    hint: 'Семь Королевств и всё, что в них',
+  },
+];
+
 const SHELVES = [
   { title: 'Первые шаги', hint: 'С них начинают', max: 200 },
   { title: 'Разогрев', hint: 'Уже интереснее', max: 800 },
@@ -206,20 +242,33 @@ function caseCardHtml(c, vouchers) {
   if (locked) badge = `<span class="cover-badge soon">С ${locked.toUpperCase()}</span>`;
   else if (freeCount) badge = `<span class="cover-badge perk">БЕСПЛАТНО ×${freeCount}</span>`;
   else if (x2) badge = '<span class="cover-badge perk">×2</span>';
-  else if (c.hasPerks) badge = '<span class="cover-badge perk">ПЛЮШКИ</span>';
-  else badge = '';
 
-  return `<div class="case-card ${freeCount ? 'free-ready' : ''} ${locked ? 'locked' : ''}"
+  /*
+   * Карточка с присланным артом верстается принципиально иначе.
+   *
+   * У рисованной обложки есть собственный фон, она заполняет слот от края до
+   * края, и карточка вокруг неё нужна как оправа. Присланный арт - это
+   * вырезанная композиция на прозрачном фоне: оправа ей мешает, потому что
+   * рамка обводит пустоту вокруг рисунка, а не сам рисунок.
+   *
+   * Поэтому здесь снимается всё, что рисовало бы вокруг арта прямоугольник:
+   * рамка и подложка карточки (в стилях), а из разметки уходят бейджи,
+   * подпись «до N» и чип с множителем - они ложились поверх картинки и
+   * читались как наклейки на ней. Остаются только название и цена под артом.
+   */
+  const hasArt = Boolean(c.art) && c.art !== 'porsche';
+
+  return `<div class="case-card ${hasArt ? 'has-art' : ''} ${freeCount ? 'free-ready' : ''} ${locked ? 'locked' : ''}"
       data-case="${c.id}" style="--cat-color:${color}">
     <div class="case-cover">
       ${caseCover(c)}
-      <div class="cover-badges">${badge}</div>
-      <div class="cover-top">до ${fmt(c.topValue)}</div>
+      ${hasArt ? '' : `<div class="cover-badges">${badge}</div>
+      <div class="cover-top">до ${fmt(c.topValue)}</div>`}
     </div>
     <div class="case-name">${esc(c.name)}</div>
     <div class="case-foot">
       <span class="case-price">${freeCount && !locked ? 'ПОДАРОК' : money(c.price)}</span>
-      <span class="case-max">${c.maxMultiplier}x</span>
+      ${hasArt ? '' : `<span class="case-max">${c.maxMultiplier}x</span>`}
     </div>
   </div>`;
 }
@@ -279,53 +328,64 @@ function renderCases() {
   // убираем — иначе он попал бы в полку по цене ещё и вторым экземпляром.
   const featured = all.find((c) => c.availableFrom);
 
-  // Направления — отдельная полка по теме, а не по цене: смысл блока в том,
-  // что кейсы в нём связаны идеей, и разброс цен внутри как раз уместен.
-  const country = all.filter((c) => c.category === 'country');
-  const countryIds = new Set(country.map((c) => c.id));
+  // Тематические кейсы вынуты из ценовой сетки: они собраны по идее, и разброс
+  // цен внутри такой полки как раз уместен.
+  const themed = THEMED_SHELVES.map((t) => ({
+    ...t,
+    cases: all.filter((c) => c.category === t.category),
+  }));
+  const themedIds = new Set(themed.flatMap((t) => t.cases.map((c) => c.id)));
 
-  const sorted = all.filter((c) => c !== featured && !countryIds.has(c.id));
+  const sorted = all.filter((c) => c !== featured && !themedIds.has(c.id));
+
+  /*
+   * Высота слота под арт задаётся пропорцией, а не пикселями.
+   *
+   * Обложки разной ориентации: городские вертикальные, престольные
+   * горизонтальные, на ценовых полках попадаются почти квадратные. Общее
+   * число пикселей либо срезало бы высокие, либо оставляло под низкими пустую
+   * полосу. Берём самую «высокую» пропорцию полки: тогда все обложки в ней
+   * помещаются целиком, а слот у соседних карточек одинаковый, и подписи под
+   * ними стоят на одной линии.
+   */
+  const shelfAspect = (items) => {
+    const arts = items.map((c) => c.artAspect).filter(Boolean);
+    return arts.length ? Math.min(...arts) : null;
+  };
+
+  const shelfHtml = (cls, title, hint, items) => `<section class="shelf ${cls}"${
+    shelfAspect(items) ? ` style="--art-ar:${shelfAspect(items)}"` : ''}>
+      <div class="shelf-head">
+        <div>
+          <h2 class="shelf-title">${title}</h2>
+          <div class="shelf-hint">${hint}</div>
+        </div>
+        <div class="shelf-range">${fmt(items[0].price)}${
+          items[items.length - 1].price !== items[0].price
+            ? ` - ${fmt(items[items.length - 1].price)}` : ''} ₽</div>
+      </div>
+      <div class="shelf-row">
+        ${items.map((c) => caseCardHtml(c, vouchers)).join('')}
+      </div>
+    </section>`;
 
   let from = 0;
   const blocks = [];
 
   if (featured) blocks.push(featuredHtml(featured, vouchers));
 
-  if (country.length) {
-    blocks.push(`<section class="shelf shelf-country">
-      <div class="shelf-head">
-        <div>
-          <h2 class="shelf-title">Направления</h2>
-          <div class="shelf-hint">Города, куда хочется попасть</div>
-        </div>
-        <div class="shelf-range">${fmt(country[0].price)} – ${fmt(country[country.length - 1].price)} ₽</div>
-      </div>
-      <div class="shelf-row">
-        ${country.map((c) => caseCardHtml(c, vouchers)).join('')}
-      </div>
-    </section>`);
-  }
-
   for (const shelf of SHELVES) {
     const items = sorted.filter((c) => c.price > from && c.price <= shelf.max);
     from = shelf.max;
-    if (!items.length) continue;
+    if (items.length) blocks.push(shelfHtml('', shelf.title, shelf.hint, items));
 
-    const lo = items[0].price;
-    const hi = items[items.length - 1].price;
-
-    blocks.push(`<section class="shelf">
-      <div class="shelf-head">
-        <div>
-          <h2 class="shelf-title">${shelf.title}</h2>
-          <div class="shelf-hint">${shelf.hint}</div>
-        </div>
-        <div class="shelf-range">${fmt(lo)}${hi !== lo ? ` – ${fmt(hi)}` : ''} ₽</div>
-      </div>
-      <div class="shelf-row">
-        ${items.map((c) => caseCardHtml(c, vouchers)).join('')}
-      </div>
-    </section>`);
+    // Тематическая полка идёт сразу за своей ценовой. Привязка именно к
+    // названию, а не к номеру: полки переставляют чаще, чем переименовывают.
+    for (const t of themed) {
+      if (t.after === shelf.title && t.cases.length) {
+        blocks.push(shelfHtml(t.cls, t.title, t.hint, t.cases));
+      }
+    }
   }
 
   root.innerHTML = blocks.join('');
@@ -361,7 +421,7 @@ function renderBonuses() {
     .filter((x) => x.c && x.count > 0);
 
   if (!cards.length) {
-    list.innerHTML = '<div class="empty" style="grid-column:1/-1">Пока нет выигранных кейсов — '
+    list.innerHTML = '<div class="empty" style="grid-column:1/-1">Пока нет выигранных кейсов - '
       + 'они появятся здесь, когда выпадут в подарок из других кейсов.</div>';
     return;
   }
@@ -429,8 +489,16 @@ function openCase(caseId) {
     [1, 2, 3, 4, 5].slice(0, state.config.maxBatch || 5).map((k) =>
       `<button class="count-btn ${k === 1 ? 'active' : ''}" data-count="${k}">×${k}</button>`).join('');
 
+  document.getElementById('autoRow').innerHTML =
+    '<span class="auto-row-label">Авто</span>' +
+    AUTO_COUNTS.map((k) => `<button class="auto-btn ${k === 0 ? 'active' : ''}"
+      data-auto="${k}">${k === 0 ? 'выкл' : k}</button>`).join('');
+
+  renderFreeSpinBuy(c, locked);
+
   const openBtn = document.getElementById('doOpenBtn');
   let count = 1;
+  let auto = 0;
 
   const refresh = () => {
     if (locked) {
@@ -438,6 +506,18 @@ function openCase(caseId) {
       openBtn.disabled = true;
       return;
     }
+
+    // Автооткрытие крутит кейс по одному, поэтому выбор пачки в этом режиме
+    // не имеет смысла - строку количества гасим, чтобы не обещать лишнего.
+    document.getElementById('countRow').style.opacity = auto ? '0.35' : '';
+    document.getElementById('countRow').style.pointerEvents = auto ? 'none' : '';
+
+    if (auto) {
+      openBtn.textContent = `ОТКРЫТЬ ${auto} РАЗ ПОДРЯД`;
+      openBtn.disabled = !freeCount && c.price > state.user.balance;
+      return;
+    }
+
     // Ваучеры покрывают первые открытия пачки, остальное платное.
     const paid = Math.max(0, count - freeCount);
     openBtn.textContent = paid === 0
@@ -457,13 +537,24 @@ function openCase(caseId) {
     });
   });
 
-  openBtn.onclick = () => startOpening(c.id, count);
+  document.querySelectorAll('#autoRow .auto-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      auto = Number(btn.dataset.auto);
+      document.querySelectorAll('#autoRow .auto-btn').forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+      haptic('light');
+      refresh();
+    });
+  });
+
+  openBtn.onclick = () => (auto ? runAutoOpen(c.id, auto) : startOpening(c.id, count));
 
   document.getElementById('result').hidden = true;
   document.getElementById('gamble').hidden = true;
   document.getElementById('gambleStartBtn').hidden = true;
   document.getElementById('batchSummary').hidden = true;
   document.getElementById('freespins').hidden = true;
+  document.getElementById('autoPanel').hidden = true;
   document.getElementById('casePanel').hidden = false;
 
   document.getElementById('opener').hidden = false;
@@ -626,19 +717,40 @@ async function startOpening(caseId, count = 1) {
   updateOpenerBalance();
   loadCaseHistory(c.name);
 
-  // Своя лента на каждый кейс пачки — крутятся одновременно.
+  await spinReels(c, opened, SPIN_DURATION);
+
+  sndLand();
+  haptic('medium');
+
+  // Фриспины проигрываются до итогового экрана: сначала игрок видит, сколько
+  // они принесли, и только потом — общий результат прокрута.
+  for (const g of collectFreeSpins(data)) await runFreeSpins(g, c);
+
+  if (count > 1) showBatchResult(data, c);
+  else showCaseResult(data, c);
+}
+
+/** Сколько едет лента при обычном прокруте. */
+const SPIN_DURATION = 6.4;
+
+/**
+ * Прокручивает ленты до уже известного результата.
+ *
+ * Исход решён сервером и лежит в opened, здесь только анимация: выигрышная
+ * плитка ставится в фиксированную позицию, и лента доезжает ровно до неё.
+ * Вынесено из startOpening, потому что тем же самым занято автооткрытие -
+ * там этот прокрут повторяется в цикле, только быстрее.
+ */
+function spinReels(c, opened, duration) {
   const reels = document.getElementById('reels');
-  reels.className = 'reels' + (count > 1 ? ' compact' : '');
+  reels.className = 'reels' + (opened.length > 1 ? ' compact' : '');
   reels.innerHTML = opened.map(reelWrapHtml).join('');
 
-  const DURATION = 6.4;
   sndSpinStart();
   sndBet();
   haptic('medium');
 
   reels.querySelectorAll('.reel').forEach((reel, idx) => {
-    // Лента строится из предметов кейса, выигрышный ставится в фиксированную
-    // позицию — сервер уже решил исход, анимация лишь доезжает до него.
     const showcaseTile = c.showcase
       ? {
           name: c.showcase.name, tier: c.showcase.tier, kind: 'item', value: 0,
@@ -669,25 +781,257 @@ async function startOpening(caseId, count = 1) {
     requestAnimationFrame(() => {
       // Кривая с плавным разгоном: прежняя стартовала на полной скорости,
       // и первые секунды предметы пролетали неразличимо.
-      reel.style.transition = `transform ${DURATION}s cubic-bezier(0.32, 0, 0.1, 1)`;
+      reel.style.transition = `transform ${duration}s cubic-bezier(0.32, 0, 0.1, 1)`;
       reel.style.transform = `translateX(${-target}px)`;
     });
 
     // Щелчки снимаем только с первой ленты — иначе они сливаются в шум.
-    if (idx === 0) trackReelTicks(reel, step, DURATION * 1000);
+    if (idx === 0) trackReelTicks(reel, step, duration * 1000);
   });
 
-  setTimeout(async () => {
+  return new Promise((done) => setTimeout(done, duration * 1000 + 150));
+}
+
+/* ============================================================
+   ПОКУПКА ФРИСПИНОВ
+   ============================================================ */
+
+/**
+ * Кнопки покупки серии фриспинов.
+ *
+ * Цену считает сервер, здесь она пересчитывается только для показа - по тем же
+ * числам из конфига. Рядом с ценой стоит выгода: без неё пачка читается просто
+ * как крупная трата, а весь её смысл в том, что она дешевле поштучных
+ * прокрутов.
+ */
+function renderFreeSpinBuy(c, locked) {
+  const box = document.getElementById('fsBuy');
+  const row = document.getElementById('fsBuyRow');
+  const packs = state.config.freeSpinPacks || [];
+
+  if (!packs.length || locked) {
+    box.hidden = true;
+    return;
+  }
+
+  box.hidden = false;
+  row.innerHTML = packs.map((p) => {
+    const price = Math.round(c.price * p.count * (1 - p.discount));
+    const full = c.price * p.count;
+    return `<button class="fsbuy-btn" data-fs="${p.count}"
+        ${price > state.user.balance ? 'disabled' : ''}>
+      <span class="fsbuy-count">${p.count}</span>
+      <span class="fsbuy-price">${money(price)}</span>
+      <span class="fsbuy-save">выгода ${money(full - price)}</span>
+    </button>`;
+  }).join('');
+
+  row.querySelectorAll('[data-fs]').forEach((btn) => {
+    btn.addEventListener('click', () => buyFreeSpins(c.id, Number(btn.dataset.fs)));
+  });
+}
+
+/** Покупает серию и сразу её проигрывает - той же анимацией, что и выпавшую. */
+async function buyFreeSpins(caseId, count) {
+  if (state.busy) return;
+  const c = state.config.cases.find((x) => x.id === caseId);
+  if (!c) return;
+
+  state.busy = true;
+  state.openingCaseId = caseId;
+
+  let data;
+  try {
+    data = await api('/api/freespins/buy', { caseId, count });
+  } catch (err) {
+    state.busy = false;
+    toast(err.message);
+    haptic('error');
+    return;
+  }
+
+  document.getElementById('result').hidden = true;
+  document.getElementById('gamble').hidden = true;
+  document.getElementById('gambleStartBtn').hidden = true;
+  document.getElementById('batchSummary').hidden = true;
+  document.getElementById('casePanel').hidden = true;
+  document.querySelector('.opener-scroll').scrollTop = 0;
+
+  document.getElementById('openerCaseName').innerHTML =
+    `${esc(c.name)} · <span>${count} фриспинов за ${money(data.cost)}</span>`;
+
+  applyUser(data.user);
+  updateOpenerBalance();
+
+  await runFreeSpins(data.grant, c);
+
+  loadCaseHistory(c.name);
+  state.busy = false;
+  showAutoResult(c, {
+    times: count,
+    done: data.grant.spins.length,
+    spent: data.cost,
+    won: data.grant.total,
+    stopped: false,
+    label: 'фриспинов',
+  });
+}
+
+/* ============================================================
+   АВТООТКРЫТИЕ
+   ============================================================ */
+
+/** Сколько прокрутов подряд можно заказать. Ноль - режим выключен. */
+const AUTO_COUNTS = [0, 10, 25, 50, 100];
+
+/**
+ * Прокрут в серии короче обычного.
+ *
+ * Обычные 6.4 секунды здесь превратились бы в десять минут ожидания на сотне
+ * прокрутов. Две с небольшим секунды - всё ещё видно, что именно выпало, но
+ * серия идёт бодро. Прервать её можно в любой момент.
+ */
+const AUTO_SPIN_DURATION = 2.2;
+
+/** Пауза между прокрутами, чтобы результат успел прочитаться. */
+const AUTO_PAUSE_MS = 320;
+
+const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
+
+/**
+ * Серия автооткрытий.
+ *
+ * Кейс открывается по одному, ровно так же, как вручную: каждый прокрут -
+ * отдельный запрос, отдельный nonce и отдельная запись в истории, поэтому
+ * серия проверяется в разделе «Честность» так же, как обычная игра. Разница
+ * только в том, что игроку не приходится жать кнопку между прокрутами.
+ *
+ * Выигрыш зачисляется сразу после каждого прокрута, а не в конце: если серия
+ * оборвётся на середине - по кнопке, из-за нехватки средств или сетевой
+ * ошибки, - всё уже выигранное останется у игрока.
+ */
+async function runAutoOpen(caseId, times) {
+  if (state.busy) return;
+  const c = state.config.cases.find((x) => x.id === caseId);
+  if (!c) return;
+
+  state.busy = true;
+  state.autoStop = false;
+  state.openingCaseId = caseId;
+  state.openingCount = 1;
+
+  const panel = document.getElementById('autoPanel');
+  const leftEl = document.getElementById('autoLeft');
+  const totalEl = document.getElementById('autoTotal');
+  const logEl = document.getElementById('autoLog');
+
+  document.getElementById('result').hidden = true;
+  document.getElementById('gamble').hidden = true;
+  document.getElementById('gambleStartBtn').hidden = true;
+  document.getElementById('batchSummary').hidden = true;
+  document.getElementById('freespins').hidden = true;
+  document.getElementById('casePanel').hidden = true;
+  document.getElementById('opener').hidden = false;
+  panel.hidden = false;
+  logEl.innerHTML = '';
+  totalEl.textContent = money(0);
+  document.querySelector('.opener-scroll').scrollTop = 0;
+
+  document.getElementById('openerCaseName').innerHTML =
+    `${esc(c.name)} · <span>авто ×${times}</span>`;
+
+  let spent = 0;
+  let won = 0;
+  let done = 0;
+
+  for (let i = 0; i < times; i++) {
+    if (state.autoStop) break;
+
+    // Ваучер тратится первым, поэтому проверяем баланс только на платный
+    // прокрут. Список ваучеров обновляется ответом сервера на каждом шаге.
+    const freeLeft = (state.user.vouchers || []).find((v) => v.case_id === c.id)?.count || 0;
+    if (!freeLeft && c.price > state.user.balance) {
+      toast(`Не хватает ${money(c.price - state.user.balance)}`);
+      haptic('error');
+      break;
+    }
+
+    leftEl.textContent = `прокрут ${i + 1} из ${times}`;
+
+    let data;
+    try {
+      data = await api('/api/open', { caseId, count: 1 });
+    } catch (err) {
+      toast(err.message);
+      haptic('error');
+      break;
+    }
+
+    await spinReels(c, [data], AUTO_SPIN_DURATION);
     sndLand();
-    haptic('medium');
 
-    // Фриспины проигрываются до итогового экрана: сначала игрок видит, сколько
-    // они принесли, и только потом — общий результат прокрута.
-    for (const g of collectFreeSpins(data)) await runFreeSpins(g, c);
+    // Фриспины внутри серии забираются сами: серия на то и авто, чтобы не
+    // требовать нажатий. Анимацию всё же показываем - это главный момент.
+    for (const g of collectFreeSpins(data)) await runFreeSpins(g, c, true);
 
-    if (count > 1) showBatchResult(data, c);
-    else showCaseResult(data, c);
-  }, DURATION * 1000 + 150);
+    spent += data.totalSpent;
+    won += data.totalWon;
+    done++;
+
+    applyUser(data.user);
+    updateOpenerBalance();
+
+    totalEl.textContent = money(won);
+    totalEl.classList.remove('bump');
+    void totalEl.offsetWidth;
+    totalEl.classList.add('bump');
+
+    logEl.insertAdjacentHTML('afterbegin',
+      `<span class="auto-chip" style="--tier-color:${tierColor(data.item.tier)}">` +
+      `${money(data.totalWon)}</span>`);
+    // Держим лог коротким: панель не должна расти вниз на всю серию.
+    while (logEl.children.length > 12) logEl.lastElementChild.remove();
+
+    if (data.item.multiplier >= 5) { sndBigWin(); haptic('success'); }
+
+    if (i < times - 1 && !state.autoStop) await sleep(AUTO_PAUSE_MS);
+  }
+
+  panel.hidden = true;
+  state.busy = false;
+  loadCaseHistory(c.name);
+  showAutoResult(c, { times, done, spent, won, stopped: state.autoStop });
+}
+
+document.getElementById('autoStop').addEventListener('click', () => {
+  state.autoStop = true;
+  haptic('medium');
+  document.getElementById('autoLeft').textContent = 'останавливаем...';
+});
+
+/** Итог серии: сколько прокрутов прошло, сколько потрачено и выиграно. */
+function showAutoResult(caseData, { times, done, spent, won, stopped, label = 'прокрутов' }) {
+  const box = document.getElementById('batchSummary');
+  const net = won - spent;
+
+  box.innerHTML = `
+    ${net > 0 ? `<div class="batch-total plus">+${money(net)}</div>` : ''}
+    <div class="batch-sub">
+      ${done === times ? `${done} ${label}` : `${done} из ${times} ${label}`}${stopped ? ' · остановлено' : ''}
+      <br>потрачено ${money(spent)} · выиграно ${money(won)}
+    </div>
+    <div class="result-actions">
+      <button class="btn btn-outline" id="autoClose">Забрать</button>
+      <button class="btn btn-primary" id="autoAgain">Ещё ${times} раз</button>
+    </div>
+  `;
+  box.hidden = false;
+
+  if (net > 0) { sndCollect(); haptic('success'); } else { sndLose(); haptic('light'); }
+
+  document.getElementById('autoClose').addEventListener('click', returnToCaseIdle);
+  document.getElementById('autoAgain').addEventListener('click', () =>
+    (label === 'фриспинов' ? buyFreeSpins(caseData.id, times) : runAutoOpen(caseData.id, times)));
 }
 
 /** Все выдачи фриспинов из ответа — и одиночного прокрута, и пачки. */
@@ -707,7 +1051,7 @@ function collectFreeSpins(data) {
  * анимация. Сумма копится на экране крупными цифрами: это и есть смысл режима,
  * поэтому она набирается на глазах, а не появляется готовой в конце.
  */
-function runFreeSpins(grant, caseData) {
+function runFreeSpins(grant, caseData, auto = false) {
   const box = document.getElementById('freespins');
   const reel = document.getElementById('fsReel');
   const totalEl = document.getElementById('fsTotal');
@@ -792,6 +1136,15 @@ function runFreeSpins(grant, caseData) {
     collectBtn.hidden = false;
     collectBtn.textContent = `ЗАБРАТЬ ${money(grant.total)}`;
 
+    // В серии автооткрытий забираем сами: смысл режима в том, чтобы игрок не
+    // жал кнопки. Паузу всё же держим - сумму надо успеть прочитать.
+    if (auto) {
+      await new Promise((done) => setTimeout(done, 1500));
+      sndCollect();
+      box.hidden = true;
+      return;
+    }
+
     await new Promise((done) => {
       collectBtn.addEventListener('click', () => {
         sndCollect();
@@ -854,7 +1207,7 @@ function showCaseResult(data, caseData) {
     : (state.config.tiers.find((t) => t.id === item.tier)?.label || item.tier);
   document.getElementById('resultName').textContent = item.name;
   document.getElementById('resultValue').textContent =
-    item.value ? money(item.value) : '—';
+    item.value ? money(item.value) : '-';
 
   const net = document.getElementById('resultNet');
   const parts = [];
@@ -980,8 +1333,8 @@ function renderGamble() {
   const g = state.config.gamble;
 
   gambleEl.rules().innerHTML =
-    `Найдите красного туза среди ${g.cards} карт — выигрыш вырастет в ` +
-    `<b>×${g.payout}</b>. Промах — выигрыш сгорает.`;
+    `Найдите красного туза среди ${g.cards} карт - выигрыш вырастет в ` +
+    `<b>×${g.payout}</b>. Промах - выигрыш сгорает.`;
 
   gambleEl.cards().innerHTML = Array.from({ length: g.cards }, (_, i) =>
     `<button class="gcard" data-idx="${i}">
@@ -1435,7 +1788,7 @@ async function spinRoulette() {
     timers.forEach(clearTimeout);
     const box = document.getElementById('rouletteResult');
     const label = state.config.roulette.colors.find((c) => c.id === data.landed)?.label;
-    box.textContent = data.won ? `${label} — забрали ${money(data.payout)}` : `${label} — мимо`;
+    box.textContent = data.won ? `${label} - забрали ${money(data.payout)}` : `${label} - мимо`;
     box.className = `roulette-result ${data.won ? 'win' : 'lose'}`;
 
     pushRecent('roulette', data.landed);
@@ -1497,7 +1850,7 @@ document.getElementById('rotateBtn').addEventListener('click', async () => {
    АДМИНКА
    ============================================================ */
 
-const pct = (v) => (v === null || v === undefined ? '—' : `${(v * 100).toFixed(2)}%`);
+const pct = (v) => (v === null || v === undefined ? '-' : `${(v * 100).toFixed(2)}%`);
 
 async function loadAdminOverview() {
   let d;
@@ -1602,7 +1955,7 @@ async function loadAdminUsers() {
       <div class="user-main">
         <div class="user-name">${esc(name)}${u.is_admin ? ' <span class="admin-tag">АДМИН</span>' : ''}</div>
         <div class="user-meta">ID ${u.tg_id} · раундов ${fmt(u.total_rounds)}
-          · RTP ${u.total_spent ? ((u.total_won / u.total_spent) * 100).toFixed(0) + '%' : '—'}</div>
+          · RTP ${u.total_spent ? ((u.total_won / u.total_spent) * 100).toFixed(0) + '%' : '-'}</div>
       </div>
       <div class="user-bal">${fmt(u.balance)}</div>
     </div>`;
@@ -1651,7 +2004,7 @@ async function openAdminUser(userId) {
       <div class="kpi"><div class="kpi-label">Поставил</div><div class="kpi-value">${fmt(u.total_spent)}</div></div>
       <div class="kpi"><div class="kpi-label">Выиграл</div><div class="kpi-value">${fmt(u.total_won)}</div></div>
       <div class="kpi"><div class="kpi-label">Его RTP</div>
-        <div class="kpi-value">${u.total_spent ? ((u.total_won / u.total_spent) * 100).toFixed(1) + '%' : '—'}</div></div>
+        <div class="kpi-value">${u.total_spent ? ((u.total_won / u.total_spent) * 100).toFixed(1) + '%' : '-'}</div></div>
       <div class="kpi"><div class="kpi-label">Прибыль с него</div>
         <div class="kpi-value ${u.total_spent - u.total_won >= 0 ? 'plus' : 'minus'}">
           ${fmt(u.total_spent - u.total_won)}</div></div>
@@ -1748,9 +2101,289 @@ document.querySelectorAll('[data-admin-tab]').forEach((btn) => {
     document.getElementById(`admin-${state.admin.tab}`).classList.add('active');
     if (state.admin.tab === 'users') loadAdminUsers();
     if (state.admin.tab === 'payouts') loadAdminPayouts();
+    if (state.admin.tab === 'promos') loadAdminPromos();
+    if (state.admin.tab === 'partners') loadAdminPartners();
     haptic('light');
   });
 });
+
+/* ---------- Админка: промокоды ---------- */
+
+/** Дата в формате поля input[type=date] и обратно в миллисекунды. */
+const dateValue = (ms) => (ms ? new Date(ms).toISOString().slice(0, 10) : '');
+const dateMs = (v, endOfDay) =>
+  (v ? new Date(v + (endOfDay ? 'T23:59:59' : 'T00:00:00')).getTime() : null);
+
+async function loadAdminPromos() {
+  let d;
+  try { d = await api('/api/admin/promos'); }
+  catch (err) { toast(err.message); return; }
+
+  let partners = [];
+  try { partners = (await api('/api/admin/partners')).rows; } catch { /* необязательно */ }
+
+  const box = document.getElementById('admin-promos');
+
+  box.innerHTML = `
+    <div class="admin-form">
+      <div class="form-grid">
+        <div class="wide">
+          <label>Код</label>
+          <input class="seed-input" id="pmCode" placeholder="WELCOME" maxlength="32">
+        </div>
+        <div class="wide">
+          <label>Тип</label>
+          <select class="seed-input" id="pmType">
+            <option value="balance">Начисление на баланс</option>
+            <option value="deposit_pct">Процент к пополнению</option>
+            <option value="free_case">Бесплатный кейс</option>
+          </select>
+        </div>
+
+        <div data-when="balance"><label>Сумма</label>
+          <input class="seed-input" id="pmAmount" type="number" min="0" value="500"></div>
+
+        <div data-when="deposit_pct"><label>Процент</label>
+          <input class="seed-input" id="pmPct" type="number" min="0" max="500" value="100"></div>
+        <div data-when="deposit_pct"><label>Потолок бонуса</label>
+          <input class="seed-input" id="pmMaxBonus" type="number" min="0" value="0"></div>
+        <div data-when="deposit_pct"><label>Мин. пополнение</label>
+          <input class="seed-input" id="pmMinDep" type="number" min="0" value="0"></div>
+
+        <div data-when="free_case"><label>Кейс</label>
+          <select class="seed-input" id="pmCase">
+            ${d.cases.map((c) => `<option value="${c.id}">${esc(c.name)} · ${fmt(c.price)}</option>`).join('')}
+          </select></div>
+        <div data-when="free_case"><label>Сколько штук</label>
+          <input class="seed-input" id="pmCaseCount" type="number" min="1" value="1"></div>
+
+        <div><label>Отыгрыш, ×</label>
+          <input class="seed-input" id="pmWager" type="number" min="0" step="0.5" value="3"></div>
+        <div><label>Всего активаций</label>
+          <input class="seed-input" id="pmMaxUses" type="number" min="0" value="0"></div>
+        <div><label>На игрока</label>
+          <input class="seed-input" id="pmPerUser" type="number" min="0" value="1"></div>
+        <div><label>Партнёр</label>
+          <select class="seed-input" id="pmPartner">
+            <option value="">нет</option>
+            ${partners.map((p) => `<option value="${p.partner.id}">${
+              esc(p.partner.name || p.partner.tg_id)}</option>`).join('')}
+          </select></div>
+        <div><label>Действует с</label>
+          <input class="seed-input" id="pmFrom" type="date"></div>
+        <div><label>Действует по</label>
+          <input class="seed-input" id="pmTo" type="date"></div>
+        <div class="wide">
+          <label class="check">
+            <input type="checkbox" id="pmNewOnly"> только игрокам без пополнений
+          </label>
+        </div>
+        <div class="wide"><label>Заметка</label>
+          <input class="seed-input" id="pmNote" maxlength="200"></div>
+      </div>
+      <button class="btn btn-primary btn-wide" id="pmSave">Сохранить промокод</button>
+      <div class="kpi-sub" style="margin-top:8px">
+        Ноль в лимитах означает «без ограничения». Отыгрыш ноль - бонус можно
+        выводить сразу, так что для щедрых кодов его лучше не оставлять пустым.
+      </div>
+    </div>
+
+    <h2 class="section-title">Промокоды</h2>
+    ${d.rows.length ? d.rows.map(promoRowHtml).join('') : '<div class="empty">Пока пусто</div>'}
+  `;
+
+  // Показываем только поля, относящиеся к выбранному типу: иначе форма просит
+  // заполнить то, что для этого типа не значит ничего.
+  const syncType = () => {
+    const t = document.getElementById('pmType').value;
+    box.querySelectorAll('[data-when]').forEach((el) => {
+      el.style.display = el.dataset.when === t ? '' : 'none';
+    });
+  };
+  document.getElementById('pmType').addEventListener('change', syncType);
+  syncType();
+
+  document.getElementById('pmSave').addEventListener('click', savePromo);
+
+  box.querySelectorAll('[data-promo-edit]').forEach((btn) => {
+    btn.addEventListener('click', () => fillPromoForm(
+      d.rows.find((r) => r.id === Number(btn.dataset.promoEdit))));
+  });
+  box.querySelectorAll('[data-promo-del]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      try {
+        const r = await api('/api/admin/promo/delete', { id: Number(btn.dataset.promoDel) });
+        toast(r.disabled ? 'Код отключён (по нему были активации)' : 'Код удалён');
+        loadAdminPromos();
+      } catch (err) { toast(err.message); }
+    });
+  });
+}
+
+function promoRowHtml(p) {
+  const bits = [];
+  if (p.type === 'balance') bits.push(`+${fmt(p.amount)} на баланс`);
+  if (p.type === 'deposit_pct') {
+    bits.push(`+${p.pct}% к пополнению`);
+    if (p.min_deposit) bits.push(`от ${fmt(p.min_deposit)}`);
+    if (p.max_bonus) bits.push(`макс ${fmt(p.max_bonus)}`);
+  }
+  if (p.type === 'free_case') bits.push(`кейс ${esc(p.case_id)} ×${p.case_count}`);
+  if (p.wager_multiplier) bits.push(`отыгрыш ×${p.wager_multiplier}`);
+  bits.push(`активаций ${p.used_count}${p.max_uses ? ' из ' + p.max_uses : ''}`);
+  if (p.per_user_limit) bits.push(`на игрока ${p.per_user_limit}`);
+  if (p.new_players_only) bits.push('только новым');
+  if (p.expires_at) bits.push(`до ${new Date(p.expires_at).toLocaleDateString('ru-RU')}`);
+  if (p.partner_name || p.partner_tg) bits.push(`партнёр: ${esc(p.partner_name || p.partner_tg)}`);
+
+  return `<div class="promo-row ${p.is_active ? '' : 'off'}">
+    <div>
+      <div class="promo-code">${esc(p.code)}</div>
+      <div class="promo-meta">${bits.join(' · ')}</div>
+    </div>
+    <div class="promo-actions">
+      <button class="btn btn-outline btn-sm" data-promo-edit="${p.id}">Изм.</button>
+      <button class="btn btn-outline btn-sm" data-promo-del="${p.id}">×</button>
+    </div>
+  </div>`;
+}
+
+function fillPromoForm(p) {
+  if (!p) return;
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+  set('pmCode', p.code);
+  set('pmType', p.type);
+  set('pmAmount', p.amount);
+  set('pmPct', p.pct);
+  set('pmMaxBonus', p.max_bonus);
+  set('pmMinDep', p.min_deposit);
+  if (p.case_id) set('pmCase', p.case_id);
+  set('pmCaseCount', p.case_count);
+  set('pmWager', p.wager_multiplier);
+  set('pmMaxUses', p.max_uses);
+  set('pmPerUser', p.per_user_limit);
+  set('pmPartner', p.partner_id || '');
+  set('pmFrom', dateValue(p.starts_at));
+  set('pmTo', dateValue(p.expires_at));
+  set('pmNote', p.note || '');
+  document.getElementById('pmNewOnly').checked = !!p.new_players_only;
+  document.getElementById('pmType').dispatchEvent(new Event('change'));
+  document.getElementById('admin-promos').scrollIntoView({ behavior: 'smooth' });
+}
+
+async function savePromo() {
+  const val = (id) => document.getElementById(id)?.value;
+  try {
+    const r = await api('/api/admin/promo/save', {
+      code: val('pmCode'),
+      type: val('pmType'),
+      amount: val('pmAmount'),
+      pct: val('pmPct'),
+      max_bonus: val('pmMaxBonus'),
+      min_deposit: val('pmMinDep'),
+      case_id: val('pmCase'),
+      case_count: val('pmCaseCount'),
+      wager_multiplier: val('pmWager'),
+      max_uses: val('pmMaxUses'),
+      per_user_limit: val('pmPerUser'),
+      partner_id: val('pmPartner') || null,
+      starts_at: dateMs(val('pmFrom'), false),
+      expires_at: dateMs(val('pmTo'), true),
+      new_players_only: document.getElementById('pmNewOnly').checked,
+      note: val('pmNote'),
+    });
+    toast(r.created ? `Промокод ${r.code} создан` : `Промокод ${r.code} обновлён`);
+    haptic('success');
+    loadAdminPromos();
+  } catch (err) { toast(err.message); haptic('error'); }
+}
+
+/* ---------- Админка: партнёры ---------- */
+
+async function loadAdminPartners() {
+  let d;
+  try { d = await api('/api/admin/partners'); }
+  catch (err) { toast(err.message); return; }
+
+  const box = document.getElementById('admin-partners');
+
+  box.innerHTML = `
+    <div class="admin-form">
+      <div class="form-grid">
+        <div><label>Telegram ID</label>
+          <input class="seed-input" id="ptTg" inputmode="numeric" placeholder="123456789"></div>
+        <div><label>Доля, %</label>
+          <input class="seed-input" id="ptShare" type="number" min="0" max="100" value="30"></div>
+        <div class="wide"><label>Имя</label>
+          <input class="seed-input" id="ptName" maxlength="80"></div>
+        <div class="wide"><label>Заметка</label>
+          <input class="seed-input" id="ptNote" maxlength="200"></div>
+      </div>
+      <button class="btn btn-primary btn-wide" id="ptSave">Сохранить партнёра</button>
+      <div class="kpi-sub" style="margin-top:8px">
+        Партнёр видит свою статистику в приложении под этим же Telegram ID.
+        Игроки привязываются к нему промокодом: у промокода надо выбрать партнёра.
+      </div>
+    </div>
+
+    <h2 class="section-title">Партнёры</h2>
+    ${d.rows.length ? d.rows.map(partnerRowHtml).join('') : '<div class="empty">Пока пусто</div>'}
+  `;
+
+  document.getElementById('ptSave').addEventListener('click', async () => {
+    try {
+      await api('/api/admin/partner/save', {
+        tg_id: document.getElementById('ptTg').value,
+        share_pct: document.getElementById('ptShare').value,
+        name: document.getElementById('ptName').value,
+        note: document.getElementById('ptNote').value,
+      });
+      toast('Партнёр сохранён');
+      haptic('success');
+      loadAdminPartners();
+    } catch (err) { toast(err.message); haptic('error'); }
+  });
+
+  box.querySelectorAll('[data-pay-partner]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const id = Number(btn.dataset.payPartner);
+      const input = box.querySelector(`[data-pay-amount="${id}"]`);
+      try {
+        await api('/api/admin/partner/pay', { partnerId: id, amount: Number(input.value) });
+        toast('Выплата записана');
+        haptic('success');
+        loadAdminPartners();
+      } catch (err) { toast(err.message); haptic('error'); }
+    });
+  });
+}
+
+function partnerRowHtml(s) {
+  const p = s.partner;
+  return `<div class="promo-row ${p.is_active ? '' : 'off'}" style="flex-direction:column;align-items:stretch">
+    <div style="display:flex;justify-content:space-between;gap:10px">
+      <div>
+        <div class="promo-code">${esc(p.name || 'Партнёр')}</div>
+        <div class="promo-meta">ID ${esc(p.tg_id)} · доля ${p.share_pct}%
+          · рефералов ${fmt(s.referrals)} (играли ${fmt(s.active)})</div>
+      </div>
+      <div style="text-align:right">
+        <div class="promo-code">${money(Math.max(0, s.pending))}</div>
+        <div class="promo-meta">к выплате</div>
+      </div>
+    </div>
+    <div class="promo-meta" style="margin-top:8px">
+      ставки ${money(s.wagered)} · выигрыши ${money(s.paid)} · бонусы ${money(s.bonuses)}
+      · прибыль ${s.profit >= 0 ? '' : '-'}${money(Math.abs(s.profit))}
+      · начислено ${money(s.accrued)} · выплачено ${money(s.paidOut)}
+    </div>
+    <div class="amount-row" style="margin-top:10px">
+      <input class="seed-input" type="number" min="1" data-pay-amount="${p.id}"
+             value="${Math.max(0, s.pending)}" placeholder="сумма">
+      <button class="btn btn-primary btn-sm" data-pay-partner="${p.id}">Выплатить</button>
+    </div>
+  </div>`;
+}
 
 /* ---------- Админка: заявки на вывод ---------- */
 
@@ -1801,7 +2434,7 @@ async function loadAdminPayouts() {
       const status = btn.dataset.resolve;
 
       if (status === 'rejected' && !note.trim()) {
-        toast('Укажите причину отклонения — игрок её увидит');
+        toast('Укажите причину отклонения - игрок её увидит');
         return;
       }
 
@@ -1843,7 +2476,8 @@ function switchView(name) {
   if (name === 'roulette') renderRouletteReel(2);
   if (name === 'admin') loadAdminOverview();
   if (name === 'cases') loadFreeCase();
-  if (name === 'bonuses') renderBonuses();
+  if (name === 'bonuses') { renderBonuses(); loadPromoState(); }
+  if (name === 'partner') loadPartner();
   if (name === 'upgrade') {
     renderUpgradeTicks();
     renderUpgradePicker();
@@ -1870,6 +2504,7 @@ const MENU_ITEMS = [
   { view: 'roulette', ico: 'roulette', title: 'Рулетка', sub: 'Красное и чёрное' },
   { view: 'wallet', ico: 'coin', title: 'Касса', sub: 'Пополнить и вывести' },
   { view: 'fair', ico: 'fair', title: 'Честность', sub: 'Проверить раунд' },
+  { view: 'partner', ico: 'people', title: 'Партнёру', sub: 'Ваши рефералы', partnerOnly: true },
   { view: 'admin', ico: 'admin', title: 'Админ', sub: 'Панель управления', adminOnly: true },
 ];
 
@@ -1878,7 +2513,8 @@ function renderMenu() {
   if (!grid) return;
 
   grid.innerHTML = MENU_ITEMS
-    .filter((m) => !m.adminOnly || state.user?.isAdmin)
+    .filter((m) => (!m.adminOnly || state.user?.isAdmin)
+                && (!m.partnerOnly || state.user?.isPartner))
     .map((m) => `<button class="menu-tile" data-view="${m.view}">
       <span class="menu-tile-ico" data-ico="${m.ico}"></span>
       <span class="menu-tile-title">${m.title}</span>
@@ -2185,7 +2821,7 @@ document.getElementById('freeCase').addEventListener('click', async () => {
 
   try {
     const res = await api('/api/free-case/claim');
-    toast('Бесплатный кейс ваш — он в плашке сверху');
+    toast('Бесплатный кейс ваш - он в плашке сверху');
     sndCollect();
     haptic('success');
     const me = await api('/api/me');
@@ -2203,6 +2839,166 @@ document.getElementById('freeCase').addEventListener('click', async () => {
     btn.disabled = false;
   }
 });
+
+/* ============================================================
+   ПРОМОКОДЫ
+   ============================================================ */
+
+const PROMO_TYPE_LABEL = {
+  balance: 'на баланс',
+  deposit_pct: 'процент к пополнению',
+  free_case: 'бесплатный кейс',
+};
+
+/** Показывает, что именно дал промокод, словами, а не «код принят». */
+function promoResultText(r) {
+  if (r.type === 'balance') return `Начислено ${money(r.amount)}`;
+  if (r.type === 'free_case') {
+    return `Получено бесплатных открытий кейса «${r.caseName}»: ${r.count}`;
+  }
+  if (r.type === 'deposit_pct') {
+    const parts = [`К следующему пополнению будет добавлено ${r.pct}%`];
+    if (r.minDeposit) parts.push(`от ${money(r.minDeposit)}`);
+    if (r.maxBonus) parts.push(`не более ${money(r.maxBonus)}`);
+    return parts.join(', ');
+  }
+  return 'Промокод применён';
+}
+
+async function applyPromo() {
+  const input = document.getElementById('promoInput');
+  const box = document.getElementById('promoResult');
+  const code = input.value.trim();
+  if (!code) return;
+
+  const btn = document.getElementById('promoBtn');
+  btn.disabled = true;
+
+  try {
+    const data = await api('/api/promo/redeem', { code });
+    box.textContent = promoResultText(data.result);
+    box.className = 'promo-result';
+    box.hidden = false;
+    input.value = '';
+    applyUser(data.user);
+    renderBonuses();
+    loadPromoState();
+    sndCollect();
+    haptic('success');
+  } catch (err) {
+    box.textContent = err.message;
+    box.className = 'promo-result bad';
+    box.hidden = false;
+    haptic('error');
+  }
+
+  btn.disabled = false;
+}
+
+document.getElementById('promoBtn').addEventListener('click', applyPromo);
+document.getElementById('promoInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') applyPromo();
+});
+
+/** Долг по обороту, ожидающий процент и история активаций. */
+async function loadPromoState() {
+  let d;
+  try { d = await api('/api/promo/state'); } catch { return; }
+
+  const note = document.getElementById('wagerNote');
+  const parts = [];
+  if (d.wagerRequired > 0) {
+    parts.push(`Бонус отыгрывается: осталось поставить <b>${money(d.wagerRequired)}</b>. ` +
+      'Пока не отыграно, вывод недоступен. Отыгрывается ставками в любой игре.');
+  }
+  if (d.pendingDeposit) {
+    const p = d.pendingDeposit;
+    const limits = [
+      p.min_deposit ? `от ${money(p.min_deposit)}` : '',
+      p.max_bonus ? `не более ${money(p.max_bonus)}` : '',
+    ].filter(Boolean).join(', ');
+    parts.push(`К следующему пополнению будет добавлено <b>+${p.pct}%</b>` +
+      (limits ? ` (${limits})` : '') + '.');
+  }
+  note.innerHTML = parts.join('<br><br>');
+  note.hidden = !parts.length;
+
+  const hist = document.getElementById('promoHistory');
+  hist.innerHTML = d.history?.length
+    ? '<h2 class="section-title">Активированные промокоды</h2>' +
+      d.history.map((h) => `<div class="log-row">
+        <span>${esc(h.code)} · ${PROMO_TYPE_LABEL[h.type] || h.type}<br>
+          <small>${new Date(h.created_at).toLocaleString('ru-RU')}</small></span>
+        <b class="${h.granted ? 'plus' : ''}">${h.granted ? '+' + money(h.granted) : ''}</b>
+      </div>`).join('')
+    : '';
+}
+
+/* ============================================================
+   ЭКРАН ПАРТНЁРА
+   ============================================================ */
+
+async function loadPartner() {
+  const box = document.getElementById('partnerBody');
+  let d;
+  try { d = await api('/api/partner/stats'); }
+  catch (err) { box.innerHTML = `<div class="empty">${esc(err.message)}</div>`; return; }
+
+  const kpi = (label, value, cls, sub) => `<div class="kpi">
+    <div class="kpi-label">${label}</div>
+    <div class="kpi-value ${cls || ''}">${value}</div>
+    ${sub ? `<div class="kpi-sub">${sub}</div>` : ''}
+  </div>`;
+
+  box.innerHTML = `
+    <div class="partner-kpis">
+      ${kpi('Рефералов', fmt(d.referralCount), '', `играли: ${fmt(d.active)}`)}
+      ${kpi('Их ставки', money(d.wagered))}
+      ${kpi('Их выигрыши', money(d.paid))}
+      ${kpi('Выдано бонусов', money(d.bonuses))}
+      ${kpi('Чистая прибыль', `${d.profit >= 0 ? '' : '-'}${money(Math.abs(d.profit))}`,
+            d.profit >= 0 ? 'plus' : 'minus',
+            'ставки минус выигрыши минус бонусы')}
+      ${kpi('Ваша доля', money(d.accrued), 'plus', `${d.partner.share_pct}% от прибыли`)}
+      ${kpi('Выплачено', money(d.paidOut))}
+      ${kpi('К выплате', money(Math.max(0, d.pending)), 'plus')}
+    </div>
+
+    ${d.profit < 0 ? `<div class="wager-note">Сейчас рефералы в плюсе, и прибыли по ним нет.
+      Доля начнёт начисляться снова, когда прибыль вернётся в плюс: минус
+      переносится, а не обнуляется.</div>` : ''}
+
+    <h2 class="section-title">Ваши промокоды</h2>
+    ${d.promos.length
+      ? d.promos.map((p) => `<div class="log-row">
+          <span class="promo-code">${esc(p.code)}</span>
+          <b>${fmt(p.used)} ${plural(p.used, 'активация', 'активации', 'активаций')}</b>
+        </div>`).join('')
+      : '<div class="empty">Промокодов пока нет. Их заводит администратор.</div>'}
+
+    <h2 class="section-title">Рефералы</h2>
+    ${d.referrals.length
+      ? d.referrals.map((u) => {
+          const name = u.username ? '@' + u.username : (u.first_name || 'Без имени');
+          const profit = u.total_spent - u.total_won - u.bonus_granted;
+          return `<div class="log-row">
+            <span>${esc(name)}<br><small>раундов ${fmt(u.total_rounds)} ·
+              ставки ${money(u.total_spent)}</small></span>
+            <b class="${profit >= 0 ? 'plus' : 'minus'}">${profit >= 0 ? '' : '-'}${money(Math.abs(profit))}</b>
+          </div>`;
+        }).join('')
+      : '<div class="empty">Пока никто не пришёл</div>'}
+
+    <h2 class="section-title">Выплаты вам</h2>
+    ${d.payouts.length
+      ? d.payouts.map((p) => `<div class="log-row">
+          <span>${new Date(p.created_at).toLocaleString('ru-RU')}
+            ${p.comment ? '<br><small>' + esc(p.comment) + '</small>' : ''}</span>
+          <b class="plus">+${money(p.amount)}</b>
+        </div>`).join('')
+      : '<div class="empty">Выплат пока не было</div>'}
+  `;
+}
 
 /* ============================================================
    АПГРЕЙД
@@ -2288,7 +3084,7 @@ function renderUpgradeStage() {
   const stake = betValue('upgStake') || 0;
   const goal = Math.round(stake * m);
 
-  target.textContent = goal ? money(goal) : '—';
+  target.textContent = goal ? money(goal) : '-';
   mult.textContent = `x${m}`;
 
   const chance = goal ? (rtp * stake) / goal : 0;
@@ -2303,7 +3099,7 @@ document.getElementById('upgradeBtn').addEventListener('click', async () => {
   const multiplier = state.upgradeMultiplier;
   const min = state.config?.upgrade?.minStake ?? 10;
 
-  if (!stake || stake < min) return toast(`Минимальная ставка — ${min}`);
+  if (!stake || stake < min) return toast(`Минимальная ставка - ${min}`);
   if (stake > (state.user?.balance ?? 0)) return toast('Не хватает средств');
 
   state.busy = true;
