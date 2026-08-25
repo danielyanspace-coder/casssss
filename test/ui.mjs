@@ -62,13 +62,33 @@ await page.waitForTimeout(600);
 
 /* ---------- Полки ---------- */
 
-const shelves = await page.evaluate(() => [...document.querySelectorAll('.shelf')].map((s) => ({
-  title: s.querySelector('.shelf-title').textContent,
-  count: s.querySelectorAll('.case-card').length,
-})));
+// У части полок заголовок нарисован баннером, у остальных остался текстовым,
+// поэтому название берём откуда есть: у баннера оно лежит в alt.
+const shelves = await page.evaluate(() => [...document.querySelectorAll('.shelf')].map((s) => {
+  const banner = s.querySelector('.shelf-banner img');
+  return {
+    title: banner ? banner.alt.split('.')[0] : s.querySelector('.shelf-title').textContent,
+    banner: !!banner,
+    count: s.querySelectorAll('.case-card').length,
+  };
+}));
 const totalCards = shelves.reduce((a, s) => a + s.count, 0);
 check('полки: все кейсы разложены', totalCards >= 50, `карточек ${totalCards}`);
 check('полки: в каждой есть кейсы', shelves.every((s) => s.count > 0));
+
+/*
+ * Баннер полки показывается, только если нарисованные на нём цены совпадают
+ * с ценами её кейсов (см. SHELF_BANNERS). Если полка вдруг вернулась к
+ * текстовой шапке, значит состав кейсов разошёлся с картинкой.
+ */
+for (const title of ['Первые шаги', 'Направления', 'Разогрев', 'Игра престолов']) {
+  const shelf = shelves.find((s) => s.title === title);
+  check(`полка «${title}»: баннер на месте`, !!shelf && shelf.banner,
+    shelf ? 'показана текстовая шапка - цены разошлись с картинкой' : 'полки нет');
+}
+
+check('полка «Горн» убрана из выдачи', await page.evaluate(
+  () => ![...document.querySelectorAll('.case-name')].some((n) => n.textContent.trim() === 'Горн')));
 
 /* ---------- Меню ---------- */
 
@@ -116,6 +136,18 @@ async function goto(view) {
       minSide: Math.min(...hits.map((b) => Math.min(rect(b).width, rect(b).height))),
       hasBack: !!document.querySelector('#menuPhoto .menu-hit-back'),
       bottomNav: document.querySelectorAll('.bottom-nav, .nav-btn').length,
+      // Поддержка ведёт наружу, поэтому data-view у неё нет и в hits она не
+      // попадает - проверяем отдельно, что область есть и лежит на картинке.
+      support: (() => {
+        const el = document.getElementById('menuSupport');
+        if (!el) return null;
+        const r = rect(el);
+        return {
+          inside: r.left >= box.left - 1 && r.right <= box.right + 1
+               && r.top >= box.top - 1 && r.bottom <= box.bottom + 1,
+          height: r.height,
+        };
+      })(),
     };
   });
 
@@ -131,6 +163,27 @@ async function goto(view) {
   check('меню: области крупные', menu.minSide >= 44, `минимальная сторона ${Math.round(menu.minSide)}px`);
   check('меню: кнопка возврата на месте', menu.hasBack);
   check('меню: нижняя панель убрана', menu.bottomNav === 0);
+  check('меню: полоса «Поддержка» на месте', !!menu.support);
+  check('меню: «Поддержка» лежит внутри картинки', menu.support?.inside);
+  check('меню: «Поддержка» крупная', (menu.support?.height || 0) >= 44,
+        `высота ${Math.round(menu.support?.height || 0)}px`);
+
+  // Поддержка уводит в телеграм. В браузере моста нет, остаётся window.open -
+  // его и перехватываем, чтобы проверить адрес и не открывать вкладку.
+  await page.evaluate(() => {
+    window.__supportUrl = null;
+    window.open = (url) => { window.__supportUrl = url; return null; };
+  });
+  await page.click('#menuSupport');
+  await page.waitForTimeout(300);
+  check('меню: «Поддержка» ведёт в чат @luckybox_support',
+        await page.evaluate(() => window.__supportUrl) === 'https://t.me/luckybox_support',
+        String(await page.evaluate(() => window.__supportUrl)));
+  check('меню: «Поддержка» закрывает меню',
+        await page.evaluate(() => document.getElementById('menuBackdrop').hidden));
+
+  await page.click('#menuBtn');
+  await page.waitForSelector('#menuPhoto .menu-hit', { state: 'visible' });
 
   await page.click('#menuPhoto .menu-hit-back');
   await page.waitForTimeout(300);

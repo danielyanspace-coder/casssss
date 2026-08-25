@@ -170,7 +170,6 @@ const SPECS = [
     { art: 'neon' }],
   ['mirage_600', 'Мираж', 'Не всё то золото', 'classic', 599, 0.7, 170, 'normal', 'desert', [],
     { art: 'mirage' }],
-  ['forge_750', 'Горн', 'Куётся под давлением', 'classic', 749, 0.7, 170, 'normal', 'forge'],
   ['pit_800', 'Пит-стоп', 'Три секунды на всё', 'classic', 799, 0.7, 170, 'normal', 'racing', [],
     { art: 'pit' }],
   ['vault_1000', 'Сейф', 'Что внутри - то ваше', 'classic', 999, 0.7, 180, 'normal', 'vault'],

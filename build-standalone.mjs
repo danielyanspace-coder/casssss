@@ -123,6 +123,19 @@ const coverArt = Object.fromEntries(
     ])
 );
 
+// Баннеры полок лежат в коде обычными путями. В автономной версии путей нет,
+// поэтому каждый заменяется на сам файл прямо в исходнике клиента.
+const uiDir = new URL('./public/assets/ui/', import.meta.url);
+const uiArt = Object.fromEntries(
+  readdirSync(uiDir)
+    .filter((f) => f.endsWith('.webp'))
+    .map((f) => [
+      `assets/ui/${f}`,
+      'data:image/webp;base64,' + readFileSync(new URL(f, uiDir)).toString('base64'),
+    ])
+);
+const inlineUi = (src) => src.replace(/assets\/ui\/[\w-]+\.webp/g, (m) => uiArt[m] || m);
+
 const css = read('./public/styles.css');
 const html = read('./public/index.html');
 const icons = read('./public/icons.js');
@@ -130,7 +143,7 @@ const covers = read('./public/covers.js');
 const sounds = read('./public/sounds.js');
 const itemArt = read('./public/item-art.js');
 const legal = read('./public/legal.js');
-const app = read('./public/app.js');
+const app = inlineUi(read('./public/app.js'));
 
 // Тело страницы без внешних подключений — всё уедет внутрь файла.
 const body = html

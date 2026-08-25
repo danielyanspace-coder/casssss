@@ -370,6 +370,23 @@ const THEMED_SHELVES = [
   },
 ];
 
+/**
+ * Присланные баннеры-заголовки полок.
+ *
+ * Название, подзаголовок и диапазон цен нарисованы прямо на картинке, поэтому
+ * текстовая шапка такой полки не нужна - иначе всё это стояло бы дважды.
+ *
+ * Диапазон в поле range - тот, что нарисован на баннере. Полка сверяет его со
+ * своими кейсами и, если цены разошлись (кейс убрали, добавили, переоценили),
+ * возвращает текстовую шапку. Картинка не должна пережить свои же цены.
+ */
+const SHELF_BANNERS = {
+  'Первые шаги':    { src: 'assets/ui/shelf-first.webp',   range: [24, 199] },
+  'Направления':    { src: 'assets/ui/shelf-country.webp', range: [999, 7999] },
+  'Разогрев':       { src: 'assets/ui/shelf-warmup.webp',  range: [249, 799] },
+  'Игра престолов': { src: 'assets/ui/shelf-got.webp',     range: [699, 1699] },
+};
+
 const SHELVES = [
   { title: 'Первые шаги', hint: 'С них начинают', max: 200 },
   { title: 'Разогрев', hint: 'Уже интереснее', max: 800 },
@@ -509,17 +526,31 @@ function renderCases() {
     return arts.length ? Math.min(...arts) : null;
   };
 
+  /* Шапка полки: баннер, если он нарисован под её текущие цены, иначе текст. */
+  const shelfHead = (title, hint, items) => {
+    const lo = items[0].price;
+    const hi = items[items.length - 1].price;
+    const banner = SHELF_BANNERS[title];
+
+    if (banner && banner.range[0] === lo && banner.range[1] === hi) {
+      return `<div class="shelf-banner">
+        <img src="${banner.src}" alt="${title}. ${hint}" decoding="async">
+      </div>`;
+    }
+
+    return `<div class="shelf-head">
+      <div>
+        <h2 class="shelf-title">${title}</h2>
+        <div class="shelf-hint">${hint}</div>
+      </div>
+      <div class="shelf-range">${fmt(lo)}${
+        hi !== lo ? ` - ${fmt(hi)}` : ''} ₽</div>
+    </div>`;
+  };
+
   const shelfHtml = (cls, title, hint, items) => `<section class="shelf ${cls}"${
     shelfAspect(items) ? ` style="--art-ar:${shelfAspect(items)}"` : ''}>
-      <div class="shelf-head">
-        <div>
-          <h2 class="shelf-title">${title}</h2>
-          <div class="shelf-hint">${hint}</div>
-        </div>
-        <div class="shelf-range">${fmt(items[0].price)}${
-          items[items.length - 1].price !== items[0].price
-            ? ` - ${fmt(items[items.length - 1].price)}` : ''} ₽</div>
-      </div>
+      ${shelfHead(title, hint, items)}
       <div class="shelf-row">
         ${items.map((c) => caseCardHtml(c, vouchers)).join('')}
       </div>
@@ -2796,23 +2827,41 @@ function switchView(name) {
  * Раскладка, подписи и иконки нарисованы прямо на ней, поэтому здесь остались
  * только координаты кликабельных областей - в процентах от сторон картинки,
  * чтобы они не разъезжались ни на каком экране. Числа сняты с исходника
- * 1254x1254 по границам самих карточек.
+ * 788x998 по границам самих карточек.
  *
  * «Честности» в меню нет намеренно: ссылка на неё живёт в подвале.
  */
 const MENU_HITS = [
   // Первый ряд: кейсы, апгрейд, краш.
-  { view: 'cases',    left: 4.86,  top: 16.67, width: 28.87, height: 38.12 },
-  { view: 'upgrade',  left: 36.20, top: 16.67, width: 27.59, height: 38.12 },
-  { view: 'crash',    left: 66.11, top: 16.67, width: 29.03, height: 38.12 },
+  { view: 'cases',    left: 4.82,  top: 14.63, width: 28.77, height: 29.56 },
+  { view: 'upgrade',  left: 35.62, top: 14.63, width: 28.77, height: 29.56 },
+  { view: 'crash',    left: 66.42, top: 14.63, width: 28.77, height: 29.56 },
   // Второй ряд: рулетка, касса, бонусы.
-  { view: 'roulette', left: 4.86,  top: 56.70, width: 28.87, height: 37.80 },
-  { view: 'wallet',   left: 36.20, top: 56.70, width: 27.59, height: 37.80 },
-  { view: 'bonuses',  left: 66.11, top: 56.70, width: 29.03, height: 37.80 },
+  { view: 'roulette', left: 4.82,  top: 46.59, width: 28.77, height: 29.76 },
+  { view: 'wallet',   left: 35.62, top: 46.59, width: 28.77, height: 29.76 },
+  { view: 'bonuses',  left: 66.42, top: 46.59, width: 28.77, height: 29.76 },
 ];
 
 /** Кнопка возврата, нарисованная в правом верхнем углу картинки. */
-const MENU_BACK_HIT = { left: 85.49, top: 4.39, width: 9.73, height: 9.33 };
+const MENU_BACK_HIT = { left: 85.20, top: 4.00, width: 10.00, height: 8.00 };
+
+/** Широкая полоса «Поддержка» внизу картинки. */
+const MENU_SUPPORT_HIT = { left: 4.82, top: 78.86, width: 90.36, height: 16.80 };
+
+/** Аккаунт поддержки в телеграме. */
+const SUPPORT_URL = 'https://t.me/luckybox_support';
+
+/**
+ * Открывает чат с поддержкой.
+ *
+ * Внутри телеграма ссылку отдаём самому клиенту: openTelegramLink оставляет
+ * пользователя в приложении. В обычном браузере такого моста нет, там открываем
+ * новой вкладкой.
+ */
+function openSupport() {
+  if (tg?.openTelegramLink) tg.openTelegramLink(SUPPORT_URL);
+  else window.open(SUPPORT_URL, '_blank', 'noopener');
+}
 
 /**
  * Разделы, которых на картинке нет.
@@ -2855,6 +2904,18 @@ function renderMenu() {
   place(back, MENU_BACK_HIT);
   back.addEventListener('click', closeMenu);
   photo.appendChild(back);
+
+  const support = document.createElement('button');
+  support.className = 'menu-hit menu-hit-support';
+  support.id = 'menuSupport';
+  support.setAttribute('aria-label', 'Поддержка');
+  place(support, MENU_SUPPORT_HIT);
+  support.addEventListener('click', () => {
+    closeMenu();
+    haptic('light');
+    openSupport();
+  });
+  photo.appendChild(support);
 
   extra.innerHTML = MENU_EXTRA
     .filter((m) => (!m.adminOnly || state.user?.isAdmin)
