@@ -62,32 +62,15 @@ await page.waitForTimeout(600);
 
 /* ---------- Полки ---------- */
 
-// У части полок заголовок нарисован баннером, у остальных остался текстовым,
-// поэтому название берём откуда есть: у баннера оно лежит в alt.
-const shelves = await page.evaluate(() => [...document.querySelectorAll('.shelf')].map((s) => {
-  const banner = s.querySelector('.shelf-banner img');
-  return {
-    title: banner ? banner.alt.split('.')[0] : s.querySelector('.shelf-title').textContent,
-    banner: !!banner,
-    count: s.querySelectorAll('.case-card').length,
-  };
-}));
+const shelves = await page.evaluate(() => [...document.querySelectorAll('.shelf')].map((s) => ({
+  title: s.querySelector('.shelf-title').textContent,
+  count: s.querySelectorAll('.case-card').length,
+})));
 const totalCards = shelves.reduce((a, s) => a + s.count, 0);
 check('полки: все кейсы разложены', totalCards >= 50, `карточек ${totalCards}`);
 check('полки: в каждой есть кейсы', shelves.every((s) => s.count > 0));
 
-/*
- * Баннер полки показывается, только если нарисованные на нём цены совпадают
- * с ценами её кейсов (см. SHELF_BANNERS). Если полка вдруг вернулась к
- * текстовой шапке, значит состав кейсов разошёлся с картинкой.
- */
-for (const title of ['Первые шаги', 'Направления', 'Разогрев', 'Игра престолов']) {
-  const shelf = shelves.find((s) => s.title === title);
-  check(`полка «${title}»: баннер на месте`, !!shelf && shelf.banner,
-    shelf ? 'показана текстовая шапка - цены разошлись с картинкой' : 'полки нет');
-}
-
-check('полка «Горн» убрана из выдачи', await page.evaluate(
+check('кейс «Горн» убран из выдачи', await page.evaluate(
   () => ![...document.querySelectorAll('.case-name')].some((n) => n.textContent.trim() === 'Горн')));
 
 /* ---------- Меню ---------- */

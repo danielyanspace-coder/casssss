@@ -370,23 +370,6 @@ const THEMED_SHELVES = [
   },
 ];
 
-/**
- * Присланные баннеры-заголовки полок.
- *
- * Название, подзаголовок и диапазон цен нарисованы прямо на картинке, поэтому
- * текстовая шапка такой полки не нужна - иначе всё это стояло бы дважды.
- *
- * Диапазон в поле range - тот, что нарисован на баннере. Полка сверяет его со
- * своими кейсами и, если цены разошлись (кейс убрали, добавили, переоценили),
- * возвращает текстовую шапку. Картинка не должна пережить свои же цены.
- */
-const SHELF_BANNERS = {
-  'Первые шаги':    { src: 'assets/ui/shelf-first.webp',   range: [24, 199] },
-  'Направления':    { src: 'assets/ui/shelf-country.webp', range: [999, 7999] },
-  'Разогрев':       { src: 'assets/ui/shelf-warmup.webp',  range: [249, 799] },
-  'Игра престолов': { src: 'assets/ui/shelf-got.webp',     range: [699, 1699] },
-};
-
 const SHELVES = [
   { title: 'Первые шаги', hint: 'С них начинают', max: 200 },
   { title: 'Разогрев', hint: 'Уже интереснее', max: 800 },
@@ -526,31 +509,17 @@ function renderCases() {
     return arts.length ? Math.min(...arts) : null;
   };
 
-  /* Шапка полки: баннер, если он нарисован под её текущие цены, иначе текст. */
-  const shelfHead = (title, hint, items) => {
-    const lo = items[0].price;
-    const hi = items[items.length - 1].price;
-    const banner = SHELF_BANNERS[title];
-
-    if (banner && banner.range[0] === lo && banner.range[1] === hi) {
-      return `<div class="shelf-banner">
-        <img src="${banner.src}" alt="${title}. ${hint}" decoding="async">
-      </div>`;
-    }
-
-    return `<div class="shelf-head">
-      <div>
-        <h2 class="shelf-title">${title}</h2>
-        <div class="shelf-hint">${hint}</div>
-      </div>
-      <div class="shelf-range">${fmt(lo)}${
-        hi !== lo ? ` - ${fmt(hi)}` : ''} ₽</div>
-    </div>`;
-  };
-
   const shelfHtml = (cls, title, hint, items) => `<section class="shelf ${cls}"${
     shelfAspect(items) ? ` style="--art-ar:${shelfAspect(items)}"` : ''}>
-      ${shelfHead(title, hint, items)}
+      <div class="shelf-head">
+        <div>
+          <h2 class="shelf-title">${title}</h2>
+          <div class="shelf-hint">${hint}</div>
+        </div>
+        <div class="shelf-range">${fmt(items[0].price)}${
+          items[items.length - 1].price !== items[0].price
+            ? ` - ${fmt(items[items.length - 1].price)}` : ''} ₽</div>
+      </div>
       <div class="shelf-row">
         ${items.map((c) => caseCardHtml(c, vouchers)).join('')}
       </div>
