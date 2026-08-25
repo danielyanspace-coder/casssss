@@ -1,0 +1,170 @@
+{
+  "dust": {
+    "aspect": 0.9446,
+    "glow": [
+      25,
+      65
+    ]
+  },
+  "spark": {
+    "aspect": 1.0832,
+    "glow": [
+      15,
+      55
+    ]
+  },
+  "copper": {
+    "aspect": 1.1789,
+    "glow": [
+      15,
+      55
+    ]
+  },
+  "warmup": {
+    "aspect": 1.0895,
+    "glow": [
+      5,
+      55
+    ]
+  },
+  "alley": {
+    "aspect": 1.0938,
+    "glow": [
+      15,
+      55
+    ]
+  },
+  "frost": {
+    "aspect": 0.9304,
+    "glow": [
+      215,
+      25
+    ]
+  },
+  "rune": {
+    "aspect": 0.9179,
+    "glow": [
+      25,
+      215
+    ]
+  },
+  "deck": {
+    "aspect": 0.7571,
+    "glow": [
+      25,
+      345
+    ]
+  },
+  "neon": {
+    "aspect": 0.8304,
+    "glow": [
+      295,
+      235
+    ]
+  },
+  "mirage": {
+    "aspect": 0.7214,
+    "glow": [
+      25,
+      205
+    ]
+  },
+  "pit": {
+    "aspect": 0.8089,
+    "glow": [
+      5,
+      45
+    ]
+  },
+  "allin": {
+    "aspect": 0.7929,
+    "glow": [
+      25,
+      345
+    ]
+  },
+  "lucky": {
+    "aspect": 0.9929,
+    "glow": [
+      35,
+      115
+    ]
+  },
+  "double": {
+    "aspect": 0.8321,
+    "glow": [
+      25,
+      225
+    ]
+  },
+  "santorini": {
+    "aspect": 0.7036,
+    "glow": [
+      35,
+      225
+    ]
+  },
+  "rio": {
+    "aspect": 0.6554,
+    "glow": [
+      35,
+      215
+    ]
+  },
+  "monaco": {
+    "aspect": 0.7036,
+    "glow": [
+      35,
+      355
+    ]
+  },
+  "vegas": {
+    "aspect": 0.6786,
+    "glow": [
+      25,
+      225
+    ]
+  },
+  "dubai": {
+    "aspect": 0.7071,
+    "glow": [
+      35,
+      225
+    ]
+  },
+  "singapore": {
+    "aspect": 0.7071,
+    "glow": [
+      35,
+      205
+    ]
+  },
+  "winterfell": {
+    "aspect": 1.4177,
+    "glow": [
+      15,
+      225
+    ]
+  },
+  "braavos": {
+    "aspect": 1.4213,
+    "glow": [
+      25,
+      225
+    ]
+  },
+  "highgarden": {
+    "aspect": 1.4249,
+    "glow": [
+      35,
+      75
+    ]
+  },
+  "westeros": {
+    "aspect": 1.4106,
+    "glow": [
+      15,
+      55
+    ]
+  }
+}

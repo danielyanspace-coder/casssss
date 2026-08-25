@@ -18,6 +18,22 @@
  * картинку не запекается, и показывать её надо через object-fit: contain -
  * иначе прозрачные края обрежутся вместе с объектом.
  *
+ * ЗАЧЕМ СЧИТАЕМ ЦВЕТ СВЕЧЕНИЯ. Вокруг обложки на странице лежит цветной
+ * воздух. Раньше его цвет брался от категории, и вся полка светилась
+ * одинаково - при том что «Мерзлота» ледяная, «Разогрев» огненный, а
+ * «Счастливый» зелёный. Поэтому здесь по каждой обложке считаются два её
+ * собственных тона, и вёрстка вешает их двумя тенями разного радиуса.
+ *
+ * ПОЧЕМУ ДВА ТОНА СЧИТАЮТСЯ ПО-РАЗНОМУ. Обложки - это сундуки с золотом, и
+ * самый тяжёлый тон почти у всех один и тот же, оранжевый. Если брать два
+ * самых тяжёлых, полка снова светится одинаково - ровно та беда, от которой
+ * уходим. Поэтому ближний тон берётся как есть, самый тяжёлый: он честно
+ * повторяет обложку и держит свечение в её гамме. А дальний, тот самый
+ * заметный воздух, берётся как самый нехарактерный для остальных обложек:
+ * доля тона у этой картинки минус его средняя доля по всем. Общее золото
+ * так вычитается само собой, а наружу выходит то, чем обложка отличается, -
+ * лёд «Мерзлоты», зелень «Счастливого», пурпур «Неонового».
+ *
  * ПОЧЕМУ 500 px ПО ДЛИННОЙ СТОРОНЕ И КАЧЕСТВО 0.78. Обложек восемнадцать, и
  * на вес страницы они влияют сильнее всего остального вместе взятого. Замеры
  * показали, что качество WebP на вес почти не влияет, а размер - линейно:
@@ -79,6 +95,27 @@ const ALPHA_FLOOR = 8;
  */
 const PADDING = 0.06;
 
+/**
+ * Насколько дальний тон должен отличаться от ближнего, в градусах. Два
+ * близких цвета сливаются в одно пятно, и вся затея теряется.
+ */
+const HUE_APART = 40;
+
+/** Число корзин гистограммы тонов. 36 - это по 10 градусов на корзину. */
+const HUE_BINS = 36;
+
+/**
+ * Наименьшая доля тона, при которой он годится в дальний.
+ *
+ * У обложек, где кроме золота почти ничего нет, «самый нехарактерный» тон
+ * выбирается из шума: доля у всех кандидатов около нуля, и побеждает
+ * случайный. Такие обложки честнее светить вторым по тяжести тоном.
+ */
+const FAR_MIN_SHARE = 0.04;
+
+/** Ниже этой насыщенности точка не участвует в подборе: серое тона не даёт. */
+const SAT_FLOOR = 0.34;
+
 const OUT_DIR = new URL('../public/assets/covers/', import.meta.url);
 mkdirSync(OUT_DIR, { recursive: true });
 
@@ -98,13 +135,18 @@ let total = 0;
  * высокие, либо оставляет под низкими пустую полосу. Поэтому высота считается
  * из пропорции, а таблица уезжает рядом с картинками.
  */
-const aspects = {};
+const art = {};
+
+/** Гистограммы тонов: дальний тон выбирается, когда посчитаны все обложки. */
+const hist = {};
 
 for (const [file, name] of Object.entries(MAP)) {
   const src = new URL(`../${file}`, import.meta.url);
   const dataUri = 'data:image/png;base64,' + readFileSync(src).toString('base64');
 
-  const out = await page.evaluate(async ({ dataUri, MAX_SIDE, ALPHA_FLOOR, PADDING }) => {
+  const out = await page.evaluate(async ({
+    dataUri, MAX_SIDE, ALPHA_FLOOR, PADDING, SAT_FLOOR, BINS,
+  }) => {
     const img = new Image();
     img.src = dataUri;
     await img.decode();
@@ -148,31 +190,105 @@ for (const [file, name] of Object.entries(MAP)) {
     ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(img, minX, minY, cw, ch, pad, pad, dw, dh);
 
+    /*
+     * Гистограмма тонов по непрозрачным точкам. Вес точки - куб её
+     * насыщенности на альфу: серая заливка тон не задаёт, вялый цвет не
+     * должен перебивать чистый, а полупрозрачный край не должен перевешивать
+     * середину. Кого из корзин выбрать - решается снаружи, когда посчитаны
+     * все обложки.
+     */
+    const weight = new Array(BINS).fill(0);
+    for (let i = 0; i < data.length; i += 4) {
+      const a = data[i + 3] / 255;
+      if (a < 0.5) continue;
+      const r = data[i] / 255; const g = data[i + 1] / 255; const b = data[i + 2] / 255;
+      const max = Math.max(r, g, b); const min = Math.min(r, g, b);
+      const l = (max + min) / 2;
+      if (max === min || l < 0.12 || l > 0.94) continue;
+      const sat = (max - min) / (1 - Math.abs(2 * l - 1));
+      if (sat < SAT_FLOOR) continue;
+
+      let h;
+      if (max === r) h = ((g - b) / (max - min) + 6) % 6;
+      else if (max === g) h = (b - r) / (max - min) + 2;
+      else h = (r - g) / (max - min) + 4;
+      h *= 60;
+
+      weight[Math.floor(h / (360 / BINS)) % BINS] += sat * sat * sat * a;
+    }
+
     return {
       base64: canvas.toDataURL("image/webp", 0.78).split(',')[1],
       src: [img.width, img.height],
       trimmed: [cw, ch],
       final: [canvas.width, canvas.height],
+      hues: weight,
     };
-  }, { dataUri, MAX_SIDE, ALPHA_FLOOR, PADDING });
+  }, { dataUri, MAX_SIDE, ALPHA_FLOOR, PADDING, SAT_FLOOR, BINS: HUE_BINS });
 
   const buf = Buffer.from(out.base64, 'base64');
   writeFileSync(new URL(`${name}.webp`, OUT_DIR), buf);
   total += buf.length;
 
-  aspects[name] = Number((out.final[0] / out.final[1]).toFixed(4));
+  art[name] = { aspect: Number((out.final[0] / out.final[1]).toFixed(4)) };
+  hist[name] = out.hues;
 
   const cut = Math.round((1 - (out.trimmed[0] * out.trimmed[1]) / (out.src[0] * out.src[1])) * 100);
   console.log(
     `${name.padEnd(11)} ${String(out.src.join('x')).padEnd(10)} -> ` +
     `${String(out.final.join('x')).padEnd(9)} ${String(Math.round(buf.length / 1024) + ' КБ').padStart(7)}` +
-    `   полей срезано ${cut}%`
+    `   полей срезано ${String(cut + '%').padStart(4)}`
   );
 }
 
 await browser.close();
 
-writeFileSync(new URL('aspects.json', OUT_DIR), JSON.stringify(aspects, null, 2) + '\n');
+/* ---------- Выбор тонов свечения ---------- */
+
+const step = 360 / HUE_BINS;
+/** Центр корзины, а не край: край даёт заметный сдвиг при десяти градусах. */
+const hueOf = (i) => Math.round(i * step + step / 2);
+const apart = (i, j) => {
+  const d = Math.abs(i - j) * step;
+  return Math.min(d, 360 - d);
+};
+
+// Доли тонов внутри каждой обложки и средняя доля по всем.
+const shares = {};
+for (const [name, w] of Object.entries(hist)) {
+  const sum = w.reduce((a, b) => a + b, 0) || 1;
+  shares[name] = w.map((v) => v / sum);
+}
+const mean = new Array(HUE_BINS).fill(0);
+for (const sh of Object.values(shares)) sh.forEach((v, i) => { mean[i] += v; });
+for (let i = 0; i < HUE_BINS; i++) mean[i] /= Object.keys(shares).length;
+
+for (const [name, sh] of Object.entries(shares)) {
+  const near = sh.indexOf(Math.max(...sh));
+
+  // Дальний тон: где эта обложка сильнее всего опережает среднюю по всем.
+  let far = near;
+  let bestLift = -Infinity;
+  for (let i = 0; i < HUE_BINS; i++) {
+    if (apart(i, near) < HUE_APART) continue;
+    if (sh[i] < FAR_MIN_SHARE) continue;
+    const lift = sh[i] - mean[i];
+    if (lift > bestLift) { bestLift = lift; far = i; }
+  }
+
+  // Ничего заметного за порогом нет - берём просто второй по тяжести.
+  if (far === near) {
+    let bestShare = -1;
+    for (let i = 0; i < HUE_BINS; i++) {
+      if (apart(i, near) >= HUE_APART && sh[i] > bestShare) { bestShare = sh[i]; far = i; }
+    }
+  }
+
+  art[name].glow = [hueOf(near), hueOf(far)];
+  console.log(`${name.padEnd(11)} тона ${hueOf(near)} / ${hueOf(far)}`);
+}
+
+writeFileSync(new URL('art.json', OUT_DIR), JSON.stringify(art, null, 2) + '\n');
 
 console.log(`\nВсего ${Object.keys(MAP).length} обложек, ${(total / 1024 / 1024).toFixed(2)} МБ`);
-console.log('Пропорции записаны в public/assets/covers/aspects.json');
+console.log('Пропорции и тона записаны в public/assets/covers/art.json');

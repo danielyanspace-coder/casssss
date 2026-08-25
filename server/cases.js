@@ -23,13 +23,18 @@ import { readFileSync } from 'node:fs';
 import { THEMES } from './themes.js';
 
 /**
- * Пропорции присланных обложек, посчитанные при их подготовке
- * (см. tools/case-covers.mjs). Нужны вёрстке, чтобы задать высоту слота под
- * арт: она разная у вертикальных городских, горизонтальных престольных и
- * почти квадратных обложек ценовых полок.
+ * Разбор присланных обложек, посчитанный при их подготовке
+ * (см. tools/case-covers.mjs).
+ *
+ * aspect нужен вёрстке, чтобы задать высоту слота под арт: она разная у
+ * вертикальных городских, горизонтальных престольных и почти квадратных
+ * обложек ценовых полок.
+ *
+ * glow - два тона самой обложки. Ими подсвечивается воздух вокруг неё, чтобы
+ * свечение шло от картинки, а не от категории.
  */
-const ART_ASPECTS = JSON.parse(
-  readFileSync(new URL('../public/assets/covers/aspects.json', import.meta.url), 'utf8')
+const ART = JSON.parse(
+  readFileSync(new URL('../public/assets/covers/art.json', import.meta.url), 'utf8')
 );
 
 export const TIERS = [
@@ -684,7 +689,8 @@ export function publicCase(c) {
     showcase: c.showcase,
     availableFrom: c.availableFrom,
     art: c.art,
-    artAspect: ART_ASPECTS[c.art] || null,
+    artAspect: ART[c.art]?.aspect || null,
+    artGlow: ART[c.art]?.glow || null,
     topValue: Math.max(...c.items.filter((i) => i.kind === 'item').map((i) => i.value)),
     items: c.items.map((it) => ({
       id: it.id,

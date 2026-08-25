@@ -102,7 +102,7 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: calc(14px + var(--safe-top)) 18px 14px;
+  padding: calc(10px + var(--safe-top)) 16px 10px;
   background: rgba(13, 3, 24, 0.86);
   backdrop-filter: blur(16px);
   border-bottom: 1px solid var(--line);
@@ -112,9 +112,9 @@ body {
 .brand-text { min-width: 0; overflow: hidden; }
 
 .brand-mark {
-  width: 46px; height: 46px;
+  width: 38px; height: 38px;
   display: grid; place-items: center;
-  border-radius: 14px;
+  border-radius: 12px;
   background: linear-gradient(135deg, var(--pink), var(--violet));
   font-size: 24px;
   box-shadow: 0 8px 26px rgba(255, 46, 138, 0.55);
@@ -126,23 +126,23 @@ body {
 }
 
 .brand-name {
-  font-size: 20px; font-weight: 900; letter-spacing: 1px; line-height: 1;
+  font-size: 17px; font-weight: 900; letter-spacing: 0.8px; line-height: 1;
   background: linear-gradient(90deg, var(--pink), var(--gold));
   -webkit-background-clip: text; background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 .brand-name span { -webkit-text-fill-color: var(--cyan); }
-.brand-sub { font-size: 11px; color: var(--muted); letter-spacing: 2px; margin-top: 4px; }
+.brand-sub { font-size: 9.5px; color: var(--muted); letter-spacing: 1.6px; margin-top: 3px; }
 
 /* Баланс поджат: рядом с ним теперь кнопка меню, и прежний размер выдавливал
    логотип за край, стоило балансу вырасти до семизначного. */
 .balance-chip {
-  display: flex; align-items: center; gap: 6px;
-  padding: 8px 13px;
+  display: flex; align-items: center; gap: 5px;
+  padding: 6px 11px;
   border-radius: 999px;
   background: linear-gradient(135deg, rgba(255, 46, 138, 0.3), rgba(160, 32, 255, 0.28));
-  border: 1.5px solid var(--pink);
-  box-shadow: 0 0 18px rgba(255, 46, 138, 0.35);
+  border: 1px solid var(--pink);
+  box-shadow: 0 0 14px rgba(255, 46, 138, 0.3);
   transition: transform 0.25s;
   min-width: 0;
 }
@@ -150,7 +150,7 @@ body {
 .balance-ico { width: 16px; height: 16px; flex: 0 0 auto; }
 .balance-ico svg { width: 100%; height: 100%; }
 .balance-value {
-  font-size: 15px; font-weight: 900; font-variant-numeric: tabular-nums;
+  font-size: 13px; font-weight: 900; font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
@@ -908,8 +908,8 @@ main { position: relative; z-index: 2; padding: 18px; }
 
 [data-ico] { display: inline-block; line-height: 0; }
 
-.balance-ico[data-ico] { width: 22px; height: 22px; }
-.brand-mark[data-ico] { padding: 10px; }
+.balance-ico[data-ico] { width: 18px; height: 18px; }
+.brand-mark[data-ico] { padding: 8px; }
 .crash-rocket[data-ico] { width: 30px; height: 30px; }
 .history-ico[data-ico] { width: 26px; height: 26px; }
 .tier-ico { width: 100%; height: 100%; }
@@ -1050,31 +1050,40 @@ main { position: relative; z-index: 2; padding: 18px; }
      разница уходит наверх, в воздух между полками. */
   object-position: 50% 100%;
   /*
-   * Три тени подряд, и все по форме выреза - drop-shadow работает по альфе,
+   * Четыре тени подряд, и все по форме выреза - drop-shadow работает по альфе,
    * а не по прямоугольнику элемента.
    *
    * Первая - плотный контур вплотную к силуэту: он отделяет рисунок от фона,
    * иначе вырез выглядит наклейкой, положенной сверху.
-   * Вторая - цветное свечение под цвет категории: тот самый «воздух» вокруг
-   * обложки, из-за которого она перестаёт висеть в пустоте.
-   * Третья - тень вниз: она сажает предмет на поверхность.
+   * Вторая - тесное свечение ближним тоном обложки: оно держит воздух в её
+   * собственной гамме.
+   * Третья - широкий ореол дальним тоном, тем, чем эта обложка отличается от
+   * остальных. Он и делает кейсы разными на глаз.
+   * Четвёртая - тень вниз: она сажает предмет на поверхность.
+   *
+   * Оба тона считаются по самой картинке при её подготовке, см.
+   * tools/case-covers.mjs.
    */
   filter:
     drop-shadow(0 0 2px rgba(0, 0, 0, 0.55))
-    drop-shadow(0 0 22px var(--art-glow, rgba(160, 32, 255, 0.45)))
+    drop-shadow(0 0 14px var(--art-glow, rgba(160, 32, 255, 0.45)))
+    drop-shadow(0 6px 34px var(--art-glow-far, var(--art-glow, rgba(160, 32, 255, 0.35))))
     drop-shadow(0 14px 20px rgba(0, 0, 0, 0.55));
   transition: filter 0.2s;
 }
 
-/* Свечение берёт цвет категории кейса: полки различаются на глаз, и обложки
-   внутри одной полки читаются как набор. */
-.case-card.has-art { --art-glow: color-mix(in srgb, var(--cat-color) 45%, transparent); }
+/* Запасной вариант для кейсов без присланного арта: тона обложки взять
+   неоткуда, остаётся цвет категории. */
+.case-card.has-art {
+  --art-glow: color-mix(in srgb, var(--cat-color) 45%, transparent);
+}
 
 /* На нажатии обложка чуть «оживает» - подсветка усиливается. */
 .case-card.has-art:active .cover-art {
   filter:
     drop-shadow(0 0 2px rgba(0, 0, 0, 0.55))
-    drop-shadow(0 0 30px var(--art-glow, rgba(160, 32, 255, 0.6)))
+    drop-shadow(0 0 20px var(--art-glow, rgba(160, 32, 255, 0.6)))
+    drop-shadow(0 6px 44px var(--art-glow-far, var(--art-glow, rgba(160, 32, 255, 0.5))))
     drop-shadow(0 10px 16px rgba(0, 0, 0, 0.55));
 }
 
@@ -1338,13 +1347,13 @@ select.seed-input {
    ПОЛКИ КЕЙСОВ (горизонтальная прокрутка)
    ============================================================ */
 
-.shelves { display: flex; flex-direction: column; gap: 26px; }
+.shelves { display: flex; flex-direction: column; gap: 20px; }
 
 /* Заголовок полки по центру: ряд больше не листается вбок, и выключка влево
    с ценой справа выглядела остатком от прежней карусели. */
 .shelf-head {
   display: flex; flex-direction: column; align-items: center;
-  gap: 3px; margin-bottom: 14px; text-align: center;
+  gap: 2px; margin-bottom: 8px; text-align: center;
 }
 
 .shelf-title {
@@ -1364,7 +1373,7 @@ select.seed-input {
 .shelf-row {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 12px;
+  gap: 4px 10px;
 }
 
 /* ---------- Компактная карточка ---------- */
@@ -1837,19 +1846,26 @@ select.seed-input {
   letter-spacing: 0.04em;
   color: #fff;
   text-shadow: 0 0 24px var(--fx-color, #ffd60a), 0 4px 12px #000;
-  animation: fxShout 1.6s cubic-bezier(0.2, 1.4, 0.4, 1) forwards;
+  /* Задержка стоит между вылетом и уходом: --fx-hold добавляет паузу, на
+     которой надпись просто висит. Растягивать всю анимацию нельзя - вместе с
+     показом замедлился бы и вылет, а он должен быть резким. */
+  animation:
+    fxShoutIn 0.55s cubic-bezier(0.2, 1.4, 0.4, 1) forwards,
+    fxShoutOut 0.5s ease-in forwards calc(1.1s + var(--fx-hold, 0ms));
 }
 .fx-shout small {
   display: block; margin-top: 6px;
   font-size: 17px; font-weight: 800; letter-spacing: 0.08em;
   color: var(--fx-color, #ffd60a);
 }
-@keyframes fxShout {
+@keyframes fxShoutIn {
   0%   { transform: scale(0.4) translateY(20px); opacity: 0; }
-  22%  { transform: scale(1.12) translateY(0); opacity: 1; }
-  34%  { transform: scale(1); }
-  78%  { opacity: 1; }
-  100% { transform: scale(1.04) translateY(-26px); opacity: 0; }
+  62%  { transform: scale(1.12) translateY(0); opacity: 1; }
+  100% { transform: scale(1) translateY(0); opacity: 1; }
+}
+@keyframes fxShoutOut {
+  0%   { transform: scale(1) translateY(0); opacity: 1; }
+  100% { transform: scale(1.06) translateY(-26px); opacity: 0; }
 }
 
 @media (max-width: 420px) {
@@ -2341,15 +2357,15 @@ select.seed-input {
 .topbar { gap: 8px; }
 .brand { min-width: 0; flex: 0 1 auto; }
 .brand-text { min-width: 0; }
-.balance-chip { padding: 11px 14px; flex: 0 0 auto; }
-.balance-value { font-size: 18px; white-space: nowrap; }
+.balance-chip { padding: 7px 12px; flex: 0 0 auto; }
+.balance-value { font-size: 15px; white-space: nowrap; }
 
 @media (max-width: 400px) {
-  .brand-mark { width: 40px; height: 40px; padding: 9px; }
-  .brand-name { font-size: 17px; }
-  .brand-sub { font-size: 10px; letter-spacing: 1px; }
-  .balance-value { font-size: 16px; }
-  .balance-ico[data-ico] { width: 18px; height: 18px; }
+  .brand-mark { width: 34px; height: 34px; padding: 7px; }
+  .brand-name { font-size: 15px; }
+  .brand-sub { font-size: 9px; letter-spacing: 0.8px; }
+  .balance-value { font-size: 13.5px; }
+  .balance-ico[data-ico] { width: 16px; height: 16px; }
 }
 
 /* ============================================================
@@ -2614,7 +2630,7 @@ select.seed-input {
    него сразу читается как лишняя рамка вокруг пустоты. */
 .shelf-row .case-card.has-art,
 .shelf-row .case-card.has-art.free-ready {
-  padding: 0 0 14px;
+  padding: 0 0 6px;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -2640,7 +2656,7 @@ select.seed-input {
 
 .shelf-row .case-card.has-art .case-name {
   min-height: 0;
-  margin: -2px 4px 8px;
+  margin: -2px 4px 6px;
   text-align: center;
   font-size: 14px;
   font-weight: 600;
@@ -2659,7 +2675,7 @@ select.seed-input {
 }
 
 .shelf-country .shelf-row,
-.shelf-got .shelf-row { gap: 8px 14px; }
+.shelf-got .shelf-row { gap: 2px 12px; }
 
 .shelf-got .shelf-title {
   background: linear-gradient(100deg, #e8c56a, #c2410c);
@@ -2681,14 +2697,14 @@ select.seed-input {
 .top-right { display: flex; align-items: center; gap: 8px; }
 
 .menu-btn {
-  width: 42px; height: 42px;
-  border-radius: 13px;
+  width: 36px; height: 36px;
+  border-radius: 11px;
   display: grid; place-items: center;
   color: var(--cyan);
   background: rgba(20, 6, 34, 0.85);
-  border: 1.5px solid var(--line);
+  border: 1px solid var(--line);
 }
-.menu-btn svg { width: 21px; height: 21px; }
+.menu-btn svg { width: 18px; height: 18px; }
 .menu-btn:active { transform: scale(0.94); }
 
 .menu-backdrop {

@@ -219,12 +219,51 @@ function fxFlash(color = 'rgba(255, 214, 10, 0.45)') {
 }
 
 /** Крупная надпись поверх экрана. */
-function fxShout(text, sub = '', color = '#ffd60a') {
+function fxShout(text, sub = '', color = '#ffd60a', hold = 0) {
   const el = document.createElement('div');
   el.className = 'fx-shout';
   el.style.setProperty('--fx-color', color);
+  // Надпись держится дольше за счёт паузы в середине анимации, а не за счёт
+  // её растягивания: иначе вместе с показом замедлились бы вылет и уход.
+  if (hold) el.style.setProperty('--fx-hold', `${hold}ms`);
   el.innerHTML = `${esc(text)}${sub ? `<small>${esc(sub)}</small>` : ''}`;
-  fxAdd(el, 1700);
+  fxAdd(el, 1700 + hold);
+}
+
+/**
+ * Празднование покупки серии.
+ *
+ * Вынесено отдельно от остальных поводов, потому что это единственное место,
+ * где эффект не сопровождает событие, а занимает экран сам: игрок только что
+ * заплатил заметные деньги, и ему нужно отдать за них зрелище, прежде чем
+ * поедет первая лента. Отсюда и длительность - около двух с половиной секунд.
+ */
+const PURCHASE_FX_MS = 2600;
+
+function fxPurchase(count) {
+  fxShout('FREE SPINS', `${count} прокрутов`, '#ffd60a', 1200);
+
+  // Салют идёт волнами, а не одним залпом: один залп в начале отгремел бы за
+  // полсекунды, и дальше надпись висела бы на пустом экране.
+  const waves = [
+    { at: 0,    bursts: 3, palette: 'gold' },
+    { at: 620,  bursts: 2, palette: 'neon' },
+    { at: 1180, bursts: 3, palette: 'fire' },
+    { at: 1760, bursts: 2, palette: 'green' },
+    { at: 2180, bursts: 3, palette: 'gold' },
+  ];
+  for (const w of waves) {
+    setTimeout(() => {
+      fxFirework({ bursts: w.bursts, palette: w.palette });
+      sndFirework(w.bursts);
+      haptic('light');
+    }, w.at);
+  }
+
+  fxFlash('rgba(255, 214, 10, 0.42)');
+  setTimeout(() => fxFlash('rgba(160, 32, 255, 0.3)'), 1180);
+  setTimeout(() => fxConfetti({ count: 70, palette: 'gold' }), 320);
+  setTimeout(() => fxShout('ПОЕХАЛИ', 'серия начинается', '#00ff9d'), 1750);
 }
 
 /**
@@ -237,9 +276,7 @@ function fxShout(text, sub = '', color = '#ffd60a') {
 function celebrate(kind, payload = {}) {
   if (kind === 'purchase') {
     sndPurchase();
-    fxFlash('rgba(255, 214, 10, 0.4)');
-    fxFirework({ bursts: 3, palette: 'gold' });
-    fxShout('ФРИСПИНЫ', `${payload.count} прокрутов`, '#ffd60a');
+    fxPurchase(payload.count);
     haptic('success');
 
   } else if (kind === 'retrigger') {
@@ -388,7 +425,7 @@ function lockedUntil(c) {
     { day: 'numeric', month: 'long' });
 }
 
-function caseCardHtml(c, vouchers) {
+function caseCardHtml(c, vouchers, artAspect = null) {
   const color = CATEGORY_COLORS[c.category] || '#a020ff';
   const freeCount = vouchers.get(c.id) || 0;
   const x2 = state.user.x2CaseId === c.id;
@@ -414,8 +451,16 @@ function caseCardHtml(c, vouchers) {
    */
   const hasArt = Boolean(c.art) && c.art !== 'porsche';
 
+  // Тона свечения приходят с обложкой (см. tools/case-covers.mjs). Категорийный
+  // цвет остаётся запасным вариантом - для кейсов без присланного арта.
+  const glow = c.artGlow
+    ? `;--art-glow:hsl(${c.artGlow[0]} 95% 58% / 0.5)`
+      + `;--art-glow-far:hsl(${c.artGlow[1]} 90% 60% / 0.42)`
+    : '';
+
   return `<div class="case-card ${hasArt ? 'has-art' : ''} ${freeCount ? 'free-ready' : ''} ${locked ? 'locked' : ''}"
-      data-case="${c.id}" style="--cat-color:${color}">
+      data-case="${c.id}" style="--cat-color:${color}${
+        artAspect ? `;--art-ar:${artAspect}` : ''}${glow}">
     <div class="case-cover">
       ${caseCover(c)}
       ${hasArt ? '' : `<div class="cover-badges">${badge}</div>
@@ -500,17 +545,22 @@ function renderCases() {
    * Обложки разной ориентации: городские вертикальные, престольные
    * горизонтальные, на ценовых полках попадаются почти квадратные. Общее
    * число пикселей либо срезало бы высокие, либо оставляло под низкими пустую
-   * полосу. Берём самую «высокую» пропорцию полки: тогда все обложки в ней
-   * помещаются целиком, а слот у соседних карточек одинаковый, и подписи под
-   * ними стоят на одной линии.
+   * полосу.
+   *
+   * Пропорция считается по паре соседей в ряду, а не по всей полке. Сетка в
+   * два столбца, и выровнять подписи нужно только между соседями. Раньше
+   * бралась самая «высокая» обложка полки, и одна вертикальная картинка
+   * поднимала слот всему ряду: у «Разогрева» из-за «Миража» под заголовком
+   * оставалась пустая полоса в треть высоты карточки - арт прижат к низу
+   * слота, а сверху пусто.
    */
-  const shelfAspect = (items) => {
-    const arts = items.map((c) => c.artAspect).filter(Boolean);
+  const pairAspect = (items, i) => {
+    const pair = i % 2 === 0 ? [items[i], items[i + 1]] : [items[i - 1], items[i]];
+    const arts = pair.map((c) => c?.artAspect).filter(Boolean);
     return arts.length ? Math.min(...arts) : null;
   };
 
-  const shelfHtml = (cls, title, hint, items) => `<section class="shelf ${cls}"${
-    shelfAspect(items) ? ` style="--art-ar:${shelfAspect(items)}"` : ''}>
+  const shelfHtml = (cls, title, hint, items) => `<section class="shelf ${cls}">
       <div class="shelf-head">
         <div>
           <h2 class="shelf-title">${title}</h2>
@@ -521,7 +571,7 @@ function renderCases() {
             ? ` - ${fmt(items[items.length - 1].price)}` : ''} ₽</div>
       </div>
       <div class="shelf-row">
-        ${items.map((c) => caseCardHtml(c, vouchers)).join('')}
+        ${items.map((c, i) => caseCardHtml(c, vouchers, pairAspect(items, i))).join('')}
       </div>
     </section>`;
 
@@ -582,8 +632,14 @@ function renderBonuses() {
     return;
   }
 
+  // Здесь пары складываются из того, что выиграно, поэтому пропорция берётся
+  // по соседу так же, как на полках.
   list.innerHTML = cards
-    .map(({ c, count }) => caseCardHtml(c, new Map([[c.id, count]])))
+    .map(({ c, count }, i) => {
+      const pair = i % 2 === 0 ? [cards[i], cards[i + 1]] : [cards[i - 1], cards[i]];
+      const arts = pair.map((x) => x?.c.artAspect).filter(Boolean);
+      return caseCardHtml(c, new Map([[c.id, count]]), arts.length ? Math.min(...arts) : null);
+    })
     .join('');
 
   list.querySelectorAll('.case-card').forEach((card) => {
@@ -921,7 +977,32 @@ async function startOpening(caseId, count = 1) {
 }
 
 /** Сколько едет лента при обычном прокруте. */
-const SPIN_DURATION = 6.4;
+const SPIN_DURATION = 8.2;
+
+/**
+ * Кривая прокрута: плавный разгон, а дальше всё более долгое торможение.
+ *
+ * Контрольная точка перед концом почти в нуле по времени - из-за этого лента
+ * подходит к выигрышу ползком: последние полторы плитки идут около двух
+ * секунд, и предмет успевает прочитаться до остановки.
+ */
+const SPIN_EASE = 'cubic-bezier(0.24, 0, 0.03, 1)';
+
+/**
+ * Доводка. Лента проезжает выигрыш на волосок дальше и возвращается назад.
+ *
+ * Без неё прокрут просто гаснет: скорость падает до нуля так плавно, что
+ * момент остановки не читается. Короткий откат этот момент отбивает - лента
+ * будто становится на защёлку.
+ */
+const SETTLE_MS = 340;
+const SETTLE_EASE = 'cubic-bezier(0.34, 0, 0.2, 1)';
+
+/** Перелёт под доводку, долей шага ленты. */
+const OVERSHOOT = 0.09;
+
+/** Ниже этой длины прокрута доводку не делаем: она заметно удлиняет автооткрытие. */
+const SETTLE_MIN_DURATION = 3;
 
 /**
  * Прокручивает ленты до уже известного результата.
@@ -968,18 +1049,27 @@ function spinReels(c, opened, duration) {
     const jitter = (Math.random() - 0.5) * (tileW * 0.5);
     const target = WINNER_INDEX * step + tileW / 2 - viewport / 2 + jitter;
 
+    const settle = duration >= SETTLE_MIN_DURATION;
+    const overshoot = settle ? step * OVERSHOOT : 0;
+
     requestAnimationFrame(() => {
-      // Кривая с плавным разгоном: прежняя стартовала на полной скорости,
-      // и первые секунды предметы пролетали неразличимо.
-      reel.style.transition = `transform ${duration}s cubic-bezier(0.32, 0, 0.1, 1)`;
-      reel.style.transform = `translateX(${-target}px)`;
+      reel.style.transition = `transform ${duration}s ${SPIN_EASE}`;
+      reel.style.transform = `translateX(${-(target + overshoot)}px)`;
     });
+
+    if (settle) {
+      setTimeout(() => {
+        reel.style.transition = `transform ${SETTLE_MS}ms ${SETTLE_EASE}`;
+        reel.style.transform = `translateX(${-target}px)`;
+      }, duration * 1000 + 20);
+    }
 
     // Щелчки снимаем только с первой ленты — иначе они сливаются в шум.
     if (idx === 0) trackReelTicks(reel, step, duration * 1000);
   });
 
-  return new Promise((done) => setTimeout(done, duration * 1000 + 150));
+  const tail = duration >= SETTLE_MIN_DURATION ? SETTLE_MS + 260 : 150;
+  return new Promise((done) => setTimeout(done, duration * 1000 + tail));
 }
 
 /* ============================================================
@@ -1130,9 +1220,9 @@ async function buyFreeSpins(caseId, count) {
   previewBalance(state.user.balance - data.cost);
 
   // Покупка - событие, за которое игрок заплатил: отмечаем её отдельно и
-  // даём эффекту отыграть, прежде чем поедет первая лента.
+  // даём празднованию отыграть целиком, прежде чем поедет первая лента.
   celebrate('purchase', { count });
-  await sleep(1100);
+  await sleep(PURCHASE_FX_MS);
 
   await runFreeSpins(data.grant, c);
 
@@ -1343,7 +1433,9 @@ function runFreeSpins(grant, caseData, { auto = false, replay = false } = {}) {
 
   const SPIN_LEN = 26;
   const SPIN_WIN = 20;
-  const SPIN_MS = 1700;
+  /* Прокрут внутри серии короче обычного - их подряд десятки, - но кривая та
+     же: к предмету лента подходит ползком, а не гаснет на полном ходу. */
+  const SPIN_MS = 2300;
 
   const filler = caseData.items.filter((it) => it.kind === 'item');
   const pickFiller = () => filler[Math.floor(Math.random() * filler.length)];
@@ -1369,9 +1461,14 @@ function runFreeSpins(grant, caseData, { auto = false, replay = false } = {}) {
     const target = SPIN_WIN * step + tileW / 2 - viewport / 2;
 
     requestAnimationFrame(() => {
-      reel.style.transition = `transform ${SPIN_MS / 1000}s cubic-bezier(0.25, 0, 0.15, 1)`;
-      reel.style.transform = `translateX(${-target}px)`;
+      reel.style.transition = `transform ${SPIN_MS / 1000}s ${SPIN_EASE}`;
+      reel.style.transform = `translateX(${-(target + step * OVERSHOOT)}px)`;
       sndSpinStart();
+
+      setTimeout(() => {
+        reel.style.transition = `transform ${SETTLE_MS}ms ${SETTLE_EASE}`;
+        reel.style.transform = `translateX(${-target}px)`;
+      }, SPIN_MS + 20);
 
       setTimeout(() => {
         sndLand();
@@ -1407,8 +1504,8 @@ function runFreeSpins(grant, caseData, { auto = false, replay = false } = {}) {
           if (spin.value >= caseData.price * 8) celebrate('win');
           haptic('light');
         }
-        setTimeout(done, 350);
-      }, SPIN_MS + 60);
+        setTimeout(done, 320);
+      }, SPIN_MS + SETTLE_MS + 40);
     });
   });
 
