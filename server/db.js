@@ -192,6 +192,22 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_partner_payouts ON partner_payouts(partner_id, id DESC);
 
+  -- Незавершённая серия фриспинов.
+  --
+  -- Выигрыш серии зачисляется сразу, в той же транзакции, что и её розыгрыш,
+  -- поэтому потерять деньги игрок не может. Но если он вышел из кейса, не
+  -- досмотрев прокруты, серия для него просто исчезает - выглядит это как
+  -- пропавшая покупка. Поэтому нерассказанная серия лежит здесь и доигрывается
+  -- при следующем заходе в тот же кейс.
+  --
+  -- Серия на игрока одна: купить вторую, не досмотрев первую, нельзя.
+  CREATE TABLE IF NOT EXISTS pending_spins (
+    user_id    INTEGER PRIMARY KEY REFERENCES users(id),
+    case_id    TEXT    NOT NULL,
+    payload    TEXT    NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+
   -- Журнал действий администратора: любое изменение баланса извне видно.
   CREATE TABLE IF NOT EXISTS admin_log (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -732,7 +748,9 @@ export const playCaseRound = db.transaction((userId, caseData, resolve, resolveF
   let freeSpinsPayout = 0;
 
   if (item.perk) {
-    if (item.perk.type === 'credits') granted.push({ type: 'credits', amount: item.value });
+    // Сумма берётся из payout, а не из номинала: если на кейсе висел ×2,
+    // бонус зачисляется удвоенным, и подпись обязана показать то же число.
+    if (item.perk.type === 'credits') granted.push({ type: 'credits', amount: payout });
     if (item.perk.type === 'voucher') {
       addVoucher(userId, item.perk.caseId, 1);
       granted.push({ type: 'voucher', caseId: item.perk.caseId });
@@ -887,6 +905,39 @@ export const playCaseBatch = db.transaction((userId, caseData, count, resolve, r
   }
   return results;
 });
+
+/* ---------- Незавершённая серия фриспинов ---------- */
+
+/**
+ * Запоминает серию, которую игрок ещё не досмотрел.
+ *
+ * Деньги уже у него на балансе - здесь хранится только то, что показать.
+ */
+export function savePendingSpins(userId, caseId, grant) {
+  db.prepare(`
+    INSERT INTO pending_spins (user_id, case_id, payload, created_at)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(user_id) DO UPDATE SET
+      case_id = excluded.case_id, payload = excluded.payload,
+      created_at = excluded.created_at
+  `).run(userId, caseId, JSON.stringify(grant), Date.now());
+}
+
+export function getPendingSpins(userId) {
+  const row = db.prepare('SELECT * FROM pending_spins WHERE user_id = ?').get(userId);
+  if (!row) return null;
+  try {
+    return { caseId: row.case_id, grant: JSON.parse(row.payload), at: row.created_at };
+  } catch {
+    // Повреждённая запись не должна мешать игре - просто выбрасываем её.
+    clearPendingSpins(userId);
+    return null;
+  }
+}
+
+export function clearPendingSpins(userId) {
+  db.prepare('DELETE FROM pending_spins WHERE user_id = ?').run(userId);
+}
 
 /* ============================================================
    ОТЫГРЫШ БОНУСОВ

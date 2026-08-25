@@ -34,11 +34,13 @@
   <!-- Меню-сетка вместо нижней панели -->
   <div class="menu-backdrop" id="menuBackdrop" hidden>
     <div class="menu-sheet">
-      <div class="menu-head">
-        <div class="menu-title">Меню</div>
-        <button class="opener-close" id="menuClose" data-ico="back"></button>
+      <!-- Меню собрано поверх присланной картинки: сама картинка и есть
+           оформление, а кликабельные области лежат на ней прозрачными
+           кнопками. Заголовок и кнопка возврата тоже нарисованы на ней. -->
+      <div class="menu-photo" id="menuPhoto">
+        <img src="/assets/menu.webp" alt="Меню" class="menu-photo-img" id="menuPhotoImg">
       </div>
-      <div class="menu-grid" id="menuGrid"></div>
+      <div class="menu-extra" id="menuExtra"></div>
     </div>
   </div>
 
@@ -452,11 +454,12 @@
           <div class="count-row" id="countRow"></div>
           <div class="auto-row" id="autoRow"></div>
           <button class="btn btn-primary sheet-open-btn" id="doOpenBtn"></button>
-          <!-- Покупка фриспинов: серия прокрутов сразу, дешевле поштучных. -->
+          <!-- Покупка фриспинов: серия прокрутов сразу. -->
           <div class="fsbuy" id="fsBuy" hidden>
+            <div class="fsbuy-glow" aria-hidden="true"></div>
             <div class="fsbuy-head">
-              <span class="fsbuy-title">Купить фриспины</span>
-              <span class="fsbuy-hint">выгоднее, чем открывать по одному</span>
+              <span class="fsbuy-badge">FREE SPINS</span>
+              <span class="fsbuy-title">Забрать серию прокрутов</span>
             </div>
             <div class="fsbuy-row" id="fsBuyRow"></div>
           </div>
@@ -509,6 +512,23 @@
       </div>
     </div>
   </div>
+
+  <!-- Подтверждение покупки фриспинов -->
+  <div class="confirm-backdrop" id="buyBackdrop" hidden>
+    <div class="confirm-sheet">
+      <div class="confirm-art" id="buyArt" aria-hidden="true"></div>
+      <div class="confirm-title" id="buyTitle"></div>
+      <div class="confirm-rows" id="buyRows"></div>
+      <div class="confirm-note" id="buyNote"></div>
+      <div class="confirm-actions">
+        <button class="btn btn-outline" id="buyCancel">Отмена</button>
+        <button class="btn btn-primary" id="buyConfirm">Купить</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Слой праздничных эффектов: салют, конфетти, вспышки. -->
+  <div class="fx-layer" id="fxLayer" aria-hidden="true"></div>
 
   <div class="toast" id="toast" hidden></div>
 

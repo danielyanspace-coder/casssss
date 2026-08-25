@@ -86,6 +86,9 @@ import {
   adminSavePartner,
   adminListPartners,
   adminPayPartner,
+  savePendingSpins,
+  getPendingSpins,
+  clearPendingSpins,
 } from './db.js';
 import { resolveUser } from './auth.js';
 import {
@@ -319,6 +322,11 @@ app.post('/api/open', auth, (req, res) => {
 
   const last = results[results.length - 1];
 
+  // Выпавшая серия тоже может остаться недосмотренной. Храним последнюю:
+  // показать всё равно можно только одну за раз.
+  const pending = opened.flatMap((o) => o.granted).filter((g) => g.type === 'freespins');
+  if (pending.length) savePendingSpins(user.id, caseData.id, pending[pending.length - 1]);
+
   // Выигрыш фриспинов реально зачислен на баланс в той же транзакции, что и
   // сам предмет, — его нельзя терять при подсчёте суммы пачки, иначе итог
   // на экране разойдётся с тем, что реально начислено.
@@ -371,17 +379,23 @@ app.post('/api/freespins/buy', auth, (req, res) => {
     throw err;
   }
 
+  const grant = {
+    type: 'freespins',
+    caseId: caseData.id,
+    count: result.count,
+    capped: result.capped,
+    spins: result.spins,
+    total: result.total,
+  };
+
+  // Серию запоминаем до того, как игрок её досмотрит: закроет кейс на середине
+  // - при следующем заходе она доиграется, а не пропадёт.
+  savePendingSpins(user.id, caseData.id, grant);
+
   res.json({
     // Форма ответа повторяет выдачу фриспинов из кейса: клиент проигрывает их
     // той же анимацией, что и выпавшие.
-    grant: {
-      type: 'freespins',
-      caseId: caseData.id,
-      count: result.count,
-      capped: result.capped,
-      spins: result.spins,
-      total: result.total,
-    },
+    grant,
     cost: result.cost,
     balance: result.balance,
     user: publicUser(getUserById(user.id)),
@@ -553,6 +567,21 @@ app.post('/api/crash/cashout', auth, (req, res) => {
     balance: result.balance,
     user: publicUser(getUserById(req.player.id)),
   });
+});
+
+/**
+ * Незавершённая серия фриспинов.
+ *
+ * Деньги за неё уже на балансе, поэтому это только показ: клиент доигрывает
+ * прокруты и подтверждает через /api/freespins/ack.
+ */
+app.post('/api/freespins/pending', auth, (req, res) => {
+  res.json({ pending: getPendingSpins(req.player.id) });
+});
+
+app.post('/api/freespins/ack', auth, (req, res) => {
+  clearPendingSpins(req.player.id);
+  res.json({ ok: true });
 });
 
 /* ============================================================

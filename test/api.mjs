@@ -620,6 +620,67 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
 
   const bad = await post('/api/freespins/buy', { caseId: c.id, count: 17 });
   check('несуществующая пачка отклонена', bad.status === 400, `HTTP ${bad.status}`);
+
+  // Купленная серия остаётся незавершённой, пока её не досмотрят. Убираем за
+  // собой, иначе следующий заход в кейс начнётся с её доигрывания.
+  await post('/api/freespins/ack');
+}
+
+/* ---------- Незавершённая серия фриспинов ---------- */
+
+{
+  await post('/api/freespins/ack');
+  check('изначально незавершённой серии нет',
+        (await post('/api/freespins/pending')).data.pending === null);
+
+  const before = (await post('/api/me')).data.user.balance;
+  const bought = (await post('/api/freespins/buy', { caseId: 'warmup_100', count: 10 })).data;
+  const after = (await post('/api/me')).data.user.balance;
+
+  const pending = (await post('/api/freespins/pending')).data.pending;
+  check('купленная серия запомнена', pending && pending.caseId === 'warmup_100');
+  check('в запомненной серии те же прокруты',
+        pending.grant.spins.length === bought.grant.spins.length
+        && pending.grant.total === bought.grant.total);
+
+  // Главное: деньги уже начислены, повторный заход их не меняет.
+  check('баланс учтён сразу при покупке',
+        after === before - bought.cost + bought.grant.total,
+        `${before} - ${bought.cost} + ${bought.grant.total} != ${after}`);
+  check('пока серия не досмотрена, баланс не двигается',
+        (await post('/api/me')).data.user.balance === after);
+
+  await post('/api/freespins/ack');
+  check('после досмотра серия забыта',
+        (await post('/api/freespins/pending')).data.pending === null);
+  check('досмотр не меняет баланс',
+        (await post('/api/me')).data.user.balance === after);
+}
+
+/* ---------- Удвоение внутри серии ---------- */
+
+{
+  // Ищем серию, внутри которой выпал ×2, и проверяем, что следующий прокрут
+  // действительно удвоен, а сумма серии сходится с суммой прокрутов.
+  let checked = 0;
+  for (let i = 0; i < 500 && checked < 5; i++) {
+    const r = await post('/api/open', { caseId: 'double_500', count: 1 });
+    const g = (r.data.granted || []).find((x) => x.type === 'freespins');
+    if (!g) continue;
+
+    check('сумма серии равна сумме прокрутов',
+          g.total === g.spins.reduce((s, x) => s + x.value, 0));
+
+    for (let k = 1; k < g.spins.length; k++) {
+      if (!g.spins[k].x2) continue;
+      checked++;
+      check('удвоенный прокрут идёт сразу за плюшкой ×2',
+            g.spins[k - 1].perkType === 'x2',
+            `перед ним был ${g.spins[k - 1].perkType}`);
+      check('удвоенный прокрут не нулевой', g.spins[k].value > 0);
+    }
+    await post('/api/freespins/ack');
+  }
 }
 
 /* ---------- Промокоды ---------- */

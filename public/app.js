@@ -18,6 +18,7 @@ import { DOCS, footerHtml } from './legal.js';
 import {
   sndTick, sndSpinStart, sndLand, sndReveal,
   sndBigWin, sndCollect, sndLose, sndFlip, sndBet, sndCrash, sndClimb,
+  sndPurchase, sndRetrigger, sndFirework, sndJackpot,
 } from './sounds.js';
 
 const tg = window.Telegram?.WebApp;
@@ -129,6 +130,161 @@ function buildMoneyRain() {
       animation-duration:${dur}s;animation-delay:${delay}s">${iconCoin()}</span>`;
   }
   layer.innerHTML = html;
+}
+
+/* ============================================================
+   ПРАЗДНИЧНЫЕ ЭФФЕКТЫ
+   ============================================================ */
+
+/**
+ * Эффекты собраны здесь, а не разбросаны по местам вызова, чтобы событие
+ * можно было выбрать одной строкой и чтобы разные события не начали выглядеть
+ * одинаково: у каждого свой набор цветов, форма и длительность.
+ *
+ * Слой чистится по таймеру: узлы эффектов живут ровно столько, сколько идёт
+ * их анимация, и не копятся в разметке.
+ */
+const FX_PALETTES = {
+  gold: ['#ffd60a', '#ff9b2e', '#fff3b0'],
+  neon: ['#00d4ff', '#a020ff', '#ff2e8a'],
+  green: ['#00ff9d', '#00d4ff', '#c9ff6b'],
+  fire: ['#ff6b35', '#ff1744', '#ffd60a'],
+};
+
+function fxLayer() {
+  return document.getElementById('fxLayer');
+}
+
+function fxAdd(node, lifeMs) {
+  const layer = fxLayer();
+  if (!layer) return;
+  layer.appendChild(node);
+  setTimeout(() => node.remove(), lifeMs);
+}
+
+const fxPick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+
+/** Салют: несколько залпов искр из случайных точек верхней половины экрана. */
+function fxFirework({ bursts = 4, palette = 'gold' } = {}) {
+  const colors = FX_PALETTES[palette] || FX_PALETTES.gold;
+
+  for (let b = 0; b < bursts; b++) {
+    setTimeout(() => {
+      const cx = 15 + Math.random() * 70;
+      const cy = 18 + Math.random() * 34;
+      const count = 16 + Math.floor(Math.random() * 10);
+      const color = fxPick(colors);
+
+      for (let i = 0; i < count; i++) {
+        const angle = (i / count) * Math.PI * 2 + Math.random() * 0.3;
+        const dist = 70 + Math.random() * 90;
+        const el = document.createElement('span');
+        el.className = 'fx-spark';
+        el.style.left = `${cx}%`;
+        el.style.top = `${cy}%`;
+        el.style.setProperty('--fx-color', color);
+        el.style.setProperty('--fx-x', `${Math.cos(angle) * dist}px`);
+        el.style.setProperty('--fx-y', `${Math.sin(angle) * dist}px`);
+        el.style.setProperty('--fx-dur', `${0.9 + Math.random() * 0.5}s`);
+        fxAdd(el, 1600);
+      }
+    }, b * 190 + Math.random() * 80);
+  }
+}
+
+/** Конфетти: падает сверху, дольше салюта - под длинные моменты. */
+function fxConfetti({ count = 60, palette = 'neon' } = {}) {
+  const colors = FX_PALETTES[palette] || FX_PALETTES.neon;
+
+  for (let i = 0; i < count; i++) {
+    const el = document.createElement('span');
+    el.className = 'fx-confetti';
+    el.style.left = `${Math.random() * 100}%`;
+    el.style.setProperty('--fx-color', fxPick(colors));
+    el.style.setProperty('--fx-dur', `${1.8 + Math.random() * 1.6}s`);
+    el.style.setProperty('--fx-spin', `${(Math.random() > 0.5 ? 1 : -1) * (360 + Math.random() * 720)}deg`);
+    el.style.animationDelay = `${Math.random() * 0.6}s`;
+    // Часть конфетти делаем узкой - иначе всё сыплется одинаковыми кирпичами.
+    if (Math.random() > 0.6) el.style.width = '5px';
+    fxAdd(el, 4200);
+  }
+}
+
+/** Вспышка на весь экран. Короткая, только чтобы отметить момент. */
+function fxFlash(color = 'rgba(255, 214, 10, 0.45)') {
+  const el = document.createElement('div');
+  el.className = 'fx-flash';
+  el.style.setProperty('--fx-color', color);
+  fxAdd(el, 800);
+}
+
+/** Крупная надпись поверх экрана. */
+function fxShout(text, sub = '', color = '#ffd60a') {
+  const el = document.createElement('div');
+  el.className = 'fx-shout';
+  el.style.setProperty('--fx-color', color);
+  el.innerHTML = `${esc(text)}${sub ? `<small>${esc(sub)}</small>` : ''}`;
+  fxAdd(el, 1700);
+}
+
+/**
+ * Празднование по поводу.
+ *
+ * Каждый повод звучит и выглядит по-своему: покупка - золото и фанфары,
+ * ретриггер - огонь и дребезг, крупный выигрыш - масштаб зависит от того,
+ * насколько он крупный. Один общий эффект на всё быстро приедается.
+ */
+function celebrate(kind, payload = {}) {
+  if (kind === 'purchase') {
+    sndPurchase();
+    fxFlash('rgba(255, 214, 10, 0.4)');
+    fxFirework({ bursts: 3, palette: 'gold' });
+    fxShout('ФРИСПИНЫ', `${payload.count} прокрутов`, '#ffd60a');
+    haptic('success');
+
+  } else if (kind === 'retrigger') {
+    sndRetrigger();
+    fxFlash('rgba(255, 107, 53, 0.45)');
+    fxFirework({ bursts: 2, palette: 'fire' });
+    fxShout('+' + payload.added, 'ещё прокруты!', '#ff6b35');
+    haptic('success');
+
+  } else if (kind === 'jackpot') {
+    // Самый крупный повод: длинная тема, конфетти и салют вместе.
+    sndJackpot();
+    fxFlash('rgba(255, 214, 10, 0.6)');
+    fxConfetti({ count: 90, palette: 'gold' });
+    fxFirework({ bursts: 6, palette: 'gold' });
+    fxShout('ДЖЕКПОТ', payload.text || '', '#ffd60a');
+    haptic('success');
+
+  } else if (kind === 'bigwin') {
+    sndFirework(3);
+    sndBigWin();
+    fxConfetti({ count: 55, palette: 'neon' });
+    fxShout(payload.text || 'КРУПНЫЙ ВЫИГРЫШ', payload.sub || '', '#00ff9d');
+    haptic('success');
+
+  } else if (kind === 'win') {
+    // Скромный повод: без надписей и конфетти, только искры.
+    sndFirework(2);
+    fxFirework({ bursts: 2, palette: 'green' });
+    haptic('light');
+  }
+}
+
+/**
+ * Выбирает силу празднования по множителю выигрыша.
+ * Пороги подобраны так, чтобы «джекпот» не срабатывал каждую минуту.
+ */
+function celebrateWin(multiplier, value) {
+  if (multiplier >= 50) {
+    celebrate('jackpot', { text: money(value) });
+  } else if (multiplier >= 12) {
+    celebrate('bigwin', { text: money(value), sub: `×${Math.round(multiplier)}` });
+  } else if (multiplier >= 4) {
+    celebrate('win');
+  }
 }
 
 /* ============================================================
@@ -561,6 +717,38 @@ function openCase(caseId) {
   document.querySelector('.opener-scroll').scrollTop = 0;
   updateOpenerBalance();
   loadCaseHistory(c.name);
+  resumePendingSpins(c);
+}
+
+/**
+ * Доигрывает серию фриспинов, которую игрок не досмотрел в прошлый раз.
+ *
+ * Выигрыш за неё уже был зачислен, поэтому здесь только показ: баланс во
+ * время такого прокрута не трогаем. Без этого купленная серия, из которой
+ * игрок вышел, просто исчезала - деньги списаны, прокрутов нет.
+ */
+async function resumePendingSpins(c) {
+  if (state.busy) return;
+
+  let pending;
+  try { ({ pending } = await api('/api/freespins/pending')); }
+  catch { return; }
+
+  if (!pending || pending.caseId !== c.id) return;
+  if (state.busy || state.openingCaseId !== c.id) return;
+
+  state.busy = true;
+  document.getElementById('casePanel').hidden = true;
+  document.getElementById('openerCaseName').innerHTML =
+    `${esc(c.name)} · <span>незавершённая серия</span>`;
+
+  toast('Доигрываем прошлую серию фриспинов');
+  await runFreeSpins(pending.grant, c, { replay: true });
+
+  state.busy = false;
+  document.getElementById('casePanel').hidden = false;
+  document.getElementById('openerCaseName').innerHTML =
+    `${esc(c.name)} · <span>${money(c.price)}</span>`;
 }
 
 /** Лента до первого прокрута: стоит на месте, показывает содержимое кейса. */
@@ -714,8 +902,10 @@ async function startOpening(caseId, count = 1) {
   document.getElementById('casePanel').hidden = true;
   opener.hidden = false;
   document.querySelector('.opener-scroll').scrollTop = 0;
-  updateOpenerBalance();
   loadCaseHistory(c.name);
+
+  // Списание видно с первой секунды прокрута, а не задним числом.
+  previewBalance(state.user.balance - data.totalSpent);
 
   await spinReels(c, opened, SPIN_DURATION);
 
@@ -816,19 +1006,70 @@ function renderFreeSpinBuy(c, locked) {
 
   box.hidden = false;
   row.innerHTML = packs.map((p) => {
-    const price = Math.round(c.price * p.count * (1 - p.discount));
-    const full = c.price * p.count;
+    const price = freeSpinPackPrice(c, p);
     return `<button class="fsbuy-btn" data-fs="${p.count}"
         ${price > state.user.balance ? 'disabled' : ''}>
       <span class="fsbuy-count">${p.count}</span>
+      <span class="fsbuy-word">прокрутов</span>
       <span class="fsbuy-price">${money(price)}</span>
-      <span class="fsbuy-save">выгода ${money(full - price)}</span>
     </button>`;
   }).join('');
 
   row.querySelectorAll('[data-fs]').forEach((btn) => {
-    btn.addEventListener('click', () => buyFreeSpins(c.id, Number(btn.dataset.fs)));
+    btn.addEventListener('click', () => confirmBuyFreeSpins(c, Number(btn.dataset.fs)));
   });
+}
+
+/** Цена пачки. Та же формула, что на сервере; сервер остаётся источником правды. */
+function freeSpinPackPrice(c, pack) {
+  return Math.round(c.price * pack.count * (1 - pack.discount));
+}
+
+/**
+ * Подтверждение покупки.
+ *
+ * Серия стоит заметных денег и запускается сразу, отменить её уже нельзя.
+ * Покупка одним нажатием на такую сумму - это ловушка для промаха пальцем,
+ * поэтому между нажатием и списанием стоит экран с ценой и остатком.
+ */
+function confirmBuyFreeSpins(c, count) {
+  const pack = (state.config.freeSpinPacks || []).find((p) => p.count === count);
+  if (!pack) return;
+
+  const price = freeSpinPackPrice(c, pack);
+  const backdrop = document.getElementById('buyBackdrop');
+
+  document.getElementById('buyArt').textContent = String(count);
+  document.getElementById('buyTitle').textContent = 'Покупка фриспинов';
+  document.getElementById('buyRows').innerHTML = `
+    <div class="confirm-row"><span>Кейс</span><b>${esc(c.name)}</b></div>
+    <div class="confirm-row"><span>Прокрутов</span><b>${count}</b></div>
+    <div class="confirm-row"><span>К оплате</span><b class="gold">${money(price)}</b></div>
+    <div class="confirm-row"><span>Останется на счету</span>
+      <b>${money(Math.max(0, state.user.balance - price))}</b></div>
+  `;
+  document.getElementById('buyNote').textContent =
+    'Прокруты бесплатные и начнутся сразу. Внутри серии может выпасть что угодно '
+    + 'из этого кейса, включая новые фриспины.';
+
+  const confirmBtn = document.getElementById('buyConfirm');
+  const cancelBtn = document.getElementById('buyCancel');
+  confirmBtn.textContent = `Купить за ${money(price)}`;
+  confirmBtn.disabled = price > state.user.balance;
+
+  const close = () => {
+    backdrop.hidden = true;
+    confirmBtn.onclick = null;
+    cancelBtn.onclick = null;
+    backdrop.onclick = null;
+  };
+
+  confirmBtn.onclick = () => { close(); buyFreeSpins(c.id, count); };
+  cancelBtn.onclick = () => { close(); haptic('light'); };
+  backdrop.onclick = (e) => { if (e.target === backdrop) close(); };
+
+  backdrop.hidden = false;
+  haptic('light');
 }
 
 /** Покупает серию и сразу её проигрывает - той же анимацией, что и выпавшую. */
@@ -860,11 +1101,21 @@ async function buyFreeSpins(caseId, count) {
   document.getElementById('openerCaseName').innerHTML =
     `${esc(c.name)} · <span>${count} фриспинов за ${money(data.cost)}</span>`;
 
-  applyUser(data.user);
-  updateOpenerBalance();
+  // Сначала честное списание стоимости, и только потом серия начинает
+  // возвращать выигрыш. Иначе баланс сразу показал бы итог, и покупка за
+  // 18 000 выглядела бы списанием на 9 000.
+  previewBalance(state.user.balance - data.cost);
+
+  // Покупка - событие, за которое игрок заплатил: отмечаем её отдельно и
+  // даём эффекту отыграть, прежде чем поедет первая лента.
+  celebrate('purchase', { count });
+  await sleep(1100);
 
   await runFreeSpins(data.grant, c);
 
+  // Настоящее значение с сервера - на случай, если анимация где-то разошлась.
+  applyUser(data.user);
+  updateOpenerBalance();
   loadCaseHistory(c.name);
   state.busy = false;
   showAutoResult(c, {
@@ -967,12 +1218,13 @@ async function runAutoOpen(caseId, times) {
       break;
     }
 
+    previewBalance(state.user.balance - data.totalSpent);
     await spinReels(c, [data], AUTO_SPIN_DURATION);
     sndLand();
 
     // Фриспины внутри серии забираются сами: серия на то и авто, чтобы не
     // требовать нажатий. Анимацию всё же показываем - это главный момент.
-    for (const g of collectFreeSpins(data)) await runFreeSpins(g, c, true);
+    for (const g of collectFreeSpins(data)) await runFreeSpins(g, c, { auto: true });
 
     spent += data.totalSpent;
     won += data.totalWon;
@@ -992,7 +1244,7 @@ async function runAutoOpen(caseId, times) {
     // Держим лог коротким: панель не должна расти вниз на всю серию.
     while (logEl.children.length > 12) logEl.lastElementChild.remove();
 
-    if (data.item.multiplier >= 5) { sndBigWin(); haptic('success'); }
+    celebrateWin(data.item.multiplier, data.item.value);
 
     if (i < times - 1 && !state.autoStop) await sleep(AUTO_PAUSE_MS);
   }
@@ -1051,7 +1303,7 @@ function collectFreeSpins(data) {
  * анимация. Сумма копится на экране крупными цифрами: это и есть смысл режима,
  * поэтому она набирается на глазах, а не появляется готовой в конце.
  */
-function runFreeSpins(grant, caseData, auto = false) {
+function runFreeSpins(grant, caseData, { auto = false, replay = false } = {}) {
   const box = document.getElementById('freespins');
   const reel = document.getElementById('fsReel');
   const totalEl = document.getElementById('fsTotal');
@@ -1102,25 +1354,34 @@ function runFreeSpins(grant, caseData, auto = false) {
         sndLand();
         acc += spin.value;
         totalEl.textContent = money(acc);
+        // Баланс растёт вместе с суммой серии: игрок видит, что выигрыш
+        // капает по ходу, а не появляется одним прыжком в конце.
+        // При доигрывании сохранённой серии баланс не трогаем: деньги за неё
+        // зачислены ещё в тот раз, и второй раз их прибавлять нельзя.
+        if (spin.value > 0 && !replay) previewBalance(state.user.balance + spin.value);
         // Перезапуск анимации: без сброса класса подряд идущие прибавки
         // не «подпрыгивают».
         totalEl.classList.remove('bump');
         void totalEl.offsetWidth;
         totalEl.classList.add('bump');
 
+        // У удвоенного прокрута показываем обе суммы: иначе непонятно, что
+        // ×2 вообще сработал - в ленте видно только итоговое число.
         const label = spin.perkType === 'freespins' ? `+${spin.added} прокрутов`
                     : spin.perkType === 'x2' ? '×2 дальше'
                     : spin.perkType === 'voucher' ? 'подарок'
-                    : money(spin.value) + (spin.x2 ? ' ×2' : '');
+                    : spin.x2 ? `${money(spin.value / 2)} ×2 = ${money(spin.value)}`
+                    : money(spin.value);
         logEl.insertAdjacentHTML('beforeend',
           `<span class="fs-chip${spin.added ? ' retrigger' : ''}" ` +
           `style="--tier-color:${tierColor(spin.tier)}">${label}</span>`);
 
         if (spin.added) {
           leftEl.textContent = `${i + 1} из ${grant.spins.length}`;
-          sndBigWin();
-          haptic('success');
+          celebrate('retrigger', { added: spin.added });
         } else {
+          // Крупный прокрут внутри серии тоже стоит отметить, но тише.
+          if (spin.value >= caseData.price * 8) celebrate('win');
           haptic('light');
         }
         setTimeout(done, 350);
@@ -1131,10 +1392,18 @@ function runFreeSpins(grant, caseData, auto = false) {
   return (async () => {
     for (let i = 0; i < grant.spins.length; i++) await runOne(i);
 
-    sndBigWin();
-    haptic('success');
+    // Итог серии: если она отбилась с запасом, это отдельный повод.
+    if (!replay && grant.total >= caseData.price * 12) {
+      celebrate('bigwin', { text: money(grant.total), sub: 'за серию' });
+    } else {
+      sndBigWin();
+      haptic('success');
+    }
     collectBtn.hidden = false;
     collectBtn.textContent = `ЗАБРАТЬ ${money(grant.total)}`;
+
+    // Серию досмотрели - сервер может её забыть.
+    const ack = () => { api('/api/freespins/ack').catch(() => {}); };
 
     // В серии автооткрытий забираем сами: смысл режима в том, чтобы игрок не
     // жал кнопки. Паузу всё же держим - сумму надо успеть прочитать.
@@ -1142,6 +1411,7 @@ function runFreeSpins(grant, caseData, auto = false) {
       await new Promise((done) => setTimeout(done, 1500));
       sndCollect();
       box.hidden = true;
+      ack();
       return;
     }
 
@@ -1149,6 +1419,7 @@ function runFreeSpins(grant, caseData, auto = false) {
       collectBtn.addEventListener('click', () => {
         sndCollect();
         box.hidden = true;
+        ack();
         done();
       }, { once: true });
     });
@@ -1191,6 +1462,9 @@ function showBatchResult(data, caseData) {
 
   sndReveal(best.item.tier);
   if (net > 0) { sndCollect(); haptic('success'); } else { sndLose(); haptic('light'); }
+
+  // В пачке ориентируемся на лучший предмет: именно он и есть событие.
+  setTimeout(() => celebrateWin(best.item.multiplier, best.item.value), 220);
 
   document.getElementById('batchClose').addEventListener('click', returnToCaseIdle);
   document.getElementById('batchAgain').addEventListener('click', () =>
@@ -1242,9 +1516,11 @@ function showCaseResult(data, caseData) {
   }
 
   sndReveal(item.tier);
-  if (item.multiplier >= 5) sndBigWin();
   if (data.net > 0) { setTimeout(sndCollect, 260); haptic('success'); }
   else { setTimeout(sndLose, 200); haptic('light'); }
+
+  // Празднуем по множителю: чем крупнее, тем заметнее эффект.
+  setTimeout(() => celebrateWin(item.multiplier, item.value), 220);
 
   // Рискнуть можно только тем, что реально выиграно на этом прокруте.
   const gambleBtn = document.getElementById('gambleStartBtn');
@@ -1270,6 +1546,24 @@ function viewersFor(caseId) {
   // Небольшой дрейф по времени, чтобы число выглядело живым. Диапазон 30–110:
   // цифры покрупнее на дешёвом кейсе выглядели неправдоподобно.
   return 30 + ((h + Math.floor(Date.now() / 60000)) % 81);
+}
+
+/**
+ * Показывает промежуточный баланс, не дожидаясь конца анимации.
+ *
+ * Сервер отвечает сразу итоговым балансом: списание и выигрыш в нём уже
+ * схлопнуты. Если показать это число до прокрута, игрок видит одно движение
+ * на разницу - купил серию за 18 000, а баланс просел на 9 000, потому что
+ * серия те же 9 000 и вернула. Выглядит как ошибка в расчётах.
+ *
+ * Поэтому во время анимации баланс ведём сами: сначала списываем стоимость,
+ * потом добавляем выигрыш по мере того, как он выпадает. В конце applyUser
+ * ставит настоящее значение с сервера, так что расхождение невозможно.
+ */
+function previewBalance(value) {
+  state.user.balance = Math.max(0, Math.round(value));
+  renderBalance();
+  updateOpenerBalance();
 }
 
 function updateOpenerBalance() {
@@ -2496,23 +2790,73 @@ function switchView(name) {
  * больше, чем в неё помещается. Вместо этого — кнопка-сетка в шапке и
  * плитки во весь экран.
  */
-const MENU_ITEMS = [
-  { view: 'cases', ico: 'cases', title: 'Кейсы', sub: 'Открыть и крутить' },
-  { view: 'bonuses', ico: 'gift', title: 'Бонусы', sub: 'Выигранные кейсы' },
-  { view: 'upgrade', ico: 'x2', title: 'Апгрейд', sub: 'Поднять ставку' },
-  { view: 'crash', ico: 'crash', title: 'Краш', sub: 'Успеть забрать' },
-  { view: 'roulette', ico: 'roulette', title: 'Рулетка', sub: 'Красное и чёрное' },
-  { view: 'wallet', ico: 'coin', title: 'Касса', sub: 'Пополнить и вывести' },
-  { view: 'fair', ico: 'fair', title: 'Честность', sub: 'Проверить раунд' },
+/**
+ * Меню собрано поверх присланной картинки.
+ *
+ * Раскладка, подписи и иконки нарисованы прямо на ней, поэтому здесь остались
+ * только координаты кликабельных областей - в процентах от сторон картинки,
+ * чтобы они не разъезжались ни на каком экране. Числа сняты с исходника
+ * 1254x1254 по границам самих карточек.
+ *
+ * «Честности» в меню нет намеренно: ссылка на неё живёт в подвале.
+ */
+const MENU_HITS = [
+  // Первый ряд: кейсы, апгрейд, краш.
+  { view: 'cases',    left: 4.86,  top: 16.67, width: 28.87, height: 38.12 },
+  { view: 'upgrade',  left: 36.20, top: 16.67, width: 27.59, height: 38.12 },
+  { view: 'crash',    left: 66.11, top: 16.67, width: 29.03, height: 38.12 },
+  // Второй ряд: рулетка, касса, бонусы.
+  { view: 'roulette', left: 4.86,  top: 56.70, width: 28.87, height: 37.80 },
+  { view: 'wallet',   left: 36.20, top: 56.70, width: 27.59, height: 37.80 },
+  { view: 'bonuses',  left: 66.11, top: 56.70, width: 29.03, height: 37.80 },
+];
+
+/** Кнопка возврата, нарисованная в правом верхнем углу картинки. */
+const MENU_BACK_HIT = { left: 85.49, top: 4.39, width: 9.73, height: 9.33 };
+
+/**
+ * Разделы, которых на картинке нет.
+ *
+ * Дорисовывать их в чужой макет нельзя, поэтому они идут обычными кнопками
+ * под картинкой и только тем, кому положены.
+ */
+const MENU_EXTRA = [
   { view: 'partner', ico: 'people', title: 'Партнёру', sub: 'Ваши рефералы', partnerOnly: true },
   { view: 'admin', ico: 'admin', title: 'Админ', sub: 'Панель управления', adminOnly: true },
 ];
 
 function renderMenu() {
-  const grid = document.getElementById('menuGrid');
-  if (!grid) return;
+  const photo = document.getElementById('menuPhoto');
+  const extra = document.getElementById('menuExtra');
+  if (!photo) return;
 
-  grid.innerHTML = MENU_ITEMS
+  // Старые области убираем, картинку оставляем на месте.
+  photo.querySelectorAll('.menu-hit').forEach((el) => el.remove());
+
+  const place = (el, hit) => {
+    el.style.left = `${hit.left}%`;
+    el.style.top = `${hit.top}%`;
+    el.style.width = `${hit.width}%`;
+    el.style.height = `${hit.height}%`;
+  };
+
+  for (const hit of MENU_HITS) {
+    const btn = document.createElement('button');
+    btn.className = 'menu-hit';
+    btn.dataset.view = hit.view;
+    btn.setAttribute('aria-label', hit.view);
+    place(btn, hit);
+    photo.appendChild(btn);
+  }
+
+  const back = document.createElement('button');
+  back.className = 'menu-hit menu-hit-back';
+  back.setAttribute('aria-label', 'Закрыть меню');
+  place(back, MENU_BACK_HIT);
+  back.addEventListener('click', closeMenu);
+  photo.appendChild(back);
+
+  extra.innerHTML = MENU_EXTRA
     .filter((m) => (!m.adminOnly || state.user?.isAdmin)
                 && (!m.partnerOnly || state.user?.isPartner))
     .map((m) => `<button class="menu-tile" data-view="${m.view}">
@@ -2520,20 +2864,20 @@ function renderMenu() {
       <span class="menu-tile-title">${m.title}</span>
       <span class="menu-tile-sub">${m.sub}</span>
     </button>`).join('');
+  mountIcons(extra);
 
-  mountIcons(grid);
-
-  grid.querySelectorAll('.menu-tile').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      if (state.crash && !state.crash.finished && btn.dataset.view !== 'crash') {
-        toast('Сначала закончите раунд краша');
-        return;
-      }
-      closeMenu();
-      switchView(btn.dataset.view);
-      haptic('light');
+  document.querySelectorAll('#menuPhoto [data-view], #menuExtra [data-view]')
+    .forEach((btn) => {
+      btn.addEventListener('click', () => {
+        if (state.crash && !state.crash.finished && btn.dataset.view !== 'crash') {
+          toast('Сначала закончите раунд краша');
+          return;
+        }
+        closeMenu();
+        switchView(btn.dataset.view);
+        haptic('light');
+      });
     });
-  });
 }
 
 function openMenu() {
@@ -2547,7 +2891,6 @@ function closeMenu() {
 }
 
 document.getElementById('menuBtn').addEventListener('click', openMenu);
-document.getElementById('menuClose').addEventListener('click', closeMenu);
 document.getElementById('menuBackdrop').addEventListener('click', (e) => {
   if (e.target.id === 'menuBackdrop') closeMenu();
 });

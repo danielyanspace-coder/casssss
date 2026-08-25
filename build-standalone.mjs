@@ -112,6 +112,7 @@ const porscheData = readFileSync(new URL('./public/assets/porsche.webp', import.
 const bannerData = readFileSync(new URL('./public/assets/porsche-banner.webp', import.meta.url)).toString('base64');
 // Присланные обложки уезжают в файл все разом: с диска относительных путей
 // нет. Список берётся из папки, чтобы добавленная обложка не потерялась.
+const menuData = readFileSync(new URL('./public/assets/menu.webp', import.meta.url)).toString('base64');
 const coverDir = new URL('./public/assets/covers/', import.meta.url);
 const coverArt = Object.fromEntries(
   readdirSync(coverDir)
@@ -137,6 +138,7 @@ const body = html
   .replace(/<\/body>[\s\S]*$/, '')
   .replace(/<script[^>]*telegram[^>]*><\/script>/g, '')
   .replace(/<script[^>]*src="\/app\.js"[^>]*><\/script>/g, '')
+  .replace('src="/assets/menu.webp"', `src="data:image/webp;base64,${menuData}"`)
   .replace(/<picture>[\s\S]*?<\/picture>/,
     () => `<img src="data:image/webp;base64,${heroData}" alt="Лучший проект Las Vegas 2026" class="hero-img">`);
 
@@ -309,6 +311,8 @@ function freshUser() {
     // Промокоды и партнёрка: то же, что в базе рабочей версии.
     wagerRequired: 0, bonusGranted: 0, depositsCount: 0,
     partnerId: null, redemptions: [], pendingDeposit: null,
+    // Недосмотренная серия фриспинов - как в рабочей версии.
+    pendingSpins: null,
   };
 }
 
@@ -493,7 +497,8 @@ function openOnce(table) {
     const granted = [];
     let freeSpinsPayout = 0;
     if (item.perk) {
-      if (item.perk.type === 'credits') granted.push({ type: 'credits', amount: item.value });
+      // Сумма берётся из payout: при активном ×2 бонус зачисляется удвоенным.
+      if (item.perk.type === 'credits') granted.push({ type: 'credits', amount: payout });
       if (item.perk.type === 'voucher') {
         u.vouchers[item.perk.caseId] = (u.vouchers[item.perk.caseId] || 0) + 1;
         granted.push({ type: 'voucher', caseId: item.perk.caseId,
@@ -536,6 +541,10 @@ function openOnce(table) {
       tier: item.tier, free: free ? 1 : 0,
     });
     consumeWager(spent);
+
+    const droppedSeries = granted.find((g) => g.type === 'freespins');
+    if (droppedSeries) u.pendingSpins = { caseId: table.id, grant: droppedSeries, at: Date.now() };
+
     return {
       item: { id: item.id, name: item.name, kind: item.kind, value: payout,
               tier: item.tier, perkLabel: item.perkLabel,
@@ -613,11 +622,20 @@ const routes = {
     consumeWager(cost);
     save();
 
-    return {
-      grant: { type: 'freespins', caseId: table.id, count: series.count,
-               spins: series.spins, total: series.total },
-      cost, balance: u.balance, user: publicUser(),
-    };
+    const grant = { type: 'freespins', caseId: table.id, count: series.count,
+                    spins: series.spins, total: series.total };
+    u.pendingSpins = { caseId: table.id, grant, at: Date.now() };
+    save();
+
+    return { grant, cost, balance: u.balance, user: publicUser() };
+  },
+
+  'POST /api/freespins/pending': () => ({ pending: store.user.pendingSpins || null }),
+
+  'POST /api/freespins/ack': () => {
+    store.user.pendingSpins = null;
+    save();
+    return { ok: true };
   },
 
   /* ---------- Промокоды ---------- */

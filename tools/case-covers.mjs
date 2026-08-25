@@ -77,7 +77,7 @@ const ALPHA_FLOOR = 8;
  * возвращает объекту воздух, при этом остаётся прозрачным - на фоне карточки
  * его не видно, а композиция перестаёт упираться в углы.
  */
-const PADDING = 0.04;
+const PADDING = 0.06;
 
 const OUT_DIR = new URL('../public/assets/covers/', import.meta.url);
 mkdirSync(OUT_DIR, { recursive: true });

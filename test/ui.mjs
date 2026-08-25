@@ -72,52 +72,70 @@ check('полки: в каждой есть кейсы', shelves.every((s) => s.
 
 /* ---------- Меню ---------- */
 
-/** Переход в раздел через меню-сетку: нижней панели больше нет. */
+/**
+ * Переход в раздел через меню.
+ *
+ * Меню собрано поверх присланной картинки: подписи и иконки нарисованы прямо
+ * на ней, а кликабельные области лежат сверху прозрачными кнопками.
+ */
 async function goto(view) {
   await page.click('#menuBtn');
-  await page.waitForSelector(`.menu-tile[data-view="${view}"]`, { state: 'visible' });
-  await page.click(`.menu-tile[data-view="${view}"]`);
+  const sel = `#menuPhoto .menu-hit[data-view="${view}"], #menuExtra .menu-tile[data-view="${view}"]`;
+  await page.waitForSelector(sel, { state: 'visible' });
+  await page.click(sel);
   await page.waitForTimeout(400);
 }
 
-await page.click('#menuBtn');
-await page.waitForSelector('.menu-tile', { state: 'visible' });
-const nav = await page.evaluate(() =>
-  [...document.querySelectorAll('.menu-tile')].map((b) => b.querySelector('.menu-tile-title').textContent.trim()));
-await page.click('#menuClose');
-await page.waitForTimeout(300);
-
-check('меню: нижняя панель убрана',
-      await page.evaluate(() => document.querySelectorAll('.bottom-nav, .nav-btn').length === 0));
-check('меню: «История» убрана', !nav.some((n) => n.includes('История')), nav.join(', '));
-check('меню: разделы на месте',
-      ['Кейсы', 'Апгрейд', 'Краш', 'Рулетка', 'Касса', 'Честность'].every((t) => nav.includes(t)),
-      nav.join(', '));
-
-/* ---------- Размеры меню ---------- */
-
 {
   await page.click('#menuBtn');
-  await page.waitForSelector('.menu-tile', { state: 'visible' });
-  const box = await page.evaluate(() => {
-    const sheet = document.querySelector('.menu-sheet').getBoundingClientRect();
-    const tile = document.querySelector('.menu-tile').getBoundingClientRect();
+  await page.waitForSelector('#menuPhoto .menu-hit', { state: 'visible' });
+
+  const menu = await page.evaluate(() => {
+    const img = document.getElementById('menuPhotoImg');
+    const box = img.getBoundingClientRect();
+    const hits = [...document.querySelectorAll('#menuPhoto .menu-hit[data-view]')];
+    const rect = (el) => el.getBoundingClientRect();
+
     return {
-      top: Math.round(sheet.top),
-      fits: sheet.bottom <= window.innerHeight,
-      tileHeight: Math.round(tile.height),
-      // Плитка не должна быть почти квадратной: содержимого в ней на
-      // квадрат не набирается, а первый экран она занимала целиком.
-      ratio: tile.height / tile.width,
+      imgLoaded: img.complete && img.naturalWidth > 0,
+      views: hits.map((b) => b.dataset.view),
+      // Область обязана лежать внутри картинки, иначе нажатие уедет мимо
+      // нарисованной плитки.
+      inside: hits.every((b) => {
+        const r = rect(b);
+        return r.left >= box.left - 1 && r.right <= box.right + 1
+            && r.top >= box.top - 1 && r.bottom <= box.bottom + 1;
+      }),
+      // Перекрытие областей означало бы, что нажатие попадёт не в тот раздел.
+      overlap: hits.some((a, i) => hits.slice(i + 1).some((b) => {
+        const ra = rect(a); const rb = rect(b);
+        return ra.left < rb.right && rb.left < ra.right
+            && ra.top < rb.bottom && rb.top < ra.bottom;
+      })),
+      // Плитки должны быть крупными: по картинке в них и целятся пальцем.
+      minSide: Math.min(...hits.map((b) => Math.min(rect(b).width, rect(b).height))),
+      hasBack: !!document.querySelector('#menuPhoto .menu-hit-back'),
+      bottomNav: document.querySelectorAll('.bottom-nav, .nav-btn').length,
     };
   });
-  await page.click('#menuClose');
-  await page.waitForTimeout(300);
 
-  check('меню: сдвинуто вниз от шапки', box.top >= 60, `отступ сверху ${box.top}px`);
-  check('меню: помещается на экран', box.fits);
-  check('меню: плитки невысокие', box.tileHeight <= 96, `высота плитки ${box.tileHeight}px`);
-  check('меню: плитка не квадратная', box.ratio < 0.7, `отношение ${box.ratio.toFixed(2)}`);
+  check('меню: картинка загрузилась', menu.imgLoaded);
+  check('меню: шесть кликабельных разделов', menu.views.length === 6, menu.views.join(', '));
+  check('меню: порядок разделов совпадает с картинкой',
+        menu.views.join(',') === 'cases,upgrade,crash,roulette,wallet,bonuses',
+        menu.views.join(','));
+  check('меню: «Честности» в меню нет', !menu.views.includes('fair'));
+  check('меню: «Истории» в меню нет', !menu.views.includes('history'));
+  check('меню: области лежат внутри картинки', menu.inside);
+  check('меню: области не перекрываются', !menu.overlap);
+  check('меню: области крупные', menu.minSide >= 44, `минимальная сторона ${Math.round(menu.minSide)}px`);
+  check('меню: кнопка возврата на месте', menu.hasBack);
+  check('меню: нижняя панель убрана', menu.bottomNav === 0);
+
+  await page.click('#menuPhoto .menu-hit-back');
+  await page.waitForTimeout(300);
+  check('меню: кнопка на картинке закрывает меню',
+        await page.evaluate(() => document.getElementById('menuBackdrop').hidden));
 }
 
 /* ---------- Лента выигрышей ---------- */
@@ -316,6 +334,13 @@ async function ensureOpenerClosed() {
 
 async function openCaseAndVerify(caseId) {
   await ensureOpenerClosed();
+  // Незавершённая серия фриспинов доигрывается при входе в кейс и прячет
+  // панель открытия. Для теста состояние должно быть чистым.
+  await page.evaluate(() => fetch('/api/freespins/ack', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Telegram-Init-Data': '' },
+    body: '{}',
+  }).catch(() => {}));
   await page.evaluate((id) => {
     const card = [...document.querySelectorAll('.case-card')].find((c) => c.dataset.case === id);
     card.scrollIntoView({ block: 'center' });

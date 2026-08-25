@@ -177,6 +177,75 @@ export function sndCrash() {
 }
 
 /** Рост множителя в краше — тон ползёт вверх вместе с ним. */
+/**
+ * Фанфары покупки фриспинов: восходящий аккорд с раскатом.
+ *
+ * Момент покупки должен звучать иначе, чем обычный выигрыш, - это событие, за
+ * которое игрок сознательно заплатил, и оно заслуживает собственной темы.
+ */
+export function sndPurchase() {
+  const notes = [392, 523, 659, 784, 1046];
+  notes.forEach((f, i) => {
+    setTimeout(() => {
+      blip(f, 0.32, 'triangle', 0.5);
+      blip(f * 2, 0.22, 'sine', 0.22);
+    }, i * 85);
+  });
+  setTimeout(() => noise(0.5, 0.16, 5200, 0.7), 420);
+}
+
+/**
+ * Ретриггер: серия продлила сама себя.
+ *
+ * Звук нарочно «взлетающий» и с дребезгом - он должен выделяться на фоне
+ * ровных щелчков серии, потому что это самое редкое, что в ней бывает.
+ */
+export function sndRetrigger() {
+  blip(330, 0.5, 'sawtooth', 0.34, 4);
+  setTimeout(() => blip(880, 0.3, 'square', 0.26, 1.6), 90);
+  setTimeout(() => {
+    [1046, 1318, 1568].forEach((f, i) =>
+      setTimeout(() => blip(f, 0.26, 'triangle', 0.42), i * 60));
+  }, 200);
+  setTimeout(() => noise(0.4, 0.2, 3200, 0.6), 260);
+}
+
+/**
+ * Салют: россыпь хлопков со звоном.
+ *
+ * Отличается от sndBigWin тем, что не тянет ноту, а рассыпается, - под
+ * визуальный фейерверк ровный аккорд звучал бы мимо картинки.
+ */
+export function sndFirework(bursts = 4) {
+  for (let i = 0; i < bursts; i++) {
+    const delay = i * 190 + Math.random() * 90;
+    setTimeout(() => {
+      noise(0.28, 0.26, 900 + Math.random() * 1400, 0.8);
+      const base = 700 + Math.random() * 700;
+      blip(base, 0.24, 'triangle', 0.3, 1.7);
+      setTimeout(() => blip(base * 1.5, 0.18, 'sine', 0.2), 70);
+    }, delay);
+  }
+}
+
+/**
+ * Джекпот: длинная восходящая тема для по-настоящему крупного выигрыша.
+ * Звучит заметно дольше остальных - иначе не отличается от обычной удачи.
+ */
+export function sndJackpot() {
+  const seq = [523, 659, 784, 1046, 1318, 1568];
+  seq.forEach((f, i) => {
+    setTimeout(() => {
+      blip(f, 0.42, 'triangle', 0.5);
+      blip(f / 2, 0.42, 'sine', 0.3);
+    }, i * 110);
+  });
+  setTimeout(() => {
+    blip(2093, 0.9, 'sine', 0.4);
+    noise(0.8, 0.18, 6000, 0.5);
+  }, seq.length * 110);
+}
+
 export function sndClimb(multiplier) {
   const f = 300 + Math.min(900, Math.log(multiplier) * 420);
   blip(f, 0.06, 'sine', 0.12);
