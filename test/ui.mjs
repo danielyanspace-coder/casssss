@@ -207,8 +207,10 @@ async function goto(view) {
   check('лента: у каждой карточки есть ник', feed.withNick === feed.count,
         `${feed.withNick} из ${feed.count}`);
   check('лента: проценты не показаны', feed.percents === 0, `нарушений ${feed.percents}`);
-  // Полоса не должна разрастаться вниз — она под шапкой, над самими кейсами.
-  check('лента: занимает узкую полосу', feed.height <= 175, `высота ${feed.height}px`);
+  // Полоса не должна разрастаться вниз - она под шапкой, над самими кейсами.
+  // Порог поднят вместе с карточками: они стали крупнее по присланному
+  // эталону, но лента по-прежнему обязана оставаться полосой, а не экраном.
+  check('лента: занимает узкую полосу', feed.height <= 200, `высота ${feed.height}px`);
 
   // Новые выигрыши въезжают по одному, а не перерисовывают ленту целиком:
   // счётчик карточек держится на потолке, а первая карточка меняется.
@@ -488,6 +490,53 @@ async function openCaseAndVerify(caseId) {
         `в вёрстке ${popularBtns[0]?.count}, в конфиге ${popularPack?.count}`);
   check('фриспины: у выделенной ступени есть пометка',
         /ПОПУЛЯРНО/i.test(popularBtns[0]?.flag || ''), popularBtns[0]?.flag);
+
+  await ensureOpenerClosed();
+}
+
+/* ---------- Тема кейса ---------- */
+
+{
+  await ensureOpenerClosed();
+
+  /*
+   * Экран кейса красится тонами его же обложки. Проверяем не «есть класс», а
+   * что у двух разных кейсов тона действительно разные: иначе тема сведётся к
+   * одинаковому фиолетовому у всех, ровно от чего и уходили.
+   */
+  const themeOf = async (id) => {
+    await ensureOpenerClosed();
+    await page.evaluate((caseId) => {
+      const card = [...document.querySelectorAll('.case-card')].find((c) => c.dataset.case === caseId);
+      card.scrollIntoView({ block: 'center' });
+      card.click();
+    }, id);
+    await page.waitForSelector('#doOpenBtn', { state: 'visible' });
+    await page.waitForTimeout(250);
+    return page.evaluate(() => {
+      const op = document.getElementById('opener');
+      const wash = document.querySelector('.opener-theme-wash');
+      return {
+        themed: op.classList.contains('is-themed'),
+        h1: op.style.getPropertyValue('--case-h1'),
+        h2: op.style.getPropertyValue('--case-h2'),
+        washLoaded: !!wash && wash.complete && wash.naturalWidth > 0,
+      };
+    });
+  };
+
+  const frost = await themeOf('frost_300');
+  const lucky = await themeOf('lucky_200');
+
+  check('тема кейса: включается на кейсе с присланным артом', frost.themed && lucky.themed);
+  check('тема кейса: обложка ушла в фон', frost.washLoaded && lucky.washLoaded);
+  check('тема кейса: тона взяты с обложки', !!frost.h1 && !!frost.h2, `${frost.h1} / ${frost.h2}`);
+  check('тема кейса: у разных кейсов разные тона', frost.h1 !== lucky.h1,
+        `«Мерзлота» ${frost.h1}, «Счастливый» ${lucky.h1}`);
+
+  // У кейса без присланного арта тонов нет, и экран должен остаться прежним.
+  const plain = await themeOf('vault_1000');
+  check('тема кейса: без арта остаётся обычный экран', !plain.themed);
 
   await ensureOpenerClosed();
 }

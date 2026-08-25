@@ -280,6 +280,17 @@ const ART_COVERS = new Set([
   'winterfell', 'braavos', 'highgarden', 'westeros',
 ]);
 
+/**
+ * Путь к присланному арту кейса, или null, если арта нет.
+ *
+ * Нужен не только обложке: экран кейса берёт ту же картинку себе в фон, чтобы
+ * не выглядеть одинаково у всех кейсов.
+ */
+export function caseArtSrc(caseData) {
+  const name = caseData?.art;
+  return name && ART_COVERS.has(name) ? artSrc(name) : null;
+}
+
 /** Автономная сборка складывает все обложки в один объект с data-URI. */
 function artSrc(name) {
   const inlined = typeof window !== 'undefined' && window.__COVER_ART;

@@ -326,14 +326,11 @@
         <p class="game-sub">Кейсы и плюшки, которые выпали в подарок, - открывайте бесплатно.</p>
       </div>
       <div class="promo-card">
-        <div class="promo-head">
-          <span class="promo-title">Промокод</span>
-          <span class="promo-hint">баланс, процент к пополнению или бесплатный кейс</span>
-        </div>
-        <div class="seed-row">
-          <input class="seed-input" id="promoInput" maxlength="32" placeholder="введите код"
-                 autocapitalize="characters" autocomplete="off">
-          <button class="btn btn-primary" id="promoBtn">Применить</button>
+        <span class="promo-title">ПРОМОКОД</span>
+        <div class="promo-form">
+          <input class="promo-input" id="promoInput" maxlength="32" placeholder="ВВЕДИТЕ КОД"
+                 autocapitalize="characters" autocomplete="off" spellcheck="false">
+          <button class="promo-btn" id="promoBtn">Применить</button>
         </div>
         <div class="promo-result" id="promoResult" hidden></div>
       </div>
@@ -412,6 +409,8 @@
 
   <!-- Экран открытия кейса -->
   <div class="opener" id="opener" hidden>
+    <!-- Тематический фон кейса: сюда уезжает его же обложка. -->
+    <div class="opener-theme" id="openerTheme" aria-hidden="true"></div>
     <div class="opener-scroll">
       <div class="opener-inner">
 

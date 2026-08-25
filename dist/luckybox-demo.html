@@ -667,6 +667,90 @@ main { position: relative; z-index: 2; padding: 18px; }
 }
 .opener-inner { width: 100%; max-width: 580px; }
 
+/* ---------- Тема кейса ---------- */
+
+/* Тона приходят из самой обложки (см. applyCaseTheme). Здесь из них
+   собираются два рабочих цвета, а дальше всё на экране красится ими - фон,
+   рамка барабана, маркер, блок фриспинов. Значения по умолчанию нужны для
+   кейсов без присланного арта: у них тонов нет, и экран остаётся прежним. */
+.opener.is-themed {
+  --case-a: hsl(var(--case-h1, 275) 92% 60%);
+  --case-b: hsl(var(--case-h2, 275) 88% 58%);
+  background:
+    radial-gradient(85% 55% at 50% 0%,
+      hsl(var(--case-h1, 275) 88% 45% / 0.5), transparent 74%),
+    radial-gradient(95% 60% at 50% 100%,
+      hsl(var(--case-h2, 275) 82% 40% / 0.3), transparent 76%),
+    radial-gradient(ellipse at 50% 40%, #150726 0%, #06010c 72%);
+}
+
+.opener-theme {
+  position: absolute; inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Размытая обложка во всю ширину: она и даёт воздуху цвет самой картинки, а
+   не усреднённый оттенок. Размытие сильное намеренно - узнаваться должен
+   цвет, а не сюжет, иначе фон начинает спорить с содержимым. */
+.opener-theme-wash {
+  position: absolute;
+  left: 50%; top: -14%;
+  width: 150%;
+  transform: translateX(-50%);
+  filter: blur(58px) saturate(1.7);
+  opacity: 0.5;
+  -webkit-mask-image: linear-gradient(180deg, #000 18%, transparent 72%);
+  mask-image: linear-gradient(180deg, #000 18%, transparent 72%);
+}
+
+/* Затемнение поверх фона. Размытая обложка поднимает яркость всего экрана, и
+   без него текст и кнопки теряют контраст - особенно на светлых обложках
+   вроде ледяной «Мерзлоты». */
+.opener-theme::after {
+  content: '';
+  position: absolute; inset: 0;
+  background: linear-gradient(180deg,
+    rgba(6, 1, 12, 0.22), rgba(6, 1, 12, 0.6) 42%, rgba(6, 1, 12, 0.86));
+}
+
+/* Чёткая копия в углу, водяным знаком. Это и есть «деталь с обложки»: кейс
+   узнаётся с первого взгляда, но картинка не мешает читать экран - она уходит
+   в прозрачность маской. */
+.opener-theme-mark {
+  position: absolute;
+  right: -8%; top: 3%;
+  width: 58%;
+  opacity: 0.1;
+  -webkit-mask-image: radial-gradient(70% 70% at 60% 40%, #000 25%, transparent 78%);
+  mask-image: radial-gradient(70% 70% at 60% 40%, #000 25%, transparent 78%);
+}
+
+/* Содержимое поднимается над фоном: иначе водяной знак лёг бы поверх текста. */
+.opener-scroll { position: relative; z-index: 1; }
+
+/* Барабан, маркер и блок фриспинов подхватывают тон кейса. */
+.opener.is-themed .reel-wrap {
+  background:
+    radial-gradient(120% 100% at 50% 0%,
+      hsl(var(--case-h1, 275) 80% 45% / 0.26), transparent 70%) padding-box,
+    linear-gradient(180deg, #120424, #08010f) padding-box,
+    linear-gradient(160deg, var(--case-a),
+      color-mix(in srgb, var(--case-b) 45%, var(--case-a)) 50%, var(--case-a)) border-box;
+  box-shadow: 0 0 30px -10px var(--case-a);
+}
+.opener.is-themed .reel-marker {
+  background: linear-gradient(180deg,
+    transparent, var(--case-a) 12%, #fff 50%, var(--case-a) 88%, transparent);
+  box-shadow: 0 0 26px var(--case-a);
+}
+.opener.is-themed .fsbuy {
+  border-color: color-mix(in srgb, var(--case-a) 60%, transparent);
+  box-shadow: 0 0 26px -8px var(--case-a);
+}
+.opener.is-themed .opener-case span { color: var(--case-a); }
+
 .reel-wrap {
   position: relative;
   height: 148px;
@@ -1613,26 +1697,92 @@ select.seed-input {
 .gamble-outcome.win { color: var(--green); text-shadow: 0 0 22px var(--green); }
 .gamble-outcome.lose { color: var(--red); }
 
-/* ---------- Богаче плитки в ленте ---------- */
+/* ---------- Плитки в ленте ---------- */
 
-.reel-wrap { height: 172px; }
+/* Собрано по присланному эталону.
+
+   Плитка там не просто прямоугольник с обводкой: у неё двойной неоновый
+   контур, стеклянный блик наискось, точечная сетка у низа и полоска света по
+   нижнему краю. Прежняя плитка была плоской заливкой с рамкой, и лента
+   выглядела таблицей, а не барабаном.
+
+   Рамка ленты тоже оттуда: фиолетовый контур со свечением вместо серой
+   линии - он собирает барабан в отдельный прибор на странице. */
+.reel-wrap {
+  height: 172px;
+  border: 2px solid transparent;
+  border-radius: 20px;
+  background:
+    radial-gradient(120% 100% at 50% 0%, rgba(120, 60, 220, 0.22), transparent 70%)
+      padding-box,
+    linear-gradient(180deg, #120424, #08010f) padding-box,
+    linear-gradient(160deg, #a855f7, #5b21b6 50%, #a855f7) border-box;
+  box-shadow: 0 0 26px -10px rgba(160, 32, 255, 0.9);
+}
+
 .reel-tile {
+  position: relative;
   flex: 0 0 138px;
   width: 138px;
   gap: 7px;
-  padding: 11px 9px;
-  background:
-    radial-gradient(circle at 50% 0%, var(--tier-color) -30%, transparent 62%),
-    linear-gradient(165deg, var(--card-hi), var(--card));
+  padding: 13px 10px 15px;
+  border-radius: 16px;
   border: 2px solid var(--tier-color);
-  border-bottom-width: 5px;
-  box-shadow: inset 0 0 22px rgba(0, 0, 0, 0.45);
+  background:
+    radial-gradient(110% 80% at 50% 0%,
+      color-mix(in srgb, var(--tier-color) 26%, transparent), transparent 68%),
+    linear-gradient(165deg, var(--card-hi), var(--card));
+  box-shadow:
+    0 0 18px -6px var(--tier-color),
+    inset 0 0 30px -10px var(--tier-color),
+    inset 0 0 22px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
 }
-.tile-icon { width: 38px; height: 38px; filter: drop-shadow(0 0 10px var(--tier-color)); }
-.tile-name { font-size: 12px; font-weight: 600; }
+
+/* Второй контур внутри первого и блик наискось. Оба в одном псевдоэлементе:
+   это чистое оформление поверх содержимого, лишний узел под него не нужен. */
+.reel-tile::before {
+  content: '';
+  position: absolute;
+  inset: 4px;
+  border-radius: 11px;
+  border: 1px solid color-mix(in srgb, var(--tier-color) 45%, transparent);
+  background: linear-gradient(118deg,
+    transparent 38%, rgba(255, 255, 255, 0.07) 42%,
+    rgba(255, 255, 255, 0.07) 56%, transparent 60%);
+  pointer-events: none;
+}
+
+/* Полоска света по нижнему краю - плитка от неё будто стоит на подсветке. */
+.reel-tile::after {
+  content: '';
+  position: absolute;
+  left: 26%; right: 26%; bottom: 2px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--tier-color);
+  box-shadow: 0 0 14px 3px var(--tier-color);
+  pointer-events: none;
+}
+
+.tile-icon {
+  width: 38px; height: 38px;
+  filter: drop-shadow(0 0 10px var(--tier-color));
+  position: relative; z-index: 1;
+}
+.tile-name { font-size: 12px; font-weight: 600; position: relative; z-index: 1; }
 .tile-value {
   font-size: 17px; font-weight: 900;
   text-shadow: 0 0 14px var(--tier-color);
+  position: relative; z-index: 1;
+}
+
+/* Маркер под цвет барабана: золото на фиолетовой рамке смотрелось деталью от
+   другого прибора. */
+.reel-marker {
+  background: linear-gradient(180deg,
+    transparent, var(--gold) 12%, #fff 50%, var(--gold) 88%, transparent);
+  box-shadow: 0 0 26px var(--gold);
 }
 
 /* ---------- Крупнее числа в составе кейса ---------- */
@@ -1696,21 +1846,80 @@ select.seed-input {
 
 /* ---------- Промокоды и партнёрский экран ---------- */
 
-.promo-card {
-  padding: 16px;
-  border-radius: 18px;
-  border: 1px solid rgba(0, 255, 157, 0.28);
-  background: linear-gradient(150deg, rgba(0, 255, 157, 0.08), rgba(0, 212, 255, 0.05));
-  margin-bottom: 14px;
-}
-.promo-head { margin-bottom: 12px; }
-.promo-title {
-  display: block; font-size: 15px; font-weight: 900; color: var(--green);
-  letter-spacing: 0.04em; text-transform: uppercase;
-}
-.promo-hint { display: block; font-size: 11.5px; color: var(--muted); margin-top: 3px; }
+/* Блок собран по присланному макету. Рамка сделана вёрсткой, а не вырезана из
+   картинки: это ровный скруглённый прямоугольник с градиентной обводкой,
+   вёрстка повторяет его точно, остаётся резкой на любой плотности экрана и
+   тянется под любую высоту блока. Из картинки не берётся и фон - монеты и
+   тёмное поле вокруг рамки на странице были бы заплаткой поверх своего фона.
 
-#promoInput { text-transform: uppercase; }
+   Градиентная обводка делается двумя фонами: заливка по padding-box, градиент
+   по border-box. Прозрачная рамка открывает второй фон ровно на своей
+   толщине. */
+.promo-card {
+  position: relative;
+  margin-bottom: 16px;
+  padding: 20px 18px 18px;
+  border: 2px solid transparent;
+  border-radius: 24px;
+  background:
+    radial-gradient(120% 130% at 12% 0%, rgba(120, 60, 220, 0.35), transparent 60%)
+      padding-box,
+    linear-gradient(165deg, #1b0730, #0f0320) padding-box,
+    linear-gradient(125deg, #22d3ee, #a855f7 46%, #ff2e8a) border-box;
+  box-shadow:
+    0 0 22px -4px rgba(160, 32, 255, 0.55),
+    inset 0 0 40px -12px rgba(160, 32, 255, 0.55);
+}
+
+.promo-title {
+  display: block;
+  margin-bottom: 14px;
+  font-size: 26px; font-weight: 900; line-height: 1;
+  letter-spacing: 0.06em;
+  background: linear-gradient(100deg, #00ff6a, #46ffa8 55%, #00e0a0);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 0 12px rgba(0, 255, 106, 0.55));
+}
+
+.promo-form { display: flex; gap: 10px; align-items: stretch; }
+
+.promo-input {
+  flex: 1;
+  min-width: 0;
+  padding: 13px 16px;
+  border-radius: 999px;
+  border: 1.5px solid rgba(170, 120, 255, 0.6);
+  background: linear-gradient(180deg, #1a1424, #0d0716);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px; font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  box-shadow: 0 0 16px -6px rgba(170, 120, 255, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+.promo-input::placeholder { color: rgba(255, 255, 255, 0.4); font-weight: 700; }
+.promo-input:focus {
+  outline: none;
+  border-color: var(--cyan);
+  box-shadow: 0 0 20px -4px rgba(0, 212, 255, 0.7);
+}
+
+.promo-btn {
+  flex: 0 0 auto;
+  padding: 13px 22px;
+  border: 0;
+  border-radius: 999px;
+  background: linear-gradient(160deg, #ff5fb0, #ff1e86 60%, #e0159f);
+  color: #fff;
+  font-family: inherit;
+  font-size: 15px; font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 0 20px -2px rgba(255, 46, 138, 0.75), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  transition: transform 0.12s, box-shadow 0.15s;
+}
+.promo-btn:not(:disabled):active { transform: scale(0.96); }
+.promo-btn:disabled { opacity: 0.55; cursor: default; }
 
 .promo-result {
   margin-top: 12px; padding: 10px 12px;
@@ -2077,38 +2286,6 @@ select.seed-input {
 .confirm-note { font-size: 11.5px; color: var(--muted); margin-bottom: 16px; line-height: 1.5; }
 .confirm-actions { display: flex; gap: 10px; }
 .confirm-actions .btn { flex: 1; }
-
-/* ---------- Промокоды и партнёрский экран ---------- */
-
-.promo-card {
-  padding: 16px;
-  border-radius: 18px;
-  border: 1px solid rgba(0, 255, 157, 0.28);
-  background: linear-gradient(150deg, rgba(0, 255, 157, 0.08), rgba(0, 212, 255, 0.05));
-  margin-bottom: 14px;
-}
-.promo-head { margin-bottom: 12px; }
-.promo-title {
-  display: block; font-size: 15px; font-weight: 900; color: var(--green);
-  letter-spacing: 0.04em; text-transform: uppercase;
-}
-.promo-hint { display: block; font-size: 11.5px; color: var(--muted); margin-top: 3px; }
-
-#promoInput { text-transform: uppercase; }
-
-.promo-result {
-  margin-top: 12px; padding: 10px 12px;
-  border-radius: 12px;
-  font-size: 13px; font-weight: 700;
-  background: rgba(0, 255, 157, 0.12);
-  border: 1px solid rgba(0, 255, 157, 0.35);
-  color: var(--green);
-}
-.promo-result.bad {
-  background: rgba(255, 23, 68, 0.12);
-  border-color: rgba(255, 23, 68, 0.35);
-  color: #ff8199;
-}
 
 /* Долг по обороту закрывает вывод, поэтому он должен бросаться в глаза, а не
    всплывать неожиданной ошибкой в кассе. */
@@ -2922,29 +3099,44 @@ select.seed-input {
    ЛЕНТА ВЫИГРЫШЕЙ
    ============================================================ */
 
-/* Ширина карточки вынесена в переменную: её же использует анимация
-   въезда, а два разных числа рано или поздно разъезжаются. */
+/* Собрано по присланному эталону: панель в неоновой рамке, внутри карточки со
+   своей обводкой по редкости, светящейся ценой и полоской света у нижнего
+   края. Прежний вариант был плоским - тонкая линия по краю и текст, - и на
+   фоне остальной страницы читался как служебная строка, а не как витрина.
+
+   Ширина карточки вынесена в переменную: её же использует анимация въезда, а
+   два разных числа рано или поздно разъезжаются. */
 .feed {
-  --feed-w: 96px;
-  --feed-gap: 8px;
-  margin: 0 0 14px;
-  padding: 9px 0 10px;
-  border-radius: 16px;
-  background: linear-gradient(180deg, rgba(160, 32, 255, 0.16), rgba(13, 3, 24, 0));
-  border: 1px solid var(--line);
+  --feed-w: 108px;
+  --feed-gap: 9px;
+  position: relative;
+  margin: 0 0 16px;
+  padding: 11px 0 13px;
+  border: 1.5px solid transparent;
+  border-radius: 20px;
+  background:
+    radial-gradient(120% 140% at 50% 0%, rgba(120, 60, 220, 0.28), transparent 65%)
+      padding-box,
+    linear-gradient(180deg, #15062a, #0c0218) padding-box,
+    linear-gradient(150deg, #a855f7, #6d28d9 55%, #a855f7) border-box;
+  box-shadow: 0 0 24px -8px rgba(160, 32, 255, 0.75);
   overflow: hidden;
 }
 
+/* Заголовок отделён линией, как в эталоне: без неё шапка сливается с рядом
+   карточек и панель перестаёт читаться единым блоком. */
 .feed-head {
-  display: flex; align-items: center; gap: 7px;
-  padding: 0 14px 8px;
+  display: flex; align-items: center; gap: 9px;
+  margin: 0 14px 11px;
+  padding-bottom: 9px;
+  border-bottom: 1px solid rgba(160, 32, 255, 0.28);
 }
 
 /* Пульсирующая точка: единственный намёк, что лента живая. */
 .feed-dot {
-  width: 6px; height: 6px; border-radius: 50%;
-  background: var(--green);
-  box-shadow: 0 0 10px var(--green);
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--cyan);
+  box-shadow: 0 0 12px var(--cyan);
   animation: feedPulse 1.8s ease-in-out infinite;
 }
 
@@ -2954,8 +3146,10 @@ select.seed-input {
 }
 
 .feed-title {
-  font-size: 10px; font-weight: 900; letter-spacing: 1.2px;
-  text-transform: uppercase; color: var(--muted);
+  font-size: 10px; font-weight: 900; letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: #e7dcff;
+  text-shadow: 0 0 12px rgba(160, 32, 255, 0.7);
 }
 
 /* Горизонтальная лента. Свайп пальцем работает, полосу прокрутки прячем.
@@ -2964,7 +3158,7 @@ select.seed-input {
    вместе со своим отступом. */
 .feed-track {
   display: flex;
-  padding: 0 14px;
+  padding: 0 14px 2px;
   overflow-x: auto;
   scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
@@ -2972,17 +3166,35 @@ select.seed-input {
 .feed-track::-webkit-scrollbar { display: none; }
 
 .feed-card {
+  position: relative;
   flex: 0 0 auto;
   width: var(--feed-w);
   max-width: var(--feed-w);
   margin-right: var(--feed-gap);
-  padding: 7px 6px;
-  border-radius: 11px;
-  background: var(--card);
-  border: 1px solid var(--tier-color, var(--line));
-  border-top: 2px solid var(--tier-color, var(--line));
+  padding: 9px 7px 11px;
+  border-radius: 14px;
+  border: 1.5px solid var(--tier-color, var(--line));
+  background:
+    radial-gradient(120% 90% at 50% 0%,
+      color-mix(in srgb, var(--tier-color, #a020ff) 22%, transparent), transparent 70%),
+    linear-gradient(180deg, #1a0a2e, #0e0219);
+  box-shadow:
+    0 0 16px -6px var(--tier-color, #a020ff),
+    inset 0 0 26px -14px var(--tier-color, #a020ff);
   text-align: center;
   overflow: hidden;
+}
+
+/* Полоска света у нижнего края - деталь из эталона. Она сажает карточку на
+   свет и не даёт ей выглядеть просто обведённым прямоугольником. */
+.feed-card::after {
+  content: '';
+  position: absolute;
+  left: 22%; right: 22%; bottom: 0;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--tier-color, #a020ff);
+  box-shadow: 0 0 12px 2px var(--tier-color, #a020ff);
 }
 
 /* Новый выигрыш въезжает слева, раздвигая остальные вправо. */
@@ -2995,33 +3207,41 @@ select.seed-input {
   }
   to {
     max-width: var(--feed-w); margin-right: var(--feed-gap);
-    padding-left: 6px; padding-right: 6px;
+    padding-left: 7px; padding-right: 7px;
     opacity: 1; transform: none;
   }
 }
 
+/* Значок в светящемся кружке - тоже из эталона: он даёт карточке центр, к
+   которому цепляется взгляд. */
 .feed-art {
-  width: 28px; height: 28px; margin: 0 auto 4px;
+  width: 38px; height: 38px; margin: 0 auto 6px;
   display: flex; align-items: center; justify-content: center;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--tier-color, #a020ff) 55%, transparent);
+  background: radial-gradient(circle at 50% 35%,
+    color-mix(in srgb, var(--tier-color, #a020ff) 26%, transparent), transparent 72%);
+  box-shadow: 0 0 14px -4px var(--tier-color, #a020ff);
 }
-.feed-art svg { width: 100%; height: 100%; }
+.feed-art svg { width: 22px; height: 22px; }
 
 .feed-name {
-  font-size: 9px; font-weight: 700; line-height: 1.2;
-  height: 22px; overflow: hidden;
-  color: var(--text);
+  font-size: 9.5px; font-weight: 700; line-height: 1.25;
+  height: 24px; overflow: hidden;
+  color: #fff;
 }
 
 .feed-value {
-  font-size: 11.5px; font-weight: 900;
+  font-size: 14px; font-weight: 900;
   color: var(--tier-color, var(--text));
-  margin-top: 3px;
+  text-shadow: 0 0 12px color-mix(in srgb, var(--tier-color, #a020ff) 75%, transparent);
+  margin-top: 4px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
 .feed-nick {
-  font-size: 8.5px; color: var(--muted);
-  margin-top: 2px;
+  font-size: 9px; color: var(--muted);
+  margin-top: 3px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
@@ -3552,14 +3772,11 @@ select.seed-input {
         <p class="game-sub">Кейсы и плюшки, которые выпали в подарок, - открывайте бесплатно.</p>
       </div>
       <div class="promo-card">
-        <div class="promo-head">
-          <span class="promo-title">Промокод</span>
-          <span class="promo-hint">баланс, процент к пополнению или бесплатный кейс</span>
-        </div>
-        <div class="seed-row">
-          <input class="seed-input" id="promoInput" maxlength="32" placeholder="введите код"
-                 autocapitalize="characters" autocomplete="off">
-          <button class="btn btn-primary" id="promoBtn">Применить</button>
+        <span class="promo-title">ПРОМОКОД</span>
+        <div class="promo-form">
+          <input class="promo-input" id="promoInput" maxlength="32" placeholder="ВВЕДИТЕ КОД"
+                 autocapitalize="characters" autocomplete="off" spellcheck="false">
+          <button class="promo-btn" id="promoBtn">Применить</button>
         </div>
         <div class="promo-result" id="promoResult" hidden></div>
       </div>
@@ -3638,6 +3855,8 @@ select.seed-input {
 
   <!-- Экран открытия кейса -->
   <div class="opener" id="opener" hidden>
+    <!-- Тематический фон кейса: сюда уезжает его же обложка. -->
+    <div class="opener-theme" id="openerTheme" aria-hidden="true"></div>
     <div class="opener-scroll">
       <div class="opener-inner">
 
@@ -5484,6 +5703,17 @@ const ART_COVERS = new Set([
   'santorini', 'rio', 'monaco', 'vegas', 'dubai', 'singapore',
   'winterfell', 'braavos', 'highgarden', 'westeros',
 ]);
+
+/**
+ * Путь к присланному арту кейса, или null, если арта нет.
+ *
+ * Нужен не только обложке: экран кейса берёт ту же картинку себе в фон, чтобы
+ * не выглядеть одинаково у всех кейсов.
+ */
+function caseArtSrc(caseData) {
+  const name = caseData?.art;
+  return name && ART_COVERS.has(name) ? artSrc(name) : null;
+}
 
 /** Автономная сборка складывает все обложки в один объект с data-URI. */
 function artSrc(name) {
@@ -7543,11 +7773,48 @@ function renderBonuses() {
  * прокрута, а ещё ниже — сетка того, что может выпасть, от дорогого к
  * дешёвому. Так видно и содержимое, и сам барабан до первого открытия.
  */
+/**
+ * Тематическое оформление экрана кейса.
+ *
+ * Раньше экран открытия был одинаковый у всех кейсов: один и тот же
+ * фиолетовый фон, одни и те же акценты. Теперь он собирается из самого кейса -
+ * из его обложки.
+ *
+ * Берутся два числа, которые уже посчитаны по картинке при её подготовке
+ * (см. tools/case-covers.mjs): ближний и дальний тон обложки. Ими красится
+ * фон, рамка барабана, маркер и блок фриспинов. Сама обложка уезжает в фон
+ * дважды: размытой вполнеба - она и даёт цвет воздуху, - и чёткой в углу,
+ * приглушённым водяным знаком.
+ *
+ * Ничего из этого не прописано под конкретный кейс. Поменяется обложка -
+ * поменяются и тона, потому что считаются они из неё же.
+ */
+function applyCaseTheme(c) {
+  const opener = document.getElementById('opener');
+  const layer = document.getElementById('openerTheme');
+  const src = caseArtSrc(c);
+
+  if (!src || !c.artGlow) {
+    opener.classList.remove('is-themed');
+    opener.style.removeProperty('--case-h1');
+    opener.style.removeProperty('--case-h2');
+    layer.innerHTML = '';
+    return;
+  }
+
+  opener.style.setProperty('--case-h1', c.artGlow[0]);
+  opener.style.setProperty('--case-h2', c.artGlow[1]);
+  opener.classList.add('is-themed');
+  layer.innerHTML = `<img class="opener-theme-wash" src="${src}" alt="" decoding="async">`
+    + `<img class="opener-theme-mark" src="${src}" alt="" decoding="async">`;
+}
+
 function openCase(caseId) {
   const c = state.config.cases.find((x) => x.id === caseId);
   if (!c) return;
   haptic('light');
 
+  applyCaseTheme(c);
   state.openingCaseId = caseId;
   const freeCount = (state.user.vouchers || []).find((v) => v.case_id === c.id)?.count || 0;
   const locked = lockedUntil(c);

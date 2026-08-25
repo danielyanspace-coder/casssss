@@ -12,7 +12,7 @@ import {
   iconBlock, iconBack, iconTier, iconStar, iconRouletteMark,
   iconGrid, iconKey, iconPeople, iconMail, iconTelegram,
 } from './icons.js';
-import { caseCover, porschePhotoSrc } from './covers.js';
+import { caseCover, porschePhotoSrc, caseArtSrc } from './covers.js';
 import { itemArt } from './item-art.js';
 import { DOCS, footerHtml } from './legal.js';
 import {
@@ -655,11 +655,48 @@ function renderBonuses() {
  * прокрута, а ещё ниже — сетка того, что может выпасть, от дорогого к
  * дешёвому. Так видно и содержимое, и сам барабан до первого открытия.
  */
+/**
+ * Тематическое оформление экрана кейса.
+ *
+ * Раньше экран открытия был одинаковый у всех кейсов: один и тот же
+ * фиолетовый фон, одни и те же акценты. Теперь он собирается из самого кейса -
+ * из его обложки.
+ *
+ * Берутся два числа, которые уже посчитаны по картинке при её подготовке
+ * (см. tools/case-covers.mjs): ближний и дальний тон обложки. Ими красится
+ * фон, рамка барабана, маркер и блок фриспинов. Сама обложка уезжает в фон
+ * дважды: размытой вполнеба - она и даёт цвет воздуху, - и чёткой в углу,
+ * приглушённым водяным знаком.
+ *
+ * Ничего из этого не прописано под конкретный кейс. Поменяется обложка -
+ * поменяются и тона, потому что считаются они из неё же.
+ */
+function applyCaseTheme(c) {
+  const opener = document.getElementById('opener');
+  const layer = document.getElementById('openerTheme');
+  const src = caseArtSrc(c);
+
+  if (!src || !c.artGlow) {
+    opener.classList.remove('is-themed');
+    opener.style.removeProperty('--case-h1');
+    opener.style.removeProperty('--case-h2');
+    layer.innerHTML = '';
+    return;
+  }
+
+  opener.style.setProperty('--case-h1', c.artGlow[0]);
+  opener.style.setProperty('--case-h2', c.artGlow[1]);
+  opener.classList.add('is-themed');
+  layer.innerHTML = `<img class="opener-theme-wash" src="${src}" alt="" decoding="async">`
+    + `<img class="opener-theme-mark" src="${src}" alt="" decoding="async">`;
+}
+
 function openCase(caseId) {
   const c = state.config.cases.find((x) => x.id === caseId);
   if (!c) return;
   haptic('light');
 
+  applyCaseTheme(c);
   state.openingCaseId = caseId;
   const freeCount = (state.user.vouchers || []).find((v) => v.case_id === c.id)?.count || 0;
   const locked = lockedUntil(c);
