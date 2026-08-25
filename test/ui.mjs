@@ -435,6 +435,80 @@ async function openCaseAndVerify(caseId) {
   });
 }
 
+/* ---------- Покупка фриспинов ---------- */
+
+{
+  await ensureOpenerClosed();
+  await page.evaluate(() => {
+    const card = [...document.querySelectorAll('.case-card')]
+      .find((c) => c.dataset.case === 'warmup_100');
+    card.scrollIntoView({ block: 'center' });
+    card.click();
+  });
+  await page.waitForSelector('#fsBuy .fsbuy-btn', { state: 'visible', timeout: 10000 });
+  await page.waitForTimeout(400);
+
+  const fs = await page.evaluate(async () => {
+    const cfg = await (await fetch('/api/config', {
+      headers: { 'X-Telegram-Init-Data': '' },
+    })).json();
+    const kase = cfg.cases.find((c) => c.id === 'warmup_100');
+    const box = document.getElementById('fsBuy');
+    const panel = box.getBoundingClientRect();
+    const art = box.querySelector('.fsbuy-title-art');
+
+    return {
+      packs: cfg.freeSpinPacks.map((p) => ({
+        count: p.count,
+        popular: !!p.popular,
+        expected: Math.round(kase.price * p.count * (1 - p.discount)),
+      })),
+      artLoaded: art.complete && art.naturalWidth > 0,
+      buttons: [...box.querySelectorAll('.fsbuy-btn')].map((b) => {
+        const r = b.getBoundingClientRect();
+        const coin = b.querySelector('.fsbuy-coin img');
+        return {
+          count: Number(b.dataset.fs),
+          price: b.querySelector('.fsbuy-price').textContent.replace(/\s/g, ' ').trim(),
+          popular: b.classList.contains('is-popular'),
+          flag: b.querySelector('.fsbuy-flag')?.textContent.trim() || '',
+          coinLoaded: !!coin && coin.complete && coin.naturalWidth > 0,
+          fits: r.left >= panel.left - 1 && r.right <= panel.right + 1,
+        };
+      }),
+    };
+  });
+
+  const money = (n) => `${n.toLocaleString('ru-RU')} ₽`.replace(/\s/g, ' ');
+
+  check('фриспины: заголовок из макета загрузился', fs.artLoaded);
+  check('фриспины: ступеней столько же, сколько в конфиге',
+        fs.buttons.length === fs.packs.length,
+        `кнопок ${fs.buttons.length}, ступеней ${fs.packs.length}`);
+  check('фриспины: монеты нарисованы', fs.buttons.every((b) => b.coinLoaded));
+  check('фриспины: карточки не вылезают за панель', fs.buttons.every((b) => b.fits));
+
+  // Цена считается по тем же числам, что у сервера. Расходится - значит на
+  // экране одна сумма, а списывается другая.
+  const wrongPrice = fs.packs.filter((p, i) => fs.buttons[i]?.price !== money(p.expected));
+  check('фриспины: цены совпадают со ступенями конфига', wrongPrice.length === 0,
+        wrongPrice.map((p, i) => `${p.count}: ${fs.buttons[i]?.price} вместо ${money(p.expected)}`)
+          .join('; '));
+
+  // Пометку задаёт сервер: она про лесенку скидок, а не про вёрстку.
+  const popularPack = fs.packs.find((p) => p.popular);
+  const popularBtns = fs.buttons.filter((b) => b.popular);
+  check('фриспины: выделена ровно одна ступень', popularBtns.length === 1,
+        `выделено ${popularBtns.length}`);
+  check('фриспины: выделена та, что помечена в конфиге',
+        popularBtns[0]?.count === popularPack?.count,
+        `в вёрстке ${popularBtns[0]?.count}, в конфиге ${popularPack?.count}`);
+  check('фриспины: у выделенной ступени есть пометка',
+        /ПОПУЛЯРНО/i.test(popularBtns[0]?.flag || ''), popularBtns[0]?.flag);
+
+  await ensureOpenerClosed();
+}
+
 /* ---------- Совпадение ленты и результата ---------- */
 
 const cases = ['warmup_100', 'vault_1000', 'neon_500', 'allin_500', 'deck_400', 'frost_300'];

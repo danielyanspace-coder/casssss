@@ -1877,95 +1877,135 @@ select.seed-input {
 
 /* ---------- Покупка фриспинов ---------- */
 
-/* Блок должен читаться как витрина, а не как ещё одна строка настроек:
-   к нему обращаются реже, чем к кнопке открытия, и он должен сам себя
-   объяснять. Отсюда собственный фон, свечение и крупная плашка. */
+/* Собрано по присланному макету. Заголовок и монеты - куски самой картинки,
+   карточки, подписи и цены - вёрстка: цена у каждого кейса своя.
+
+   Куски вырезаны вычитанием подложки (см. tools/freespin-packs.mjs), то есть
+   лежат чистым свечением на чёрном. Поэтому кладутся они режимом screen -
+   тем же сложением, каким нарисованы. Отсюда же isolation: свечение должно
+   складываться с фоном своей карточки, а не с тем, что под ней на странице. */
 .fsbuy {
   position: relative;
   margin-top: 22px;
-  padding: 18px 14px 16px;
-  border-radius: 20px;
-  overflow: hidden;
+  padding: 16px 12px 14px;
+  border-radius: 22px;
   background:
-    radial-gradient(120% 90% at 50% -20%, rgba(255, 214, 10, 0.22), transparent 62%),
-    linear-gradient(165deg, #2a1550, #1a0a33);
-  border: 1px solid rgba(255, 214, 10, 0.32);
-  box-shadow: 0 14px 40px -18px rgba(255, 214, 10, 0.7);
+    radial-gradient(120% 80% at 50% 0%, rgba(160, 32, 255, 0.16), transparent 60%),
+    linear-gradient(180deg, #170528, #10021c);
+  border: 1.5px solid rgba(150, 70, 235, 0.55);
+  box-shadow: 0 0 26px -8px rgba(150, 70, 235, 0.55);
+  isolation: isolate;
 }
 
-/* Медленно плывущее пятно света: статичный градиент выглядит наклейкой. */
-.fsbuy-glow {
-  position: absolute;
-  top: -60%; left: 50%;
-  width: 260px; height: 260px;
-  margin-left: -130px;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(255, 214, 10, 0.35), transparent 68%);
-  filter: blur(6px);
-  animation: fsGlow 6s ease-in-out infinite;
-  pointer-events: none;
-}
-@keyframes fsGlow {
-  0%, 100% { transform: translateX(-38px) scale(1); opacity: 0.75; }
-  50%      { transform: translateX(38px) scale(1.14); opacity: 1; }
+.fsbuy-title-art {
+  display: block;
+  width: 100%;
+  margin: -2px 0 12px;
+  mix-blend-mode: screen;
 }
 
-.fsbuy-head { position: relative; text-align: center; margin-bottom: 14px; }
-
-.fsbuy-badge {
-  display: inline-block;
-  padding: 4px 12px;
-  border-radius: 999px;
-  background: linear-gradient(135deg, #ffd60a, #ff9b2e);
-  color: #2a1400;
-  font-size: 10.5px; font-weight: 900;
-  letter-spacing: 0.16em;
-  box-shadow: 0 4px 14px rgba(255, 214, 10, 0.45);
-}
-.fsbuy-title {
-  display: block; margin-top: 8px;
-  font-size: 16px; font-weight: 900; color: #fff;
-  letter-spacing: 0.01em;
-}
-
-.fsbuy-row { position: relative; display: flex; gap: 9px; }
+.fsbuy-row { display: flex; align-items: stretch; gap: 9px; }
 
 .fsbuy-btn {
   flex: 1;
   position: relative;
-  display: flex; flex-direction: column; align-items: center; gap: 3px;
-  padding: 13px 4px 11px;
-  border-radius: 14px;
-  border: 1.5px solid rgba(255, 214, 10, 0.35);
-  background: linear-gradient(165deg, rgba(255, 214, 10, 0.14), rgba(160, 32, 255, 0.12));
+  display: flex; flex-direction: column; align-items: center;
+  padding: 11px 5px 13px;
+  border-radius: 16px;
+  border: 1.5px solid rgba(150, 70, 235, 0.6);
+  background: linear-gradient(180deg, #2a0f4d, #1b0733);
   color: var(--text);
   font-family: inherit;
   cursor: pointer;
+  isolation: isolate;
+  /* Без этого колонка не сожмётся уже своей цены, и у дорогих кейсов
+     («2 639 974 ₽») третья карточка вылезает за панель. */
+  min-width: 0;
   transition: transform 0.12s, box-shadow 0.15s, border-color 0.15s;
 }
-.fsbuy-btn:not(:disabled):active {
-  transform: scale(0.95);
-  border-color: var(--gold);
-  box-shadow: 0 0 0 2px rgba(255, 214, 10, 0.3);
-}
+.fsbuy-btn:not(:disabled):active { transform: scale(0.95); }
 .fsbuy-btn:disabled { opacity: 0.38; cursor: default; }
 
-.fsbuy-count {
-  font-size: 21px; font-weight: 900; line-height: 1;
+/* Выделенная ступень. В макете она заметно ярче соседних - это и есть весь
+   смысл пометки, поэтому меняется не только рамка, но и заливка со свечением. */
+.fsbuy-btn.is-popular {
+  margin-bottom: 12px;
+  border-color: rgba(255, 176, 32, 0.9);
+  background: linear-gradient(180deg, #3a1a1e, #240c22);
+  box-shadow: 0 0 22px -6px rgba(255, 176, 32, 0.8);
+}
+
+.fsbuy-coin { display: block; width: 100%; line-height: 0; }
+.fsbuy-coin img {
+  display: block;
+  width: 100%;
+  mix-blend-mode: screen;
+}
+/* Запасная монета для ступени, которой нет в макете. */
+.fsbuy-coin b {
+  display: block;
+  padding: 14px 0;
+  font-size: 30px; font-weight: 900; line-height: 1;
   background: linear-gradient(180deg, #fff6c9, #ffb020);
   -webkit-background-clip: text; background-clip: text;
   -webkit-text-fill-color: transparent;
 }
+
+/* Ромбики по бокам подписи есть в макете, но там они нарисованы. Здесь это
+   псевдоэлементы: подпись одна на все ступени, и разводить под неё три
+   картинки ради двух значков незачем. */
 .fsbuy-word {
-  font-size: 9.5px; font-weight: 800; letter-spacing: 0.1em;
-  color: rgba(255, 255, 255, 0.55); text-transform: uppercase;
+  display: flex; align-items: center; gap: 5px;
+  margin-top: 2px;
+  font-size: clamp(7.5px, 2.35vw, 9px); font-weight: 800; letter-spacing: 0.12em;
+  color: rgba(255, 255, 255, 0.82); text-transform: uppercase;
+  white-space: nowrap;
 }
+.fsbuy-word::before, .fsbuy-word::after {
+  content: '\2726';
+  font-size: 8px;
+  color: rgba(190, 130, 255, 0.85);
+}
+.fsbuy-btn.is-popular .fsbuy-word::before,
+.fsbuy-btn.is-popular .fsbuy-word::after { color: rgba(255, 190, 90, 0.9); }
+
 .fsbuy-price {
-  margin-top: 3px;
-  font-size: 13px; font-weight: 900;
+  display: block;
+  width: 100%;
+  margin-top: 9px;
+  padding: 7px 2px;
+  border-radius: 999px;
+  border: 1px solid rgba(150, 70, 235, 0.75);
+  /* Цена растёт вместе с ценой кейса: у «Вершины» это семизначное число.
+     Поэтому кегль привязан к ширине экрана, а не задан жёстко. */
+  font-size: clamp(9.5px, 3.1vw, 13px); font-weight: 900;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
   color: var(--gold);
 }
+.fsbuy-btn.is-popular .fsbuy-price {
+  border-color: transparent;
+  background: linear-gradient(180deg, #ffd451, #ff9d16);
+  color: #2a1400;
+  box-shadow: 0 4px 14px -4px rgba(255, 157, 22, 0.9);
+}
+
+/* Пометка свисает под карточкой, как в макете, - оттуда и margin-bottom
+   у выделенной ступени: иначе она легла бы на соседний блок. */
+.fsbuy-flag {
+  position: absolute;
+  left: 50%; bottom: -11px;
+  transform: translateX(-50%);
+  display: flex; align-items: center; gap: 4px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 176, 32, 0.7);
+  background: #200a1c;
+  font-size: 8px; font-weight: 900; letter-spacing: 0.1em;
+  color: #ffce6b; text-transform: uppercase;
+  white-space: nowrap;
+}
+.fsbuy-flag::before { content: '\1F525'; font-size: 9px; }
 
 /* ---------- Подтверждение покупки ---------- */
 
@@ -2211,46 +2251,6 @@ select.seed-input {
   .fx-shout { font-size: 32px; }
   .fx-shout small { font-size: 15px; }
 }
-
-/* ---------- Покупка фриспинов ---------- */
-
-.fsbuy {
-  margin-top: 20px;
-  padding: 14px;
-  border-radius: 16px;
-  border: 1px solid rgba(255, 214, 10, 0.28);
-  background: linear-gradient(150deg, rgba(255, 214, 10, 0.08), rgba(160, 32, 255, 0.06));
-}
-.fsbuy-head { text-align: center; margin-bottom: 12px; }
-.fsbuy-title {
-  display: block;
-  font-size: 14px; font-weight: 900; color: var(--gold);
-  letter-spacing: 0.04em; text-transform: uppercase;
-}
-.fsbuy-hint { display: block; font-size: 11.5px; color: var(--muted); margin-top: 3px; }
-
-.fsbuy-row { display: flex; gap: 8px; }
-
-.fsbuy-btn {
-  flex: 1;
-  display: flex; flex-direction: column; align-items: center; gap: 2px;
-  padding: 10px 4px;
-  border-radius: 12px;
-  border: 2px solid var(--line);
-  background: var(--card);
-  color: var(--text);
-  font-family: inherit;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-.fsbuy-btn:not(:disabled):active { transform: scale(0.96); }
-.fsbuy-btn:disabled { opacity: 0.42; cursor: default; }
-
-.fsbuy-count { font-size: 16px; font-weight: 900; color: var(--gold); }
-.fsbuy-price { font-size: 12.5px; font-weight: 800; font-variant-numeric: tabular-nums; }
-
-/* Выгода - главный довод в пользу пачки, поэтому она отдельной строкой и
-   зелёным: без неё цена читается просто как «дорого». */
 
 /* ---------- Автооткрытие ---------- */
 

@@ -134,10 +134,13 @@ const uiArt = Object.fromEntries(
       'data:image/webp;base64,' + readFileSync(new URL(f, uiDir)).toString('base64'),
     ])
 );
-const inlineUi = (src) => src.replace(/assets\/ui\/[\w-]+\.webp/g, (m) => uiArt[m] || m);
+const inlineUi = (src) => src.replace(
+  /\/?assets\/ui\/[\w-]+\.webp/g,
+  (m) => uiArt[m.replace(/^\//, '')] || m
+);
 
 const css = read('./public/styles.css');
-const html = read('./public/index.html');
+const html = inlineUi(read('./public/index.html'));
 const icons = read('./public/icons.js');
 const covers = read('./public/covers.js');
 const sounds = read('./public/sounds.js');
