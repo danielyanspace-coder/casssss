@@ -177,48 +177,80 @@ const SPECS = [
     { art: 'mirage' }],
   ['pit_800', 'Пит-стоп', 'Три секунды на всё', 'classic', 799, 0.7, 170, 'normal', 'racing', [],
     { art: 'pit' }],
-  ['vault_1000', 'Сейф', 'Что внутри - то ваше', 'classic', 999, 0.7, 180, 'normal', 'vault'],
-  ['chapito_1200', 'Шапито', 'Представление начинается', 'classic', 1199, 0.7, 180, 'normal', 'circus'],
-  ['blade_1500', 'Путь меча', 'Одно движение', 'classic', 1499, 0.7, 190, 'normal', 'samurai'],
-  ['board_1800', 'Абордаж', 'На абордаж!', 'classic', 1799, 0.7, 190, 'normal', 'pirate'],
-  ['temple_2000', 'Зелёный храм', 'Глубоко в джунглях', 'classic', 1999, 0.7, 190, 'normal', 'jungle'],
-  ['noir_2500', 'Ночное дело', 'Без лишних свидетелей', 'classic', 2499, 0.7, 190, 'normal', 'noir'],
+  ['vault_1000', 'Сейф', 'Что внутри - то ваше', 'classic', 999, 0.7, 180,
+    'normal', 'vault', [], { art: 'vault' }],
+  ['chapito_1200', 'Шапито', 'Представление начинается', 'classic', 1199, 0.7, 180,
+    'normal', 'circus', [], { art: 'chapito' }],
+  ['blade_1500', 'Путь меча', 'Одно движение', 'classic', 1499, 0.7, 190,
+    'normal', 'samurai', [], { art: 'blade' }],
+  ['board_1800', 'Абордаж', 'На абордаж!', 'classic', 1799, 0.7, 190,
+    'normal', 'pirate', [], { art: 'board' }],
+  ['temple_2000', 'Зелёная крепость', 'Львы своё не отдают', 'classic', 1999, 0.7, 190,
+    'normal', 'fortress', [], { art: 'fortress' }],
+  ['noir_2500', 'Ночное дело', 'Без лишних свидетелей', 'classic', 2499, 0.7, 190,
+    'normal', 'noir', [], { art: 'noir' }],
 
   // ── Тематические ────────────────────────────────────────
-  ['hack_3000', 'Взлом', 'Доступ разрешён', 'themed', 2999, 0.7, 190, 'normal', 'cyber'],
-  ['cut_3500', 'Огранка', 'Каждая грань считается', 'themed', 3499, 0.7, 200, 'normal', 'crystal'],
-  ['steam_4000', 'Паровая', 'Механика не подводит', 'themed', 3999, 0.7, 200, 'normal', 'steampunk'],
-  ['mariana_6000', 'Марианская', 'Одиннадцать километров вниз', 'themed', 5999, 0.7, 210, 'normal', 'deepsea'],
-  ['shogun_8000', 'Сёгун', 'Власть в одних руках', 'themed', 7999, 0.7, 210, 'normal', 'samurai'],
-  ['crypt_12000', 'Склеп', 'Не буди спящих', 'themed', 11999, 0.7, 225, 'normal', 'vampire'],
-  ['quarantine_18000', 'Карантин', 'Вход только в костюме', 'themed', 17999, 0.7, 240, 'normal', 'toxic'],
-  ['ash_25000', 'Пепел', 'Из пепла - заново', 'themed', 24999, 0.7, 260, 'normal', 'phoenix'],
-  ['hoard_35000', 'Сокровищница', 'Дракон не делится', 'themed', 34999, 0.7, 280, 'normal', 'dragon'],
-  ['diamond_60000', 'Алмазный фонд', 'Только чистая вода', 'themed', 59999, 0.7, 320, 'normal', 'crystal'],
+  ['hack_3000', 'Взлом', 'Доступ разрешён', 'themed', 2999, 0.7, 190,
+    'normal', 'cyber', [], { art: 'hack' }],
+  ['cut_3500', 'Огранка', 'Каждая грань считается', 'themed', 3499, 0.7, 200,
+    'normal', 'crystal', [], { art: 'cut' }],
+  ['steam_4000', 'Паровая', 'Механика не подводит', 'themed', 3999, 0.7, 200,
+    'normal', 'steampunk', [], { art: 'steam' }],
+  ['mariana_6000', 'Марианская', 'Одиннадцать километров вниз', 'themed', 5999, 0.7, 210,
+    'normal', 'deepsea', [], { art: 'mariana' }],
+  ['shogun_8000', 'Сёгун', 'Власть в одних руках', 'themed', 7999, 0.7, 210,
+    'normal', 'samurai', [], { art: 'shogun' }],
+  ['crypt_12000', 'Склеп', 'Не буди спящих', 'themed', 11999, 0.7, 225,
+    'normal', 'vampire', [], { art: 'crypt' }],
+  ['quarantine_18000', 'Карантин', 'Вход только в костюме', 'themed', 17999, 0.7, 240,
+    'normal', 'toxic', [], { art: 'quarantine' }],
+  ['ash_25000', 'Пепел', 'Из пепла - заново', 'themed', 24999, 0.7, 260,
+    'normal', 'phoenix', [], { art: 'ash' }],
+  ['hoard_35000', 'Сокровищница', 'Дракон не делится', 'themed', 34999, 0.7, 280,
+    'normal', 'dragon', [], { art: 'hoard' }],
+  ['diamond_60000', 'Алмазный фонд', 'Только чистая вода', 'themed', 59999, 0.7, 320,
+    'normal', 'crystal', [], { art: 'diamond' }],
 
   // ── Премиум ─────────────────────────────────────────────
-  ['regalia_5000', 'Регалии', 'По праву рождения', 'premium', 4999, 0.7, 210, 'normal', 'royal'],
-  ['tomb_7500', 'Гробница', 'Проклятие прилагается', 'premium', 7499, 0.7, 225, 'normal', 'pharaoh'],
-  ['orbit_10000', 'Орбита', 'Выше только вакуум', 'premium', 9999, 0.7, 240, 'normal', 'orbit'],
-  ['lair_15000', 'Логово', 'Тише. Он спит', 'premium', 14999, 0.7, 270, 'normal', 'dragon'],
-  ['depo_20000', 'Депозитарий', 'Почти 800 000 за одно открытие', 'premium', 19999, 0.7, 320, 'normal', 'vault'],
+  ['regalia_5000', 'Регалии', 'По праву рождения', 'premium', 4999, 0.7, 210,
+    'normal', 'royal', [], { art: 'regalia' }],
+  ['tomb_7500', 'Гробница', 'Проклятие прилагается', 'premium', 7499, 0.7, 225,
+    'normal', 'pharaoh', [], { art: 'tomb' }],
+  ['orbit_10000', 'Орбита', 'Выше только вакуум', 'premium', 9999, 0.7, 240,
+    'normal', 'orbit', [], { art: 'orbit' }],
+  ['lair_15000', 'Логово', 'Тише. Он спит', 'premium', 14999, 0.7, 270,
+    'normal', 'dragon', [], { art: 'lair' }],
+  ['depo_20000', 'Депозитарий', 'Почти 800 000 за одно открытие', 'premium', 19999, 0.7, 320,
+    'normal', 'vault', [], { art: 'depo' }],
 
   // ── Элита ───────────────────────────────────────────────
-  ['galaxy_30000', 'Галактика', 'Масштаб другой', 'elite', 29999, 0.7, 300, 'normal', 'galaxy'],
-  ['rebirth_40000', 'Возрождение', 'Всегда возвращается', 'elite', 39999, 0.7, 320, 'normal', 'phoenix'],
-  ['abyss_50000', 'Бездна', 'Смотрит в ответ', 'elite', 49999, 0.7, 340, 'normal', 'deepsea'],
-  ['empire_75000', 'Империя', 'Всё и сразу', 'elite', 74999, 0.7, 350, 'normal', 'royal'],
-  ['apex_100000', 'Вершина', 'Дороже в игре нет', 'elite', 99999, 0.7, 360, 'normal', 'galaxy'],
+  ['galaxy_30000', 'Галактика', 'Масштаб другой', 'elite', 29999, 0.7, 300,
+    'normal', 'galaxy', [], { art: 'galaxy' }],
+  ['rebirth_40000', 'Возрождение', 'Всегда возвращается', 'elite', 39999, 0.7, 320,
+    'normal', 'phoenix', [], { art: 'rebirth' }],
+  ['abyss_50000', 'Бездна', 'Смотрит в ответ', 'elite', 49999, 0.7, 340,
+    'normal', 'deepsea', [], { art: 'abyss' }],
+  ['empire_75000', 'Империя', 'Всё и сразу', 'elite', 74999, 0.7, 350,
+    'normal', 'royal', [], { art: 'empire' }],
+  ['apex_100000', 'Вершина', 'Дороже в игре нет', 'elite', 99999, 0.7, 360,
+    'normal', 'galaxy', [], { art: 'apex' }],
 
   // ── Риск ────────────────────────────────────────────────
   ['allin_500', 'Ва-банк', 'Чаще пусто, реже густо', 'risk', 499, 0.7, 320, 'risky', 'casino', [],
     { art: 'allin' }],
-  ['redonly_1000', 'Красное или ничего', 'Полумер не бывает', 'risk', 999, 0.7, 360, 'risky', 'casino'],
-  ['crater_2500', 'Жерло', 'Горячо во всех смыслах', 'risk', 2499, 0.7, 360, 'risky', 'volcano'],
-  ['reactor_5000', 'Реактор', 'Стержни на пределе', 'risk', 4999, 0.7, 400, 'wild', 'toxic'],
-  ['shadow_10000', 'Тень', 'Никто не узнает', 'risk', 9999, 0.7, 450, 'wild', 'shadow'],
-  ['midnight_20000', 'Полночь', 'Ставки после заката', 'risk', 19999, 0.7, 450, 'wild', 'vampire'],
-  ['nopoint_50000', 'Точка невозврата', 'Обратно дороги нет', 'risk', 49999, 0.7, 500, 'wild', 'galaxy'],
+  ['redonly_1000', 'Красное или ничего', 'Полумер не бывает', 'risk', 999, 0.7, 360,
+    'risky', 'casino', [], { art: 'redonly' }],
+  ['crater_2500', 'Жерло', 'Горячо во всех смыслах', 'risk', 2499, 0.7, 360,
+    'risky', 'volcano', [], { art: 'crater' }],
+  ['reactor_5000', 'Реактор', 'Стержни на пределе', 'risk', 4999, 0.7, 400,
+    'wild', 'toxic', [], { art: 'reactor' }],
+  ['shadow_10000', 'Тень', 'Никто не узнает', 'risk', 9999, 0.7, 450,
+    'wild', 'shadow', [], { art: 'shadow' }],
+  ['midnight_20000', 'Полночь', 'Ставки после заката', 'risk', 19999, 0.7, 450,
+    'wild', 'vampire', [], { art: 'midnight' }],
+  ['nopoint_50000', 'Точка невозврата', 'Обратно дороги нет', 'risk', 49999, 0.7, 500,
+    'wild', 'galaxy', [], { art: 'nopoint' }],
 
   // ── Бонусные (с плюшками) ───────────────────────────────
   ['lucky_200', 'Счастливый', 'Иногда просто везёт', 'bonus', 199, 0.7, 120, 'soft', 'casino',
@@ -226,23 +258,31 @@ const SPECS = [
   ['double_500', 'Удвоитель', 'Следующий прокрут - вдвойне', 'bonus', 499, 0.7, 150, 'normal', 'neon',
     [{ type: 'x2', share: 0.09 }], { art: 'double' }],
   ['gift_1000', 'Подарочный', 'С подарком внутри', 'bonus', 999, 0.7, 170, 'normal', 'circus',
-    [{ type: 'voucher', caseId: 'neon_500', share: 0.06 }]],
+    [{ type: 'voucher', caseId: 'neon_500', share: 0.06 }],
+    { art: 'gift' }],
   ['chain_2000', 'Цепная реакция', 'Одно тянет другое', 'bonus', 1999, 0.7, 190, 'normal', 'toxic',
-    [{ type: 'x2', share: 0.07 }, { type: 'voucher', caseId: 'vault_1000', share: 0.05 }]],
+    [{ type: 'x2', share: 0.07 }, { type: 'voucher', caseId: 'vault_1000', share: 0.05 }],
+    { art: 'chain' }],
   ['jackpot_5000', 'Джекпот', 'Или пусто, или очень', 'bonus', 4999, 0.7, 225, 'normal', 'casino',
-    [{ type: 'credits', amount: 120000, share: 0.08 }]],
+    [{ type: 'credits', amount: 120000, share: 0.08 }],
+    { art: 'jackpot' }],
   ['ticket_7000', 'Золотой билет', 'Проход в дорогое', 'bonus', 6999, 0.7, 225, 'normal', 'circus',
-    [{ type: 'voucher', caseId: 'steam_4000', share: 0.07 }]],
-  ['stake_10000', 'Двойная ставка', 'Удваивает следующий прокрут', 'bonus', 9999, 0.7, 240, 'normal', 'casino',
-    [{ type: 'x2', share: 0.1 }]],
+    [{ type: 'voucher', caseId: 'steam_4000', share: 0.07 }],
+    { art: 'ticket' }],
+  ['stake_10000', 'Атом', 'Ядро удваивает следующий прокрут', 'bonus', 9999, 0.7, 240,
+    'normal', 'atom', [{ type: 'x2', share: 0.1 }], { art: 'atom' }],
   ['treasure_15000', 'Клад', 'Кто нашёл - того и есть', 'bonus', 14999, 0.7, 260, 'normal', 'pirate',
-    [{ type: 'credits', amount: 400000, share: 0.07 }]],
+    [{ type: 'credits', amount: 400000, share: 0.07 }],
+    { art: 'treasure' }],
   ['megabox_25000', 'Мегабокс', 'Подарок и удвоение', 'bonus', 24999, 0.7, 280, 'normal', 'royal',
-    [{ type: 'voucher', caseId: 'crypt_12000', share: 0.06 }, { type: 'x2', share: 0.06 }]],
+    [{ type: 'voucher', caseId: 'crypt_12000', share: 0.06 }, { type: 'x2', share: 0.06 }],
+    { art: 'megabox' }],
   ['infinity_50000', 'Бесконечность', 'Не заканчивается', 'bonus', 49999, 0.7, 320, 'normal', 'galaxy',
-    [{ type: 'x2', share: 0.08 }, { type: 'credits', amount: 1200009, share: 0.06 }]],
+    [{ type: 'x2', share: 0.08 }, { type: 'credits', amount: 1200009, share: 0.06 }],
+    { art: 'infinity' }],
   ['legend_100000', 'Легенда', 'Вершина коллекции', 'bonus', 99999, 0.7, 360, 'normal', 'dragon',
-    [{ type: 'voucher', caseId: 'abyss_50000', share: 0.07 }, { type: 'x2', share: 0.06 }]],
+    [{ type: 'voucher', caseId: 'abyss_50000', share: 0.07 }, { type: 'x2', share: 0.06 }],
+    { art: 'legend' }],
   // ── Сезонные ────────────────────────────────────────────
   ['porsche_999', 'Porsche 911', 'Сезонный кейс - с 1 октября', 'season',
     999, 0.7, 180, 'normal', 'garage', [], {
@@ -265,10 +305,12 @@ const SPECS = [
     }],
 
   ['sultan_40000', 'Три желания', 'Джинн не обманет', 'bonus', 39999, 0.7, 300, 'normal', 'desert',
-    [{ type: 'voucher', caseId: 'lair_15000', share: 0.06 }, { type: 'credits', amount: 900000, share: 0.05 }]],
+    [{ type: 'voucher', caseId: 'lair_15000', share: 0.06 }, { type: 'credits', amount: 900000, share: 0.05 }],
+    { art: 'sultan' }],
 
-  ['rolex_6000', 'Rolex', 'Витрина закрыта на ключ', 'premium', 5999, 0.7, 300,
-    'normal', 'atelier', [], { jackpot: { name: 'Rolex Daytona', value: 2999500, share: 0.02 } }],
+  ['rolex_6000', 'Самородок', 'Жила уходит вглубь', 'premium', 5999, 0.7, 300,
+    'normal', 'goldmine', [],
+    { art: 'nugget', jackpot: { name: 'Самородок «Золотой великан»', value: 2999500, share: 0.02 } }],
 
   // ── Направления ─────────────────────────────────────────
   ['santorini_999', 'Санторини', 'Белое на синем', 'country', 999, 0.7, 180, 'soft', 'santorini',
@@ -580,11 +622,39 @@ export const FREESPIN_PACKS = [
   { count: 30, discount: 0.12 },
 ];
 
+/**
+ * Насколько цену пачки можно уронить ради круглого числа.
+ *
+ * Округление вниз - это дополнительная скидка сверх лесенки, то есть прибавка
+ * к отдаче пачки. Без потолка «1099» превратилось бы в «1000», и отдача той
+ * пачки ушла бы на девять пунктов вверх от соседних - при почти одинаковой
+ * цене кейса. Два с половиной процента дают круглые числа вроде 6600 из 6641
+ * и при этом не разваливают лесенку.
+ */
+const PACK_ROUND_MAX_CUT = 0.025;
+
+/**
+ * Округление цены пачки вниз до круглого числа.
+ *
+ * Берём самый крупный шаг из 10, 100, 1000 и так далее, при котором отрезанное
+ * укладывается в потолок. Считается здесь же, рядом с ценой: клиент повторяет
+ * ту же формулу только ради показа, источник правды - сервер.
+ */
+export function roundPackPrice(price) {
+  let best = price;
+  for (let step = 10; step <= price; step *= 10) {
+    const down = Math.floor(price / step) * step;
+    if (down <= 0 || price - down > price * PACK_ROUND_MAX_CUT) break;
+    best = down;
+  }
+  return best;
+}
+
 /** Цена пачки. Считается только здесь, клиент её лишь показывает. */
 export function freeSpinPackPrice(caseData, count) {
   const pack = FREESPIN_PACKS.find((p) => p.count === count);
   if (!pack) return null;
-  return Math.round(caseData.price * count * (1 - pack.discount));
+  return roundPackPrice(Math.round(caseData.price * count * (1 - pack.discount)));
 }
 
 export function getCase(id) {

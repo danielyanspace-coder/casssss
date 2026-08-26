@@ -1460,6 +1460,15 @@ select.seed-input {
   gap: 4px 10px;
 }
 
+/* Одинокий кейс в конце встаёт посередине, а не жмётся к левому краю.
+   Ширину оставляем колоночную: растянутый во всю строку кейс читался бы как
+   витрина, которой он не является. */
+.shelf-row > .case-card:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+  justify-self: center;
+  width: calc(50% - 5px);
+}
+
 /* ---------- Компактная карточка ---------- */
 
 .shelf-row .case-card {
@@ -2500,10 +2509,19 @@ select.seed-input {
 
 .reels { display: flex; flex-direction: column; gap: 10px; }
 /* В пачке ленты ниже: пять полноразмерных не помещаются на экран телефона. */
-.reels.compact .reel-wrap { height: 92px; }
-.reels.compact .reel-tile { flex-basis: 96px; width: 96px; padding: 7px 5px; gap: 3px; }
+/* Барабанов несколько - каждый ниже и уже. Отступы и второй контур сжимаются
+   вместе с плиткой: с прежними значениями подпись налезала на сумму. */
+.reels.compact .reel-wrap { height: 96px; }
+.reels.compact .reel-tile {
+  flex-basis: 96px; width: 96px;
+  padding: 6px 5px 8px;
+  gap: 2px;
+  border-radius: 12px;
+}
+.reels.compact .reel-tile::before { inset: 3px; border-radius: 8px; }
+.reels.compact .reel-tile::after { left: 30%; right: 30%; }
 .reels.compact .tile-icon { width: 22px; height: 22px; }
-.reels.compact .tile-name { font-size: 9.5px; -webkit-line-clamp: 1; }
+.reels.compact .tile-name { font-size: 9px; -webkit-line-clamp: 1; }
 .reels.compact .tile-value { font-size: 12px; }
 
 .batch-summary { margin-top: 22px; animation: pop 0.4s cubic-bezier(0.2, 1.3, 0.4, 1); }
@@ -2983,6 +3001,13 @@ select.seed-input {
 /* Два предмета в ряд на телефоне, от дорогого к дешёвому. */
 .drops-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
 
+/* То же правило для состава кейса: непарный хвост по центру. */
+.drops-grid > *:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+  justify-self: center;
+  width: calc(50% - 5px);
+}
+
 .drop-card {
   display: flex; flex-direction: column; align-items: center; gap: 6px;
   padding: 14px 10px;
@@ -3160,7 +3185,11 @@ select.seed-input {
 
 .feed-card {
   position: relative;
+  display: block;
   flex: 0 0 auto;
+  font-family: inherit;
+  cursor: pointer;
+  transition: transform 0.12s;
   width: var(--feed-w);
   max-width: var(--feed-w);
   margin-right: var(--feed-gap);
@@ -3232,11 +3261,42 @@ select.seed-input {
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
-.feed-nick {
-  font-size: 9px; color: var(--muted);
-  margin-top: 3px;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+.feed-card:active { transform: scale(0.95); }
+
+/* Карточка выигрыша из ленты: что выпало и в каком кейсе. */
+.feed-sheet { text-align: center; }
+.feed-sheet-tier {
+  font-size: 10px; font-weight: 900; letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--tier-color, var(--muted));
 }
+.feed-sheet-name { font-size: 19px; font-weight: 900; margin-top: 6px; }
+.feed-sheet-value {
+  font-size: 28px; font-weight: 900; margin-top: 4px;
+  color: var(--tier-color, var(--gold));
+  text-shadow: 0 0 18px color-mix(in srgb, var(--tier-color, #ffd60a) 70%, transparent);
+}
+.feed-sheet-from {
+  margin: 16px 0 4px;
+  font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--muted);
+}
+.feed-sheet-cover {
+  height: 150px;
+  display: flex; align-items: flex-end; justify-content: center;
+}
+.feed-sheet-cover .cover-art,
+.feed-sheet-cover .cover-photo,
+.feed-sheet-cover svg {
+  max-width: 100%; max-height: 100%;
+  width: auto; height: 100%;
+  object-fit: contain;
+}
+.feed-sheet-case {
+  margin: 8px 0 18px;
+  font-size: 15px; font-weight: 800;
+}
+.feed-sheet-case span { color: var(--gold); }
 
 /* ============================================================
    БЕСПЛАТНЫЙ КЕЙС ЗА ПОДПИСКУ

@@ -198,7 +198,7 @@ export function caseCover(caseData) {
   // Диспетчеризация здесь, а не у вызывающего кода, — чтобы и приложение, и
   // офлайн-сборка получили обложку без отдельной правки.
   if (caseData.art === 'porsche') return porscheCover(caseData);
-  if (ART_COVERS.has(caseData.art)) return artCover(caseData);
+  if (caseArtSrc(caseData)) return artCover(caseData);
 
   const seed = hashString(caseData.id);
   const r = rng(seed);
@@ -273,22 +273,20 @@ const porscheSrc = asset('__PORSCHE_SRC', '/assets/porsche.webp');
  *
  * Ключ - это и значение поля art у кейса, и имя файла в public/assets/covers/.
  */
-const ART_COVERS = new Set([
-  'dust', 'spark', 'copper', 'warmup', 'alley', 'frost', 'rune', 'deck',
-  'neon', 'mirage', 'pit', 'allin', 'lucky', 'double',
-  'santorini', 'rio', 'monaco', 'vegas', 'dubai', 'singapore',
-  'winterfell', 'braavos', 'highgarden', 'westeros',
-]);
-
 /**
  * Путь к присланному арту кейса, или null, если арта нет.
+ *
+ * Признак «арт готов» - это artAspect: сервер проставляет его из art.json,
+ * куда пропорции пишет tools/case-covers.mjs при подготовке картинок. Списка
+ * имён здесь нет намеренно: он был бы третьей копией того же знания и
+ * разъезжался бы с папкой при каждом новом завозе обложек.
  *
  * Нужен не только обложке: экран кейса берёт ту же картинку себе в фон, чтобы
  * не выглядеть одинаково у всех кейсов.
  */
 export function caseArtSrc(caseData) {
   const name = caseData?.art;
-  return name && ART_COVERS.has(name) ? artSrc(name) : null;
+  return name && name !== 'porsche' && caseData.artAspect ? artSrc(name) : null;
 }
 
 /** Автономная сборка складывает все обложки в один объект с data-URI. */
@@ -325,6 +323,6 @@ export function porscheCover(caseData) {
  */
 export function artCover(caseData) {
   const alt = `Обложка кейса «${caseData.name}»`;
-  return `<img class="cover-art" src="${artSrc(caseData.art)}" alt="${alt}"
+  return `<img class="cover-art" src="${caseArtSrc(caseData)}" alt="${alt}"
     loading="lazy" decoding="async">`;
 }

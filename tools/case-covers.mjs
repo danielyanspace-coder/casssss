@@ -34,15 +34,15 @@
  * так вычитается само собой, а наружу выходит то, чем обложка отличается, -
  * лёд «Мерзлоты», зелень «Счастливого», пурпур «Неонового».
  *
- * ПОЧЕМУ 500 px ПО ДЛИННОЙ СТОРОНЕ И КАЧЕСТВО 0.78. Обложек восемнадцать, и
- * на вес страницы они влияют сильнее всего остального вместе взятого. Замеры
- * показали, что качество WebP на вес почти не влияет, а размер - линейно:
- * 620 px дают около 140 КБ на картинку, 500 px - около 95 КБ. При этом самый
- * крупный слот обложки (широкая карточка престольной полки) занимает около
- * 244 CSS-px, то есть 500 px хватает даже на экран двойной плотности.
- * Разница видна только при сравнении вплотную, а два мегабайта экономии на
- * мобильном интернете видны сразу. В вёрстке к этому добавлена ленивая
- * загрузка, поэтому за экраном обложки не качаются вовсе.
+ * ПОЧЕМУ 460 px ПО ДЛИННОЙ СТОРОНЕ И КАЧЕСТВО 0.74. Обложек больше шестидесяти,
+ * и на вес страницы они влияют сильнее всего остального вместе взятого.
+ * Замеры показали, что качество WebP на вес почти не влияет, а размер -
+ * линейно: 620 px дают около 140 КБ на картинку, 460 px - около 70 КБ. При
+ * этом самый крупный слот обложки занимает около 244 CSS-px, то есть 460 px
+ * хватает на экран двойной плотности. Разница видна только при сравнении
+ * вплотную, а несколько мегабайт экономии на мобильном интернете видны сразу.
+ * В вёрстке к этому добавлена ленивая загрузка, поэтому за экраном обложки не
+ * качаются вовсе.
  */
 import { chromium } from 'playwright';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
@@ -77,13 +77,69 @@ const MAP = {
   'Браавос.png': 'braavos',
   'Хай Гарден.png': 'highgarden',
   'Вестерос.png': 'westeros',
+
+  // Второй завоз: остальные кейсы проекта.
+  'Сейф.png': 'vault',
+  'Шапито.png': 'chapito',
+  'Путь меча.png': 'blade',
+  'Абордаж.png': 'board',
+  'Зеленая крепость.png': 'fortress',
+  'Ночное дело.png': 'noir',
+  'Взлом.png': 'hack',
+  'Огранка.png': 'cut',
+  'Паровая.png': 'steam',
+  'Марианская.png': 'mariana',
+  'Сёгун.png': 'shogun',
+  'Склеп.png': 'crypt',
+  'Карантин.png': 'quarantine',
+  'Пепел.png': 'ash',
+  'Сокровищница.png': 'hoard',
+  'Алмазный фонд.png': 'diamond',
+  'Регалии.png': 'regalia',
+  'Гробница.png': 'tomb',
+  'Орбита.png': 'orbit',
+  'Логово.png': 'lair',
+  'Депозитарий.png': 'depo',
+  'Галактика.png': 'galaxy',
+  'Возрождение.png': 'rebirth',
+  'Бездна.png': 'abyss',
+  'Империя.png': 'empire',
+  'Вершина.png': 'apex',
+  'Красное или ничего.png': 'redonly',
+  'Жерло.png': 'crater',
+  'Реактор.png': 'reactor',
+  'Тень.png': 'shadow',
+  'Полночь.png': 'midnight',
+  'Точка невозврата.png': 'nopoint',
+  'Подарочный.png': 'gift',
+  'Цепная реакция.png': 'chain',
+  'Джекпот.png': 'jackpot',
+  'Золотой билет.png': 'ticket',
+  'Атом.png': 'atom',
+  'Клад.png': 'treasure',
+  'Мегабокс.png': 'megabox',
+  'Бесконечность.png': 'infinity',
+  'Легенда.png': 'legend',
+  'Три желания.png': 'sultan',
+  'Самородок.png': 'nugget',
 };
 
 /** Длинная сторона результата. Обоснование - в шапке файла. */
-const MAX_SIDE = 500;
+const MAX_SIDE = 460;
 
 /** Порог альфы, ниже которого пиксель считается фоном при обрезке полей. */
 const ALPHA_FLOOR = 8;
+
+/**
+ * Часть присланных рендеров пришла без прозрачности: вместо неё в картинку
+ * запечена светлая шахматка - та самая, которой редакторы рисуют пустоту.
+ * Её надо снять, иначе обложка встанет на страницу белым прямоугольником.
+ *
+ * Клетки шахматки серые и очень светлые, поэтому ищем их по двум признакам
+ * сразу: почти нет разброса между каналами и высокая светлота.
+ */
+const CHECKER_MAX_CHROMA = 14;
+const CHECKER_MIN_LUMA = 226;
 
 /**
  * Прозрачный воздух вокруг объекта, долей от его длинной стороны.
@@ -146,6 +202,7 @@ for (const [file, name] of Object.entries(MAP)) {
 
   const out = await page.evaluate(async ({
     dataUri, MAX_SIDE, ALPHA_FLOOR, PADDING, SAT_FLOOR, BINS,
+    CHECKER_MAX_CHROMA, CHECKER_MIN_LUMA,
   }) => {
     const img = new Image();
     img.src = dataUri;
@@ -157,8 +214,75 @@ for (const [file, name] of Object.entries(MAP)) {
     const pctx = probe.getContext('2d', { willReadFrequently: true });
     pctx.drawImage(img, 0, 0);
 
-    // Границы непрозрачного содержимого.
-    const { data } = pctx.getImageData(0, 0, img.width, img.height);
+    const shot = pctx.getImageData(0, 0, img.width, img.height);
+    const { data } = shot;
+
+    /*
+     * Снятие запечённой шахматки.
+     *
+     * Заливка идёт от краёв, а не по всей картинке: внутри рисунка тоже есть
+     * светло-серое - блики на металле, седина, белая эмаль, - и по одному
+     * лишь цвету оно неотличимо от клетки. Снаружи связной области фона
+     * такие места не лежат, поэтому заливка их не трогает.
+     *
+     * Берёмся за это только если прозрачности нет вовсе: у нормального
+     * рендера она есть, и запускать заливку не за чем.
+     */
+    let opaque = 0;
+    for (let i = 3; i < data.length; i += 4) if (data[i] > ALPHA_FLOOR) opaque++;
+
+    if (opaque > img.width * img.height * 0.99) {
+      const isChecker = (i) => {
+        const r = data[i]; const g = data[i + 1]; const b = data[i + 2];
+        const max = Math.max(r, g, b); const min = Math.min(r, g, b);
+        return max - min <= CHECKER_MAX_CHROMA && (r + g + b) / 3 >= CHECKER_MIN_LUMA;
+      };
+
+      const seen = new Uint8Array(img.width * img.height);
+      const stack = [];
+      for (let x = 0; x < img.width; x++) {
+        stack.push(x, x + (img.height - 1) * img.width);
+      }
+      for (let y = 0; y < img.height; y++) {
+        stack.push(y * img.width, y * img.width + img.width - 1);
+      }
+
+      while (stack.length) {
+        const p = stack.pop();
+        if (seen[p]) continue;
+        seen[p] = 1;
+        if (!isChecker(p * 4)) continue;
+        data[p * 4 + 3] = 0;
+
+        const x = p % img.width;
+        const y = (p - x) / img.width;
+        if (x > 0) stack.push(p - 1);
+        if (x < img.width - 1) stack.push(p + 1);
+        if (y > 0) stack.push(p - img.width);
+        if (y < img.height - 1) stack.push(p + img.width);
+      }
+
+      /*
+       * Смягчение края. Заливка режет по порогу, и на границе остаётся
+       * ступенька из полусветлых точек - остаток растушёвки самого рендера.
+       * Точки рядом с уже прозрачными гасим тем сильнее, чем они светлее.
+       */
+      const soft = new Uint8Array(img.width * img.height);
+      for (let y = 1; y < img.height - 1; y++) {
+        for (let x = 1; x < img.width - 1; x++) {
+          const p = y * img.width + x;
+          if (data[p * 4 + 3] === 0) continue;
+          const near = data[(p - 1) * 4 + 3] === 0 || data[(p + 1) * 4 + 3] === 0
+            || data[(p - img.width) * 4 + 3] === 0 || data[(p + img.width) * 4 + 3] === 0;
+          if (!near) continue;
+          const luma = (data[p * 4] + data[p * 4 + 1] + data[p * 4 + 2]) / 3;
+          if (luma > 200) soft[p] = 1;
+        }
+      }
+      for (let p = 0; p < soft.length; p++) if (soft[p]) data[p * 4 + 3] = 90;
+
+      pctx.putImageData(shot, 0, 0);
+    }
     let minX = img.width, minY = img.height, maxX = -1, maxY = -1;
     for (let y = 0; y < img.height; y++) {
       for (let x = 0; x < img.width; x++) {
@@ -188,7 +312,7 @@ for (const [file, name] of Object.entries(MAP)) {
     canvas.height = dh + pad * 2;
     const ctx = canvas.getContext('2d');
     ctx.imageSmoothingQuality = 'high';
-    ctx.drawImage(img, minX, minY, cw, ch, pad, pad, dw, dh);
+    ctx.drawImage(probe, minX, minY, cw, ch, pad, pad, dw, dh);
 
     /*
      * Гистограмма тонов по непрозрачным точкам. Вес точки - куб её
@@ -218,13 +342,16 @@ for (const [file, name] of Object.entries(MAP)) {
     }
 
     return {
-      base64: canvas.toDataURL("image/webp", 0.78).split(',')[1],
+      base64: canvas.toDataURL("image/webp", 0.74).split(',')[1],
       src: [img.width, img.height],
       trimmed: [cw, ch],
       final: [canvas.width, canvas.height],
       hues: weight,
     };
-  }, { dataUri, MAX_SIDE, ALPHA_FLOOR, PADDING, SAT_FLOOR, BINS: HUE_BINS });
+  }, {
+    dataUri, MAX_SIDE, ALPHA_FLOOR, PADDING, SAT_FLOOR, BINS: HUE_BINS,
+    CHECKER_MAX_CHROMA, CHECKER_MIN_LUMA,
+  });
 
   const buf = Buffer.from(out.base64, 'base64');
   writeFileSync(new URL(`${name}.webp`, OUT_DIR), buf);

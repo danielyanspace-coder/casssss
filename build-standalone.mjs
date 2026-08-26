@@ -617,7 +617,15 @@ const routes = {
     const pack = (CONFIG.freeSpinPacks || []).find((p) => p.count === Number(body.count));
     if (!pack) return { status: 400, body: { error: 'Такой пачки нет' } };
 
-    const cost = Math.round(table.price * pack.count * (1 - pack.discount));
+    // Та же формула, что в server/cases.js: скидка по лесенке и округление
+    // вниз до круглого числа с потолком в 2.5%.
+    const raw = Math.round(table.price * pack.count * (1 - pack.discount));
+    let cost = raw;
+    for (let step = 10; step <= raw; step *= 10) {
+      const down = Math.floor(raw / step) * step;
+      if (down <= 0 || raw - down > raw * 0.025) break;
+      cost = down;
+    }
     const u = store.user;
     if (u.balance < cost) {
       return { status: 400, body: { error: 'INSUFFICIENT_FUNDS',

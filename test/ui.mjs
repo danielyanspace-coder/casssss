@@ -188,7 +188,8 @@ async function goto(view) {
       first: cards[0]?.textContent || '',
       drawn: cards.filter((c) => c.querySelector('.feed-art svg')).length,
       withValue: cards.filter((c) => /\d/.test(c.querySelector('.feed-value')?.textContent || '')).length,
-      withNick: cards.filter((c) => (c.querySelector('.feed-nick')?.textContent || '').trim()).length,
+      withNick: cards.filter((c) => c.querySelector('.feed-nick')).length,
+      clickable: cards.filter((c) => c.dataset.drop).length,
       // Лента не должна выдавать шансы — как и остальной интерфейс.
       percents: cards.filter((c) => c.textContent.includes('%')).length,
     };
@@ -204,8 +205,10 @@ async function goto(view) {
         `${feed.drawn} из ${feed.count}`);
   check('лента: у каждой карточки есть сумма', feed.withValue === feed.count,
         `${feed.withValue} из ${feed.count}`);
-  check('лента: у каждой карточки есть ник', feed.withNick === feed.count,
-        `${feed.withNick} из ${feed.count}`);
+  // Ников в витрине нет: она про выигрыш, а не про того, кто его снял.
+  check('лента: ников нет', feed.withNick === 0, `нашлось ${feed.withNick}`);
+  check('лента: карточки нажимаются', feed.clickable === feed.count,
+        `${feed.clickable} из ${feed.count}`);
   check('лента: проценты не показаны', feed.percents === 0, `нарушений ${feed.percents}`);
   // Полоса не должна разрастаться вниз - она под шапкой, над самими кейсами.
   // Порог поднят вместе с карточками: они стали крупнее по присланному
@@ -443,11 +446,18 @@ async function openCaseAndVerify(caseId) {
     const art = box.querySelector('.fsbuy-title-art');
 
     return {
-      packs: cfg.freeSpinPacks.map((p) => ({
-        count: p.count,
-        popular: !!p.popular,
-        expected: Math.round(kase.price * p.count * (1 - p.discount)),
-      })),
+      packs: cfg.freeSpinPacks.map((p) => {
+        // Та же формула, что на сервере: лесенка скидок, потом округление вниз
+        // до круглого числа с потолком в 2.5% (см. roundPackPrice).
+        const raw = Math.round(kase.price * p.count * (1 - p.discount));
+        let expected = raw;
+        for (let step = 10; step <= raw; step *= 10) {
+          const down = Math.floor(raw / step) * step;
+          if (down <= 0 || raw - down > raw * 0.025) break;
+          expected = down;
+        }
+        return { count: p.count, popular: !!p.popular, expected };
+      }),
       artLoaded: art.complete && art.naturalWidth > 0,
       buttons: [...box.querySelectorAll('.fsbuy-btn')].map((b) => {
         const r = b.getBoundingClientRect();
@@ -507,7 +517,9 @@ async function openCaseAndVerify(caseId) {
   const themeOf = async (id) => {
     await ensureOpenerClosed();
     await page.evaluate((caseId) => {
-      const card = [...document.querySelectorAll('.case-card')].find((c) => c.dataset.case === caseId);
+      // Сезонный кейс стоит витриной и карточку полки не имеет.
+      const card = [...document.querySelectorAll('.case-card, .featured-card')]
+        .find((c) => c.dataset.case === caseId);
       card.scrollIntoView({ block: 'center' });
       card.click();
     }, id);
@@ -534,9 +546,13 @@ async function openCaseAndVerify(caseId) {
   check('тема кейса: у разных кейсов разные тона', frost.h1 !== lucky.h1,
         `«Мерзлота» ${frost.h1}, «Счастливый» ${lucky.h1}`);
 
-  // У кейса без присланного арта тонов нет, и экран должен остаться прежним.
-  const plain = await themeOf('vault_1000');
-  check('тема кейса: без арта остаётся обычный экран', !plain.themed);
+  /*
+   * У кейса без разобранного арта тонов нет, и экран должен остаться прежним.
+   * Такой в проекте один - сезонный «Porsche»: его обложка нарисована готовым
+   * баннером под свою пропорцию и через подготовку обложек не проходит.
+   */
+  const plain = await themeOf('porsche_999');
+  check('тема кейса: без разобранного арта остаётся обычный экран', !plain.themed);
 
   await ensureOpenerClosed();
 }

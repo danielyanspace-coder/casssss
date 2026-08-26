@@ -348,13 +348,8 @@ function renderPerkBar() {
       ×2 на «${esc(c?.name || '-')}»</span>`);
   }
 
-  for (const v of state.user.vouchers || []) {
-    const c = state.config.cases.find((x) => x.id === v.case_id);
-    if (!c) continue;
-    // Плашка ведёт на сам кейс: иначе подарок приходится искать по полкам.
-    chips.push(`<button class="perk-chip gift" data-goto="${c.id}"><span data-ico="gift"></span>
-      «${esc(c.name)}» бесплатно${v.count > 1 ? ` ×${v.count}` : ''}</button>`);
-  }
+  // Выигранных кейсов здесь нет намеренно: их место в «Бонусах». Полоса над
+  // полками разрасталась на несколько строк и отжимала сами кейсы вниз.
 
   bar.innerHTML = chips.join('');
   bar.hidden = !chips.length;
@@ -622,9 +617,19 @@ function renderBonuses() {
     mountIcons(perks);
   }
 
+  /*
+   * Один выигранный кейс - одна карточка.
+   *
+   * Раньше повторы схлопывались в одну карточку с числом рядом, и три
+   * одинаковых подарка выглядели как один: приписка ×3 у карточки с артом не
+   * показывается вовсе. Теперь каждый экземпляр стоит отдельно и его видно
+   * пересчётом, а не чтением мелкой цифры.
+   */
   const cards = (state.user.vouchers || [])
-    .map((v) => ({ c: state.config.cases.find((x) => x.id === v.case_id), count: v.count }))
-    .filter((x) => x.c && x.count > 0);
+    .flatMap((v) => {
+      const c = state.config.cases.find((x) => x.id === v.case_id);
+      return c && v.count > 0 ? Array.from({ length: v.count }, () => c) : [];
+    });
 
   if (!cards.length) {
     list.innerHTML = '<div class="empty" style="grid-column:1/-1">Пока нет выигранных кейсов - '
@@ -635,10 +640,10 @@ function renderBonuses() {
   // Здесь пары складываются из того, что выиграно, поэтому пропорция берётся
   // по соседу так же, как на полках.
   list.innerHTML = cards
-    .map(({ c, count }, i) => {
+    .map((c, i) => {
       const pair = i % 2 === 0 ? [cards[i], cards[i + 1]] : [cards[i - 1], cards[i]];
-      const arts = pair.map((x) => x?.c.artAspect).filter(Boolean);
-      return caseCardHtml(c, new Map([[c.id, count]]), arts.length ? Math.min(...arts) : null);
+      const arts = pair.map((x) => x?.artAspect).filter(Boolean);
+      return caseCardHtml(c, new Map([[c.id, 1]]), arts.length ? Math.min(...arts) : null);
     })
     .join('');
 
@@ -782,6 +787,9 @@ function openCase(caseId) {
       document.querySelectorAll('#countRow .count-btn').forEach((b) => b.classList.remove('active'));
       btn.classList.add('active');
       haptic('light');
+      // Барабаны перерисовываются сразу: выбранный икс должен быть виден до
+      // нажатия «Открыть», а не выясняться после списания.
+      renderIdleReel(c, count);
       refresh();
     });
   });
@@ -792,6 +800,8 @@ function openCase(caseId) {
       document.querySelectorAll('#autoRow .auto-btn').forEach((b) => b.classList.remove('active'));
       btn.classList.add('active');
       haptic('light');
+      // Автооткрытие крутит по одному кейсу, поэтому барабан снова один.
+      if (auto) renderIdleReel(c, 1);
       refresh();
     });
   });
@@ -845,21 +855,30 @@ async function resumePendingSpins(c) {
 }
 
 /** Лента до первого прокрута: стоит на месте, показывает содержимое кейса. */
-function renderIdleReel(c) {
+/**
+ * Лента до первого прокрута.
+ *
+ * Барабанов рисуется столько же, сколько кейсов открывают: выбрал ×3 - и
+ * сразу видно три барабана. Раньше их число менялось только после нажатия
+ * «Открыть», и что означают эти иксы, приходилось выяснять на своих деньгах.
+ */
+function renderIdleReel(c, count = 1) {
   const reels = document.getElementById('reels');
-  reels.innerHTML = reelWrapHtml();
-  const reel = reels.querySelector('.reel');
+  reels.className = 'reels' + (count > 1 ? ' compact' : '');
+  reels.innerHTML = Array.from({ length: count }, () => reelWrapHtml()).join('');
 
-  const strip = [];
-  for (let i = 0; i < 24; i++) strip.push(weightedSample(c.items));
-  reel.innerHTML = strip.map(tileHtml).join('');
+  reels.querySelectorAll('.reel').forEach((reel) => {
+    const strip = [];
+    for (let i = 0; i < 24; i++) strip.push(weightedSample(c.items));
+    reel.innerHTML = strip.map(tileHtml).join('');
 
-  reel.style.transition = 'none';
-  requestAnimationFrame(() => {
-    const viewport = reel.parentElement.clientWidth;
-    const { tileW, step } = measureReel(reel);
-    // Ставим ленту так, чтобы под маркером оказалась целая плитка, а не стык.
-    reel.style.transform = `translateX(${-(6 * step + tileW / 2 - viewport / 2)}px)`;
+    reel.style.transition = 'none';
+    requestAnimationFrame(() => {
+      const viewport = reel.parentElement.clientWidth;
+      const { tileW, step } = measureReel(reel);
+      // Ставим ленту так, чтобы под маркером оказалась целая плитка, а не стык.
+      reel.style.transform = `translateX(${-(6 * step + tileW / 2 - viewport / 2)}px)`;
+    });
   });
 }
 
@@ -1080,11 +1099,26 @@ function spinReels(c, opened, duration) {
     void reel.offsetWidth;
 
     const viewport = reel.parentElement.clientWidth;
-    const { tileW, step } = measureReel(reel);
+    let { tileW, step } = measureReel(reel);
     // Сдвиг внутри плитки, но с запасом от краёв: иначе маркер может встать
     // на границу и визуально «зацепить» соседнюю.
     const jitter = (Math.random() - 0.5) * (tileW * 0.5);
     const target = WINNER_INDEX * step + tileW / 2 - viewport / 2 + jitter;
+
+    /*
+     * Страховка от пустоты справа.
+     *
+     * Длина ленты задана числом плиток, а ширина окна зависит от экрана. На
+     * широком экране хвоста за выигрышем может не хватить, и лента доедет до
+     * своего конца - дальше в кадре будет пустой фон. Досыпаем плиток, пока
+     * правый край окна не уложится в ленту с запасом.
+     */
+    let guard = 0;
+    while (target + viewport > strip.length * step - (step - tileW) && guard < 40) {
+      reel.insertAdjacentHTML('beforeend', tileHtml(weightedSample(c.items)));
+      strip.push(null);
+      guard++;
+    }
 
     const settle = duration >= SETTLE_MIN_DURATION;
     const overshoot = settle ? step * OVERSHOOT : 0;
@@ -1170,9 +1204,22 @@ function renderFreeSpinBuy(c, locked) {
   });
 }
 
-/** Цена пачки. Та же формула, что на сервере; сервер остаётся источником правды. */
+/**
+ * Цена пачки. Та же формула, что на сервере; сервер остаётся источником правды.
+ * Округление вниз до круглого числа повторено здесь один в один - см.
+ * roundPackPrice в server/cases.js, там же и обоснование потолка.
+ */
+const PACK_ROUND_MAX_CUT = 0.025;
+
 function freeSpinPackPrice(c, pack) {
-  return Math.round(c.price * pack.count * (1 - pack.discount));
+  const price = Math.round(c.price * pack.count * (1 - pack.discount));
+  let best = price;
+  for (let step = 10; step <= price; step *= 10) {
+    const down = Math.floor(price / step) * step;
+    if (down <= 0 || price - down > price * PACK_ROUND_MAX_CUT) break;
+    best = down;
+  }
+  return best;
 }
 
 /**
@@ -1497,6 +1544,13 @@ function runFreeSpins(grant, caseData, { auto = false, replay = false } = {}) {
     const { tileW, step } = measureReel(reel);
     const target = SPIN_WIN * step + tileW / 2 - viewport / 2;
 
+    // Та же страховка от пустоты справа, что и в обычном прокруте.
+    let guard = 0;
+    while (target + viewport > reel.children.length * step - (step - tileW) && guard < 40) {
+      reel.insertAdjacentHTML('beforeend', tileHtml(pickFiller()));
+      guard++;
+    }
+
     requestAnimationFrame(() => {
       reel.style.transition = `transform ${SPIN_MS / 1000}s ${SPIN_EASE}`;
       reel.style.transform = `translateX(${-(target + step * OVERSHOOT)}px)`;
@@ -1587,13 +1641,13 @@ function runFreeSpins(grant, caseData, { auto = false, replay = false } = {}) {
 function showBatchResult(data, caseData) {
   const box = document.getElementById('batchSummary');
   const opened = data.opened;
-  const net = data.totalWon - data.totalSpent;
 
   const best = opened.reduce((a, b) => (b.item.value > a.item.value ? b : a));
 
+  // Как и в одиночном прокруте: показываем весь выигрыш пачки, а не разницу
+  // с потраченным. Потраченное игрок и так видел на кнопке открытия.
   box.innerHTML = `
-    ${net > 0 ? `<div class="batch-total plus">+${money(net)}</div>` : ''}
-    <div class="batch-sub">потрачено ${money(data.totalSpent)} · выиграно ${money(data.totalWon)}</div>
+    ${data.totalWon > 0 ? `<div class="batch-total plus">+${money(data.totalWon)}</div>` : ''}
     <div class="batch-list">
       ${opened.map((o) => {
         const fs = o.granted.find((g) => g.type === 'freespins');
@@ -1618,7 +1672,8 @@ function showBatchResult(data, caseData) {
   state.busy = false;
 
   sndReveal(best.item.tier);
-  if (net > 0) { sndCollect(); haptic('success'); } else { sndLose(); haptic('light'); }
+  if (data.totalWon > data.totalSpent) { sndCollect(); haptic('success'); }
+  else { sndLose(); haptic('light'); }
 
   // В пачке ориентируемся на лучший предмет: именно он и есть событие.
   setTimeout(() => celebrateWin(best.item.multiplier, best.item.value), 220);
@@ -1626,6 +1681,21 @@ function showBatchResult(data, caseData) {
   document.getElementById('batchClose').addEventListener('click', returnToCaseIdle);
   document.getElementById('batchAgain').addEventListener('click', () =>
     startOpening(caseData.id, data.count));
+}
+
+/**
+ * Сколько всего принёс прокрут: сам предмет плюс всё, что начислилось деньгами.
+ *
+ * Плюшки, которые деньгами не приходят (×2, подарочный кейс), сюда не входят -
+ * они перечислены отдельной строкой.
+ */
+function wonTotal(data) {
+  let sum = data.item?.value || 0;
+  for (const g of data.granted || []) {
+    if (g.type === 'credits') sum += g.amount;
+    if (g.type === 'freespins') sum += g.total;
+  }
+  return sum;
 }
 
 function showCaseResult(data, caseData) {
@@ -1646,17 +1716,22 @@ function showCaseResult(data, caseData) {
   for (const g of data.granted || []) {
     if (g.type === 'x2') parts.push('получен ×2 на следующий прокрут');
     if (g.type === 'voucher') parts.push(`подарок: кейс «${g.caseName}»`);
-    if (g.type === 'credits') parts.push(`бонус +${fmt(g.amount)}`);
-    if (g.type === 'freespins') {
-      parts.push(`${g.spins.length} фриспинов: +${fmt(g.total)}`);
-    }
+    if (g.type === 'freespins') parts.push(`${g.spins.length} фриспинов`);
   }
-  // Проигрыш крупными цифрами не пишем — только выигрыш. Если net в минус,
-  // от строки остаётся разве что список плюшек (×2, подарок, фриспины).
-  const netText = data.net > 0 ? `+${money(data.net)}` : '';
-  net.innerHTML = [netText, parts.length ? esc(parts.join(' · ')) : ''].filter(Boolean).join('<br>');
-  net.className = `result-net ${data.net > 0 ? 'plus' : 'minus'}`;
-  net.hidden = !netText && !parts.length;
+
+  /*
+   * Пишем весь выигрыш, а не чистый плюс.
+   *
+   * Раньше здесь стояло net - выигрыш за вычетом цены кейса. Это честное
+   * число, но игрок читает его как размер выигрыша и видит меньше, чем ему
+   * начислили: выпало 300, кейс стоил 99, а в строке 201. Цена уже списана и
+   * показана на кнопке открытия, повторять её здесь незачем.
+   */
+  const won = wonTotal(data);
+  const wonText = won > 0 ? `+${money(won)}` : '';
+  net.innerHTML = [wonText, parts.length ? esc(parts.join(' · ')) : ''].filter(Boolean).join('<br>');
+  net.className = `result-net ${won > 0 ? 'plus' : 'minus'}`;
+  net.hidden = !wonText && !parts.length;
 
   result.hidden = false;
   applyUser(data.user);
@@ -3240,15 +3315,25 @@ const feedSeen = new Set();
 /** Выигрыши, дождавшиеся своей очереди на показ. */
 const feedQueue = [];
 
+/**
+ * Выпадения, показанные в ленте, по ключу карточки.
+ *
+ * Карточка хранит только ключ, а не всю запись: класть выигрыш в data-атрибут
+ * значило бы держать в разметке то, что нужно исключительно коду, и заново
+ * разбирать это при каждом нажатии.
+ */
+const feedDrops = new Map();
+
 function feedCardHtml(drop) {
   const color = tierColor(drop.tier);
   const art = itemArt(drop.name, color) || iconTier(drop.tier, color);
-  return `<div class="feed-card is-new" style="--tier-color:${color}">
-    <div class="feed-art">${art}</div>
-    <div class="feed-name">${esc(drop.name)}</div>
-    <div class="feed-value">${money(drop.value)}</div>
-    <div class="feed-nick">${esc(drop.nick)}</div>
-  </div>`;
+  // Ников в карточке нет: витрина показывает выигрыш, а не того, кто его снял.
+  return `<button class="feed-card is-new" data-drop="${esc(String(drop.id))}"
+      style="--tier-color:${color}">
+    <span class="feed-art">${art}</span>
+    <span class="feed-name">${esc(drop.name)}</span>
+    <span class="feed-value">${money(drop.value)}</span>
+  </button>`;
 }
 
 /** Ставит одну карточку в начало ленты и убирает лишнее с хвоста. */
@@ -3256,12 +3341,71 @@ function pushFeedCard(drop, animate = true) {
   const track = document.getElementById('feedTrack');
   if (!track) return;
 
+  feedDrops.set(String(drop.id), drop);
   track.insertAdjacentHTML('afterbegin', feedCardHtml(drop));
   if (!animate) track.firstElementChild.classList.remove('is-new');
 
-  while (track.children.length > FEED_MAX_CARDS) track.lastElementChild.remove();
+  while (track.children.length > FEED_MAX_CARDS) {
+    const gone = track.lastElementChild;
+    feedDrops.delete(gone.dataset.drop);
+    gone.remove();
+  }
   document.getElementById('feed').hidden = false;
 }
+
+/**
+ * Карточка выигрыша из ленты.
+ *
+ * Витрина показывает, что и сколько выпало, но не откуда - а именно это и
+ * интересно: увидел крупное выпадение, хочешь тот же кейс. Поэтому нажатие
+ * открывает карточку с обложкой кейса и кнопкой, которая ведёт прямо в него.
+ */
+function openFeedDrop(drop) {
+  const c = state.config.cases.find((x) => x.id === drop.caseId);
+  const backdrop = document.getElementById('feedBackdrop');
+  const color = tierColor(drop.tier);
+
+  backdrop.style.setProperty('--tier-color', color);
+  document.getElementById('feedSheetTier').textContent =
+    state.config.tiers.find((t) => t.id === drop.tier)?.label || '';
+  document.getElementById('feedSheetName').textContent = drop.name;
+  document.getElementById('feedSheetValue').textContent = money(drop.value);
+
+  const cover = document.getElementById('feedSheetCover');
+  cover.innerHTML = c ? caseCover(c) : '';
+  if (c?.artGlow) {
+    cover.style.setProperty('--art-glow', `hsl(${c.artGlow[0]} 95% 58% / 0.5)`);
+    cover.style.setProperty('--art-glow-far', `hsl(${c.artGlow[1]} 90% 60% / 0.42)`);
+  }
+
+  document.getElementById('feedSheetCase').innerHTML = c
+    ? `${esc(c.name)} · <span>${money(c.price)}</span>`
+    : esc(drop.caseName || '');
+
+  const openBtn = document.getElementById('feedSheetOpen');
+  const closeBtn = document.getElementById('feedSheetClose');
+  openBtn.hidden = !c;
+
+  const close = () => {
+    backdrop.hidden = true;
+    openBtn.onclick = null;
+    closeBtn.onclick = null;
+    backdrop.onclick = null;
+  };
+
+  openBtn.onclick = () => { close(); openCase(c.id); };
+  closeBtn.onclick = () => { close(); haptic('light'); };
+  backdrop.onclick = (e) => { if (e.target === backdrop) close(); };
+
+  backdrop.hidden = false;
+  haptic('light');
+}
+
+document.getElementById('feedTrack')?.addEventListener('click', (e) => {
+  const card = e.target.closest('.feed-card');
+  const drop = card && feedDrops.get(card.dataset.drop);
+  if (drop) openFeedDrop(drop);
+});
 
 async function pollFeed() {
   let drops;

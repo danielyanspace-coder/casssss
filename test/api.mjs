@@ -552,14 +552,16 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
   }
 
   const jackpotCase = config.cases.find((c) => c.id === 'rolex_6000');
-  if (check('кейс Rolex есть в конфиге', !!jackpotCase)) {
-    check('кейс называется Rolex', jackpotCase.name === 'Rolex', jackpotCase.name);
-    const rolex = jackpotCase.items.find((it) => /rolex/i.test(it.name));
-    check('джекпот есть в таблице розыгрыша', !!rolex);
-    check('шанс джекпота крайне мал', rolex.probability < 0.0001,
-          `${(rolex.probability * 100).toFixed(4)}%`);
+  if (check('кейс с джекпотом есть в конфиге', !!jackpotCase)) {
+    check('кейс называется «Самородок»', jackpotCase.name === 'Самородок', jackpotCase.name);
+    // Джекпот - самый дорогой предмет таблицы: по имени его искать нельзя,
+    // название кейса и его тема могут поменяться, а роль предмета - нет.
+    const top = jackpotCase.items.reduce((a, b) => (b.value > a.value ? b : a));
+    check('джекпот есть в таблице розыгрыша', top.value > jackpotCase.price * 100);
+    check('шанс джекпота крайне мал', top.probability < 0.0001,
+          `${(top.probability * 100).toFixed(4)}%`);
     check('джекпот укладывается в заявленный потолок',
-          rolex.value <= jackpotCase.price * jackpotCase.maxMultiplier);
+          top.value <= jackpotCase.price * jackpotCase.maxMultiplier);
   }
 
   const country = config.cases.filter((c) => c.category === 'country');
