@@ -129,7 +129,7 @@ const coverDir = new URL('./public/assets/covers/', import.meta.url);
  * Поэтому здесь длинная сторона режется до DEMO_COVER_SIDE. Демо чуть мягче
  * приложения, зато открывается.
  */
-const DEMO_COVER_SIDE = 340;
+const DEMO_COVER_SIDE = 400;
 
 const coverFiles = readdirSync(coverDir).filter((f) => f.endsWith('.webp'));
 
@@ -155,7 +155,7 @@ for (const f of coverFiles) {
     const ctx = c.getContext('2d');
     ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(img, 0, 0, c.width, c.height);
-    return c.toDataURL('image/webp', 0.72);
+    return c.toDataURL('image/webp', 0.8);
   }, { src, side: DEMO_COVER_SIDE });
 }
 
