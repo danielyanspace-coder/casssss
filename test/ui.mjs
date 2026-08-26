@@ -423,6 +423,45 @@ async function openCaseAndVerify(caseId) {
   });
 }
 
+/* ---------- Карточка выигрыша из ленты ---------- */
+
+{
+  await ensureOpenerClosed();
+  // К этому месту тест успевает уйти в другие разделы, а лента живёт в кейсах.
+  await goto('cases');
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.waitForSelector('#feedTrack .feed-card', { state: 'visible', timeout: 10000 });
+  await page.click('#feedTrack .feed-card');
+  await page.waitForSelector('#feedBackdrop:not([hidden])', { timeout: 5000 });
+  await page.waitForTimeout(350);
+
+  const sheet = await page.evaluate(() => {
+    const cover = document.getElementById('feedSheetCover');
+    const img = cover.querySelector('img');
+    return {
+      name: document.getElementById('feedSheetName').textContent.trim(),
+      value: document.getElementById('feedSheetValue').textContent.trim(),
+      caseText: document.getElementById('feedSheetCase').textContent.trim(),
+      hasArt: !!cover.firstElementChild,
+      // Обложка бывает картинкой и бывает нарисованной: годится любая, лишь
+      // бы не пустое место. У картинки дополнительно проверяем, что загрузилась.
+      imgOk: img ? (img.complete && img.naturalWidth > 0) : true,
+      canOpen: !document.getElementById('feedSheetOpen').hidden,
+    };
+  });
+
+  check('карточка выигрыша: показан предмет', !!sheet.name, sheet.name);
+  check('карточка выигрыша: показана сумма', /\d/.test(sheet.value), sheet.value);
+  check('карточка выигрыша: назван кейс', !!sheet.caseText, sheet.caseText);
+  check('карточка выигрыша: обложка кейса на месте', sheet.hasArt && sheet.imgOk);
+  check('карточка выигрыша: можно провалиться в кейс', sheet.canOpen);
+
+  await page.click('#feedSheetClose');
+  await page.waitForTimeout(250);
+  check('карточка выигрыша: закрывается',
+        await page.evaluate(() => document.getElementById('feedBackdrop').hidden));
+}
+
 /* ---------- Покупка фриспинов ---------- */
 
 {

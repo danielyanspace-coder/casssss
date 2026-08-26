@@ -1,335 +1,335 @@
 {
   "dust": {
-    "aspect": 0.9457,
+    "aspect": 0.9442,
     "glow": [
       25,
       65
     ]
   },
   "spark": {
-    "aspect": 1.084,
+    "aspect": 1.0821,
     "glow": [
       15,
       55
     ]
   },
   "copper": {
-    "aspect": 1.1781,
+    "aspect": 1.1789,
     "glow": [
       15,
       55
     ]
   },
   "warmup": {
-    "aspect": 1.0886,
+    "aspect": 1.09,
     "glow": [
       5,
       55
     ]
   },
   "alley": {
-    "aspect": 1.0955,
+    "aspect": 1.0954,
     "glow": [
       15,
       55
     ]
   },
   "frost": {
-    "aspect": 0.9322,
+    "aspect": 0.9308,
     "glow": [
       215,
       25
     ]
   },
   "rune": {
-    "aspect": 0.9186,
+    "aspect": 0.9174,
     "glow": [
       25,
       215
     ]
   },
   "deck": {
-    "aspect": 0.7578,
+    "aspect": 0.7589,
     "glow": [
       25,
       345
     ]
   },
   "neon": {
-    "aspect": 0.8314,
+    "aspect": 0.8304,
     "glow": [
       295,
       235
     ]
   },
   "mirage": {
-    "aspect": 0.7209,
+    "aspect": 0.721,
     "glow": [
       25,
       205
     ]
   },
   "pit": {
-    "aspect": 0.8081,
+    "aspect": 0.808,
     "glow": [
       5,
       45
     ]
   },
   "allin": {
-    "aspect": 0.7946,
+    "aspect": 0.7924,
     "glow": [
       25,
       345
     ]
   },
   "lucky": {
-    "aspect": 0.9942,
+    "aspect": 0.9933,
     "glow": [
       35,
       115
     ]
   },
   "double": {
-    "aspect": 0.8333,
+    "aspect": 0.8326,
     "glow": [
       25,
       225
     ]
   },
   "santorini": {
-    "aspect": 0.7035,
+    "aspect": 0.7031,
     "glow": [
       35,
       225
     ]
   },
   "rio": {
-    "aspect": 0.657,
+    "aspect": 0.6563,
     "glow": [
       35,
       215
     ]
   },
   "monaco": {
-    "aspect": 0.7035,
+    "aspect": 0.7031,
     "glow": [
       35,
       355
     ]
   },
   "vegas": {
-    "aspect": 0.6802,
+    "aspect": 0.6786,
     "glow": [
       25,
       205
     ]
   },
   "dubai": {
-    "aspect": 0.7074,
+    "aspect": 0.7076,
     "glow": [
       35,
       225
     ]
   },
   "singapore": {
-    "aspect": 0.7074,
+    "aspect": 0.7076,
     "glow": [
       35,
       205
     ]
   },
   "winterfell": {
-    "aspect": 1.4176,
+    "aspect": 1.4177,
     "glow": [
       15,
       225
     ]
   },
   "braavos": {
-    "aspect": 1.4215,
+    "aspect": 1.4222,
     "glow": [
       25,
       225
     ]
   },
   "highgarden": {
-    "aspect": 1.4254,
+    "aspect": 1.4268,
     "glow": [
       35,
       75
     ]
   },
   "westeros": {
-    "aspect": 1.4098,
+    "aspect": 1.4132,
     "glow": [
       15,
       55
     ]
   },
   "vault": {
-    "aspect": 0.8547,
+    "aspect": 0.8549,
     "glow": [
       25,
       65
     ]
   },
   "chapito": {
-    "aspect": 1.0705,
+    "aspect": 1.0718,
     "glow": [
       5,
       45
     ]
   },
   "blade": {
-    "aspect": 0.9477,
+    "aspect": 0.9464,
     "glow": [
       355,
       35
     ]
   },
   "board": {
-    "aspect": 0.9438,
+    "aspect": 0.9442,
     "glow": [
       25,
       345
     ]
   },
   "fortress": {
-    "aspect": 0.9632,
+    "aspect": 0.9621,
     "glow": [
       25,
       65
     ]
   },
   "noir": {
-    "aspect": 0.9516,
+    "aspect": 0.9509,
     "glow": [
       25,
       225
     ]
   },
   "hack": {
-    "aspect": 0.7829,
+    "aspect": 0.7835,
     "glow": [
       125,
       275
     ]
   },
   "cut": {
-    "aspect": 0.969,
+    "aspect": 0.9688,
     "glow": [
       25,
       235
     ]
   },
   "steam": {
-    "aspect": 1.0552,
+    "aspect": 1.0566,
     "glow": [
       25,
       65
     ]
   },
   "mariana": {
-    "aspect": 1.1391,
+    "aspect": 1.1399,
     "glow": [
       225,
       185
     ]
   },
   "shogun": {
-    "aspect": 1.0382,
+    "aspect": 1.037,
     "glow": [
       25,
       65
     ]
   },
   "crypt": {
-    "aspect": 1.084,
+    "aspect": 1.0821,
     "glow": [
       355,
       35
     ]
   },
   "quarantine": {
-    "aspect": 1.1701,
+    "aspect": 1.1697,
     "glow": [
       35,
       85
     ]
   },
   "ash": {
-    "aspect": 1.4618,
+    "aspect": 1.4641,
     "glow": [
       5,
       45
     ]
   },
   "hoard": {
-    "aspect": 1.4333,
+    "aspect": 1.4313,
     "glow": [
       25,
       345
     ]
   },
   "diamond": {
-    "aspect": 0.7074,
+    "aspect": 0.7076,
     "glow": [
       25,
       225
     ]
   },
   "regalia": {
-    "aspect": 1.0639,
+    "aspect": 1.0641,
     "glow": [
       25,
       345
     ]
   },
   "tomb": {
-    "aspect": 1.0157,
+    "aspect": 1.0159,
     "glow": [
       35,
       205
     ]
   },
   "orbit": {
-    "aspect": 0.9922,
+    "aspect": 0.9933,
     "glow": [
       25,
       215
     ]
   },
   "lair": {
-    "aspect": 1.1754,
+    "aspect": 1.1759,
     "glow": [
       5,
       45
     ]
   },
   "depo": {
-    "aspect": 1.4913,
+    "aspect": 1.4933,
     "glow": [
       35,
       355
     ]
   },
   "galaxy": {
-    "aspect": 1.4215,
+    "aspect": 1.4222,
     "glow": [
       235,
       55
     ]
   },
   "rebirth": {
-    "aspect": 1.4254,
+    "aspect": 1.4268,
     "glow": [
       25,
       65
     ]
   },
   "abyss": {
-    "aspect": 0.7035,
+    "aspect": 0.7031,
     "glow": [
       215,
       35
@@ -343,126 +343,126 @@
     ]
   },
   "apex": {
-    "aspect": 0.7035,
+    "aspect": 0.7031,
     "glow": [
       25,
       225
     ]
   },
   "redonly": {
-    "aspect": 0.9516,
+    "aspect": 0.9509,
     "glow": [
       355,
       35
     ]
   },
   "crater": {
-    "aspect": 0.9341,
+    "aspect": 0.933,
     "glow": [
       5,
       45
     ]
   },
   "reactor": {
-    "aspect": 1.1366,
+    "aspect": 1.1371,
     "glow": [
       35,
       95
     ]
   },
   "shadow": {
-    "aspect": 1.084,
+    "aspect": 1.0847,
     "glow": [
       25,
       65
     ]
   },
   "midnight": {
-    "aspect": 1.4413,
+    "aspect": 1.4405,
     "glow": [
       225,
       45
     ]
   },
   "nopoint": {
-    "aspect": 0.6996,
+    "aspect": 0.6987,
     "glow": [
       355,
       35
     ]
   },
   "gift": {
-    "aspect": 1.075,
+    "aspect": 1.0743,
     "glow": [
       355,
       35
     ]
   },
   "chain": {
-    "aspect": 0.9593,
+    "aspect": 0.9576,
     "glow": [
       15,
       55
     ]
   },
   "jackpot": {
-    "aspect": 1.4413,
+    "aspect": 1.4405,
     "glow": [
       25,
       345
     ]
   },
   "ticket": {
-    "aspect": 1.0078,
+    "aspect": 1.009,
     "glow": [
       35,
       75
     ]
   },
   "atom": {
-    "aspect": 1.1169,
+    "aspect": 1.1172,
     "glow": [
       25,
       65
     ]
   },
   "treasure": {
-    "aspect": 1.1754,
+    "aspect": 1.1759,
     "glow": [
       25,
       65
     ]
   },
   "megabox": {
-    "aspect": 1.4294,
+    "aspect": 1.4313,
     "glow": [
       25,
       65
     ]
   },
   "infinity": {
-    "aspect": 0.7035,
+    "aspect": 0.7031,
     "glow": [
       25,
       235
     ]
   },
   "legend": {
-    "aspect": 0.7016,
+    "aspect": 0.7009,
     "glow": [
       25,
       345
     ]
   },
   "sultan": {
-    "aspect": 1.406,
+    "aspect": 1.4088,
     "glow": [
       25,
       235
     ]
   },
   "nugget": {
-    "aspect": 1.1193,
+    "aspect": 1.12,
     "glow": [
       25,
       65

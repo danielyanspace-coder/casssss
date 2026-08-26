@@ -14,6 +14,7 @@
  * Запуск: node build-standalone.mjs
  */
 
+import { chromium } from 'playwright';
 import { readFileSync, writeFileSync, mkdirSync, readdirSync } from 'node:fs';
 import { CASES, CATEGORIES, TIERS, publicCase, FREESPIN_PACKS } from './server/cases.js';
 import {
@@ -74,6 +75,8 @@ for (const c of CASES) {
     const multiplier = item.value / c.price;
     if (multiplier < FEED_MIN_MULTIPLIER || item.value < FEED_MIN_VALUE) continue;
     feedPool.push({
+      // Нужен карточке выигрыша: по нему она находит кейс и ведёт в него.
+      caseId: c.id,
       caseName: c.name,
       name: item.name,
       tier: item.tier,
@@ -114,14 +117,49 @@ const bannerData = readFileSync(new URL('./public/assets/porsche-banner.webp', i
 // нет. Список берётся из папки, чтобы добавленная обложка не потерялась.
 const menuData = readFileSync(new URL('./public/assets/menu.webp', import.meta.url)).toString('base64');
 const coverDir = new URL('./public/assets/covers/', import.meta.url);
-const coverArt = Object.fromEntries(
-  readdirSync(coverDir)
-    .filter((f) => f.endsWith('.webp'))
-    .map((f) => [
-      f.replace(/\.webp$/, ''),
-      'data:image/webp;base64,' + readFileSync(new URL(f, coverDir)).toString('base64'),
-    ])
-);
+/**
+ * Обложки для автономной версии пережимаются мельче, чем для приложения.
+ *
+ * Приложение отдаёт обложку файлом по запросу: браузер тянет только то, что
+ * видно, и может выбросить распакованную картинку, когда та ушла с экрана.
+ * В одном файле так нельзя - все шестьдесят семь картинок лежат строками
+ * прямо в разметке, и вкладка держит и строки, и растр. На телефоне память
+ * кончается, и вкладка перезагружается посреди прокрутки.
+ *
+ * Поэтому здесь длинная сторона режется до DEMO_COVER_SIDE. Демо чуть мягче
+ * приложения, зато открывается.
+ */
+const DEMO_COVER_SIDE = 340;
+
+const coverFiles = readdirSync(coverDir).filter((f) => f.endsWith('.webp'));
+
+const shrinkBrowser = await chromium.launch({
+  executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
+});
+const shrinkPage = await shrinkBrowser.newPage();
+
+const coverArt = {};
+for (const f of coverFiles) {
+  const src = 'data:image/webp;base64,'
+    + readFileSync(new URL(f, coverDir)).toString('base64');
+  coverArt[f.replace(/\.webp$/, '')] = await shrinkPage.evaluate(async ({ src, side }) => {
+    const img = new Image();
+    img.src = src;
+    await img.decode();
+    const k = Math.min(1, side / Math.max(img.width, img.height));
+    if (k === 1) return src;
+
+    const c = document.createElement('canvas');
+    c.width = Math.round(img.width * k);
+    c.height = Math.round(img.height * k);
+    const ctx = c.getContext('2d');
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(img, 0, 0, c.width, c.height);
+    return c.toDataURL('image/webp', 0.72);
+  }, { src, side: DEMO_COVER_SIDE });
+}
+
+await shrinkBrowser.close();
 
 // Баннеры полок лежат в коде обычными путями. В автономной версии путей нет,
 // поэтому каждый заменяется на сам файл прямо в исходнике клиента.
