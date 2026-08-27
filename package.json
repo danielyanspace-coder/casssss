@@ -12,7 +12,8 @@
     "demo": "node build-standalone.mjs",
     "test:api": "node test/api.mjs",
     "test:ui": "node test/ui.mjs",
-    "test": "npm run verify && npm run test:api && npm run test:ui"
+    "test:payments": "node test/payments.mjs",
+    "test": "npm run verify && npm run test:payments && npm run test:api && npm run test:ui"
   },
   "engines": {
     "node": ">=18"

@@ -21,6 +21,7 @@ import {
 } from './sounds.js';
 
 const tg = window.Telegram?.WebApp;
+const BEELINE_LOGO_SRC = window.__BEELINE_SRC || '/assets/banks/beeline.webp';
 
 const state = {
   config: null,
@@ -32,6 +33,8 @@ const state = {
   crashHistory: [],
   rouletteHistory: [],
   admin: { tab: 'overview', users: [], query: '' },
+  paymentBank: 'sber', paymentTimer: null, payment: null,
+  withdrawMethod: 'sbp',
 };
 
 const ICONS = {
@@ -201,7 +204,6 @@ function caseCardHtml(c, vouchers) {
   const freeCount = vouchers.get(c.id) || 0;
   const x2 = state.user.x2CaseId === c.id;
   const locked = lockedUntil(c);
-
   let badge = '';
   if (locked) badge = `<span class="cover-badge soon">С ${locked.toUpperCase()}</span>`;
   else if (freeCount) badge = `<span class="cover-badge perk">БЕСПЛАТНО ×${freeCount}</span>`;
@@ -1690,6 +1692,9 @@ document.querySelectorAll('[data-admin-tab]').forEach((btn) => {
     document.getElementById(`admin-${state.admin.tab}`).classList.add('active');
     if (state.admin.tab === 'users') loadAdminUsers();
     if (state.admin.tab === 'payouts') loadAdminPayouts();
+    if (state.admin.tab === 'payments') loadAdminPayments();
+    if (state.admin.tab === 'support') loadAdminSupport();
+    if (state.admin.tab === 'payment-settings') loadAdminPaymentSettings();
     haptic('light');
   });
 });
@@ -1710,6 +1715,9 @@ async function loadAdminPayouts() {
       <div class="kpi-sub">на ${money(s.pendingSum)}</div></div>
     <div class="kpi"><div class="kpi-label">Выплачено всего</div>
       <div class="kpi-value minus">${money(s.paidSum)}</div></div>
+    <div class="kpi"><div class="kpi-label">В работе</div>
+      <div class="kpi-value">${fmt(s.processingCount)}</div>
+      <div class="kpi-sub">на ${money(s.processingSum)}</div></div>
   </div>`;
 
   if (!d.rows.length) {
@@ -1726,12 +1734,19 @@ async function loadAdminPayouts() {
       </div>
       <div class="payout-date">${esc(name)} · ID ${p.tg_id} ·
         баланс ${money(p.balance)} · ${new Date(p.created_at).toLocaleString('ru-RU')}</div>
+      <div class="payout-requisites"><b>${p.method === 'card' ? 'Банковская карта' : 'СБП'}</b><br>
+        ${p.method === 'card' ? esc(String(p.card_number || '').replace(/(.{4})/g, '$1 ').trim())
+          : `${esc(p.phone || '')} · ${esc(p.bank || '')}`}</div>
       ${p.comment ? `<div class="payout-comment">${esc(p.comment)}</div>` : ''}
       ${p.status === 'pending' ? `
         <input class="seed-input payout-note" data-note="${p.id}" placeholder="комментарий игроку">
         <div class="admin-actions">
-          <button class="btn btn-primary" data-resolve="paid" data-id="${p.id}">Выплачено</button>
+          <button class="btn btn-primary" data-resolve="processing" data-id="${p.id}">Взять в работу</button>
           <button class="btn btn-outline" data-resolve="rejected" data-id="${p.id}">Отклонить</button>
+        </div>` : p.status === 'processing' ? `
+        <input class="seed-input payout-note" data-note="${p.id}" placeholder="комментарий игроку">
+        <div class="admin-actions">
+          <button class="btn btn-primary" data-resolve="paid" data-id="${p.id}">Выполнено</button>
         </div>` : ''}
     </div>`;
   }).join('');
@@ -1749,7 +1764,7 @@ async function loadAdminPayouts() {
 
       try {
         await api('/api/admin/payout/resolve', { id, status, comment: note });
-        toast(status === 'paid' ? 'Отмечено как выплаченное' : 'Заявка отклонена, средства возвращены');
+        toast(status === 'paid' ? 'Заявка выполнена' : status === 'processing' ? 'Заявка поставлена в работу' : 'Заявка отклонена, средства возвращены');
         haptic('success');
         loadAdminPayouts();
       } catch (err) { toast(err.message); haptic('error'); }
@@ -1866,8 +1881,9 @@ document.getElementById('balanceChip').addEventListener('click', () => {
 });
 
 const STATUS_LABEL = {
-  pending: 'В обработке',
-  paid: 'Выплачено',
+  pending: 'Новая',
+  processing: 'В работе',
+  paid: 'Выполнено',
   rejected: 'Отклонено',
   cancelled: 'Отменена вами',
 };
@@ -1901,6 +1917,7 @@ async function loadWallet() {
     : '<div class="empty">Пополнений пока не было</div>';
 
   renderPayoutList(w.payouts);
+  loadPayments();
 
   document.getElementById('withdrawHint').innerHTML =
     `Доступно <b>${money(w.available)}</b> · минимум ${money(w.minPayout)}`;
@@ -1920,6 +1937,9 @@ function renderPayoutList(payouts) {
         <span class="payout-status ${p.status}">${STATUS_LABEL[p.status] || p.status}</span>
       </div>
       <div class="payout-date">${new Date(p.created_at).toLocaleString('ru-RU')}</div>
+      <div class="payout-requisites">${p.method === 'card'
+        ? `Карта ···· ${esc(String(p.card_number || '').slice(-4))}`
+        : `СБП · ${esc(p.phone || '')} · ${esc(p.bank || '')}`}</div>
       ${p.comment ? `<div class="payout-comment">${esc(p.comment)}</div>` : ''}
       ${p.status === 'pending'
         ? `<button class="btn btn-outline btn-sm payout-cancel" data-cancel="${p.id}">Отменить</button>`
@@ -1949,6 +1969,61 @@ document.getElementById('walletDeposit').addEventListener('click', () => {
   haptic('light');
 });
 
+document.querySelectorAll('[data-bank]').forEach((btn) => btn.addEventListener('click', () => {
+  state.paymentBank = btn.dataset.bank;
+  document.querySelectorAll('[data-bank]').forEach(b => b.classList.toggle('active', b === btn));
+}));
+document.querySelector('[data-bank="sber"]')?.classList.add('active');
+document.querySelector('[data-payment-method="crypto"]')?.addEventListener('click', () => toast('Криптовалюта скоро будет доступна'));
+
+async function loadPayments() {
+  try {
+    const { rows } = await api('/api/payments/list');
+    document.getElementById('paymentList').innerHTML = rows.length ? rows.map(p => `
+      <div class="payment-history"><div class="payout-head"><b>Заявка #${p.id} · ${money(p.original_amount)}</b>
+      <span class="payment-status ${p.status}">${p.status}</span></div>
+      <small>К оплате ${money(p.payable_amount)} · ${new Date(p.created_at).toLocaleString('ru-RU')}</small></div>`).join('') : '';
+    const active = rows.find(p => p.status === 'PENDING'); if (active) showPayment(active);
+  } catch (err) { toast(err.message); }
+}
+
+async function loadAdminPayments() {
+  try { const d=await api('/api/admin/payments',{status:'ALL'}); const x=d.dashboard;
+    document.getElementById('adminPaymentList').innerHTML=`<div class="admin-kpis"><div class="kpi"><div class="kpi-label">Оборот</div><div class="kpi-value">${money(x.turnover)}</div></div><div class="kpi"><div class="kpi-label">Успешно</div><div class="kpi-value">${x.paid}</div></div><div class="kpi"><div class="kpi-label">Ожидают / спорные</div><div class="kpi-value">${x.pending} / ${x.disputed}</div></div></div>${d.rows.map(p=>`<div class="payment-history"><div class="payout-head"><b>#${p.id} · ${esc(p.username||p.first_name||p.tg_id)}</b><span class="payment-status ${p.status}">${p.status}</span></div><div>Введено: ${money(p.original_amount)} · к оплате: ${money(p.payable_amount)}</div><small>${esc(p.bank)} · ${new Date(p.created_at).toLocaleString('ru-RU')}${p.sms_message?`<br>SMS: ${esc(p.sms_message)}`:''}</small></div>`).join('')}`;
+  }catch(err){toast(err.message);}
+}
+async function loadAdminSupport(){try{const d=await api('/api/admin/support');document.getElementById('adminSupportList').innerHTML=d.rows.length?d.rows.map(c=>`<button class="payment-history admin-chat-open" data-chat="${c.id}">#${c.id} · ${esc(c.username||c.first_name||c.tg_id)} · ${money(c.payable_amount)} <span class="payment-status ${c.payment_status}">${c.payment_status}</span>${c.unread_admin?` · непрочитано ${c.unread_admin}`:''}</button>`).join(''):'<div class="empty">Обращений нет</div>';document.querySelectorAll('.admin-chat-open').forEach(b=>b.onclick=()=>openAdminChat(Number(b.dataset.chat)));}catch(err){toast(err.message);}}
+async function openAdminChat(chatId){const d=await api('/api/admin/support/chat',{chatId});const box=document.getElementById('adminSupportList');box.innerHTML=`<button class="btn btn-sm" id="supportBack">Назад</button>${d.messages.map(m=>`<div class="support-message ${m.sender_type}"><b>${m.sender_type}</b><br>${esc(m.text||m.attachment_name)}</div>`).join('')}<textarea class="seed-input" id="adminSupportText"></textarea><button class="btn btn-primary" id="adminSupportSend">Ответить</button>`;document.getElementById('supportBack').onclick=loadAdminSupport;document.getElementById('adminSupportSend').onclick=async()=>{await api('/api/admin/support/message',{chatId,text:document.getElementById('adminSupportText').value});openAdminChat(chatId);};}
+async function loadAdminPaymentSettings(){try{const s=await api('/api/admin/payment-settings');const fields=[['beeline_phone','Номер Beeline'],['beeline_completed_limit','Лимит выполненных заявок, ₽ (0 — без лимита)'],['payment_ttl_minutes','Время жизни, мин'],['payment_markup_min','Надбавка от, ₽'],['payment_markup_max','Надбавка до, ₽'],['payment_min','Минимум, ₽'],['payment_max','Максимум, ₽']];const box=document.getElementById('adminPaymentSettings');box.innerHTML=`<div class="settings-grid">${fields.map(([k,l])=>`<label>${l}<input id="setting-${k}" value="${esc(s[k])}"></label>`).join('')}<p class="settings-help">Лимит считается отдельно по указанному номеру. Когда остаток меньше минимального пополнения, реквизит больше не выдаётся.</p><button class="btn btn-primary" id="savePaymentSettings">Сохранить</button></div><h3>Android-устройства</h3><div class="settings-grid device-register"><input id="deviceName" placeholder="Название, например Телефон кассы"><input id="deviceId" placeholder="ID, например beeline-1"><input id="deviceSecret" placeholder="Секрет — минимум 24 символа"><button class="btn btn-primary" id="registerDevice">Создать / обновить устройство</button></div><div id="deviceList"></div>`;document.getElementById('savePaymentSettings').onclick=async()=>{const values=Object.fromEntries(fields.map(([k])=>[k,document.getElementById(`setting-${k}`).value]));await api('/api/admin/payment-settings',{save:true,values});toast('Настройки сохранены');loadAdminPaymentSettings();};document.getElementById('registerDevice').onclick=async()=>{await api('/api/admin/payment-device/register',{name:document.getElementById('deviceName').value,deviceId:document.getElementById('deviceId').value,secret:document.getElementById('deviceSecret').value});toast('Устройство сохранено. Перенесите эти же ID и секрет в APK');loadAdminPaymentSettings();};const dev=await api('/api/admin/payment-devices');document.getElementById('deviceList').innerHTML=dev.rows.map(d=>`<div class="log-row"><span>${esc(d.name)}<br><small>${esc(d.device_id)}</small></span><b>${d.last_seen_at&&Date.now()-d.last_seen_at<300000?'● Online':'○ Offline'}</b></div>`).join('')||'<div class="empty">Добавьте первое устройство выше</div>';}catch(err){toast(err.message);}}
+
+function showPayment(p) {
+  state.payment = p; const box = document.getElementById('paymentCheckout'); box.hidden = false;
+  document.getElementById('paymentCreate').hidden = true; clearInterval(state.paymentTimer);
+  const paint = () => {
+    const left = Math.max(0, p.expires_at - Date.now()), mm = String(Math.floor(left/60000)).padStart(2,'0'), ss=String(Math.floor(left/1000)%60).padStart(2,'0');
+    if (!left) { clearInterval(state.paymentTimer); box.innerHTML='<h2>Вы не успели, повторите оплату снова</h2><button class="btn btn-primary" id="paidDispute">Я оплатил</button>'; document.getElementById('paidDispute').onclick=()=>openPaymentDispute(p.id); loadPayments(); return; }
+    box.innerHTML=`<div>Время на оплату</div><div class="payment-timer">${mm}:${ss}</div><h2>Оплатите мобильную связь</h2>
+      <div class="beeline-brand"><img src="${BEELINE_LOGO_SRC}" alt="Билайн"></div>
+      <div class="payment-requisite"><span>Оператор</span><b>Beeline</b></div><div class="payment-requisite"><span>Номер</span><b>${esc(p.phone)}</b></div>
+      <div class="payment-requisite"><span>Сумма</span><b>${money(p.payable_amount)}</b></div><p>Оплатите точную сумму на указанный номер. После получения платежа средства зачислятся автоматически.</p>`;
+  }; paint(); state.paymentTimer=setInterval(paint,1000);
+}
+document.getElementById('paymentCreateBtn').addEventListener('click', async () => {
+  try { const p=await api('/api/payments/create',{amount:Number(document.getElementById('paymentAmount').value),bank:state.paymentBank}); showPayment(p); loadPayments(); }
+  catch(err){toast(err.message);haptic('error');}
+});
+async function openPaymentDispute(paymentId) {
+  try { const chat=await api('/api/support/open',{paymentId}); const data=await api('/api/support/chat',{chatId:chat.id});
+    const box=document.getElementById('paymentCheckout'); box.innerHTML=`<h2>Финансовая поддержка #${chat.id}</h2><div>${data.messages.map(m=>`<div class="support-message ${m.sender_type}">${esc(m.text||m.attachment_name)}</div>`).join('')}</div><textarea class="seed-input" id="supportText" placeholder="Сообщение"></textarea><input id="supportFile" type="file" accept="image/jpeg,image/png,image/webp,application/pdf"><button class="btn btn-primary" id="supportSend">Отправить</button>`;
+    document.getElementById('supportSend').onclick=async()=>{let attachmentUrl,attachmentName;const f=document.getElementById('supportFile').files[0];if(f){const base64=await new Promise((ok,no)=>{const r=new FileReader();r.onload=()=>ok(String(r.result).split(',')[1]);r.onerror=no;r.readAsDataURL(f)});const up=await api('/api/support/upload',{name:f.name,mime:f.type,base64});attachmentUrl=up.url;attachmentName=up.name;}await api('/api/support/message',{chatId:chat.id,text:document.getElementById('supportText').value,attachmentUrl,attachmentName});openPaymentDispute(paymentId);};
+  } catch(err){toast(err.message);}
+}
+
+function startPaymentEvents(){
+  const es=new EventSource(`/api/payments/events?initData=${encodeURIComponent(tg?.initData||'')}`);
+  es.addEventListener('payment.completed',async()=>{clearInterval(state.paymentTimer);toast('Платёж успешно поступил. Средства зачислены на счёт.');sndCollect();haptic('success');const me=await api('/api/me');applyUser(me.user);loadWallet();});
+}
+
 document.getElementById('walletWithdraw').addEventListener('click', () => {
   const pane = document.getElementById('walletWithdrawPane');
   document.getElementById('walletDepositPane').hidden = true;
@@ -1960,14 +2035,42 @@ document.getElementById('withdrawAll').addEventListener('click', () => {
   document.getElementById('withdrawAmount').value = state.wallet?.available || 0;
 });
 
+async function loadSbpBanks() {
+  try {
+    const data = await fetch('/sbp-banks.json').then(r => r.json());
+    const select = document.getElementById('withdrawBank');
+    select.insertAdjacentHTML('beforeend', data.banks.map(name => `<option value="${esc(name)}">${esc(name)}</option>`).join(''));
+  } catch { /* Серверная валидация всё равно не даст создать заявку без банка. */ }
+}
+loadSbpBanks();
+
+document.querySelectorAll('[data-withdraw-method]').forEach(btn => btn.addEventListener('click', () => {
+  state.withdrawMethod = btn.dataset.withdrawMethod;
+  document.querySelectorAll('[data-withdraw-method]').forEach(x => x.classList.toggle('active', x === btn));
+  document.getElementById('withdrawSbpFields').hidden = state.withdrawMethod !== 'sbp';
+  document.getElementById('withdrawCardFields').hidden = state.withdrawMethod !== 'card';
+}));
+
+document.getElementById('withdrawCard').addEventListener('input', (event) => {
+  const digits = event.target.value.replace(/\D/g, '').slice(0, 19);
+  event.target.value = digits.replace(/(.{4})/g, '$1 ').trim();
+});
+
 document.getElementById('withdrawSubmit').addEventListener('click', async () => {
   const amount = Math.trunc(Number(document.getElementById('withdrawAmount').value));
   if (!amount || amount <= 0) { toast('Укажите сумму'); return; }
 
   try {
-    const r = await api('/api/payout/create', { amount });
+    const payload = { amount, method: state.withdrawMethod };
+    if (state.withdrawMethod === 'sbp') {
+      payload.phone = document.getElementById('withdrawPhone').value;
+      payload.bank = document.getElementById('withdrawBank').value;
+    } else payload.cardNumber = document.getElementById('withdrawCard').value;
+    const r = await api('/api/payout/create', payload);
     applyUser(r.user);
     document.getElementById('withdrawAmount').value = '';
+    document.getElementById('withdrawPhone').value = '';
+    document.getElementById('withdrawCard').value = '';
     toast(`Заявка на ${money(amount)} создана`);
     sndBet();
     haptic('success');
@@ -2385,6 +2488,7 @@ async function init() {
     renderUpgradeStage();
 
     startFeed();
+    startPaymentEvents();
     loadFreeCase();
   } catch (err) {
     document.getElementById('app').innerHTML =
