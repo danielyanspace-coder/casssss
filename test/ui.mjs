@@ -616,6 +616,115 @@ async function openCaseAndVerify(caseId) {
   await ensureOpenerClosed();
 }
 
+/* ---------- Обряд открытия и когти на рамке ---------- */
+
+{
+  await ensureOpenerClosed();
+  await page.evaluate(() => fetch('/api/freespins/ack', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Telegram-Init-Data': '' },
+    body: '{}',
+  }).catch(() => {}));
+
+  await page.evaluate(() => {
+    const card = [...document.querySelectorAll('.case-card')].find((c) => c.dataset.case === 'dust_25');
+    card.scrollIntoView({ block: 'center' });
+    card.click();
+  });
+  await page.waitForSelector('#doOpenBtn', { state: 'visible' });
+  await page.waitForTimeout(300);
+
+  const idle = await page.evaluate(() => {
+    const stage = document.getElementById('caseStage');
+    const art = document.getElementById('caseStageArt');
+    return {
+      stageShown: !stage.hidden,
+      reelsHidden: document.getElementById('reels').hidden,
+      artLoaded: art.complete && art.naturalWidth > 0,
+    };
+  });
+
+  check('обряд: до нажатия на экране кейс, а не лента',
+        idle.stageShown && idle.reelsHidden);
+  check('обряд: обложка на сцене загрузилась', idle.artLoaded);
+
+  await page.click('#doOpenBtn');
+
+  // Тряска идёт около секунды: ловим её в середине, пока лента ещё не пришла.
+  await page.waitForTimeout(450);
+  const shaking = await page.evaluate(() => {
+    const stage = document.getElementById('caseStage');
+    return {
+      shaking: stage.classList.contains('is-shaking'),
+      puffs: document.getElementById('caseStageDust').children.length,
+      reelsHidden: document.getElementById('reels').hidden,
+    };
+  });
+
+  check('обряд: кейс трясётся до появления ленты',
+        shaking.shaking && shaking.reelsHidden);
+  check('обряд: из-под кейса идёт пыль', shaking.puffs > 0, `клубов ${shaking.puffs}`);
+
+  // Дожидаемся ленты и меряем, не закрывают ли лапы выигрышную плитку.
+  // Ждём именно появления барабана, а не снятия hidden: показывается блок
+  // сразу после тряски, а плитки в него кладёт уже прокрут, и между этим есть
+  // кадр, где барабана ещё нет.
+  await page.waitForSelector('#reels .reel-slot', { state: 'attached', timeout: 15000 });
+  const claws = await page.evaluate(() => {
+    const slot = document.querySelector('#reels .reel-slot');
+    const l = slot.querySelector('.reel-claw-l');
+    const r = slot.querySelector('.reel-claw-r');
+    const scroll = document.querySelector('.opener-scroll');
+    return {
+      есть: !!l && !!r,
+      загрузились: !!l && l.complete && l.naturalWidth > 0
+        && !!r && r.complete && r.naturalWidth > 0,
+      слотСКогтями: slot.classList.contains('has-claws'),
+      // Лапы выходят за поля страницы; горизонтальной прокрутки при этом
+      // быть не должно - иначе экран кейса начнёт ездить вбок.
+      прокрутка: getComputedStyle(scroll).overflowX,
+    };
+  });
+
+  check('когти: обе лапы на месте у кейса с флагом', claws.есть && claws.слотСКогтями);
+  check('когти: картинки лап загрузились', claws.загрузились);
+  check('когти: страница не ездит вбок', claws.прокрутка === 'hidden', claws.прокрутка);
+
+  // Ждём остановки ленты и сверяем, что лапа не залезла на выигрышную плитку.
+  await page.waitForFunction(() => {
+    const res = document.getElementById('result');
+    const fs = document.getElementById('freespins');
+    const btn = document.getElementById('fsCollect');
+    return (!!res && !res.hidden) || (!!fs && !fs.hidden && !!btn && !btn.hidden);
+  }, { timeout: 120000 });
+
+  const overlap = await page.evaluate(() => {
+    const slot = document.querySelector('#reels .reel-slot');
+    if (!slot) return null;
+    const wrap = slot.querySelector('.reel-wrap');
+    const w = wrap.getBoundingClientRect();
+    const mid = w.left + w.width / 2;
+    const tile = [...slot.querySelectorAll('.reel-tile')]
+      .map((t) => t.getBoundingClientRect())
+      .find((t) => t.left <= mid && t.right >= mid);
+    if (!tile) return null;
+    const l = slot.querySelector('.reel-claw-l').getBoundingClientRect();
+    const r = slot.querySelector('.reel-claw-r').getBoundingClientRect();
+    // Середина плитки - там, где стоят название и сумма. Её лапа не трогает.
+    const coreL = tile.left + tile.width * 0.2;
+    const coreR = tile.right - tile.width * 0.2;
+    return { запасСлева: Math.round(coreL - l.right), запасСправа: Math.round(r.left - coreR) };
+  });
+
+  if (overlap) {
+    check('когти: середина выигрышной плитки открыта',
+          overlap.запасСлева > 0 && overlap.запасСправа > 0,
+          `слева ${overlap.запасСлева}px, справа ${overlap.запасСправа}px`);
+  }
+
+  await ensureOpenerClosed();
+}
+
 /* ---------- Совпадение ленты и результата ---------- */
 
 const cases = ['warmup_100', 'vault_1000', 'neon_500', 'allin_500', 'deck_400', 'frost_300'];

@@ -744,6 +744,10 @@ main { position: relative; z-index: 2; padding: 18px; }
 }
 .opener.is-themed .opener-case span { color: var(--case-a); }
 
+/* Обёртка ленты. Сама рамка обрезает всё за своими краями, поэтому когти
+   висят здесь, рядом с ней, а не внутри. */
+.reel-slot { position: relative; }
+
 .reel-wrap {
   position: relative;
   height: 148px;
@@ -751,6 +755,50 @@ main { position: relative; z-index: 2; padding: 18px; }
   border-radius: var(--radius);
   background: rgba(0, 0, 0, 0.42);
   border: 2px solid var(--line);
+}
+
+/* ---------- Когти по краям рамки ----------
+
+   Высота задана долей от рамки, а ширина считается из пропорции файла: так
+   лапа остаётся собой и на полноразмерной ленте, и на сжатой в пачке, и если
+   в рамке поменяется высота.
+
+   ЧТО СРЕЗАЕТСЯ. Наружу лапа уходит на четверть своей ширины и последними
+   десятью точками упирается в край экрана. Срезаются там кончики кристаллов,
+   которыми лапа подпёрта сзади, - сам коготь и золочёная дуга целы. Это и
+   есть выбор в пользу ленты: подрезать украшение можно, ленту нельзя.
+
+   ПОЧЕМУ ИМЕННО СТОЛЬКО ЗАХОДИТ ВНУТРЬ. Лапа перекрывает край ленты, где и
+   так лежит затемнение. При самой узкой рамке, какая бывает на телефоне,
+   между лапами остаётся больше одной целой плитки, и плитка под маркером -
+   та, ради которой всё крутится, - не задета никогда. Если выбирать, чем
+   жертвовать, режется лапа, а не лента. */
+.reel-slot.has-claws { --claw-h: 0.86; }
+
+/* Без класса на слоте когтей нет: разметка блока фриспинов одна на все кейсы,
+   а лапы положены не всем. */
+.reel-slot:not(.has-claws) .reel-claw { display: none; }
+
+.reel-claw {
+  position: absolute;
+  top: 50%;
+  height: calc(100% * var(--claw-h));
+  width: auto;
+  z-index: 4;
+  pointer-events: none;
+  filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.65));
+}
+.reel-claw-l { left: 0; transform: translate(-26%, -50%); }
+.reel-claw-r { right: 0; transform: translate(26%, -50%); }
+
+/* Затемнение под лапой шире обычного: без этого из-под когтя выглядывает
+   ярко освещённая плитка и лапа кажется наклеенной поверх. */
+.reel-slot.has-claws .reel-fade { width: 76px; }
+
+/* Узкий экран: лапа ниже, иначе на ленте не остаётся целой плитки. */
+@media (max-width: 380px) {
+  .reel-slot.has-claws { --claw-h: 0.76; }
+  .reel-slot.has-claws .reel-fade { width: 66px; }
 }
 
 .reel { display: flex; gap: 10px; padding: 12px 0; height: 100%; will-change: transform; }
@@ -1574,6 +1622,9 @@ select.seed-input {
 .opener-scroll {
   width: 100%;
   overflow-y: auto;
+  /* Когти по краям рамки выходят за поля страницы. Без этого браузер даёт им
+     горизонтальную прокрутку, и экран кейса начинает ездить вбок. */
+  overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
   padding: calc(14px + var(--safe-top)) 18px calc(24px + var(--safe-bottom));
 }
@@ -2537,6 +2588,128 @@ select.seed-input {
   animation: fsChip 0.3s ease both;
 }
 
+/* ============================================================
+   ОБРЯД ОТКРЫТИЯ: кейс на сцене вместо ленты
+   ============================================================ */
+
+/* До первого нажатия на экране стоит сам кейс. Высота сцены равна высоте
+   ленты, которая придёт ей на смену: иначе при подмене экран прыгал бы, и
+   кнопка «Открыть» уезжала бы из-под пальца. */
+.case-stage {
+  position: relative;
+  height: 196px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.case-stage-art {
+  max-height: 100%;
+  max-width: 76%;
+  object-fit: contain;
+  /* Свечение берётся из тона самой обложки - того же, которым покрашен экран
+     кейса. Своих цветов у сцены нет. */
+  filter:
+    drop-shadow(0 10px 22px rgba(0, 0, 0, 0.7))
+    drop-shadow(0 0 26px hsl(var(--case-h1, 275) 85% 55% / 0.5))
+    drop-shadow(0 0 60px hsl(var(--case-h2, 275) 85% 55% / 0.32));
+  animation: caseFloat 3.4s ease-in-out infinite;
+  will-change: transform;
+}
+
+/* Кейс чуть дышит на месте: запечатанный, но живой. */
+@keyframes caseFloat {
+  0%, 100% { transform: translateY(0) rotate(-0.6deg); }
+  50%      { transform: translateY(-7px) rotate(0.6deg); }
+}
+
+.case-stage-hint {
+  position: absolute;
+  left: 0; right: 0; bottom: -2px;
+  text-align: center;
+  font-size: 10.5px;
+  letter-spacing: 2.2px;
+  text-transform: uppercase;
+  font-weight: 800;
+  color: hsl(var(--case-h1, 275) 70% 72% / 0.75);
+}
+
+/* Тряска. Кейс ходит всё резче, потому что печать поддаётся не сразу. */
+.case-stage.is-shaking .case-stage-art {
+  animation: caseShake 0.26s ease-in-out infinite;
+}
+@keyframes caseShake {
+  0%   { transform: translate(0, 0) rotate(0deg) scale(1); }
+  20%  { transform: translate(-6px, 2px) rotate(-3deg) scale(1.02); }
+  40%  { transform: translate(5px, -3px) rotate(3.5deg) scale(1.03); }
+  60%  { transform: translate(-5px, -1px) rotate(-3deg) scale(1.02); }
+  80%  { transform: translate(4px, 3px) rotate(2.5deg) scale(1.03); }
+  100% { transform: translate(0, 0) rotate(0deg) scale(1); }
+}
+.case-stage.is-shaking .case-stage-hint { animation: hintPulse 0.5s ease-in-out infinite; }
+@keyframes hintPulse { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
+
+/* Уход со сцены: кейс проваливается вниз, освобождая место ленте. */
+.case-stage.is-leaving { animation: stageOut 0.26s ease-in forwards; }
+@keyframes stageOut {
+  to { opacity: 0; transform: scale(0.9); }
+}
+
+/* Пыль из-под кейса. Каждый клуб идёт своей дорогой: разлёт, подъём, размер и
+   задержка задаются переменными при рождении, поэтому облако не повторяется. */
+/* Пыль лежит поверх кейса, а не за ним: из-под него она и валит, и клубы
+   должны затягивать его низ, а не прятаться позади. */
+.case-stage-dust {
+  position: absolute;
+  left: 0; right: 0; bottom: 26px;
+  height: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+
+/* Стелющаяся у земли муть. Без неё клубы висят в пустоте: видно, что они
+   откуда-то летят, но не видно, что кейс стоит в пыли. */
+.case-stage-dust::before {
+  content: '';
+  position: absolute;
+  left: 12%; right: 12%; bottom: -26px;
+  height: 62px;
+  border-radius: 50%;
+  background: radial-gradient(50% 50% at 50% 60%,
+    hsl(var(--case-h1, 275) 24% 70% / 0.4), transparent 72%);
+  filter: blur(6px);
+  opacity: 0;
+  animation: dustHaze 0.5s ease-out forwards;
+}
+@keyframes dustHaze { to { opacity: 1; } }
+
+/* Клубы идут кругами всё время, пока кейс трясётся: одного залпа не хватает,
+   печать ломается дольше, чем живёт клуб. */
+.dust-puff {
+  position: absolute;
+  left: var(--start);
+  bottom: 0;
+  width: var(--size);
+  height: var(--size);
+  margin-left: calc(var(--size) / -2);
+  border-radius: 50%;
+  /* Насыщенность низкая, края размыты: с плотным цветом и резкой границей
+     клуб читается пузырём, а не пылью. Тон при этом всё равно берётся у
+     обложки - у другого кейса пыль будет своего цвета. */
+  background: radial-gradient(circle at 42% 42%,
+    hsl(var(--case-h1, 275) 26% 74% / 0.62),
+    hsl(var(--case-h2, 275) 22% 58% / 0.28) 52%,
+    transparent 74%);
+  filter: blur(9px);
+  opacity: 0;
+  animation: dustPuff 1.05s ease-out infinite;
+}
+@keyframes dustPuff {
+  0%   { opacity: 0; transform: translate(0, 8px) scale(0.3); }
+  25%  { opacity: 0.85; }
+  100% { opacity: 0; transform: translate(var(--dx), calc(var(--rise) * -1)) scale(1.7); }
+}
+
 .reels { display: flex; flex-direction: column; gap: 10px; }
 /* В пачке ленты ниже: пять полноразмерных не помещаются на экран телефона. */
 /* Барабанов несколько - каждый ниже и уже. Отступы и второй контур сжимаются
@@ -2819,7 +2992,7 @@ select.seed-input {
 
 .fs-sub { font-size: 11px; color: var(--muted); letter-spacing: 1px; margin-bottom: 12px; }
 
-.fs-reel-wrap { margin-bottom: 12px; }
+#fsReelSlot { margin-bottom: 12px; }
 
 .fs-log {
   display: flex; flex-wrap: wrap; justify-content: center; gap: 6px;

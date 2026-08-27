@@ -713,8 +713,10 @@ function openCase(caseId) {
   document.getElementById('openerViewers').textContent =
     `этот кейс крутят ${viewersFor(c.id)} игроков`;
 
-  // Лента в покое: барабан уже собран, но никуда не едет.
-  renderIdleReel(c);
+  // До первого нажатия: у кейса с обрядом на экране стоит он сам, у
+  // остальных - лента в покое, барабан собран, но никуда не едет.
+  if (hasRitual(c)) renderCaseStage(c);
+  else { clearCaseStage(); renderIdleReel(c); }
 
   // Витринный предмет идёт первой карточкой и честно подписан.
   const showcaseCard = c.showcase ? `
@@ -790,8 +792,9 @@ function openCase(caseId) {
       btn.classList.add('active');
       haptic('light');
       // Барабаны перерисовываются сразу: выбранный икс должен быть виден до
-      // нажатия «Открыть», а не выясняться после списания.
-      renderIdleReel(c, count);
+      // нажатия «Открыть», а не выясняться после списания. У кейса с обрядом
+      // барабанов до нажатия нет вовсе - там на сцене стоит сам кейс.
+      if (!hasRitual(c)) renderIdleReel(c, count);
       refresh();
     });
   });
@@ -803,7 +806,7 @@ function openCase(caseId) {
       btn.classList.add('active');
       haptic('light');
       // Автооткрытие крутит по одному кейсу, поэтому барабан снова один.
-      if (auto) renderIdleReel(c, 1);
+      if (auto && !hasRitual(c)) renderIdleReel(c, 1);
       refresh();
     });
   });
@@ -853,8 +856,112 @@ async function resumePendingSpins(c) {
 
   state.busy = false;
   document.getElementById('casePanel').hidden = false;
+  if (hasRitual(c)) renderCaseStage(c);
   document.getElementById('openerCaseName').innerHTML =
     `${esc(c.name)} · <span>${money(c.price)}</span>`;
+}
+
+/**
+ * Обряд открытия: кейс на сцене вместо ленты.
+ *
+ * Раньше экран кейса сразу открывался лентой: она стояла на месте и ничего не
+ * значила, пока не нажмёшь. Теперь до первого нажатия на экране стоит сам
+ * кейс - его обложка, - а лента появляется только после того, как кейс
+ * тряхнуло и из-под него пошла пыль. Открытие перестаёт быть нажатием кнопки
+ * и становится событием.
+ *
+ * Включается это флагом ritual у кейса, а не именем кейса в коде: пока обряд
+ * есть только у «Пыли», но добавляется он остальным одной правкой в описании.
+ * Если у кейса нет своей обложки, обряд молча отключается - трясти было бы
+ * нечего.
+ */
+function hasRitual(c) {
+  return !!c.ritual && !!caseArtSrc(c);
+}
+
+/** Сколько трясётся кейс перед тем, как появится лента. */
+const RITUAL_SHAKE_MS = 1150;
+
+/** Сколько кейс уходит со сцены, уступая место ленте. */
+const RITUAL_EXIT_MS = 260;
+
+/** Ставит кейс на сцену и убирает ленту. */
+function renderCaseStage(c) {
+  const stage = document.getElementById('caseStage');
+  const art = document.getElementById('caseStageArt');
+  const reels = document.getElementById('reels');
+
+  art.src = caseArtSrc(c);
+  art.alt = c.name;
+  document.getElementById('caseStageHint').textContent = 'кейс запечатан';
+  document.getElementById('caseStageDust').innerHTML = '';
+  stage.className = 'case-stage';
+  stage.hidden = false;
+  reels.hidden = true;
+  reels.innerHTML = '';
+}
+
+/** Убирает сцену и возвращает ленту - без анимации, для выхода из кейса. */
+function clearCaseStage() {
+  const stage = document.getElementById('caseStage');
+  stage.hidden = true;
+  stage.className = 'case-stage';
+  document.getElementById('caseStageDust').innerHTML = '';
+  document.getElementById('reels').hidden = false;
+}
+
+/**
+ * Трясёт кейс, поднимает из-под него пыль и уводит со сцены.
+ *
+ * Пыль - это несколько клубов со своими задержками и разлётом; разлёт задаётся
+ * переменными, а не отдельными классами, чтобы каждый клуб шёл своей дорогой и
+ * облако не выглядело штампом. Цвет берётся из тона самой обложки, поэтому у
+ * следующего кейса с обрядом пыль будет своя, без правок здесь.
+ *
+ * Возвращает обещание, которое ждут перед прокрутом. Вызывается оно до ответа
+ * сервера и разрешается параллельно с ним: тряска - это и есть ответ на
+ * нажатие, откладывать её до сети нельзя.
+ */
+function playRitual(c) {
+  // На «Ещё раз» сцены на экране уже нет - там стоит лента с прошлым
+  // прокрутом. Возвращаем кейс на место: обряд идёт при каждом открытии, а не
+  // только при первом заходе в кейс.
+  if (document.getElementById('caseStage').hidden) renderCaseStage(c);
+
+  const stage = document.getElementById('caseStage');
+  const dust = document.getElementById('caseStageDust');
+
+  document.getElementById('caseStageHint').textContent = 'печать ломается';
+
+  dust.innerHTML = Array.from({ length: 18 }, (_, i) => {
+    const dx = (Math.random() * 2 - 1) * 120;
+    const rise = 34 + Math.random() * 58;
+    const size = 30 + Math.random() * 56;
+    // Клубы расставлены по ширине сцены и стартуют вразнобой: ровный ряд с
+    // общим стартом читался бы как одна дуга, а не как облако.
+    const delay = Math.random() * 900;
+    return `<span class="dust-puff" style="
+      --dx:${dx.toFixed(1)}px; --rise:${rise.toFixed(1)}px;
+      --size:${size.toFixed(1)}px; --start:${(14 + i * 4.3).toFixed(1)}%;
+      animation-delay:${delay.toFixed(0)}ms"></span>`;
+  }).join('');
+
+  stage.classList.add('is-shaking');
+  sndBet();
+  haptic('medium');
+
+  return new Promise((resolve) => {
+    setTimeout(() => {
+      stage.classList.add('is-leaving');
+      document.getElementById('reels').hidden = false;
+      setTimeout(() => {
+        stage.hidden = true;
+        stage.className = 'case-stage';
+        dust.innerHTML = '';
+        resolve();
+      }, RITUAL_EXIT_MS);
+    }, RITUAL_SHAKE_MS);
+  });
 }
 
 /** Лента до первого прокрута: стоит на месте, показывает содержимое кейса. */
@@ -868,7 +975,7 @@ async function resumePendingSpins(c) {
 function renderIdleReel(c, count = 1) {
   const reels = document.getElementById('reels');
   reels.className = 'reels' + (count > 1 ? ' compact' : '');
-  reels.innerHTML = Array.from({ length: count }, () => reelWrapHtml()).join('');
+  reels.innerHTML = Array.from({ length: count }, () => reelWrapHtml(!!c.claws)).join('');
 
   reels.querySelectorAll('.reel').forEach((reel) => {
     const strip = [];
@@ -941,14 +1048,38 @@ function tileHtml(item) {
 // проезжает мимо маркера, но остановиться на ней лента не может.
 const SHOWCASE_SLOTS = [11, 27, 43, 58];
 
-/** Разметка одной ленты. */
-function reelWrapHtml() {
-  return `<div class="reel-wrap">
-    <div class="reel-marker"></div>
-    <div class="reel-fade reel-fade-l"></div>
-    <div class="reel-fade reel-fade-r"></div>
-    <div class="reel"></div>
+/**
+ * Разметка одной ленты.
+ *
+ * Рамка лежит в отдельной обёртке, потому что сама она обрезает всё за своими
+ * краями - иначе лента вылезала бы за неё. Когти же должны выходить за рамку
+ * наружу, поэтому висят в обёртке рядом с ней, а не внутри.
+ */
+function reelWrapHtml(claws = false) {
+  const paw = (side) => `<img class="reel-claw reel-claw-${side}"
+    src="${clawSrc(side)}" alt="" aria-hidden="true" decoding="async">`;
+
+  return `<div class="reel-slot${claws ? ' has-claws' : ''}">
+    ${claws ? paw('l') : ''}
+    <div class="reel-wrap">
+      <div class="reel-marker"></div>
+      <div class="reel-fade reel-fade-l"></div>
+      <div class="reel-fade reel-fade-r"></div>
+      <div class="reel"></div>
+    </div>
+    ${claws ? paw('r') : ''}
   </div>`;
+}
+
+/**
+ * Путь к лапе.
+ *
+ * Пути написаны целиком, а не собраны из кусков: автономная сборка заменяет
+ * их на сами файлы поиском по исходнику, и собранный из переменной путь она
+ * бы не нашла - в одном файле лапы просто не отрисовались бы.
+ */
+function clawSrc(side) {
+  return side === 'l' ? '/assets/ui/claw-l.webp' : '/assets/ui/claw-r.webp';
 }
 
 /**
@@ -988,11 +1119,21 @@ async function startOpening(caseId, count = 1) {
   state.openingCaseId = caseId;
   state.openingCount = count;
 
+  // Обряд запускается до похода на сервер, а не после: тряска - это ответ на
+  // нажатие, и ждать сети ей нельзя, иначе кнопка кажется залипшей. Ответ
+  // приходит, пока кейс трясётся, и к появлению ленты уже готов.
+  document.getElementById('result').hidden = true;
+  document.getElementById('batchSummary').hidden = true;
+  document.getElementById('gamble').hidden = true;
+  document.getElementById('gambleStartBtn').hidden = true;
+  const ritual = hasRitual(c) ? playRitual(c) : null;
+
   let data;
   try {
     data = await api('/api/open', { caseId, count });
   } catch (err) {
     state.busy = false;
+    if (ritual) { await ritual; renderCaseStage(c); }
     toast(err.message);
     haptic('error');
     return;
@@ -1023,6 +1164,7 @@ async function startOpening(caseId, count = 1) {
   // Списание видно с первой секунды прокрута, а не задним числом.
   previewBalance(state.user.balance - data.totalSpent);
 
+  if (ritual) await ritual;
   await spinReels(c, opened, SPIN_DURATION);
 
   sndLand();
@@ -1075,7 +1217,7 @@ const SETTLE_MIN_DURATION = 3;
 function spinReels(c, opened, duration) {
   const reels = document.getElementById('reels');
   reels.className = 'reels' + (opened.length > 1 ? ' compact' : '');
-  reels.innerHTML = opened.map(reelWrapHtml).join('');
+  reels.innerHTML = opened.map(() => reelWrapHtml(!!c.claws)).join('');
 
   sndSpinStart();
   sndBet();
@@ -1393,6 +1535,11 @@ async function runAutoOpen(caseId, times) {
   document.getElementById('openerCaseName').innerHTML =
     `${esc(c.name)} · <span>авто ×${times}</span>`;
 
+  // Обряд в серии играется один раз, на входе: трясти кейс перед каждым из
+  // двадцати пяти прокрутов - это уже не событие, а задержка.
+  if (hasRitual(c)) await playRitual(c);
+  else clearCaseStage();
+
   let spent = 0;
   let won = 0;
   let done = 0;
@@ -1515,6 +1662,11 @@ function runFreeSpins(grant, caseData, { auto = false, replay = false } = {}) {
 
   document.getElementById('result').hidden = true;
   document.getElementById('batchSummary').hidden = true;
+  // Серия может начаться и с непрокрученного кейса - купленными фриспинами
+  // или доигрыванием прошлой серии на входе. Сцена с кейсом тогда осталась бы
+  // висеть над барабаном фриспинов.
+  document.getElementById('caseStage').hidden = true;
+  document.getElementById('fsReelSlot').classList.toggle('has-claws', !!caseData.claws);
   box.hidden = false;
   collectBtn.hidden = true;
   logEl.innerHTML = '';

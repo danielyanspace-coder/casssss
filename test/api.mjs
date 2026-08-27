@@ -476,11 +476,14 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
   const before = start.balance;
 
   // Создание и отмена.
+  // Как и со статистикой ниже, «ожидающее» проверяем приростом: в базе могут
+  // лежать заявки прошлых прогонов, и абсолютное значение тогда не сойдётся.
+  const pendingBefore = (await post('/api/wallet')).data.pending;
   const made = (await post('/api/payout/create', { amount })).data;
   check('заявка списывает сумму сразу', made.balance === before - amount,
         `${made.balance} vs ${before - amount}`);
   check('сумма учтена как ожидающая',
-        (await post('/api/wallet')).data.pending === amount);
+        (await post('/api/wallet')).data.pending === pendingBefore + amount);
 
   const cancelled = (await post('/api/payout/cancel', { id: made.id })).data;
   check('отмена возвращает средства', cancelled.balance === before);
