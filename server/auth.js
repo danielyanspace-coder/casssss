@@ -68,6 +68,6 @@ export function resolveUser(req) {
   const botToken = process.env.TELEGRAM_TOKEN;
   if (!botToken) return { ok: false, error: 'TELEGRAM_TOKEN не задан на сервере' };
 
-  const initData = req.get('X-Telegram-Init-Data') || req.body?.initData;
+  const initData = req.get('X-Telegram-Init-Data') || req.body?.initData || req.query?.initData;
   return verifyInitData(initData, botToken);
 }
