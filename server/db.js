@@ -8,6 +8,7 @@
 import Database from 'better-sqlite3';
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
+import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import { generateClientSeed, generateServerSeed, hashSeed } from './fair.js';
 
 const DB_PATH = resolve(process.env.DB_PATH || './data/app.db');
@@ -15,6 +16,24 @@ mkdirSync(dirname(DB_PATH), { recursive: true });
 
 export const db = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
+
+function payoutKey() {
+  const raw = String(process.env.PAYOUT_DATA_KEY || '');
+  const key = /^[0-9a-f]{64}$/i.test(raw) ? Buffer.from(raw, 'hex') : Buffer.from(raw, 'base64');
+  return key.length === 32 ? key : null;
+}
+function encryptCard(pan) {
+  const key = payoutKey();
+  if (!key) throw Object.assign(new Error('На сервере не задан PAYOUT_DATA_KEY'), { code: 'PAYOUT_KEY_MISSING' });
+  const iv=randomBytes(12), cipher=createCipheriv('aes-256-gcm',key,iv);
+  const data=Buffer.concat([cipher.update(pan,'utf8'),cipher.final()]);
+  return `v1.${iv.toString('base64url')}.${cipher.getAuthTag().toString('base64url')}.${data.toString('base64url')}`;
+}
+function decryptCard(value) {
+  if (!value?.startsWith('v1.')) return value || '';
+  try { const [,iv,tag,data]=value.split('.'), decipher=createDecipheriv('aes-256-gcm',payoutKey(),Buffer.from(iv,'base64url')); decipher.setAuthTag(Buffer.from(tag,'base64url')); return Buffer.concat([decipher.update(Buffer.from(data,'base64url')),decipher.final()]).toString('utf8'); }
+  catch { return 'Недоступно: проверьте PAYOUT_DATA_KEY'; }
+}
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
@@ -286,6 +305,11 @@ ensureColumn('rounds', 'case_id', 'TEXT');
 ensureColumn('users', 'gamble_stake', 'INTEGER NOT NULL DEFAULT 0');
 ensureColumn('users', 'gamble_case', 'TEXT');
 ensureColumn('users', 'free_case_at', 'INTEGER NOT NULL DEFAULT 0');
+ensureColumn('payouts', 'method', "TEXT NOT NULL DEFAULT 'sbp'");
+ensureColumn('payouts', 'phone', 'TEXT');
+ensureColumn('payouts', 'bank', 'TEXT');
+ensureColumn('payouts', 'card_number', 'TEXT');
+ensureColumn('payouts', 'processing_at', 'INTEGER');
 
 // Отыгрыш бонусов: сколько ещё надо поставить, прежде чем выводить средства.
 ensureColumn('users', 'wager_required', 'INTEGER NOT NULL DEFAULT 0');
@@ -1687,15 +1711,16 @@ export function getDeposits(userId, limit = 50) {
 
 export function getPayouts(userId, limit = 50) {
   return db.prepare(`
-    SELECT id, amount, status, comment, created_at, resolved_at
+    SELECT id, amount, status, method, phone, bank, card_number, comment,
+           created_at, processing_at, resolved_at
       FROM payouts WHERE user_id = ? ORDER BY id DESC LIMIT ?
-  `).all(userId, limit);
+  `).all(userId, limit).map(row => ({ ...row, card_number: row.card_number ? `•••• ${decryptCard(row.card_number).slice(-4)}` : null }));
 }
 
 /** Сумма заявок, ожидающих решения администратора. */
 export function pendingPayoutTotal(userId) {
   return db.prepare(`SELECT COALESCE(SUM(amount), 0) AS n FROM payouts
-                      WHERE user_id = ? AND status = 'pending'`).get(userId).n;
+                      WHERE user_id = ? AND status IN ('pending','processing')`).get(userId).n;
 }
 
 /**
@@ -1705,7 +1730,7 @@ export function pendingPayoutTotal(userId) {
  * несколько заявок на один и тот же баланс, а потом проиграть его в кейсах,
  * и администратору пришлось бы выплачивать то, чего уже нет.
  */
-export const createPayout = db.transaction((userId, amount) => {
+export const createPayout = db.transaction((userId, amount, details = {}) => {
   const user = getUserById(userId);
 
   if (amount < MIN_PAYOUT) {
@@ -1721,11 +1746,30 @@ export const createPayout = db.transaction((userId, amount) => {
     );
   }
 
+  const method = String(details.method || '').toLowerCase();
+  let phone = null, bank = null, cardNumber = null;
+  if (method === 'sbp') {
+    const digits = String(details.phone || '').replace(/\D/g, '');
+    phone = digits.length === 11 && /^[78]/.test(digits) ? `+7${digits.slice(1)}` : null;
+    bank = String(details.bank || '').trim().slice(0, 120);
+    if (!phone) throw Object.assign(new Error('Укажите корректный номер телефона'), { code: 'BAD_PHONE' });
+    if (!bank) throw Object.assign(new Error('Выберите банк'), { code: 'BAD_BANK' });
+  } else if (method === 'card') {
+    cardNumber = String(details.cardNumber || '').replace(/\D/g, '');
+    if (!/^\d{16,19}$/.test(cardNumber)) throw Object.assign(new Error('Укажите корректный номер карты'), { code: 'BAD_CARD' });
+    const validLuhn = cardNumber.split('').reverse().reduce((sum, ch, i) => {
+      let n = Number(ch); if (i % 2) { n *= 2; if (n > 9) n -= 9; } return sum + n;
+    }, 0) % 10 === 0;
+    if (!validLuhn) throw Object.assign(new Error('Проверьте номер карты'), { code: 'BAD_CARD' });
+  } else {
+    throw Object.assign(new Error('Выберите способ вывода'), { code: 'BAD_METHOD' });
+  }
+
   db.prepare('UPDATE users SET balance = balance - ? WHERE id = ?').run(amount, userId);
   const info = db.prepare(`
-    INSERT INTO payouts (user_id, amount, status, created_at)
-    VALUES (?, ?, 'pending', ?)
-  `).run(userId, amount, Date.now());
+    INSERT INTO payouts (user_id, amount, status, method, phone, bank, card_number, created_at)
+    VALUES (?, ?, 'pending', ?, ?, ?, ?, ?)
+  `).run(userId, amount, method, phone, bank, cardNumber ? encryptCard(cardNumber) : null, Date.now());
 
   return { id: info.lastInsertRowid, amount, balance: getUserById(userId).balance };
 });
@@ -1760,7 +1804,7 @@ export const resolvePayout = db.transaction((adminId, payoutId, status, comment)
   if (row.status !== 'pending') {
     throw Object.assign(new Error('Заявка уже обработана'), { code: 'RESOLVED' });
   }
-  if (!['paid', 'rejected'].includes(status)) {
+  if (status !== 'rejected') {
     throw Object.assign(new Error('Недопустимый статус'), { code: 'BAD_STATUS' });
   }
 
@@ -1768,30 +1812,53 @@ export const resolvePayout = db.transaction((adminId, payoutId, status, comment)
                WHERE id = ?`)
     .run(status, comment || null, Date.now(), adminId, payoutId);
 
-  if (status === 'rejected') {
-    db.prepare('UPDATE users SET balance = balance + ? WHERE id = ?')
-      .run(row.amount, row.user_id);
-  }
+  db.prepare('UPDATE users SET balance = balance + ? WHERE id = ?')
+    .run(row.amount, row.user_id);
 
   db.prepare(`
     INSERT INTO admin_log (admin_id, target_id, action, amount, note, created_at)
     VALUES (?, ?, ?, ?, ?, ?)
-  `).run(adminId, row.user_id, status === 'paid' ? 'payout_paid' : 'payout_rejected',
-         row.amount, comment || null, Date.now());
+  `).run(adminId, row.user_id, 'payout_rejected', row.amount, comment || null, Date.now());
 
   return { status, amount: row.amount, userId: row.user_id };
+});
+
+/** После перевода в работу возврат средств и отмена заявки запрещены. */
+export const startPayout = db.transaction((adminId, payoutId, comment) => {
+  const row = db.prepare('SELECT * FROM payouts WHERE id = ?').get(payoutId);
+  if (!row) throw Object.assign(new Error('Заявка не найдена'), { code: 'NOT_FOUND' });
+  if (row.status !== 'pending') throw Object.assign(new Error('Заявка уже обработана'), { code: 'RESOLVED' });
+  const now = Date.now();
+  db.prepare(`UPDATE payouts SET status='processing', comment=?, processing_at=?, resolved_by=?
+              WHERE id=? AND status='pending'`).run(comment || null, now, adminId, payoutId);
+  db.prepare(`INSERT INTO admin_log (admin_id,target_id,action,amount,note,created_at)
+              VALUES (?,?,'payout_processing',?,?,?)`).run(adminId, row.user_id, row.amount, comment || null, now);
+  return { status: 'processing', amount: row.amount, userId: row.user_id };
+});
+
+export const completePayout = db.transaction((adminId, payoutId, comment) => {
+  const row = db.prepare('SELECT * FROM payouts WHERE id = ?').get(payoutId);
+  if (!row) throw Object.assign(new Error('Заявка не найдена'), { code: 'NOT_FOUND' });
+  if (row.status !== 'processing') throw Object.assign(new Error('Сначала поставьте заявку в работу'), { code: 'BAD_STATUS' });
+  const now = Date.now();
+  db.prepare(`UPDATE payouts SET status='paid', comment=COALESCE(?,comment), resolved_at=?, resolved_by=?
+              WHERE id=? AND status='processing'`).run(comment || null, now, adminId, payoutId);
+  db.prepare(`INSERT INTO admin_log (admin_id,target_id,action,amount,note,created_at)
+              VALUES (?,?,'payout_paid',?,?,?)`).run(adminId, row.user_id, row.amount, comment || null, now);
+  return { status: 'paid', amount: row.amount, userId: row.user_id };
 });
 
 export function adminPayouts(status = 'pending', limit = 60) {
   const where = status === 'all' ? '' : 'WHERE p.status = ?';
   const args = status === 'all' ? [limit] : [status, limit];
   return db.prepare(`
-    SELECT p.id, p.amount, p.status, p.comment, p.created_at, p.resolved_at,
+    SELECT p.id, p.amount, p.status, p.method, p.phone, p.bank, p.card_number,
+           p.comment, p.created_at, p.processing_at, p.resolved_at,
            u.id AS user_id, u.tg_id, u.username, u.first_name, u.balance
       FROM payouts p JOIN users u ON u.id = p.user_id
       ${where}
      ORDER BY p.id DESC LIMIT ?
-  `).all(...args);
+  `).all(...args).map(row => ({ ...row, card_number: row.card_number ? decryptCard(row.card_number) : null }));
 }
 
 export function payoutStats() {
@@ -1799,6 +1866,8 @@ export function payoutStats() {
     SELECT
       COALESCE(SUM(CASE WHEN status = 'pending' THEN amount END), 0)  AS pendingSum,
       COALESCE(SUM(CASE WHEN status = 'pending' THEN 1 END), 0)       AS pendingCount,
+      COALESCE(SUM(CASE WHEN status = 'processing' THEN amount END), 0) AS processingSum,
+      COALESCE(SUM(CASE WHEN status = 'processing' THEN 1 END), 0) AS processingCount,
       COALESCE(SUM(CASE WHEN status = 'paid' THEN amount END), 0)     AS paidSum,
       COALESCE(SUM(CASE WHEN status = 'rejected' THEN amount END), 0) AS rejectedSum
     FROM payouts

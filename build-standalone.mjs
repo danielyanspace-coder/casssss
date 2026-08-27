@@ -176,10 +176,17 @@ const uiArt = Object.fromEntries(
       'data:image/webp;base64,' + readFileSync(new URL(f, uiDir)).toString('base64'),
     ])
 );
-const inlineUi = (src) => src.replace(
-  /\/?assets\/ui\/[\w-]+\.webp/g,
-  (m) => uiArt[m.replace(/^\//, '')] || m
-);
+/*
+ * Список банков СБП лежит отдельным файлом и запрашивается по пути. Сервера у
+ * автономной сборки нет, поэтому файл уезжает внутрь тем же способом, что и
+ * картинки интерфейса: путь заменяется на сам файл.
+ */
+const sbpBanks = 'data:application/json;base64,'
+  + readFileSync(new URL('./public/sbp-banks.json', import.meta.url)).toString('base64');
+
+const inlineUi = (src) => src
+  .replace(/\/?assets\/ui\/[\w-]+\.webp/g, (m) => uiArt[m.replace(/^\//, '')] || m)
+  .replace(/'\/sbp-banks\.json'/g, `'${sbpBanks}'`);
 
 const css = read('./public/styles.css');
 const html = inlineUi(read('./public/index.html'));

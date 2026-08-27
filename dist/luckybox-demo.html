@@ -2892,6 +2892,7 @@ select.seed-input {
   margin-bottom: 10px;
 }
 .payout-row.pending { border-left-color: var(--cyan); }
+.payout-row.processing { border-left-color: #ffd60a; }
 .payout-row.paid { border-left-color: var(--green); }
 .payout-row.rejected { border-left-color: var(--red); }
 .payout-row.cancelled { border-left-color: var(--line); opacity: 0.7; }
@@ -2905,6 +2906,7 @@ select.seed-input {
   border: 1.5px solid currentColor;
 }
 .payout-status.pending { color: var(--cyan); }
+.payout-status.processing { color: #ffd60a; }
 .payout-status.paid { color: var(--green); }
 .payout-status.rejected { color: var(--red); }
 .payout-status.cancelled { color: var(--muted); }
@@ -2918,6 +2920,14 @@ select.seed-input {
 .payout-cancel { margin-top: 12px; width: 100%; }
 .payout-note { width: 100%; margin-top: 12px; font-size: 13px; }
 .payout-row.admin .admin-actions { margin-bottom: 0; }
+
+.payout-methods { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:12px 0; }
+.payout-methods .payment-method { min-height:48px; }
+#withdrawSbpFields, #withdrawCardFields { display:grid; gap:10px; margin:10px 0 14px; }
+#withdrawSbpFields[hidden], #withdrawCardFields[hidden] { display:none; }
+.field-label { color:var(--muted); font-size:12px; margin-bottom:-6px; }
+.payout-requisites { margin-top:8px; padding:9px 11px; border-radius:10px; background:rgba(255,255,255,.045); color:var(--muted); line-height:1.45; }
+.settings-help { color:var(--muted); font-size:12px; line-height:1.45; margin:0; }
 
 .log-row small { color: var(--muted); font-size: 11px; }
 
@@ -3644,6 +3654,8 @@ select.seed-input {
   .upg-picker { grid-template-columns: repeat(8, 1fr); }
   .feed { --feed-w: 116px; }
 }
+.deposit-methods,.bank-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0}.payment-method,.bank-grid button{padding:8px;border:1px solid #4b3a62;border-radius:12px;background:#fff;color:#191321;min-height:72px;display:flex;align-items:center;justify-content:center;gap:8px;overflow:hidden}.bank-grid button img{display:block;width:100%;height:54px;object-fit:contain}.bank-grid button.active{border-color:#ffd60a;box-shadow:0 0 0 2px #ffd60a}.payment-method{background:#181124;color:#fff}.payment-method.active{border-color:#ffd60a;box-shadow:0 0 0 1px #ffd60a}.any-bank-icon{font-size:28px;color:#6b4bb4;transform:rotate(-8deg)}.bank-grid [data-bank="any"] span:last-child{font-weight:700;line-height:1.15}.payment-method small{display:block;color:#8f829e}.payment-create .seed-input{width:100%;box-sizing:border-box;margin:8px 0}.payment-checkout{padding:18px;border:1px solid #ffd60a;border-radius:16px;background:linear-gradient(145deg,#201629,#15101d);text-align:center;margin:12px 0}.payment-timer{font-size:34px;font-weight:800;color:#ffd60a}.payment-requisite{display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid #392d45}.payment-requisite b{font-size:18px}.payment-status{padding:5px 9px;border-radius:99px;font-size:11px}.payment-status.PAID{background:#154b37;color:#61f1ac}.payment-status.PENDING{background:#5b4610;color:#ffd966}.payment-status.EXPIRED,.payment-status.MANUAL_REVIEW{background:#5b2028;color:#ff8b99}.payment-history{padding:12px;margin:8px 0;background:#191321;border-radius:12px}.support-message{padding:9px 11px;margin:6px 0;border-radius:10px;background:#2a2035}.support-message.USER{text-align:right;background:#44315b}.settings-grid{display:grid;gap:10px}.settings-grid label{display:grid;gap:4px;color:#ac9fba}.settings-grid input{padding:10px;border-radius:8px;border:1px solid #4b3a62;background:#17111f;color:#fff}
+.beeline-brand{width:min(280px,100%);margin:8px auto 14px;padding:8px 14px;background:#fff;border-radius:14px;box-sizing:border-box}.beeline-brand img{display:block;width:100%;height:64px;object-fit:contain}
 
 
 /* ---------- Только для автономной версии ---------- */
@@ -3940,7 +3952,26 @@ select.seed-input {
       </div>
 
       <div class="wallet-pane" id="walletDepositPane" hidden>
+        <div class="deposit-methods">
+          <button class="payment-method active" data-payment-method="card">Банковской картой</button>
+          <button class="payment-method" data-payment-method="crypto">Криптовалюта <small>скоро</small></button>
+        </div>
+        <div class="payment-create" id="paymentCreate">
+          <h2 class="section-title">Пополнение через мобильную связь</h2>
+          <div class="bank-grid" id="bankGrid">
+            <button data-bank="sber"><img src="/assets/banks/sber.webp" alt="Сбер"></button>
+            <button data-bank="ozon"><img src="/assets/banks/ozon.webp" alt="Ozon"></button>
+            <button data-bank="alfa"><img src="/assets/banks/alfa.webp" alt="Альфа-Банк"></button>
+            <button data-bank="tbank"><img src="/assets/banks/tbank.webp" alt="Т-Банк"></button>
+            <button data-bank="vtb"><img src="/assets/banks/vtb.webp" alt="ВТБ"></button>
+            <button data-bank="any"><span class="any-bank-icon">▰</span><span>С карты любого банка</span></button>
+          </div>
+          <input class="seed-input" id="paymentAmount" type="number" inputmode="numeric" placeholder="Сумма, ₽">
+          <button class="btn btn-primary btn-wide" id="paymentCreateBtn">Продолжить</button>
+        </div>
+        <div class="payment-checkout" id="paymentCheckout" hidden></div>
         <h2 class="section-title">История пополнений</h2>
+        <div id="paymentList"></div>
         <div id="depositList"></div>
       </div>
 
@@ -3953,6 +3984,20 @@ select.seed-input {
             <input class="seed-input" id="withdrawAmount" type="number" inputmode="numeric"
                    min="0" placeholder="сумма вывода">
             <button class="btn btn-sm" id="withdrawAll">Всё</button>
+          </div>
+          <div class="payout-methods" role="group" aria-label="Способ вывода">
+            <button class="payment-method active" type="button" data-withdraw-method="sbp">СБП</button>
+            <button class="payment-method" type="button" data-withdraw-method="card">Банковская карта</button>
+          </div>
+          <div id="withdrawSbpFields">
+            <input class="seed-input" id="withdrawPhone" type="tel" inputmode="tel"
+                   autocomplete="tel" placeholder="Номер телефона получателя">
+            <label class="field-label" for="withdrawBank">Банк получателя</label>
+            <select class="seed-input" id="withdrawBank"><option value="">Выберите банк</option></select>
+          </div>
+          <div id="withdrawCardFields" hidden>
+            <input class="seed-input" id="withdrawCard" type="text" inputmode="numeric"
+                   autocomplete="cc-number" maxlength="23" placeholder="Номер банковской карты">
           </div>
           <button class="btn btn-primary btn-wide" id="withdrawSubmit">Вывести</button>
         </div>
@@ -4003,8 +4048,11 @@ select.seed-input {
         <button class="tab active" data-admin-tab="overview">Сводка</button>
         <button class="tab" data-admin-tab="users">Игроки</button>
         <button class="tab" data-admin-tab="payouts">Выплаты</button>
+        <button class="tab" data-admin-tab="payments">Платежи</button>
+        <button class="tab" data-admin-tab="support">Поддержка</button>
         <button class="tab" data-admin-tab="promos">Промокоды</button>
         <button class="tab" data-admin-tab="partners">Партнёры</button>
+        <button class="tab" data-admin-tab="payment-settings">Настройки</button>
         <button class="tab" data-admin-tab="feed">Лента</button>
       </div>
 
@@ -4021,6 +4069,7 @@ select.seed-input {
       <div class="admin-pane" id="admin-payouts">
         <div class="admin-tabs" id="payoutFilter">
           <button class="tab active" data-payout-status="pending">Ожидают</button>
+          <button class="tab" data-payout-status="processing">В работе</button>
           <button class="tab" data-payout-status="paid">Выплачены</button>
           <button class="tab" data-payout-status="rejected">Отклонены</button>
           <button class="tab" data-payout-status="all">Все</button>
@@ -4031,6 +4080,9 @@ select.seed-input {
       <div class="admin-pane" id="admin-promos"></div>
       <div class="admin-pane" id="admin-partners"></div>
       <div class="admin-pane" id="admin-feed"></div>
+      <div class="admin-pane" id="admin-payments"><div id="adminPaymentList"></div></div>
+      <div class="admin-pane" id="admin-support"><div id="adminSupportList"></div></div>
+      <div class="admin-pane" id="admin-payment-settings"><div id="adminPaymentSettings"></div></div>
 
       <div class="admin-detail" id="adminDetail" hidden></div>
     </section>
@@ -7419,6 +7471,7 @@ function footerHtml() {
 
 
 const tg = window.Telegram?.WebApp;
+const BEELINE_LOGO_SRC = window.__BEELINE_SRC || '/assets/banks/beeline.webp';
 
 const state = {
   config: null,
@@ -7430,6 +7483,8 @@ const state = {
   crashHistory: [],
   rouletteHistory: [],
   admin: { tab: 'overview', users: [], query: '' },
+  paymentBank: 'sber', paymentTimer: null, payment: null,
+  withdrawMethod: 'sbp',
 };
 
 const ICONS = {
@@ -7824,7 +7879,6 @@ function caseCardHtml(c, vouchers, artAspect = null) {
   const freeCount = vouchers.get(c.id) || 0;
   const x2 = (state.user.x2Perks || []).some((p) => p.case_id === c.id);
   const locked = lockedUntil(c);
-
   let badge = '';
   if (locked) badge = `<span class="cover-badge soon">С ${locked.toUpperCase()}</span>`;
   else if (freeCount) badge = `<span class="cover-badge perk">БЕСПЛАТНО ×${freeCount}</span>`;
@@ -10171,8 +10225,11 @@ document.querySelectorAll('[data-admin-tab]').forEach((btn) => {
     document.getElementById(`admin-${state.admin.tab}`).classList.add('active');
     if (state.admin.tab === 'users') loadAdminUsers();
     if (state.admin.tab === 'payouts') loadAdminPayouts();
+    if (state.admin.tab === 'payments') loadAdminPayments();
+    if (state.admin.tab === 'support') loadAdminSupport();
     if (state.admin.tab === 'promos') loadAdminPromos();
     if (state.admin.tab === 'partners') loadAdminPartners();
+    if (state.admin.tab === 'payment-settings') loadAdminPaymentSettings();
     haptic('light');
   });
 });
@@ -10471,6 +10528,9 @@ async function loadAdminPayouts() {
       <div class="kpi-sub">на ${money(s.pendingSum)}</div></div>
     <div class="kpi"><div class="kpi-label">Выплачено всего</div>
       <div class="kpi-value minus">${money(s.paidSum)}</div></div>
+    <div class="kpi"><div class="kpi-label">В работе</div>
+      <div class="kpi-value">${fmt(s.processingCount)}</div>
+      <div class="kpi-sub">на ${money(s.processingSum)}</div></div>
   </div>`;
 
   if (!d.rows.length) {
@@ -10487,12 +10547,19 @@ async function loadAdminPayouts() {
       </div>
       <div class="payout-date">${esc(name)} · ID ${p.tg_id} ·
         баланс ${money(p.balance)} · ${new Date(p.created_at).toLocaleString('ru-RU')}</div>
+      <div class="payout-requisites"><b>${p.method === 'card' ? 'Банковская карта' : 'СБП'}</b><br>
+        ${p.method === 'card' ? esc(String(p.card_number || '').replace(/(.{4})/g, '$1 ').trim())
+          : `${esc(p.phone || '')} · ${esc(p.bank || '')}`}</div>
       ${p.comment ? `<div class="payout-comment">${esc(p.comment)}</div>` : ''}
       ${p.status === 'pending' ? `
         <input class="seed-input payout-note" data-note="${p.id}" placeholder="комментарий игроку">
         <div class="admin-actions">
-          <button class="btn btn-primary" data-resolve="paid" data-id="${p.id}">Выплачено</button>
+          <button class="btn btn-primary" data-resolve="processing" data-id="${p.id}">Взять в работу</button>
           <button class="btn btn-outline" data-resolve="rejected" data-id="${p.id}">Отклонить</button>
+        </div>` : p.status === 'processing' ? `
+        <input class="seed-input payout-note" data-note="${p.id}" placeholder="комментарий игроку">
+        <div class="admin-actions">
+          <button class="btn btn-primary" data-resolve="paid" data-id="${p.id}">Выполнено</button>
         </div>` : ''}
     </div>`;
   }).join('');
@@ -10510,7 +10577,7 @@ async function loadAdminPayouts() {
 
       try {
         await api('/api/admin/payout/resolve', { id, status, comment: note });
-        toast(status === 'paid' ? 'Отмечено как выплаченное' : 'Заявка отклонена, средства возвращены');
+        toast(status === 'paid' ? 'Заявка выполнена' : status === 'processing' ? 'Заявка поставлена в работу' : 'Заявка отклонена, средства возвращены');
         haptic('success');
         loadAdminPayouts();
       } catch (err) { toast(err.message); haptic('error'); }
@@ -10711,8 +10778,9 @@ document.getElementById('balanceChip').addEventListener('click', () => {
 });
 
 const STATUS_LABEL = {
-  pending: 'В обработке',
-  paid: 'Выплачено',
+  pending: 'Новая',
+  processing: 'В работе',
+  paid: 'Выполнено',
   rejected: 'Отклонено',
   cancelled: 'Отменена вами',
 };
@@ -10746,6 +10814,7 @@ async function loadWallet() {
     : '<div class="empty">Пополнений пока не было</div>';
 
   renderPayoutList(w.payouts);
+  loadPayments();
 
   document.getElementById('withdrawHint').innerHTML =
     `Доступно <b>${money(w.available)}</b> · минимум ${money(w.minPayout)}`;
@@ -10765,6 +10834,9 @@ function renderPayoutList(payouts) {
         <span class="payout-status ${p.status}">${STATUS_LABEL[p.status] || p.status}</span>
       </div>
       <div class="payout-date">${new Date(p.created_at).toLocaleString('ru-RU')}</div>
+      <div class="payout-requisites">${p.method === 'card'
+        ? `Карта ···· ${esc(String(p.card_number || '').slice(-4))}`
+        : `СБП · ${esc(p.phone || '')} · ${esc(p.bank || '')}`}</div>
       ${p.comment ? `<div class="payout-comment">${esc(p.comment)}</div>` : ''}
       ${p.status === 'pending'
         ? `<button class="btn btn-outline btn-sm payout-cancel" data-cancel="${p.id}">Отменить</button>`
@@ -10794,6 +10866,69 @@ document.getElementById('walletDeposit').addEventListener('click', () => {
   haptic('light');
 });
 
+document.querySelectorAll('[data-bank]').forEach((btn) => btn.addEventListener('click', () => {
+  state.paymentBank = btn.dataset.bank;
+  document.querySelectorAll('[data-bank]').forEach(b => b.classList.toggle('active', b === btn));
+}));
+document.querySelector('[data-bank="sber"]')?.classList.add('active');
+document.querySelector('[data-payment-method="crypto"]')?.addEventListener('click', () => toast('Криптовалюта скоро будет доступна'));
+
+async function loadPayments() {
+  try {
+    const { rows } = await api('/api/payments/list');
+    document.getElementById('paymentList').innerHTML = rows.length ? rows.map(p => `
+      <div class="payment-history"><div class="payout-head"><b>Заявка #${p.id} · ${money(p.original_amount)}</b>
+      <span class="payment-status ${p.status}">${p.status}</span></div>
+      <small>К оплате ${money(p.payable_amount)} · ${new Date(p.created_at).toLocaleString('ru-RU')}</small></div>`).join('') : '';
+    const active = rows.find(p => p.status === 'PENDING'); if (active) showPayment(active);
+  } catch (err) { toast(err.message); }
+}
+
+async function loadAdminPayments() {
+  try { const d=await api('/api/admin/payments',{status:'ALL'}); const x=d.dashboard;
+    document.getElementById('adminPaymentList').innerHTML=`<div class="admin-kpis"><div class="kpi"><div class="kpi-label">Оборот</div><div class="kpi-value">${money(x.turnover)}</div></div><div class="kpi"><div class="kpi-label">Успешно</div><div class="kpi-value">${x.paid}</div></div><div class="kpi"><div class="kpi-label">Ожидают / спорные</div><div class="kpi-value">${x.pending} / ${x.disputed}</div></div></div>${d.rows.map(p=>`<div class="payment-history"><div class="payout-head"><b>#${p.id} · ${esc(p.username||p.first_name||p.tg_id)}</b><span class="payment-status ${p.status}">${p.status}</span></div><div>Введено: ${money(p.original_amount)} · к оплате: ${money(p.payable_amount)}</div><small>${esc(p.bank)} · ${new Date(p.created_at).toLocaleString('ru-RU')}${p.sms_message?`<br>SMS: ${esc(p.sms_message)}`:''}</small></div>`).join('')}`;
+  }catch(err){toast(err.message);}
+}
+async function loadAdminSupport(){try{const d=await api('/api/admin/support');document.getElementById('adminSupportList').innerHTML=d.rows.length?d.rows.map(c=>`<button class="payment-history admin-chat-open" data-chat="${c.id}">#${c.id} · ${esc(c.username||c.first_name||c.tg_id)} · ${money(c.payable_amount)} <span class="payment-status ${c.payment_status}">${c.payment_status}</span>${c.unread_admin?` · непрочитано ${c.unread_admin}`:''}</button>`).join(''):'<div class="empty">Обращений нет</div>';document.querySelectorAll('.admin-chat-open').forEach(b=>b.onclick=()=>openAdminChat(Number(b.dataset.chat)));}catch(err){toast(err.message);}}
+async function openAdminChat(chatId){const d=await api('/api/admin/support/chat',{chatId});const box=document.getElementById('adminSupportList');box.innerHTML=`<button class="btn btn-sm" id="supportBack">Назад</button>${d.messages.map(m=>`<div class="support-message ${m.sender_type}"><b>${m.sender_type}</b><br>${esc(m.text||m.attachment_name)}</div>`).join('')}<textarea class="seed-input" id="adminSupportText"></textarea><button class="btn btn-primary" id="adminSupportSend">Ответить</button>`;document.getElementById('supportBack').onclick=loadAdminSupport;document.getElementById('adminSupportSend').onclick=async()=>{await api('/api/admin/support/message',{chatId,text:document.getElementById('adminSupportText').value});openAdminChat(chatId);};}
+async function loadAdminPaymentSettings(){try{const s=await api('/api/admin/payment-settings');const fields=[['beeline_phone','Номер Beeline'],['beeline_completed_limit','Лимит выполненных заявок, ₽ (0 — без лимита)'],['payment_ttl_minutes','Время жизни, мин'],['payment_markup_min','Надбавка от, ₽'],['payment_markup_max','Надбавка до, ₽'],['payment_min','Минимум, ₽'],['payment_max','Максимум, ₽']];const box=document.getElementById('adminPaymentSettings');box.innerHTML=`<div class="settings-grid">${fields.map(([k,l])=>`<label>${l}<input id="setting-${k}" value="${esc(s[k])}"></label>`).join('')}<p class="settings-help">Лимит считается отдельно по указанному номеру. Когда остаток меньше минимального пополнения, реквизит больше не выдаётся.</p><button class="btn btn-primary" id="savePaymentSettings">Сохранить</button></div><h3>Android-устройства</h3><div class="settings-grid device-register"><input id="deviceName" placeholder="Название, например Телефон кассы"><input id="deviceId" placeholder="ID, например beeline-1"><input id="deviceSecret" placeholder="Секрет — минимум 24 символа"><button class="btn btn-primary" id="registerDevice">Создать / обновить устройство</button></div><div id="deviceList"></div>`;document.getElementById('savePaymentSettings').onclick=async()=>{const values=Object.fromEntries(fields.map(([k])=>[k,document.getElementById(`setting-${k}`).value]));await api('/api/admin/payment-settings',{save:true,values});toast('Настройки сохранены');loadAdminPaymentSettings();};document.getElementById('registerDevice').onclick=async()=>{await api('/api/admin/payment-device/register',{name:document.getElementById('deviceName').value,deviceId:document.getElementById('deviceId').value,secret:document.getElementById('deviceSecret').value});toast('Устройство сохранено. Перенесите эти же ID и секрет в APK');loadAdminPaymentSettings();};const dev=await api('/api/admin/payment-devices');document.getElementById('deviceList').innerHTML=dev.rows.map(d=>`<div class="log-row"><span>${esc(d.name)}<br><small>${esc(d.device_id)}</small></span><b>${d.last_seen_at&&Date.now()-d.last_seen_at<300000?'● Online':'○ Offline'}</b></div>`).join('')||'<div class="empty">Добавьте первое устройство выше</div>';}catch(err){toast(err.message);}}
+
+function showPayment(p) {
+  state.payment = p; const box = document.getElementById('paymentCheckout'); box.hidden = false;
+  document.getElementById('paymentCreate').hidden = true; clearInterval(state.paymentTimer);
+  const paint = () => {
+    const left = Math.max(0, p.expires_at - Date.now()), mm = String(Math.floor(left/60000)).padStart(2,'0'), ss=String(Math.floor(left/1000)%60).padStart(2,'0');
+    if (!left) { clearInterval(state.paymentTimer); box.innerHTML='<h2>Вы не успели, повторите оплату снова</h2><button class="btn btn-primary" id="paidDispute">Я оплатил</button>'; document.getElementById('paidDispute').onclick=()=>openPaymentDispute(p.id); loadPayments(); return; }
+    box.innerHTML=`<div>Время на оплату</div><div class="payment-timer">${mm}:${ss}</div><h2>Оплатите мобильную связь</h2>
+      <div class="beeline-brand"><img src="${BEELINE_LOGO_SRC}" alt="Билайн"></div>
+      <div class="payment-requisite"><span>Оператор</span><b>Beeline</b></div><div class="payment-requisite"><span>Номер</span><b>${esc(p.phone)}</b></div>
+      <div class="payment-requisite"><span>Сумма</span><b>${money(p.payable_amount)}</b></div><p>Оплатите точную сумму на указанный номер. После получения платежа средства зачислятся автоматически.</p>`;
+  }; paint(); state.paymentTimer=setInterval(paint,1000);
+}
+document.getElementById('paymentCreateBtn').addEventListener('click', async () => {
+  try { const p=await api('/api/payments/create',{amount:Number(document.getElementById('paymentAmount').value),bank:state.paymentBank}); showPayment(p); loadPayments(); }
+  catch(err){toast(err.message);haptic('error');}
+});
+async function openPaymentDispute(paymentId) {
+  try { const chat=await api('/api/support/open',{paymentId}); const data=await api('/api/support/chat',{chatId:chat.id});
+    const box=document.getElementById('paymentCheckout'); box.innerHTML=`<h2>Финансовая поддержка #${chat.id}</h2><div>${data.messages.map(m=>`<div class="support-message ${m.sender_type}">${esc(m.text||m.attachment_name)}</div>`).join('')}</div><textarea class="seed-input" id="supportText" placeholder="Сообщение"></textarea><input id="supportFile" type="file" accept="image/jpeg,image/png,image/webp,application/pdf"><button class="btn btn-primary" id="supportSend">Отправить</button>`;
+    document.getElementById('supportSend').onclick=async()=>{let attachmentUrl,attachmentName;const f=document.getElementById('supportFile').files[0];if(f){const base64=await new Promise((ok,no)=>{const r=new FileReader();r.onload=()=>ok(String(r.result).split(',')[1]);r.onerror=no;r.readAsDataURL(f)});const up=await api('/api/support/upload',{name:f.name,mime:f.type,base64});attachmentUrl=up.url;attachmentName=up.name;}await api('/api/support/message',{chatId:chat.id,text:document.getElementById('supportText').value,attachmentUrl,attachmentName});openPaymentDispute(paymentId);};
+  } catch(err){toast(err.message);}
+}
+
+function startPaymentEvents(){
+  /*
+   * Поток событий имеет смысл только когда страницу отдаёт сервер. В
+   * автономной сборке её открывают файлом с диска, сервера нет вовсе, и
+   * EventSource там не подключается, а падает с ошибкой в консоли при каждом
+   * запуске. Ждать от неё платежей всё равно нечего.
+   */
+  if (location.protocol !== 'http:' && location.protocol !== 'https:') return;
+
+  const es=new EventSource(`/api/payments/events?initData=${encodeURIComponent(tg?.initData||'')}`);
+  es.addEventListener('payment.completed',async()=>{clearInterval(state.paymentTimer);toast('Платёж успешно поступил. Средства зачислены на счёт.');sndCollect();haptic('success');const me=await api('/api/me');applyUser(me.user);loadWallet();});
+}
+
 document.getElementById('walletWithdraw').addEventListener('click', () => {
   const pane = document.getElementById('walletWithdrawPane');
   document.getElementById('walletDepositPane').hidden = true;
@@ -10805,14 +10940,42 @@ document.getElementById('withdrawAll').addEventListener('click', () => {
   document.getElementById('withdrawAmount').value = state.wallet?.available || 0;
 });
 
+async function loadSbpBanks() {
+  try {
+    const data = await fetch('data:application/json;base64,ew0KICAic291cmNlIjogImh0dHBzOi8vc2JwLm5zcGsucnUvcGFydGljaXBhbnRzIiwNCiAgInVwZGF0ZWQiOiAiMjAyNi0wOC0yNyIsDQogICJiYW5rcyI6IFsNCiAgICAiVksgUGF5IC0g0JLQmiDQn9C70LDRgtGR0LbQvdGL0LUg0YDQtdGI0LXQvdC40Y8iLA0KICAgICLQkNCRINCg0J7QodCh0JjQryIsDQogICAgItCQ0LHRgdC+0LvRjtGCINCR0LDQvdC6IiwNCiAgICAi0JDQstCw0L3Qs9Cw0YDQtCIsDQogICAgItCQ0LLRgtC+INCk0LjQvdCw0L3RgSDQkdCw0L3QuiIsDQogICAgItCQ0LLRgtC+0YLQvtGA0LPQsdCw0L3QuiIsDQogICAgItCQ0JPQoNCe0J/QoNCe0Jwg0JrQoNCV0JTQmNCiIiwNCiAgICAi0JDQt9C40LDRgtGB0LrQvi3QotC40YXQvtC+0LrQtdCw0L3RgdC60LjQuSDQkdCw0L3QuiIsDQogICAgItCQ0Log0JHQsNGA0YEg0JHQsNC90LoiLA0KICAgICLQkNCa0JEg0JTQtdGA0LbQsNCy0LAiLA0KICAgICLQkNCa0JEg0JXQktCg0J7QpNCY0J3QkNCd0KEg0JzQntCh0J3QkNCg0JHQkNCd0JoiLA0KICAgICLQkNCa0JEg0J/RgNC40LzQvtGA0YzQtSIsDQogICAgItCQ0JrQkSDQodCb0JDQktCY0K8iLA0KICAgICLQkNCa0JEg0KLQtdC90LTQtdGAINCR0LDQvdC6IiwNCiAgICAi0JDQmtCRINCm0LXQvdGC0YDQvtCa0YDQtdC00LjRgiIsDQogICAgItCQ0JrQmNCR0JDQndCaIiwNCiAgICAi0JDQu9C10YQt0JHQsNC90LoiLA0KICAgICLQkNC70LzQsNC30Y3RgNCz0LjRjdC90LHQsNC90LoiLA0KICAgICLQkNC70YzRhNCwLdCR0LDQvdC6IiwNCiAgICAi0JDQniBcItCf0JXQoNCS0J7Qo9Cg0JDQm9Cs0KHQmtCR0JDQndCaXCIiLA0KICAgICLQkNGA0LXRgdCx0LDQvdC6IiwNCiAgICAi0JHQkNCb0JDQmtCe0JLQni3QkdCQ0J3QmiIsDQogICAgItCR0JDQndCaIFwi0JzQodCa0JFcIiIsDQogICAgItCR0LDQvdC6IDEzMSIsDQogICAgItCR0LDQvdC6INCQ0LLQtdGA0YEiLA0KICAgICLQkdCw0L3QuiDQkNCz0YDQvtGA0L7RgSIsDQogICAgItCR0LDQvdC6INCQ0LrRhtC10L/RgiIsDQogICAgItCR0LDQvdC6INCQ0LvQtdC60YHQsNC90LTRgNC+0LLRgdC60LjQuSIsDQogICAgItCR0LDQvdC6INCR0JHQoCIsDQogICAgItCR0LDQvdC6INCS0JHQoNCgIiwNCiAgICAi0JHQsNC90Log0JLQtdC90LXRhiIsDQogICAgItCR0LDQvdC6INCS0L7Qu9C+0LPQttCw0L3QuNC9IiwNCiAgICAi0JHQsNC90Log0JPQu9C+0LHRg9GBIiwNCiAgICAi0JHQsNC90Log0JTQkNCb0JXQndCQIiwNCiAgICAi0JHQsNC90Log0JTQntCcLtCg0KQiLA0KICAgICLQkdCw0L3QuiDQl9Cw0YDQtdGH0YzQtSIsDQogICAgItCR0LDQvdC6INCX0LXQvdC40YIiLA0KICAgICLQkdCw0L3QuiDQmNC90YLQtdC30LAiLA0KICAgICLQkdCw0L3QuiDQmNCf0JEiLA0KICAgICLQkdCw0L3QuiDQmNCi0KPQoNCj0J8iLA0KICAgICLQkdCw0L3QuiDQmdC+0YjQutCw0YAt0J7Qu9CwIiwNCiAgICAi0JHQsNC90Log0JrQsNC30LDQvdC4IiwNCiAgICAi0JHQsNC90Log0JrRgNC10LzQu9C10LLRgdC60LjQuSIsDQogICAgItCR0LDQvdC6INCa0YPQt9C90LXRhtC60LjQuSIsDQogICAgItCR0LDQvdC6INCc0JHQkC3QnNCe0KHQmtCS0JAiLA0KICAgICLQkdCw0L3QuiDQnNC40YAg0J/RgNC40LLQuNC70LXQs9C40LkiLA0KICAgICLQkdCQ0J3QmiDQnNCe0KHQmtCS0JAt0KHQmNCi0JgiLA0KICAgICLQkdCw0L3QuiDQndCe0JLQmNCa0J7QnCAo0J3QntCS0JjQmtCe0JzQkdCQ0J3QmikiLA0KICAgICLQkdCw0L3QuiDQntCx0YrQtdC00LjQvdC10L3QvdGL0Lkg0LrQsNC/0LjRgtCw0LsiLA0KICAgICLQkdCQ0J3QmiDQntCg0JXQndCR0KPQoNCTIiwNCiAgICAi0JHQsNC90Log0J/QodCRIiwNCiAgICAi0JHQsNC90Log0J/QodCa0JEiLA0KICAgICLQkdCw0L3QuiDQn9GN0LnQtNC20LjQvSIsDQogICAgItCR0LDQvdC6INCg0LDQt9Cy0LjRgtC40LUt0KHRgtC+0LvQuNGG0LAiLA0KICAgICLQkdCw0L3QuiDQoNCw0YPQvdC0IiwNCiAgICAi0JHQsNC90Log0KDQodCYIiwNCiAgICAi0JHQsNC90Log0KDRg9GB0YHQutC40Lkg0KHRgtCw0L3QtNCw0YDRgiIsDQogICAgItCR0LDQvdC6INCh0LDQvdC60YIt0J/QtdGC0LXRgNCx0YPRgNCzIiwNCiAgICAi0JHQsNC90Log0KHQsNGA0LDRgtC+0LIiLA0KICAgICLQkdCw0L3QuiDQodC40L3QsNGA0LAiLA0KICAgICLQkdCw0L3QuiDQodC90LXQttC40L3RgdC60LjQuSIsDQogICAgItCR0LDQvdC6INCh0YLQsNCy0YAiLA0KICAgICLQkdCQ0J3QmiDQo9Cg0JDQm9Ch0JjQkSIsDQogICAgItCR0LDQvdC6INCk0LjQvdGB0LXRgNCy0LjRgSIsDQogICAgItCR0LDQvdC6INCn0JHQoNCgIiwNCiAgICAi0JHQtdC70LPQvtGA0L7QtNGB0L7RhtCx0LDQvdC6IiwNCiAgICAi0JHQltCkINCR0LDQvdC6IiwNCiAgICAi0JHQmtChINCR0LDQvdC6IiwNCiAgICAi0JHQu9Cw0L3QuiDQsdCw0L3QuiIsDQogICAgItCR0YDQsNGC0YHQutC40Lkg0JDQndCa0JEiLA0KICAgICLQkdGL0YHRgtGA0L7QkdCw0L3QuiIsDQogICAgItCS0LDQudC70LTQsdC10YDRgNC40Lcg0JHQsNC90LoiLA0KICAgICLQktCb0JDQlNCR0JjQl9Cd0JXQodCR0JDQndCaIiwNCiAgICAi0JLQndCV0KjQpNCY0J3QkdCQ0J3QmiIsDQogICAgItCS0KLQkSIsDQogICAgItCT0LDQt9C/0YDQvtC80LHQsNC90LoiLA0KICAgICLQk9Cw0LfRgtGA0LDQvdGB0LHQsNC90LoiLA0KICAgICLQk9Cw0LfRjdC90LXRgNCz0L7QsdCw0L3QuiIsDQogICAgItCT0JXQndCR0JDQndCaIiwNCiAgICAi0JPQo9Ci0JAt0JHQkNCd0JoiLA0KICAgICLQlNCw0YLQsNCx0LDQvdC6IiwNCiAgICAi0JTQvtC70LjQvdGB0LoiLA0KICAgICLQldC00LjQvdCw0Y8g0LrQsNGB0YHQsCIsDQogICAgItCV0L3QuNGB0LXQudGB0LrQuNC5INCe0LHRitC10LTQuNC90LXQvdC90YvQuSDQsdCw0L3QuiIsDQogICAgItCX0LXQvNGB0LrQuNC5INCx0LDQvdC6IiwNCiAgICAi0JjQmiDQkdCw0L3QuiIsDQogICAgItCY0L3QsdCw0L3QuiIsDQogICAgItCY0L3Qs9C+INCR0LDQvdC6IiwNCiAgICAi0JjQqNCR0JDQndCaIiwNCiAgICAi0JrQkSDQndC+0LLRi9C5INCS0LXQuiIsDQogICAgItCa0JEg0J/QvtC50LTQtdC8ISIsDQogICAgItCa0JEg0KDQvtGB0YLQpNC40L3QsNC90YEiLA0KICAgICLQmtCRINCh0J7Qm9CY0JTQkNCg0J3QntCh0KLQrCIsDQogICAgItCa0JEg0KHRgtGA0L7QudC70LXRgdCx0LDQvdC6IiwNCiAgICAi0JrQkSDQpdC70YvQvdC+0LIiLA0KICAgICLQmtCRINCu0J3QmNCh0KLQoNCY0JwiLA0KICAgICLQmtCY0JEg0JXQktCg0J7QkNCb0KzQr9Cd0KEiLA0KICAgICLQmtC+0L3RgtGD0YAu0JHQsNC90LoiLA0KICAgICLQmtCe0KjQldCb0JXQki3QkdCQ0J3QmiIsDQogICAgItCa0YDQtdC00LjRgiDQldCy0YDQvtC/0LAg0JHQsNC90LogKNCg0L7RgdGB0LjRjykiLA0KICAgICLQmtGA0LXQtNC40YIg0KPRgNCw0Lsg0JHQsNC90LoiLA0KICAgICLQmtGA0L7QutGD0YEt0JHQsNC90LoiLA0KICAgICLQmtGD0LHQsNC90Ywg0JrRgNC10LTQuNGCIiwNCiAgICAi0JrRg9Cx0LDQvdGM0YLQvtGA0LPQsdCw0L3QuiIsDQogICAgItCa0YPQt9C90LXRhtC60LHQuNC30L3QtdGB0LHQsNC90LoiLA0KICAgICLQm9Cw0L3RgtCwLdCR0LDQvdC6IiwNCiAgICAi0JvQtdCy0L7QsdC10YDQtdC20L3Ri9C5IiwNCiAgICAi0JvQntCa0J4t0JHQsNC90LoiLA0KICAgICLQnNCRINCg0KPQoSDQkdCw0L3QuiIsDQogICAgItCc0JXQltCU0KPQndCQ0KDQntCU0J3Qq9CZINCk0JjQndCQ0J3QodCe0JLQq9CZINCa0JvQo9CRIiwNCiAgICAi0JzQtdGC0LDQu9C70LjQvdCy0LXRgdGC0LHQsNC90LoiLA0KICAgICLQnNCV0KLQmtCe0JzQkdCQ0J3QmiIsDQogICAgItCc0LjRgCDQkdC40LfQvdC10YEg0JHQsNC90LoiLA0KICAgICLQnNCa0JEiLA0KICAgICLQnNC+0LTRg9C70YzQsdCw0L3QuiIsDQogICAgItCc0J7QndCV0KLQkCIsDQogICAgItCc0J7QoNCh0JrQntCZINCR0JDQndCaIiwNCiAgICAi0JzQntCh0JrQntCc0JHQkNCd0JoiLA0KICAgICLQnNC+0YHQutC+0LzQvNC10YDRhtCx0LDQvdC6IiwNCiAgICAi0JzQoSDQkdCw0L3QuiDQoNGD0YEiLA0KICAgICLQnNCi0KEt0JHQsNC90LoiLA0KICAgICLQndCw0YbQuNC90LLQtdGB0YLQv9GA0L7QvNCx0LDQvdC6IiwNCiAgICAi0J3QsNGG0LjQvtC90LDQu9GM0L3Ri9C5INGB0YLQsNC90LTQsNGA0YIiLA0KICAgICLQndCR0JQt0JHQsNC90LoiLA0KICAgICLQndCY0JrQni3QkdCQ0J3QmiIsDQogICAgItCd0Jog0JHQsNC90LoiLA0KICAgICLQndCa0J4g0JzQntCR0Jgu0JTQtdC90YzQs9C4IiwNCiAgICAi0J3QmtCeINCc0L7QsdC40LvRjNC90LDRjyDQutCw0YDRgtCwIiwNCiAgICAi0J3QmtCeINCt0LvQtdC60YHQuNGAIiwNCiAgICAi0J3QmtCeINCu0JzQsNC90LgiLA0KICAgICLQndC+0LLQvtCx0LDQvdC6IiwNCiAgICAi0J3QntCa0KHQodCR0JDQndCaIiwNCiAgICAi0J3QntCe0KHQpNCV0KDQkCIsDQogICAgItCd0L7RgNCy0LjQuiDQkdCw0L3QuiIsDQogICAgItCd0KDQkdCw0L3QuiIsDQogICAgItCd0KEg0JHQsNC90LoiLA0KICAgICLQntC30L7QvSDQkdCw0L3QuiAoT3pvbikiLA0KICAgICLQntCe0J4gXCLQltCY0JLQkNCT0J4g0JHQkNCd0JpcIiIsDQogICAgItCe0KLQnyDQkdCw0L3QuiIsDQogICAgItCf0LXRgNCy0YvQuSDQlNC+0YDRgtGA0LDQvdGB0LHQsNC90LoiLA0KICAgICLQn9C10YDQstGL0Lkg0JjQvdCy0LXRgdGC0LjRhtC40L7QvdC90YvQuSDQkdCw0L3QuiIsDQogICAgItCf0LvQsNC50YIiLA0KICAgICLQn9C70LDRgtC10LbQuCDQuCDQoNCw0YHRh9C10YLRiyIsDQogICAgItCf0YDQuNC80YHQvtGG0LHQsNC90LoiLA0KICAgICLQn9GA0LjQvi3QktC90LXRiNGC0L7RgNCz0LHQsNC90LoiLA0KICAgICLQn9GA0L7QkdCw0L3QuiIsDQogICAgItCf0YDQvtC80YHQtdC70YzRhdC+0LfQsdCw0L3QuiAgKFBheWluUnVzc2lhL9Cf0LvQsNGC0Lgg0LIg0KDQvtGB0YHQuNC4KSIsDQogICAgItCg0LDQudGE0YTQsNC50LfQtdC9INCR0LDQvdC6IiwNCiAgICAi0KDQsNGB0YfQtdGC0L3Ri9C1INCg0LXRiNC10L3QuNGPIiwNCiAgICAi0KDQtdCw0LvQuNGB0YIg0JHQsNC90LoiLA0KICAgICLQoNC10L3QtdGB0YHQsNC90YEg0JHQsNC90LogKNCg0LXQvdC10YHRgdCw0L3RgSDQmtGA0LXQtNC40YIpIiwNCiAgICAi0KDQldCh0J4g0JrRgNC10LTQuNGCIiwNCiAgICAi0KDQndCa0J4g0J3QntCU0JAiLA0KICAgICLQoNCd0JrQniDQn9C70LDRgtC10LbQvdGL0Lkg0YbQtdC90YLRgCIsDQogICAgItCg0L7QutC10YLQsdCw0L3QuiIsDQogICAgItCg0L7RgdCU0L7RgNCR0LDQvdC6IiwNCiAgICAi0KDQvtGB0YHQtdC70YzRhdC+0LfQsdCw0L3QuiIsDQogICAgItCg0L7Rj9C7INCa0YDQtdC00LjRgiDQkdCw0L3QuiIsDQogICAgItCg0KPQodCd0JDQoNCR0JDQndCaIiwNCiAgICAi0KDRg9GB0YzRg9C90LjQstC10YDRgdCw0LvQsdCw0L3QuiIsDQogICAgItCh0LHQtdGA0LHQsNC90LoiLA0KICAgICLQodCy0L7QuSDQkdCw0L3QuiIsDQogICAgItCh0JTQnC3QkdCw0L3QuiIsDQogICAgItCh0LXQstC10YDQs9Cw0LfQsdCw0L3QuiIsDQogICAgItCh0LXQstC10YDQvdGL0Lkg0J3QsNGA0L7QtNC90YvQuSDQkdCw0L3QuiIsDQogICAgItCh0LjQsdGB0L7RhtCx0LDQvdC6IiwNCiAgICAi0KHQmNCd0JrQni3QkdCQ0J3QmiIsDQogICAgItCh0JzQm9CiINCR0LDQvdC6IiwNCiAgICAi0KHQndCT0JEiLA0KICAgICLQodC+0LLQutC+0LzQsdCw0L3QuiIsDQogICAgItCh0L7Qu9C40LQg0JHQsNC90LoiLA0KICAgICLQodCe0KbQmNCj0Jwt0JHQkNCd0JoiLA0KICAgICLQoi3QkdCw0L3QuiIsDQogICAgItCi0JDQotCh0J7QptCR0JDQndCaIiwNCiAgICAi0KLQuNC80LXRgCDQkdCw0L3QuiIsDQogICAgItCi0L7QudC+0YLQsCDQkdCw0L3QuiIsDQogICAgItCi0L7Qu9GM0Y/RgtGC0LjRhdC40LzQsdCw0L3QuiIsDQogICAgItCi0L7QvNGB0LrQv9GA0L7QvNGB0YLRgNC+0LnQsdCw0L3QuiIsDQogICAgItCi0L7Rh9C60LAg0JHQsNC90LoiLA0KICAgICLQotGA0LDQvdGB0LrQsNC/0LjRgtCw0LvQsdCw0L3QuiIsDQogICAgItCi0YDQsNC90YHRgdGC0YDQvtC50LHQsNC90LoiLA0KICAgICLQo9CR0KDQuNCgIiwNCiAgICAi0KPQs9C70LXQvNC10YLQsdCw0L3QuiIsDQogICAgItCj0YDQsNC7INCk0JQiLA0KICAgICLQo9Cg0JDQm9Cf0KDQntCc0JHQkNCd0JoiLA0KICAgICLQo9GA0LDQu9GE0LjQvdCw0L3RgSIsDQogICAgItCk0JjQndCQ0JwiLA0KICAgICLQpNCY0J3QodCi0JDQoCDQkdCQ0J3QmiIsDQogICAgItCk0J7QoNCQLdCR0JDQndCaIiwNCiAgICAi0KTQvtGA0YjRgtCw0LTRgiIsDQogICAgItCl0LDQudGBIiwNCiAgICAi0KXQsNC60LDRgdGB0LrQuNC5INC80YPQvdC40YbQuNC/0LDQu9GM0L3Ri9C5INCx0LDQvdC6IiwNCiAgICAi0KbQtdC90YLRgC3QuNC90LLQtdGB0YIiLA0KICAgICLQptC40YTRgNCwINCx0LDQvdC6IiwNCiAgICAi0KbQnNCg0JHQsNC90LoiLA0KICAgICLQp9CV0JvQmNCd0JTQkdCQ0J3QmiIsDQogICAgItCn0JXQm9Cv0JHQmNCd0JLQldCh0KLQkdCQ0J3QmiIsDQogICAgItCt0LrQvtC90L7QvNCx0LDQvdC6IiwNCiAgICAi0K3QmtCh0Jgt0JHQsNC90LogKNCQ0J4pIiwNCiAgICAi0K3QutGB0L/QvtCx0LDQvdC6IiwNCiAgICAi0K3Qu9C40YLQsCIsDQogICAgItCt0LvQv9C70LDRgiIsDQogICAgItCt0L3QtdGA0LPQvtCx0LDQvdC6IiwNCiAgICAi0K3QvdC10YDQs9C+0YLRgNCw0L3RgdCx0LDQvdC6IiwNCiAgICAi0K3RgS3QkdC4LdCQ0Lkg0JHQsNC90LoiLA0KICAgICLQrtCTLdCY0L3QstC10YHRgtCx0LDQvdC6IiwNCiAgICAi0K7QvdC40LrRgNC10LTQuNGCINCR0LDQvdC6IiwNCiAgICAi0K/QvdC00LXQutGBINCR0LDQvdC6IiwNCiAgICAi0K/RgNC40L3RgtC10YDQsdCw0L3QuiINCiAgXQ0KfQ==').then(r => r.json());
+    const select = document.getElementById('withdrawBank');
+    select.insertAdjacentHTML('beforeend', data.banks.map(name => `<option value="${esc(name)}">${esc(name)}</option>`).join(''));
+  } catch { /* Серверная валидация всё равно не даст создать заявку без банка. */ }
+}
+loadSbpBanks();
+
+document.querySelectorAll('[data-withdraw-method]').forEach(btn => btn.addEventListener('click', () => {
+  state.withdrawMethod = btn.dataset.withdrawMethod;
+  document.querySelectorAll('[data-withdraw-method]').forEach(x => x.classList.toggle('active', x === btn));
+  document.getElementById('withdrawSbpFields').hidden = state.withdrawMethod !== 'sbp';
+  document.getElementById('withdrawCardFields').hidden = state.withdrawMethod !== 'card';
+}));
+
+document.getElementById('withdrawCard').addEventListener('input', (event) => {
+  const digits = event.target.value.replace(/\D/g, '').slice(0, 19);
+  event.target.value = digits.replace(/(.{4})/g, '$1 ').trim();
+});
+
 document.getElementById('withdrawSubmit').addEventListener('click', async () => {
   const amount = Math.trunc(Number(document.getElementById('withdrawAmount').value));
   if (!amount || amount <= 0) { toast('Укажите сумму'); return; }
 
   try {
-    const r = await api('/api/payout/create', { amount });
+    const payload = { amount, method: state.withdrawMethod };
+    if (state.withdrawMethod === 'sbp') {
+      payload.phone = document.getElementById('withdrawPhone').value;
+      payload.bank = document.getElementById('withdrawBank').value;
+    } else payload.cardNumber = document.getElementById('withdrawCard').value;
+    const r = await api('/api/payout/create', payload);
     applyUser(r.user);
     document.getElementById('withdrawAmount').value = '';
+    document.getElementById('withdrawPhone').value = '';
+    document.getElementById('withdrawCard').value = '';
     toast(`Заявка на ${money(amount)} создана`);
     sndBet();
     haptic('success');
@@ -11462,6 +11625,7 @@ async function init() {
     renderUpgradeStage();
 
     startFeed();
+    startPaymentEvents();
     loadFreeCase();
   } catch (err) {
     document.getElementById('app').innerHTML =

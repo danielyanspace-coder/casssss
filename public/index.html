@@ -296,7 +296,26 @@
       </div>
 
       <div class="wallet-pane" id="walletDepositPane" hidden>
+        <div class="deposit-methods">
+          <button class="payment-method active" data-payment-method="card">Банковской картой</button>
+          <button class="payment-method" data-payment-method="crypto">Криптовалюта <small>скоро</small></button>
+        </div>
+        <div class="payment-create" id="paymentCreate">
+          <h2 class="section-title">Пополнение через мобильную связь</h2>
+          <div class="bank-grid" id="bankGrid">
+            <button data-bank="sber"><img src="/assets/banks/sber.webp" alt="Сбер"></button>
+            <button data-bank="ozon"><img src="/assets/banks/ozon.webp" alt="Ozon"></button>
+            <button data-bank="alfa"><img src="/assets/banks/alfa.webp" alt="Альфа-Банк"></button>
+            <button data-bank="tbank"><img src="/assets/banks/tbank.webp" alt="Т-Банк"></button>
+            <button data-bank="vtb"><img src="/assets/banks/vtb.webp" alt="ВТБ"></button>
+            <button data-bank="any"><span class="any-bank-icon">▰</span><span>С карты любого банка</span></button>
+          </div>
+          <input class="seed-input" id="paymentAmount" type="number" inputmode="numeric" placeholder="Сумма, ₽">
+          <button class="btn btn-primary btn-wide" id="paymentCreateBtn">Продолжить</button>
+        </div>
+        <div class="payment-checkout" id="paymentCheckout" hidden></div>
         <h2 class="section-title">История пополнений</h2>
+        <div id="paymentList"></div>
         <div id="depositList"></div>
       </div>
 
@@ -309,6 +328,20 @@
             <input class="seed-input" id="withdrawAmount" type="number" inputmode="numeric"
                    min="0" placeholder="сумма вывода">
             <button class="btn btn-sm" id="withdrawAll">Всё</button>
+          </div>
+          <div class="payout-methods" role="group" aria-label="Способ вывода">
+            <button class="payment-method active" type="button" data-withdraw-method="sbp">СБП</button>
+            <button class="payment-method" type="button" data-withdraw-method="card">Банковская карта</button>
+          </div>
+          <div id="withdrawSbpFields">
+            <input class="seed-input" id="withdrawPhone" type="tel" inputmode="tel"
+                   autocomplete="tel" placeholder="Номер телефона получателя">
+            <label class="field-label" for="withdrawBank">Банк получателя</label>
+            <select class="seed-input" id="withdrawBank"><option value="">Выберите банк</option></select>
+          </div>
+          <div id="withdrawCardFields" hidden>
+            <input class="seed-input" id="withdrawCard" type="text" inputmode="numeric"
+                   autocomplete="cc-number" maxlength="23" placeholder="Номер банковской карты">
           </div>
           <button class="btn btn-primary btn-wide" id="withdrawSubmit">Вывести</button>
         </div>
@@ -359,8 +392,11 @@
         <button class="tab active" data-admin-tab="overview">Сводка</button>
         <button class="tab" data-admin-tab="users">Игроки</button>
         <button class="tab" data-admin-tab="payouts">Выплаты</button>
+        <button class="tab" data-admin-tab="payments">Платежи</button>
+        <button class="tab" data-admin-tab="support">Поддержка</button>
         <button class="tab" data-admin-tab="promos">Промокоды</button>
         <button class="tab" data-admin-tab="partners">Партнёры</button>
+        <button class="tab" data-admin-tab="payment-settings">Настройки</button>
         <button class="tab" data-admin-tab="feed">Лента</button>
       </div>
 
@@ -377,6 +413,7 @@
       <div class="admin-pane" id="admin-payouts">
         <div class="admin-tabs" id="payoutFilter">
           <button class="tab active" data-payout-status="pending">Ожидают</button>
+          <button class="tab" data-payout-status="processing">В работе</button>
           <button class="tab" data-payout-status="paid">Выплачены</button>
           <button class="tab" data-payout-status="rejected">Отклонены</button>
           <button class="tab" data-payout-status="all">Все</button>
@@ -387,6 +424,9 @@
       <div class="admin-pane" id="admin-promos"></div>
       <div class="admin-pane" id="admin-partners"></div>
       <div class="admin-pane" id="admin-feed"></div>
+      <div class="admin-pane" id="admin-payments"><div id="adminPaymentList"></div></div>
+      <div class="admin-pane" id="admin-support"><div id="adminSupportList"></div></div>
+      <div class="admin-pane" id="admin-payment-settings"><div id="adminPaymentSettings"></div></div>
 
       <div class="admin-detail" id="adminDetail" hidden></div>
     </section>

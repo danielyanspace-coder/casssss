@@ -467,10 +467,26 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
   check('начисление администратора видно в пополнениях',
         start.deposits.some((d) => d.source === 'admin'));
 
+  /*
+   * Заявке нужны реквизиты: способ вывода и телефон с банком либо номер
+   * карты. Держим их в одном месте - платёжный модуль проверяет их строго, и
+   * при правке контракта чинить придётся одну строку, а не десяток вызовов.
+   */
+  const sbp = { method: 'sbp', phone: '79001234567', bank: 'Сбербанк' };
+  const makePayout = (amount) => post('/api/payout/create', { amount, ...sbp });
+
   check('минимальная сумма вывода проверяется',
-        (await post('/api/payout/create', { amount: 1 })).status === 400);
+        (await makePayout(1)).status === 400);
   check('нельзя вывести больше баланса',
-        (await post('/api/payout/create', { amount: start.balance + 1 })).status === 400);
+        (await makePayout(start.balance + 1)).status === 400);
+  check('без способа вывода заявка не создаётся',
+        (await post('/api/payout/create', { amount: 5000 })).status === 400);
+  check('кривой телефон не проходит',
+        (await post('/api/payout/create',
+          { amount: 5000, method: 'sbp', phone: '123', bank: 'Сбербанк' })).status === 400);
+  check('номер карты проверяется по Луну',
+        (await post('/api/payout/create',
+          { amount: 5000, method: 'card', cardNumber: '1234567812345678' })).status === 400);
 
   const amount = 5000;
   const before = start.balance;
@@ -479,7 +495,7 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
   // Как и со статистикой ниже, «ожидающее» проверяем приростом: в базе могут
   // лежать заявки прошлых прогонов, и абсолютное значение тогда не сойдётся.
   const pendingBefore = (await post('/api/wallet')).data.pending;
-  const made = (await post('/api/payout/create', { amount })).data;
+  const made = (await makePayout(amount)).data;
   check('заявка списывает сумму сразу', made.balance === before - amount,
         `${made.balance} vs ${before - amount}`);
   check('сумма учтена как ожидающая',
@@ -491,7 +507,7 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
         (await post('/api/payout/cancel', { id: made.id })).status === 400);
 
   // Отклонение администратором возвращает деньги.
-  const p2 = (await post('/api/payout/create', { amount })).data;
+  const p2 = (await makePayout(amount)).data;
   await post('/api/admin/payout/resolve', { id: p2.id, status: 'rejected', comment: 'Проверка' });
   const afterReject = (await post('/api/wallet')).data;
   check('отклонение возвращает средства', afterReject.balance === before,
@@ -499,11 +515,22 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
   check('комментарий администратора виден игроку',
         afterReject.payouts[0].comment === 'Проверка');
 
-  // Выплата деньги не возвращает.
-  // Снимок статистики до операции: база может хранить заявки прошлых прогонов,
-  // поэтому проверяем прирост, а не абсолютное значение.
+  /*
+   * Выплата идёт через «в работе»: сразу из новой в выплаченную заявку
+   * перевести нельзя. Это и есть защита от возврата денег по уже отправленному
+   * переводу - её и проверяем.
+   */
   const paidBefore = (await post('/api/admin/payouts', { status: 'all' })).data.stats.paidSum;
-  const p3 = (await post('/api/payout/create', { amount })).data;
+  const p3 = (await makePayout(amount)).data;
+  check('выплатить заявку в обход «в работе» нельзя',
+        (await post('/api/admin/payout/resolve', { id: p3.id, status: 'paid' })).status === 400);
+
+  await post('/api/admin/payout/resolve', { id: p3.id, status: 'processing', comment: 'Взяли' });
+  check('заявка в работе не отменяется игроком',
+        (await post('/api/payout/cancel', { id: p3.id })).status === 400);
+  check('заявку в работе нельзя отклонить с возвратом',
+        (await post('/api/admin/payout/resolve', { id: p3.id, status: 'rejected' })).status === 400);
+
   await post('/api/admin/payout/resolve', { id: p3.id, status: 'paid', comment: 'Отправлено' });
   const afterPaid = (await post('/api/wallet')).data;
   check('выплата не возвращает средства', afterPaid.balance === before - amount,
@@ -518,6 +545,8 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
   check('статистика выплат растёт ровно на выплаченное',
         adm.data.stats.paidSum === paidBefore + amount,
         `${adm.data.stats.paidSum} vs ${paidBefore + amount}`);
+  check('номер телефона сохранён в заявке',
+        adm.data.rows.some((r) => r.method === 'sbp' && r.phone === '+79001234567'));
 }
 
 /* ---------- Фриспины и джекпот ---------- */
@@ -765,7 +794,8 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
   check('ставки гасят отыгрыш',
         (await post('/api/me')).data.user.wagerRequired === 0);
 
-  const allowed = await post('/api/payout/create', { amount: config.minPayout });
+  const allowed = await post('/api/payout/create',
+    { amount: config.minPayout, method: 'sbp', phone: '79001234567', bank: 'Сбербанк' });
   check('после отыгрыша вывод открылся', allowed.status === 200, `HTTP ${allowed.status}`);
   if (allowed.data.id) await post('/api/payout/cancel', { id: allowed.data.id });
 

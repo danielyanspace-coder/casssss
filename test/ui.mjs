@@ -402,14 +402,30 @@ async function openCaseAndVerify(caseId) {
     return !!fs && !fs.hidden && !!btn && !btn.hidden;
   });
 
-  await page.waitForFunction(() => {
+  /*
+   * Ждём одного из двух: экрана результата или кнопки «Забрать» под серией.
+   * Настройки идут третьим аргументом - вторым waitForFunction принимает
+   * данные для функции, и таймаут, переданный туда, молча теряется.
+   */
+  const waitForEnd = () => page.waitForFunction(() => {
     const res = document.getElementById('result');
     const fs = document.getElementById('freespins');
     const btn = document.getElementById('fsCollect');
     return (!!res && !res.hidden) || (!!fs && !fs.hidden && !!btn && !btn.hidden);
-  }, { timeout: 120000 });
+  }, null, { timeout: 180000 });
 
-  if (await seriesWaiting()) await page.click('#fsCollect');
+  /*
+   * Забирать серию приходится в цикле: фриспин может выдать новые фриспины, и
+   * после «Забрать» начинается следующая серия. Одного нажатия хватает не
+   * всегда, а ждать после него сразу результата - значит упереться в таймаут
+   * на ровном месте.
+   */
+  await waitForEnd();
+  let collected = 0;
+  while (await seriesWaiting() && collected++ < 10) {
+    await page.click('#fsCollect');
+    await waitForEnd();
+  }
 
   // Ждём окончания прокрутки: результат появляется после неё.
   await page.waitForSelector('#result:not([hidden])', { timeout: 30000 });

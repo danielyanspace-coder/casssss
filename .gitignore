@@ -9,3 +9,8 @@ npm-debug.log*
 .DS_Store
 .idea/
 .vscode/
+android-gateway/.gradle/
+android-gateway/.kotlin/
+android-gateway/app/build/
+android-gateway/local.properties
+android-gateway/app/debug.keystore

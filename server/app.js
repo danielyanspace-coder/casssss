@@ -11,6 +11,8 @@ import 'dotenv/config';
 import express from 'express';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 
 import {
   CASES, CATEGORIES, getCase, pickItem, publicCase, validateCases, TIERS,
@@ -68,6 +70,8 @@ import {
   createPayout,
   cancelPayout,
   resolvePayout,
+  startPayout,
+  completePayout,
   adminPayouts,
   payoutStats,
   grantFreeCase,
@@ -101,6 +105,12 @@ import {
   subscriptionConfig,
   FREE_CASE_COOLDOWN_MS,
 } from './subscription.js';
+import {
+  createPayment, getPayment, listPayments, verifyDeviceRequest, processBeelineSms,
+  heartbeat, registerDevice, adminDevices, adminPayments, paymentDashboard,
+  paymentSettings, updatePaymentSettings, openDispute, addSupportMessage,
+  supportChat, adminChats,
+} from './payments.js';
 
 // Если математика поехала — падаем на старте, до первого игрока.
 const caseReport = validateCases();
@@ -117,7 +127,7 @@ syncAdmins(ADMIN_TG_IDS);
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
 
-app.use(express.json({ limit: '64kb' }));
+app.use(express.json({ limit: '8mb', verify: (req, res, buffer) => { req.rawBody = buffer.toString('utf8'); } }));
 app.use(express.static(join(__dirname, '..', 'public'), { maxAge: '1h' }));
 
 function auth(req, res, next) {
@@ -744,10 +754,21 @@ app.post('/api/payout/create', auth, (req, res) => {
   }
 
   try {
-    const result = createPayout(req.player.id, amount);
+    const result = createPayout(req.player.id, amount, {
+      method: req.body?.method,
+      phone: req.body?.phone,
+      bank: req.body?.bank,
+      cardNumber: req.body?.cardNumber,
+    });
     res.json({ ...result, user: publicUser(getUserById(req.player.id)) });
   } catch (err) {
-    if (err.code === 'MIN' || err.code === 'INSUFFICIENT_FUNDS' || err.code === 'WAGER') {
+    // Ожидаемые отказы: игроку показывается сообщение, а не «что-то пошло не
+    // так». WAGER - невыполненный отыгрыш бонуса, остальные - проверки
+    // реквизитов платёжного модуля.
+    if ([
+      'MIN', 'INSUFFICIENT_FUNDS', 'WAGER',
+      'BAD_PHONE', 'BAD_BANK', 'BAD_CARD', 'BAD_METHOD', 'PAYOUT_KEY_MISSING',
+    ].includes(err.code)) {
       return res.status(400).json({ error: err.code, message: err.message });
     }
     throw err;
@@ -993,7 +1014,7 @@ app.post('/api/admin/voucher', auth, adminOnly, (req, res) => {
 });
 
 app.post('/api/admin/payouts', auth, adminOnly, (req, res) => {
-  const status = ['pending', 'paid', 'rejected', 'cancelled', 'all']
+  const status = ['pending', 'processing', 'paid', 'rejected', 'cancelled', 'all']
     .includes(req.body?.status) ? req.body.status : 'pending';
   res.json({ rows: adminPayouts(status), stats: payoutStats() });
 });
@@ -1004,7 +1025,10 @@ app.post('/api/admin/payout/resolve', auth, adminOnly, (req, res) => {
   const comment = String(req.body?.comment || '').slice(0, 300);
 
   try {
-    const result = resolvePayout(req.player.id, id, status, comment);
+    let result;
+    if (status === 'processing') result = startPayout(req.player.id, id, comment);
+    else if (status === 'paid') result = completePayout(req.player.id, id, comment);
+    else result = resolvePayout(req.player.id, id, status, comment);
     res.json({ ...result, stats: payoutStats() });
   } catch (err) {
     if (err.code === 'NOT_FOUND') return res.status(404).json({ error: err.message });
@@ -1015,9 +1039,98 @@ app.post('/api/admin/payout/resolve', auth, adminOnly, (req, res) => {
   }
 });
 
+/* ============================================================
+   ПОПОЛНЕНИЯ BEELINE, REALTIME И ФИНАНСОВАЯ ПОДДЕРЖКА
+   ============================================================ */
+
+const paymentStreams = new Map();
+function emitPayment(userId, event, data) {
+  for (const res of paymentStreams.get(userId) || []) {
+    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  }
+}
+
+app.get('/api/payments/events', auth, (req, res) => {
+  res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
+  res.flushHeaders(); res.write('event: connected\ndata: {}\n\n');
+  const set = paymentStreams.get(req.player.id) || new Set(); set.add(res); paymentStreams.set(req.player.id, set);
+  const keepalive = setInterval(() => res.write(': keepalive\n\n'), 25000);
+  req.on('close', () => { clearInterval(keepalive); set.delete(res); if (!set.size) paymentStreams.delete(req.player.id); });
+});
+
+app.post('/api/payments/create', auth, (req, res) => {
+  try { res.status(201).json(createPayment(req.player.id, req.body?.amount, String(req.body?.bank || ''))); }
+  catch (err) { res.status(400).json({ error: err.code || 'PAYMENT_ERROR', message: err.message }); }
+});
+app.post('/api/payments/list', auth, (req, res) => res.json({ rows: listPayments(req.player.id) }));
+app.post('/api/payments/get', auth, (req, res) => {
+  const row = getPayment(Number(req.body?.id), req.player.id);
+  if (!row) return res.status(404).json({ error: 'Заявка не найдена' }); res.json(row);
+});
+
+function deviceAuth(req, res, next) {
+  try {
+    verifyDeviceRequest({ deviceId: req.get('X-Device-Id'), timestamp: req.get('X-Timestamp'),
+      nonce: req.get('X-Nonce'), signature: req.get('X-Signature'), rawBody: req.rawBody || '' });
+    req.deviceId = req.get('X-Device-Id'); next();
+  } catch (err) { res.status(err.status || 401).json({ error: err.message }); }
+}
+app.post('/api/webhooks/beeline', deviceAuth, (req, res) => {
+  try {
+    const result = processBeelineSms({ amount: req.body?.amount, message: String(req.body?.message || ''), deviceId: req.deviceId });
+    emitPayment(result.userId, 'payment.completed', result); res.json({ ok: true, ...result });
+  } catch (err) { res.status(err.status || 400).json({ error: err.message }); }
+});
+app.post('/api/webhooks/beeline/heartbeat', deviceAuth, (req, res) => { heartbeat(req.deviceId); res.json({ ok: true, serverTime: Date.now() }); });
+
+app.post('/api/support/open', auth, (req, res) => res.status(201).json(openDispute(req.player.id, Number(req.body?.paymentId))));
+app.post('/api/support/chat', auth, (req, res) => {
+  const data = supportChat(Number(req.body?.chatId));
+  if (!data.chat || data.chat.user_id !== req.player.id) return res.status(404).json({ error: 'Чат не найден' }); res.json(data);
+});
+app.post('/api/support/message', auth, (req, res) => {
+  const data = supportChat(Number(req.body?.chatId));
+  if (!data.chat || data.chat.user_id !== req.player.id) return res.status(404).json({ error: 'Чат не найден' });
+  addSupportMessage(data.chat.id, 'USER', req.player.id, String(req.body?.text || '').slice(0, 2000),
+    req.body?.attachmentUrl, String(req.body?.attachmentName || '').slice(0, 200));
+  res.status(201).json(supportChat(data.chat.id));
+});
+app.post('/api/support/upload', auth, (req, res) => {
+  const mime=String(req.body?.mime||''), name=String(req.body?.name||'file').replace(/[^\p{L}\p{N}._-]/gu,'_').slice(0,100);
+  const allowed={'image/jpeg':'jpg','image/png':'png','image/webp':'webp','application/pdf':'pdf'};
+  if (!allowed[mime]) return res.status(400).json({error:'Разрешены JPG, PNG, WebP и PDF'});
+  let bytes; try { bytes=Buffer.from(String(req.body?.base64||''),'base64'); } catch { return res.status(400).json({error:'Файл повреждён'}); }
+  if (!bytes.length || bytes.length>5*1024*1024) return res.status(400).json({error:'Размер файла: до 5 МБ'});
+  const dir=join(__dirname,'..','data','support-uploads'); mkdirSync(dir,{recursive:true});
+  const file=`${req.player.id}-${randomUUID()}.${allowed[mime]}`; writeFileSync(join(dir,file),bytes,{flag:'wx'});
+  res.status(201).json({url:`/api/support/files/${file}`,name});
+});
+app.get('/api/support/files/:file', auth, (req,res) => {
+  const file=String(req.params.file); if(!new RegExp(`^${req.player.id}-[0-9a-f-]+\\.(jpg|png|webp|pdf)$`,'i').test(file)) return res.status(404).end();
+  res.sendFile(join(__dirname,'..','data','support-uploads',file));
+});
+
+app.post('/api/admin/payments', auth, adminOnly, (req, res) => res.json({ rows: adminPayments(String(req.body?.status || 'ALL')), dashboard: paymentDashboard() }));
+app.post('/api/admin/payment-settings', auth, adminOnly, (req, res) => {
+  try { res.json(req.body?.save ? updatePaymentSettings(req.body.values || {}) : paymentSettings()); }
+  catch (err) { res.status(400).json({ error: err.message }); }
+});
+app.post('/api/admin/payment-devices', auth, adminOnly, (req, res) => res.json({ rows: adminDevices() }));
+app.post('/api/admin/payment-device/register', auth, adminOnly, (req, res) => {
+  const id=String(req.body?.deviceId||'').trim(), secret=String(req.body?.secret||'');
+  if (!id || secret.length < 24) return res.status(400).json({ error: 'ID обязателен, секрет — минимум 24 символа' });
+  registerDevice(id, String(req.body?.name||id).slice(0,80), secret); res.status(201).json({ ok:true });
+});
+app.post('/api/admin/support', auth, adminOnly, (req, res) => res.json({ rows: adminChats() }));
+app.post('/api/admin/support/chat', auth, adminOnly, (req, res) => res.json(supportChat(Number(req.body?.chatId))));
+app.post('/api/admin/support/message', auth, adminOnly, (req, res) => {
+  addSupportMessage(Number(req.body?.chatId),'ADMIN',req.player.id,String(req.body?.text||'').slice(0,2000),req.body?.attachmentUrl,String(req.body?.attachmentName||'').slice(0,200));
+  res.status(201).json(supportChat(Number(req.body?.chatId)));
+});
+
 app.use((err, req, res, next) => {
   console.error('Ошибка запроса:', err);
-  res.status(500).json({ error: 'Внутренняя ошибка сервера' });
+  res.status(err.status || 500).json({ error: err.status ? err.message : 'Внутренняя ошибка сервера' });
 });
 
 const PORT = Number(process.env.PORT || 3000);
