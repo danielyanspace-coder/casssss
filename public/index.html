@@ -436,7 +436,9 @@
              появляется только после того, как его тряхнуло. -->
         <div class="case-stage" id="caseStage" hidden>
           <div class="case-stage-dust" id="caseStageDust" aria-hidden="true"></div>
-          <img class="case-stage-art" id="caseStageArt" alt="" decoding="async">
+          <!-- Кейсов на сцене столько же, сколько открывают: выбрал ×3 -
+               стоят три. -->
+          <div class="case-stage-row" id="caseStageRow"></div>
           <div class="case-stage-hint" id="caseStageHint"></div>
         </div>
 
@@ -481,20 +483,11 @@
           </div>
           <div class="fs-total" id="fsTotal">0 ₽</div>
           <div class="fs-sub">выигрыш с фриспинов</div>
-          <!-- Когти те же, что на основном барабане: внутри одного кейса рамки
-               должны быть одинаковые. Показываются они только у кейсов, где
-               когти включены, - по классу на блоке фриспинов. -->
-          <div class="reel-slot" id="fsReelSlot">
-            <img class="reel-claw reel-claw-l" src="/assets/ui/claw-l.webp"
-                 alt="" aria-hidden="true" decoding="async">
-            <div class="reel-wrap fs-reel-wrap">
-              <div class="reel-marker"></div>
-              <div class="reel-fade reel-fade-l"></div>
-              <div class="reel-fade reel-fade-r"></div>
-              <div class="reel" id="fsReel"></div>
-            </div>
-            <img class="reel-claw reel-claw-r" src="/assets/ui/claw-r.webp"
-                 alt="" aria-hidden="true" decoding="async">
+          <div class="reel-wrap fs-reel-wrap">
+            <div class="reel-marker"></div>
+            <div class="reel-fade reel-fade-l"></div>
+            <div class="reel-fade reel-fade-r"></div>
+            <div class="reel" id="fsReel"></div>
           </div>
           <div class="fs-log" id="fsLog"></div>
           <button class="btn btn-primary btn-wide" id="fsCollect" hidden>ЗАБРАТЬ</button>

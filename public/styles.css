@@ -744,10 +744,6 @@ main { position: relative; z-index: 2; padding: 18px; }
 }
 .opener.is-themed .opener-case span { color: var(--case-a); }
 
-/* Обёртка ленты. Сама рамка обрезает всё за своими краями, поэтому когти
-   висят здесь, рядом с ней, а не внутри. */
-.reel-slot { position: relative; }
-
 .reel-wrap {
   position: relative;
   height: 148px;
@@ -755,50 +751,6 @@ main { position: relative; z-index: 2; padding: 18px; }
   border-radius: var(--radius);
   background: rgba(0, 0, 0, 0.42);
   border: 2px solid var(--line);
-}
-
-/* ---------- Когти по краям рамки ----------
-
-   Высота задана долей от рамки, а ширина считается из пропорции файла: так
-   лапа остаётся собой и на полноразмерной ленте, и на сжатой в пачке, и если
-   в рамке поменяется высота.
-
-   ЧТО СРЕЗАЕТСЯ. Наружу лапа уходит на четверть своей ширины и последними
-   десятью точками упирается в край экрана. Срезаются там кончики кристаллов,
-   которыми лапа подпёрта сзади, - сам коготь и золочёная дуга целы. Это и
-   есть выбор в пользу ленты: подрезать украшение можно, ленту нельзя.
-
-   ПОЧЕМУ ИМЕННО СТОЛЬКО ЗАХОДИТ ВНУТРЬ. Лапа перекрывает край ленты, где и
-   так лежит затемнение. При самой узкой рамке, какая бывает на телефоне,
-   между лапами остаётся больше одной целой плитки, и плитка под маркером -
-   та, ради которой всё крутится, - не задета никогда. Если выбирать, чем
-   жертвовать, режется лапа, а не лента. */
-.reel-slot.has-claws { --claw-h: 0.86; }
-
-/* Без класса на слоте когтей нет: разметка блока фриспинов одна на все кейсы,
-   а лапы положены не всем. */
-.reel-slot:not(.has-claws) .reel-claw { display: none; }
-
-.reel-claw {
-  position: absolute;
-  top: 50%;
-  height: calc(100% * var(--claw-h));
-  width: auto;
-  z-index: 4;
-  pointer-events: none;
-  filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.65));
-}
-.reel-claw-l { left: 0; transform: translate(-26%, -50%); }
-.reel-claw-r { right: 0; transform: translate(26%, -50%); }
-
-/* Затемнение под лапой шире обычного: без этого из-под когтя выглядывает
-   ярко освещённая плитка и лапа кажется наклеенной поверх. */
-.reel-slot.has-claws .reel-fade { width: 76px; }
-
-/* Узкий экран: лапа ниже, иначе на ленте не остаётся целой плитки. */
-@media (max-width: 380px) {
-  .reel-slot.has-claws { --claw-h: 0.76; }
-  .reel-slot.has-claws .reel-fade { width: 66px; }
 }
 
 .reel { display: flex; gap: 10px; padding: 12px 0; height: 100%; will-change: transform; }
@@ -1622,9 +1574,6 @@ select.seed-input {
 .opener-scroll {
   width: 100%;
   overflow-y: auto;
-  /* Когти по краям рамки выходят за поля страницы. Без этого браузер даёт им
-     горизонтальную прокрутку, и экран кейса начинает ездить вбок. */
-  overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
   padding: calc(14px + var(--safe-top)) 18px calc(24px + var(--safe-bottom));
 }
@@ -2595,17 +2544,31 @@ select.seed-input {
 /* До первого нажатия на экране стоит сам кейс. Высота сцены равна высоте
    ленты, которая придёт ей на смену: иначе при подмене экран прыгал бы, и
    кнопка «Открыть» уезжала бы из-под пальца. */
+/* Высота сцены падает с числом кейсов: ширину им задаёт ряд, и при ×5 они
+   становятся мелкими - оставь высоту прежней, под ними повиснет пустая
+   полоса в полэкрана. */
 .case-stage {
   position: relative;
-  height: 196px;
+  height: calc(196px - (var(--boxes, 1) - 1) * 14px);
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
+/* Ряд кейсов. Ширина каждого считается из их числа, поэтому ×5 помещается на
+   телефон без отдельного правила под каждое количество. */
+.case-stage-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  height: 100%;
+}
+
 .case-stage-art {
   max-height: 100%;
-  max-width: 76%;
+  max-width: min(76%, calc((100% - (var(--boxes, 1) - 1) * 8px) / var(--boxes, 1)));
   object-fit: contain;
   /* Свечение берётся из тона самой обложки - того же, которым покрашен экран
      кейса. Своих цветов у сцены нет. */
@@ -2613,7 +2576,7 @@ select.seed-input {
     drop-shadow(0 10px 22px rgba(0, 0, 0, 0.7))
     drop-shadow(0 0 26px hsl(var(--case-h1, 275) 85% 55% / 0.5))
     drop-shadow(0 0 60px hsl(var(--case-h2, 275) 85% 55% / 0.32));
-  animation: caseFloat 3.4s ease-in-out infinite;
+  animation: caseFloat 3.4s ease-in-out var(--float-delay, 0ms) infinite;
   will-change: transform;
 }
 
@@ -2636,7 +2599,7 @@ select.seed-input {
 
 /* Тряска. Кейс ходит всё резче, потому что печать поддаётся не сразу. */
 .case-stage.is-shaking .case-stage-art {
-  animation: caseShake 0.26s ease-in-out infinite;
+  animation: caseShake 0.26s ease-in-out var(--shake-delay, 0ms) infinite;
 }
 @keyframes caseShake {
   0%   { transform: translate(0, 0) rotate(0deg) scale(1); }
@@ -2992,7 +2955,7 @@ select.seed-input {
 
 .fs-sub { font-size: 11px; color: var(--muted); letter-spacing: 1px; margin-bottom: 12px; }
 
-#fsReelSlot { margin-bottom: 12px; }
+.fs-reel-wrap { margin-bottom: 12px; }
 
 .fs-log {
   display: flex; flex-wrap: wrap; justify-content: center; gap: 6px;

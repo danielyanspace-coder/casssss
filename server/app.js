@@ -93,6 +93,7 @@ import {
 import { resolveUser } from './auth.js';
 import {
   startFeed, getFeed, FEED_CONFIG, FEED_MIN_MULTIPLIER, FEED_MIN_VALUE, FEED_PLAIN_MIN_VALUE,
+  FEED_REAL_SHARE,
 } from './feed.js';
 import {
   isConfigured as subscriptionConfigured,
@@ -245,7 +246,9 @@ app.get('/api/feed', (req, res) => {
   // Свои выпадения игрок должен видеть в ленте наравне с выдуманными, поэтому
   // порог тут только по сумме - тот же, ниже которого выпадение выглядит
   // поломкой, а не скромным выигрышем.
-  const real = recentPublicDrops(limit, FEED_PLAIN_MIN_VALUE);
+  // Доля настоящих ограничена: иначе игрок, открывший подряд четыре десятка
+  // кейсов, вытесняет из витрины всё остальное - см. FEED_REAL_SHARE.
+  const real = recentPublicDrops(Math.ceil(limit * FEED_REAL_SHARE), FEED_PLAIN_MIN_VALUE);
   const shown = FEED_CONFIG.synthetic ? getFeed(limit) : [];
 
   // Настоящие выпадения идут первыми при равной свежести.
