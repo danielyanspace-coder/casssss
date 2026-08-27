@@ -198,8 +198,8 @@ async function goto(view) {
   const feed = await snapshot();
 
   check('лента: показана', feed.visible);
-  check('лента: заголовок «Последние большие выигрыши»',
-        feed.title === 'Последние большие выигрыши', feed.title);
+  check('лента: заголовок «Последние выигрыши»',
+        feed.title === 'Последние выигрыши', feed.title);
   check('лента: карточки заполнены', feed.count > 0, `карточек ${feed.count}`);
   check('лента: у каждой карточки есть рисунок', feed.drawn === feed.count,
         `${feed.drawn} из ${feed.count}`);

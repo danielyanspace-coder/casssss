@@ -811,9 +811,14 @@ main { position: relative; z-index: 2; padding: 18px; }
   font-variant-numeric: tabular-nums;
   text-shadow: 0 0 36px var(--tier-color);
 }
-.result-net { font-size: 15px; font-weight: 700; margin-top: 8px; font-variant-numeric: tabular-nums; }
-.result-net.plus { color: var(--green); }
-.result-net.minus { color: var(--muted); }
+/* Строка под суммой: только то, что из самой суммы не прочитать - множитель,
+   подарок, фриспины. Зелёного «+сумма» здесь больше нет: он повторял число,
+   которое стоит прямо над ним крупными цифрами. */
+.result-net {
+  font-size: 13px; font-weight: 700; margin-top: 8px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
 
 .result-actions { display: flex; gap: 12px; margin-top: 26px; }
 .result-actions .btn { flex: 1; }
@@ -1442,11 +1447,21 @@ select.seed-input {
  * заставляет браузер пропускать полки вне экрана целиком - вместе с
  * распаковкой их обложек, - а contain-intrinsic-size сохраняет высоту, чтобы
  * полоса прокрутки не прыгала.
+ *
+ * ПОЛЯ ОБЯЗАТЕЛЬНЫ. content-visibility включает обрезку по краям элемента, и
+ * свечение вокруг обложек упиралось в границы полки ровными линиями - как
+ * будто картинку обрезали ножницами. Поля дают свечению место внутри полки,
+ * а отрицательные отступы возвращают саму сетку на прежнее место. По бокам
+ * поле ровно такое, как у main: полка растягивается до краёв экрана, и
+ * обрезка приходится на его край, где её не видно.
  */
 .shelf {
   content-visibility: auto;
   contain-intrinsic-size: auto 900px;
+  padding: 48px 18px;
+  margin: -48px -18px;
 }
+
 
 /* Заголовок полки по центру: ряд больше не листается вбок, и выключка влево
    с ценой справа выглядела остатком от прежней карусели. */
@@ -3132,57 +3147,47 @@ select.seed-input {
    ЛЕНТА ВЫИГРЫШЕЙ
    ============================================================ */
 
-/* Собрано по присланному эталону: панель в неоновой рамке, внутри карточки со
-   своей обводкой по редкости, светящейся ценой и полоской света у нижнего
-   края. Прежний вариант был плоским - тонкая линия по краю и текст, - и на
-   фоне остальной страницы читался как служебная строка, а не как витрина.
+/* Витрина выпадений.
+
+   Раньше это была крупная панель в неоновой рамке с большими карточками. На
+   первом экране она занимала треть высоты и спорила с самими кейсами - хотя
+   это фон, чужая игра, а не то, ради чего сюда пришли. Поэтому здесь всё
+   поджато: карточки вытянутые и узкие, неон снят, промежутки между ними
+   почти нулевые. Панель читается лентой, которая идёт мимо.
 
    Ширина карточки вынесена в переменную: её же использует анимация въезда, а
    два разных числа рано или поздно разъезжаются. */
 .feed {
-  --feed-w: 108px;
-  --feed-gap: 9px;
+  --feed-w: 74px;
+  --feed-gap: 3px;
   position: relative;
-  margin: 0 0 16px;
-  padding: 11px 0 13px;
-  border: 1.5px solid transparent;
-  border-radius: 20px;
-  background:
-    radial-gradient(120% 140% at 50% 0%, rgba(120, 60, 220, 0.28), transparent 65%)
-      padding-box,
-    linear-gradient(180deg, #15062a, #0c0218) padding-box,
-    linear-gradient(150deg, #a855f7, #6d28d9 55%, #a855f7) border-box;
-  box-shadow: 0 0 24px -8px rgba(160, 32, 255, 0.75);
+  margin: 0 0 12px;
+  padding: 7px 0 8px;
+  border: 1px solid rgba(150, 70, 235, 0.3);
+  border-radius: 13px;
+  background: linear-gradient(180deg, rgba(21, 6, 42, 0.9), rgba(12, 2, 24, 0.9));
   overflow: hidden;
 }
 
-/* Заголовок отделён линией, как в эталоне: без неё шапка сливается с рядом
-   карточек и панель перестаёт читаться единым блоком. */
 .feed-head {
-  display: flex; align-items: center; gap: 9px;
-  margin: 0 14px 11px;
-  padding-bottom: 9px;
-  border-bottom: 1px solid rgba(160, 32, 255, 0.28);
+  margin: 0 10px 7px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(160, 32, 255, 0.2);
 }
 
-/* Пульсирующая точка: единственный намёк, что лента живая. */
-.feed-dot {
-  width: 7px; height: 7px; border-radius: 50%;
-  background: var(--cyan);
-  box-shadow: 0 0 12px var(--cyan);
-  animation: feedPulse 1.8s ease-in-out infinite;
-}
+/* Заголовок набран моноширинным с широкой разрядкой - так подписывают табло,
+   а не рекламные баннеры. Прежний был жирным неоном с мигающей точкой рядом,
+   то есть ровно тем набором приёмов, который выдаёт машинный дизайн.
 
-@keyframes feedPulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50%      { opacity: 0.35; transform: scale(0.7); }
-}
-
+   Моноширинный взят не из прихоти: другого способа сменить характер шрифта
+   без внешней загрузки нет. Системный гротеск на телефоне один, узкие его
+   начертания есть не везде, а веб-шрифт - это запрос по сети, которого у
+   проекта пока нигде нет. Моноширинный есть на любой системе. */
 .feed-title {
-  font-size: 10px; font-weight: 900; letter-spacing: 0.22em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 9.5px; font-weight: 500; letter-spacing: 0.2em;
   text-transform: uppercase;
-  color: #e7dcff;
-  text-shadow: 0 0 12px rgba(160, 32, 255, 0.7);
+  color: rgba(205, 192, 228, 0.7);
 }
 
 /* Горизонтальная лента. Свайп пальцем работает, полосу прокрутки прячем.
@@ -3191,7 +3196,7 @@ select.seed-input {
    вместе со своим отступом. */
 .feed-track {
   display: flex;
-  padding: 0 14px 2px;
+  padding: 0 10px 1px;
   overflow-x: auto;
   scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
@@ -3202,37 +3207,21 @@ select.seed-input {
   position: relative;
   display: block;
   flex: 0 0 auto;
-  font-family: inherit;
-  cursor: pointer;
-  transition: transform 0.12s;
   width: var(--feed-w);
   max-width: var(--feed-w);
   margin-right: var(--feed-gap);
-  padding: 9px 7px 11px;
-  border-radius: 14px;
-  border: 1.5px solid var(--tier-color, var(--line));
-  background:
-    radial-gradient(120% 90% at 50% 0%,
-      color-mix(in srgb, var(--tier-color, #a020ff) 22%, transparent), transparent 70%),
-    linear-gradient(180deg, #1a0a2e, #0e0219);
-  box-shadow:
-    0 0 16px -6px var(--tier-color, #a020ff),
-    inset 0 0 26px -14px var(--tier-color, #a020ff);
+  padding: 6px 4px 7px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-top: 2px solid var(--tier-color, var(--line));
+  background: rgba(255, 255, 255, 0.035);
   text-align: center;
+  font-family: inherit;
+  cursor: pointer;
   overflow: hidden;
+  transition: transform 0.12s, background 0.15s;
 }
-
-/* Полоска света у нижнего края - деталь из эталона. Она сажает карточку на
-   свет и не даёт ей выглядеть просто обведённым прямоугольником. */
-.feed-card::after {
-  content: '';
-  position: absolute;
-  left: 22%; right: 22%; bottom: 0;
-  height: 2px;
-  border-radius: 2px;
-  background: var(--tier-color, #a020ff);
-  box-shadow: 0 0 12px 2px var(--tier-color, #a020ff);
-}
+.feed-card:active { transform: scale(0.94); background: rgba(255, 255, 255, 0.08); }
 
 /* Новый выигрыш въезжает слева, раздвигая остальные вправо. */
 .feed-card.is-new { animation: feedIn 0.55s cubic-bezier(0.22, 1, 0.36, 1); }
@@ -3244,39 +3233,37 @@ select.seed-input {
   }
   to {
     max-width: var(--feed-w); margin-right: var(--feed-gap);
-    padding-left: 7px; padding-right: 7px;
+    padding-left: 4px; padding-right: 4px;
     opacity: 1; transform: none;
   }
 }
 
-/* Значок в светящемся кружке - тоже из эталона: он даёт карточке центр, к
-   которому цепляется взгляд. */
 .feed-art {
-  width: 38px; height: 38px; margin: 0 auto 6px;
-  display: flex; align-items: center; justify-content: center;
-  border-radius: 50%;
-  border: 1px solid color-mix(in srgb, var(--tier-color, #a020ff) 55%, transparent);
-  background: radial-gradient(circle at 50% 35%,
-    color-mix(in srgb, var(--tier-color, #a020ff) 26%, transparent), transparent 72%);
-  box-shadow: 0 0 14px -4px var(--tier-color, #a020ff);
+  display: block;
+  width: 20px; height: 20px; margin: 0 auto 3px;
 }
-.feed-art svg { width: 22px; height: 22px; }
+.feed-art svg { width: 100%; height: 100%; display: block; }
 
+/* Высота подписи задана жёстко на две строки.
+   Иначе длинное название переносится, карточка вырастает, и сумма уезжает
+   вбок к остаткам названия вместо того чтобы стоять под ним. */
 .feed-name {
-  font-size: 9.5px; font-weight: 700; line-height: 1.25;
-  height: 24px; overflow: hidden;
-  color: #fff;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  height: 22px;
+  font-size: 8.5px; font-weight: 600; line-height: 1.3;
+  color: rgba(255, 255, 255, 0.8);
 }
 
 .feed-value {
-  font-size: 14px; font-weight: 900;
+  display: block;
+  margin-top: 2px;
+  font-size: 10.5px; font-weight: 800;
   color: var(--tier-color, var(--text));
-  text-shadow: 0 0 12px color-mix(in srgb, var(--tier-color, #a020ff) 75%, transparent);
-  margin-top: 4px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-
-.feed-card:active { transform: scale(0.95); }
 
 /* Карточка выигрыша из ленты: что выпало и в каком кейсе. */
 .feed-sheet { text-align: center; }

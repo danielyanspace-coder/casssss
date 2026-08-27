@@ -20,7 +20,7 @@ import { CASES, CATEGORIES, TIERS, publicCase, FREESPIN_PACKS } from './server/c
 import {
   CRASH_CONFIG, ROULETTE_CONFIG, ROULETTE_WHEEL, GAMBLE_CONFIG, UPGRADE_CONFIG,
 } from './server/games.js';
-import { FEED_MIN_MULTIPLIER, FEED_MIN_VALUE } from './server/feed.js';
+import { FEED_MIN_MULTIPLIER, FEED_MIN_VALUE, FEED_BIG_SHARE } from './server/feed.js';
 
 const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
 
@@ -69,21 +69,25 @@ const config = {
  * предметов внутри крупных выпадений приподнята показателем 0.45.
  */
 const feedPool = [];
+const feedPlainPool = [];
 for (const c of CASES) {
   for (const item of c.items) {
     if (item.kind !== 'item' || !item.value) continue;
     const multiplier = item.value / c.price;
-    if (multiplier < FEED_MIN_MULTIPLIER || item.value < FEED_MIN_VALUE) continue;
-    feedPool.push({
-      // Нужен карточке выигрыша: по нему она находит кейс и ведёт в него.
+    const entry = {
+      // caseId нужен карточке выигрыша: по нему она находит кейс и ведёт в него.
       caseId: c.id,
       caseName: c.name,
       name: item.name,
       tier: item.tier,
       value: item.value,
       multiplier: Number(multiplier.toFixed(2)),
-      weight: Math.pow(item.probability, 0.45),
-    });
+    };
+    if (multiplier >= FEED_MIN_MULTIPLIER && item.value >= FEED_MIN_VALUE) {
+      feedPool.push({ ...entry, weight: Math.pow(item.probability, 0.45) });
+    } else if (item.value >= 40) {
+      feedPlainPool.push({ ...entry, weight: item.probability });
+    }
   }
 }
 
@@ -215,9 +219,13 @@ const DRAW = ${JSON.stringify(drawTables)};
 const CONFIG = ${JSON.stringify(config)};
 const DRAW_BY_ID = new Map(DRAW.map((c) => [c.id, c]));
 
-/* Витрина крупных выпадений: пул и ники. Ленту наполняет Math.random, а не
-   provably fair, — ни один результат отсюда не влияет на баланс. */
+/* Витрина выпадений: пулы и ники. Ленту наполняет Math.random, а не
+   provably fair, — ни один результат отсюда не влияет на баланс.
+   Семь записей из десяти обычные, три крупные: лента из сплошных джекпотов
+   читается как реклама, а не как чужая игра. */
 const FEED_POOL = ${JSON.stringify(feedPool)};
+const FEED_PLAIN_POOL = ${JSON.stringify(feedPlainPool)};
+const FEED_BIG_SHARE = ${FEED_BIG_SHARE};
 const FEED_NICK_HEAD = ${JSON.stringify([
   'nova', 'lucky', 'shadow', 'astra', 'volt', 'delta', 'orbit', 'grim',
   'echo', 'frost', 'blaze', 'onyx', 'rune', 'vega', 'kilo', 'zen',
@@ -230,18 +238,23 @@ const FEED_NICK_TAIL = ${JSON.stringify([
 ])};
 
 const FEED_STEP_MS = 2000;
-const FEED_TOTAL_WEIGHT = FEED_POOL.reduce((s, p) => s + p.weight, 0);
 
 let feedSeq = 1;
 let feedLastAt = Date.now();
 
-function makeFeedDrop(at) {
-  let r = Math.random() * FEED_TOTAL_WEIGHT;
-  let pick = FEED_POOL[FEED_POOL.length - 1];
-  for (const entry of FEED_POOL) {
+function feedWeightedPick(pool) {
+  const total = pool.reduce((s, p) => s + p.weight, 0);
+  let r = Math.random() * total;
+  for (const entry of pool) {
     r -= entry.weight;
-    if (r <= 0) { pick = entry; break; }
+    if (r <= 0) return entry;
   }
+  return pool[pool.length - 1];
+}
+
+function makeFeedDrop(at) {
+  const big = FEED_PLAIN_POOL.length === 0 || Math.random() < FEED_BIG_SHARE;
+  const pick = feedWeightedPick(big && FEED_POOL.length ? FEED_POOL : FEED_PLAIN_POOL);
   const head = FEED_NICK_HEAD[Math.floor(Math.random() * FEED_NICK_HEAD.length)];
   const tail = FEED_NICK_TAIL[Math.floor(Math.random() * FEED_NICK_TAIL.length)];
   return { id: 'd' + (feedSeq++), nick: head + tail, ...pick, at };
@@ -981,9 +994,10 @@ const routes = {
     if (feedRing.length > 40) feedRing.length = 40;
 
     return {
-      drops: feedRing.slice(0, 24),
+      drops: feedRing.slice(0, Math.min(40, feedRing.length)),
       minMultiplier: CONFIG.feed.minMultiplier,
       minValue: CONFIG.feed.minValue,
+      bigShare: FEED_BIG_SHARE,
     };
   },
 

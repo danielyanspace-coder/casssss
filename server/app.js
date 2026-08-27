@@ -250,7 +250,12 @@ app.get('/api/feed', (req, res) => {
     .sort((a, b) => b.at - a.at)
     .slice(0, limit);
 
-  res.json({ drops: merged, minMultiplier: FEED_MIN_MULTIPLIER, minValue: FEED_MIN_VALUE });
+  res.json({
+    drops: merged,
+    minMultiplier: FEED_MIN_MULTIPLIER,
+    minValue: FEED_MIN_VALUE,
+    bigShare: FEED_CONFIG.bigShare,
+  });
 });
 
 app.post('/api/me', auth, (req, res) => {

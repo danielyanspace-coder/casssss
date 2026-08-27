@@ -14,7 +14,7 @@ import {
 } from './icons.js';
 import { caseCover, porschePhotoSrc, caseArtSrc } from './covers.js';
 import { itemArt } from './item-art.js';
-import { DOCS, footerHtml } from './legal.js';
+import { COMPANY, DOCS, footerHtml } from './legal.js';
 import {
   sndTick, sndSpinStart, sndLand, sndReveal,
   sndBigWin, sndCollect, sndLose, sndFlip, sndBet, sndCrash, sndClimb,
@@ -1461,13 +1461,13 @@ document.getElementById('autoStop').addEventListener('click', () => {
 /** Итог серии: сколько прокрутов прошло, сколько потрачено и выиграно. */
 function showAutoResult(caseData, { times, done, spent, won, stopped, label = 'прокрутов' }) {
   const box = document.getElementById('batchSummary');
-  const net = won - spent;
 
+  // Как и в остальных итогах: показываем выигрыш, а не разницу с потраченным.
+  // Потраченное игрок видел на кнопке, второй раз считать за него незачем.
   box.innerHTML = `
-    ${net > 0 ? `<div class="batch-total plus">+${money(net)}</div>` : ''}
+    ${won > 0 ? `<div class="batch-total plus">+${money(won)}</div>` : ''}
     <div class="batch-sub">
       ${done === times ? `${done} ${label}` : `${done} из ${times} ${label}`}${stopped ? ' · остановлено' : ''}
-      <br>потрачено ${money(spent)} · выиграно ${money(won)}
     </div>
     <div class="result-actions">
       <button class="btn btn-outline" id="autoClose">Забрать</button>
@@ -1476,7 +1476,7 @@ function showAutoResult(caseData, { times, done, spent, won, stopped, label = '�
   `;
   box.hidden = false;
 
-  if (net > 0) { sndCollect(); haptic('success'); } else { sndLose(); haptic('light'); }
+  if (won > spent) { sndCollect(); haptic('success'); } else { sndLose(); haptic('light'); }
 
   document.getElementById('autoClose').addEventListener('click', returnToCaseIdle);
   document.getElementById('autoAgain').addEventListener('click', () =>
@@ -1683,21 +1683,6 @@ function showBatchResult(data, caseData) {
     startOpening(caseData.id, data.count));
 }
 
-/**
- * Сколько всего принёс прокрут: сам предмет плюс всё, что начислилось деньгами.
- *
- * Плюшки, которые деньгами не приходят (×2, подарочный кейс), сюда не входят -
- * они перечислены отдельной строкой.
- */
-function wonTotal(data) {
-  let sum = data.item?.value || 0;
-  for (const g of data.granted || []) {
-    if (g.type === 'credits') sum += g.amount;
-    if (g.type === 'freespins') sum += g.total;
-  }
-  return sum;
-}
-
 function showCaseResult(data, caseData) {
   const item = data.item;
   const result = document.getElementById('result');
@@ -1716,22 +1701,24 @@ function showCaseResult(data, caseData) {
   for (const g of data.granted || []) {
     if (g.type === 'x2') parts.push('получен ×2 на следующий прокрут');
     if (g.type === 'voucher') parts.push(`подарок: кейс «${g.caseName}»`);
-    if (g.type === 'freespins') parts.push(`${g.spins.length} фриспинов`);
+    // Крупное число над строкой - это только сам предмет. То, что пришло
+    // деньгами сверх него, иначе нигде не видно.
+    if (g.type === 'credits') parts.push(`бонус +${fmt(g.amount)}`);
+    if (g.type === 'freespins') {
+      parts.push(`${g.spins.length} фриспинов: +${fmt(g.total)}`);
+    }
   }
 
   /*
-   * Пишем весь выигрыш, а не чистый плюс.
+   * Суммы здесь нет намеренно.
    *
-   * Раньше здесь стояло net - выигрыш за вычетом цены кейса. Это честное
-   * число, но игрок читает его как размер выигрыша и видит меньше, чем ему
-   * начислили: выпало 300, кейс стоил 99, а в строке 201. Цена уже списана и
-   * показана на кнопке открытия, повторять её здесь незачем.
+   * Она уже стоит над этой строкой крупными цифрами, и повтор мелким зелёным
+   * не добавлял ничего, кроме второго числа в кадре. Остаются только пометки
+   * о том, что нельзя прочитать из суммы: множитель, подарок, фриспины.
    */
-  const won = wonTotal(data);
-  const wonText = won > 0 ? `+${money(won)}` : '';
-  net.innerHTML = [wonText, parts.length ? esc(parts.join(' · ')) : ''].filter(Boolean).join('<br>');
-  net.className = `result-net ${won > 0 ? 'plus' : 'minus'}`;
-  net.hidden = !wonText && !parts.length;
+  net.innerHTML = parts.length ? esc(parts.join(' · ')) : '';
+  net.className = 'result-net';
+  net.hidden = !parts.length;
 
   result.hidden = false;
   applyUser(data.user);
@@ -3049,8 +3036,8 @@ const MENU_BACK_HIT = { left: 85.20, top: 4.00, width: 10.00, height: 8.00 };
 /** Широкая полоса «Поддержка» внизу картинки. */
 const MENU_SUPPORT_HIT = { left: 4.82, top: 78.86, width: 90.36, height: 16.80 };
 
-/** Аккаунт поддержки в телеграме. */
-const SUPPORT_URL = 'https://t.me/luckybox_support';
+/** Аккаунт поддержки в телеграме. Он же стоит ссылкой в подвале. */
+const SUPPORT_URL = COMPANY.support;
 
 /**
  * Открывает чат с поддержкой.
@@ -3281,8 +3268,9 @@ document.getElementById('withdrawSubmit').addEventListener('click', async () => 
    ============================================================ */
 
 /**
- * Лента под шапкой. Показывает только крупные выигрыши — обычный исход в
- * неё не попадает, поэтому и подписана «Последние большие выигрыши».
+ * Лента под шапкой. Показывает выпадения других игроков - и обычные, и
+ * крупные: лента из сплошных джекпотов читается как реклама, а не как чужая
+ * игра. Пропорцию задаёт сервер, см. FEED_BIG_SHARE в server/feed.js.
  *
  * ПОЧЕМУ НЕ ПЕРЕРИСОВЫВАЕМ ЦЕЛИКОМ. Раньше опрос заменял содержимое ленты
  * разом, и она моргала. Теперь новые выигрыши въезжают по одному слева,
@@ -3393,7 +3381,9 @@ function openFeedDrop(drop) {
     backdrop.onclick = null;
   };
 
-  openBtn.onclick = () => { close(); openCase(c.id); };
+  // Кнопки нет, если кейса в конфиге не нашлось: запись могла остаться в
+  // ленте от версии, где такой кейс ещё был.
+  openBtn.onclick = c ? () => { close(); openCase(c.id); } : null;
   closeBtn.onclick = () => { close(); haptic('light'); };
   backdrop.onclick = (e) => { if (e.target === backdrop) close(); };
 

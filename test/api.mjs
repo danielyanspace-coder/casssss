@@ -170,17 +170,30 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
   check('апгрейд: ставка ниже минимальной отклонена', tiny.status === 400, `статус ${tiny.status}`);
 }
 
-/* ---------- 4в. Витрина крупных выпадений ---------- */
+/* ---------- 4в. Витрина выпадений ---------- */
 
 {
-  const feed = await get('/api/feed?limit=12');
+  const feed = await get('/api/feed?limit=60');
   check('витрина: лента не пустая', Array.isArray(feed.drops) && feed.drops.length > 0,
         `записей ${feed.drops?.length}`);
 
-  const belowMultiplier = feed.drops.filter((d) => d.multiplier < feed.minMultiplier).length;
-  const belowValue = feed.drops.filter((d) => d.value < feed.minValue).length;
-  check('витрина: мелкие множители отфильтрованы', belowMultiplier === 0, `нарушений ${belowMultiplier}`);
-  check('витрина: мелкие суммы отфильтрованы', belowValue === 0, `нарушений ${belowValue}`);
+  /*
+   * Лента показывает и обычные выпадения, и крупные. Проверяем пропорцию, а
+   * не отсечку: лента из сплошных джекпотов - та самая беда, от которой
+   * уходили, но и совсем без крупных витрина теряет смысл.
+   */
+  const big = feed.drops.filter(
+    (d) => d.multiplier >= feed.minMultiplier && d.value >= feed.minValue).length;
+  const share = big / feed.drops.length;
+  check('витрина: крупные есть', big > 0, `крупных ${big} из ${feed.drops.length}`);
+  check('витрина: крупных меньшинство', share <= 0.55,
+        `${(share * 100).toFixed(0)}% при цели ${(feed.bigShare * 100).toFixed(0)}%`);
+  check('витрина: обычные есть', big < feed.drops.length,
+        `обычных ${feed.drops.length - big}`);
+
+  // Совсем мелочь в ленте выглядит поломкой, а не скромным выигрышем.
+  const tooSmall = feed.drops.filter((d) => d.value < 40).length;
+  check('витрина: мелочи нет', tooSmall === 0, `нарушений ${tooSmall}`);
 
   const ids = new Set(feed.drops.map((d) => d.id));
   check('витрина: ключи записей уникальны', ids.size === feed.drops.length,
@@ -566,7 +579,7 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
 
   const country = config.cases.filter((c) => c.category === 'country');
   check('блок направлений собран', country.length >= 5, `кейсов ${country.length}`);
-  check('Rolex не в направлениях', !country.some((c) => c.id === 'rolex_6000'));
+  check('«Самородок» не в направлениях', !country.some((c) => c.id === 'rolex_6000'));
 }
 
 /* ---------- Сезонный кейс ---------- */
@@ -603,7 +616,15 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
         Array.isArray(config.freeSpinPacks) && config.freeSpinPacks.length === 3);
 
   for (const pack of config.freeSpinPacks) {
-    const expected = Math.round(c.price * pack.count * (1 - pack.discount));
+    // Та же формула, что на сервере: лесенка скидок, потом округление вниз до
+    // круглого числа с потолком в 2.5% (см. roundPackPrice в server/cases.js).
+    const raw = Math.round(c.price * pack.count * (1 - pack.discount));
+    let expected = raw;
+    for (let step = 10; step <= raw; step *= 10) {
+      const down = Math.floor(raw / step) * step;
+      if (down <= 0 || raw - down > raw * 0.025) break;
+      expected = down;
+    }
     const before = (await post('/api/me')).data.user.balance;
     const r = await post('/api/freespins/buy', { caseId: c.id, count: pack.count });
 

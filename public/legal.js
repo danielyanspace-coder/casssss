@@ -12,8 +12,10 @@
 export const COMPANY = {
   brand: 'LUCKYBOX',
   email: 'support-luckybox@gmail.com',
-  // ЗАПОЛНИТЬ: адрес канала. Пока ведёт на заглушку — см. NEDOSTATOK.md.
+  // ЗАПОЛНИТЬ: адрес канала. Пока ведёт на заглушку - см. NEDOSTATOK.md.
   telegram: 'https://t.me/',
+  // Чат поддержки. Он же стоит за кнопкой «Поддержка» в меню.
+  support: 'https://t.me/luckybox_support',
   entities: [
     {
       name: 'LUCKYBOX INTERACTIVE N.V.',
@@ -597,6 +599,10 @@ export function footerHtml() {
          rel="noopener noreferrer">
         <span class="footer-tg-ico" data-ico="telegram"></span>
         <span>Наш канал в Telegram</span>
+      </a>
+      <a class="footer-tg" href="${COMPANY.support}" target="_blank" rel="noopener noreferrer">
+        <span class="footer-tg-ico" data-ico="telegram"></span>
+        <span>Поддержка</span>
       </a>
     </div>
 
