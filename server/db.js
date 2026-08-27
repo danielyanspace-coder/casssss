@@ -89,6 +89,16 @@ db.exec(`
     PRIMARY KEY (user_id, case_id)
   );
 
+  -- Накопленные удвоители. Таблица, а не колонка в users: раньше хранился
+  -- один case_id, и второй выпавший удвоитель затирал первый - выигрыш
+  -- пропадал. Теперь их можно копить, и по кейсам они считаются отдельно.
+  CREATE TABLE IF NOT EXISTS x2_perks (
+    user_id  INTEGER NOT NULL REFERENCES users(id),
+    case_id  TEXT    NOT NULL,
+    count    INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, case_id)
+  );
+
   -- Заявки на вывод. Сумма списывается сразу при создании, поэтому статус
   -- pending означает «деньги уже сняты и ждут решения администратора».
   CREATE TABLE IF NOT EXISTS payouts (
@@ -259,8 +269,20 @@ function ensureColumn(table, column, definition) {
 
 ensureColumn('users', 'is_admin', 'INTEGER NOT NULL DEFAULT 0');
 ensureColumn('users', 'is_blocked', 'INTEGER NOT NULL DEFAULT 0');
+// Колонка осталась от прежней схемы: один удвоитель на игрока. Данные из неё
+// переезжают в x2_perks, сама она больше не читается и не пишется.
 ensureColumn('users', 'x2_case_id', 'TEXT');
+db.exec(`
+  INSERT INTO x2_perks (user_id, case_id, count)
+  SELECT id, x2_case_id, 1 FROM users WHERE x2_case_id IS NOT NULL
+  ON CONFLICT(user_id, case_id) DO NOTHING;
+  UPDATE users SET x2_case_id = NULL WHERE x2_case_id IS NOT NULL;
+`);
 ensureColumn('rounds', 'free', 'INTEGER NOT NULL DEFAULT 0');
+// Кейс, из которого пришло выпадение. Нужен витрине: по нему карточка выигрыша
+// находит кейс и ведёт в него. У строк, записанных до появления колонки, пусто -
+// такая запись просто останется без кнопки.
+ensureColumn('rounds', 'case_id', 'TEXT');
 ensureColumn('users', 'gamble_stake', 'INTEGER NOT NULL DEFAULT 0');
 ensureColumn('users', 'gamble_case', 'TEXT');
 ensureColumn('users', 'free_case_at', 'INTEGER NOT NULL DEFAULT 0');
@@ -594,6 +616,40 @@ function addVoucher(userId, caseId, delta = 1) {
   `).run(userId, caseId, delta);
 }
 
+/* ---------- Удвоители ---------- */
+
+/**
+ * Удвоители, накопленные игроком, по кейсам.
+ *
+ * Удвоитель привязан к кейсу, который его выдал, и это не украшение. Его
+ * ценность в математике посчитана как ожидаемая выплата ЭТОГО кейса: если бы
+ * удвоитель, выигранный в кейсе за 24, можно было применить к кейсу за
+ * 100 000, отдача перестала бы сходиться и появилась бы дыра, через которую
+ * выносится касса.
+ */
+export function getX2Perks(userId) {
+  return db.prepare('SELECT case_id, count FROM x2_perks WHERE user_id = ? AND count > 0')
+    .all(userId);
+}
+
+function x2Count(userId, caseId) {
+  const row = db.prepare('SELECT count FROM x2_perks WHERE user_id = ? AND case_id = ?')
+    .get(userId, caseId);
+  return row?.count || 0;
+}
+
+function addX2(userId, caseId, delta = 1) {
+  db.prepare(`
+    INSERT INTO x2_perks (user_id, case_id, count) VALUES (?, ?, ?)
+    ON CONFLICT(user_id, case_id) DO UPDATE SET count = count + excluded.count
+  `).run(userId, caseId, delta);
+}
+
+function spendX2(userId, caseId) {
+  db.prepare('UPDATE x2_perks SET count = count - 1 WHERE user_id = ? AND case_id = ? AND count > 0')
+    .run(userId, caseId);
+}
+
 /* ---------- Бесплатный кейс за подписку ---------- */
 
 /**
@@ -633,19 +689,28 @@ export function freeCaseState(userId, cooldownMs) {
  * Ник берём из username, а если его нет — из имени. Ни Telegram ID, ни
  * баланс наружу не уходят: витрина видна всем.
  */
-export function recentPublicDrops(limit = 24, minMultiplier = 3, minValue = 500) {
+/**
+ * Выпадения живых игроков для витрины.
+ *
+ * Порог один - минимальная сумма. Раньше стояла ещё и отсечка по множителю:
+ * витрина показывала только крупные выигрыши, и обычное открытие в неё не
+ * попадало вовсе. Теперь лента показывает и обычные выпадения, и у игрока
+ * нет причин не видеть в ней своё.
+ */
+export function recentPublicDrops(limit = 24, minValue = 40) {
   return db.prepare(`
-    SELECT r.id, r.title AS case_name, r.subtitle AS name, r.tier,
+    SELECT r.id, r.case_id, r.title AS case_name, r.subtitle AS name, r.tier,
            r.payout AS value, r.multiplier, r.created_at,
            u.username, u.first_name
       FROM rounds r
       JOIN users u ON u.id = r.user_id
-     WHERE r.game = 'case' AND r.multiplier >= ? AND r.payout >= ?
+     WHERE r.game = 'case' AND r.payout >= ?
      ORDER BY r.id DESC
      LIMIT ?
-  `).all(minMultiplier, minValue, limit).map((row) => ({
+  `).all(minValue, limit).map((row) => ({
     id: `r${row.id}`,
     nick: row.username || row.first_name || 'игрок',
+    caseId: row.case_id,
     caseName: row.case_name,
     name: row.name,
     tier: row.tier,
@@ -682,7 +747,7 @@ function runFreeSpinSeries(userId, caseData, startCount, resolveFree) {
   const spins = [];
   let remaining = startCount;
   let count = startCount;
-  let seriesX2 = false;
+  let x2Won = 0;
   let payout = 0;
 
   while (remaining > 0 && spins.length < MAX_FREE_SPINS) {
@@ -692,33 +757,31 @@ function runFreeSpinSeries(userId, caseData, startCount, resolveFree) {
     const spin = resolveFree(u.server_seed, u.client_seed, spinNonce);
     const fi = spin.item;
 
-    // ×2, выпавший внутри серии, удваивает следующий её прокрут.
-    const doubled = seriesX2 && fi.value > 0;
-    const value = fi.value * (doubled ? 2 : 1);
-    seriesX2 = false;
-
     let added = 0;
     if (fi.perk) {
       if (fi.perk.type === 'freespins') { added = fi.perk.count; remaining += added; count += added; }
-      if (fi.perk.type === 'x2') seriesX2 = true;
+      // Удвоитель внутри серии её прокруты не трогает: он копится и ждёт
+      // следующего платного открытия этого кейса. Иначе удвоитель, выпавший
+      // на дармовом прокруте, тут же обесценивался бы на следующем таком же.
+      if (fi.perk.type === 'x2') x2Won++;
       if (fi.perk.type === 'voucher') addVoucher(userId, fi.perk.caseId, 1);
     }
 
-    payout += value;
+    payout += fi.value;
     spins.push({
       name: fi.name,
-      value,
+      value: fi.value,
       tier: fi.tier,
       kind: fi.kind,
       perkType: fi.perk?.type || null,
       added,
-      x2: doubled,
+      x2: false,
       roll: spin.roll,
       nonce: spinNonce,
     });
   }
 
-  return { spins, payout, count, capped: spins.length >= MAX_FREE_SPINS, seriesX2 };
+  return { spins, payout, count, capped: spins.length >= MAX_FREE_SPINS, x2Won };
 }
 
 export const playCaseRound = db.transaction((userId, caseData, resolve, resolveFree) => {
@@ -737,9 +800,17 @@ export const playCaseRound = db.transaction((userId, caseData, resolve, resolveF
   const user = getUserById(userId);
   const { item, roll } = resolve(user.server_seed, user.client_seed, nonce);
 
-  // ×2 действует только на тот кейс, который его выдал.
-  const x2Active = user.x2_case_id === caseData.id;
-  const payout = item.value * (x2Active && item.value > 0 ? 2 : 1);
+  /*
+   * Удвоитель тратится только на денежный выигрыш.
+   *
+   * Плюшка деньгами не приходит: фриспины, подарочный кейс и сам удвоитель
+   * имеют value = 0, и на них удвоитель не расходуется - он остаётся ждать.
+   * Иначе выигранный удвоитель сгорал бы на первом же прокруте, который
+   * выдал фриспины, и игрок терял бы его, ничего не получив.
+   */
+  const x2Active = item.value > 0 && x2Count(userId, caseData.id) > 0;
+  const payout = x2Active ? item.value * 2 : item.value;
+  if (x2Active) spendX2(userId, caseData.id);
 
   const granted = [];
   // Фриспины прокручиваются здесь же, внутри той же транзакции: игрок не может
@@ -755,13 +826,23 @@ export const playCaseRound = db.transaction((userId, caseData, resolve, resolveF
       addVoucher(userId, item.perk.caseId, 1);
       granted.push({ type: 'voucher', caseId: item.perk.caseId });
     }
-    if (item.perk.type === 'x2') granted.push({ type: 'x2', caseId: caseData.id });
+    if (item.perk.type === 'x2') {
+      // Новый удвоитель кладётся в запас уже после того, как старый применён
+      // к этому же прокруту: сам себя он удвоить не может.
+      addX2(userId, caseData.id, 1);
+      granted.push({ type: 'x2', caseId: caseData.id });
+    }
     if (item.perk.type === 'freespins') {
       const series = runFreeSpinSeries(userId, caseData, item.perk.count, resolveFree);
       freeSpinsPayout = series.payout;
 
-      // ×2, доставшийся на последнем прокруте, не должен пропасть.
-      if (series.seriesX2) granted.push({ type: 'x2', caseId: caseData.id });
+      // Удвоители, выпавшие внутри серии, копятся так же, как обычные.
+      if (series.x2Won > 0) {
+        addX2(userId, caseData.id, series.x2Won);
+        for (let i = 0; i < series.x2Won; i++) {
+          granted.push({ type: 'x2', caseId: caseData.id });
+        }
+      }
 
       granted.push({
         type: 'freespins',
@@ -783,36 +864,29 @@ export const playCaseRound = db.transaction((userId, caseData, resolve, resolveF
   const totalPayout = payout + freeSpinsPayout;
   const newBalance = before.balance - spent + totalPayout;
 
-  // Новый ×2 ставится после того, как старый уже применён к этому прокруту.
-  const x2Used = x2Active && item.value > 0;
-  const seriesX2Granted = granted.some((g) => g.type === 'x2' && item.perk?.type !== 'x2');
-  const nextX2 = (item.perk?.type === 'x2' || seriesX2Granted)
-    ? caseData.id
-    : (x2Used ? null : user.x2_case_id);
-
   // Бесплатный раунд не идёт в лучший множитель: делить на нулевую ставку
   // бессмысленно, а price там условная.
   const multiplier = isFree ? 0 : totalPayout / caseData.price;
 
   db.prepare(`
     UPDATE users
-       SET balance = ?, x2_case_id = ?,
+       SET balance = ?,
            gamble_stake = ?, gamble_case = ?,
            total_rounds = total_rounds + 1,
            total_spent = total_spent + ?,
            total_won = total_won + ?,
            best_multiplier = MAX(best_multiplier, ?)
      WHERE id = ?
-  `).run(newBalance, nextX2, totalPayout > 0 ? totalPayout : 0,
+  `).run(newBalance, totalPayout > 0 ? totalPayout : 0,
          totalPayout > 0 ? caseData.id : null,
          spent, totalPayout, multiplier, userId);
 
   db.prepare(`
-    INSERT INTO rounds (user_id, game, title, subtitle, bet, payout, multiplier,
+    INSERT INTO rounds (user_id, game, case_id, title, subtitle, bet, payout, multiplier,
                         tier, free, roll, nonce, server_hash, client_seed, created_at)
-    VALUES (?, 'case', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(userId, caseData.name,
-         item.name + (x2Active && item.value > 0 ? ' (×2)' : ''),
+    VALUES (?, 'case', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(userId, caseData.id, caseData.name,
+         item.name + (x2Active ? ' (×2)' : ''),
          spent, totalPayout, multiplier, item.tier, isFree ? 1 : 0,
          roll, nonce, user.server_seed_hash, user.client_seed, Date.now());
 
@@ -823,7 +897,7 @@ export const playCaseRound = db.transaction((userId, caseData, resolve, resolveF
     freeSpinsPayout,
     totalPayout,
     free: isFree,
-    x2Applied: x2Active && item.value > 0,
+    x2Applied: x2Active,
     balance: newBalance,
   };
 });
@@ -852,30 +926,31 @@ export const buyFreeSpins = db.transaction((userId, caseData, count, cost, resol
   const newBalance = before.balance - cost + series.payout;
   const multiplier = series.payout / cost;
 
-  // ×2 с последнего прокрута серии не должен пропасть - он переходит на
-  // следующее открытие этого же кейса, как и при обычной выдаче.
-  const nextX2 = series.seriesX2 ? caseData.id : user.x2_case_id;
+  // Удвоители из серии копятся и ждут платного открытия этого кейса. Купленная
+  // серия - тот же дармовой прокрут, удваивать её ими нечестно по отношению к
+  // самому игроку: удвоитель сгорел бы на прокруте, который он и так получил.
+  if (series.x2Won > 0) addX2(userId, caseData.id, series.x2Won);
 
   db.prepare(`
     UPDATE users
-       SET balance = ?, x2_case_id = ?,
+       SET balance = ?,
            gamble_stake = ?, gamble_case = ?,
            total_rounds = total_rounds + 1,
            total_spent = total_spent + ?,
            total_won = total_won + ?,
            best_multiplier = MAX(best_multiplier, ?)
      WHERE id = ?
-  `).run(newBalance, nextX2,
+  `).run(newBalance,
          series.payout > 0 ? series.payout : 0,
          series.payout > 0 ? caseData.id : null,
          cost, series.payout, multiplier, userId);
 
   const first = series.spins[0];
   db.prepare(`
-    INSERT INTO rounds (user_id, game, title, subtitle, bet, payout, multiplier,
+    INSERT INTO rounds (user_id, game, case_id, title, subtitle, bet, payout, multiplier,
                         tier, free, roll, nonce, server_hash, client_seed, created_at)
-    VALUES (?, 'case', ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)
-  `).run(userId, caseData.name, `${count} фриспинов`,
+    VALUES (?, 'case', ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)
+  `).run(userId, caseData.id, caseData.name, `${count} фриспинов`,
          cost, series.payout, multiplier, 'unique',
          first.roll, first.nonce, user.server_seed_hash, user.client_seed, Date.now());
 
@@ -886,6 +961,9 @@ export const buyFreeSpins = db.transaction((userId, caseData, count, cost, resol
     capped: series.capped,
     spins: series.spins,
     total: series.payout,
+    // Сколько удвоителей серия отложила в запас: интерфейсу надо это показать,
+    // иначе они появляются в плашке молча.
+    x2Won: series.x2Won,
     cost,
     balance: newBalance,
   };

@@ -195,6 +195,26 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
   const tooSmall = feed.drops.filter((d) => d.value < 40).length;
   check('витрина: мелочи нет', tooSmall === 0, `нарушений ${tooSmall}`);
 
+  /*
+   * Своё выпадение игрок обязан видеть в ленте наравне с выдуманными. Крутим
+   * дорогой кейс, пока не выпадет что-нибудь выше порога, и ищем его в ленте.
+   */
+  const feedCase = config.cases.find((c) => c.id === 'vault_1000');
+  let ownDrop = null;
+  for (let i = 0; i < 20 && !ownDrop; i++) {
+    const { data } = await post('/api/open', { caseId: feedCase.id });
+    if (data.item.value >= 40) ownDrop = data.item;
+  }
+
+  if (check('витрина: удалось получить своё выпадение', !!ownDrop)) {
+    const after = await get('/api/feed?limit=60');
+    const mine = after.drops.filter((d) => d.real);
+    check('витрина: свои выпадения попадают в ленту', mine.length > 0,
+          `настоящих записей ${mine.length}`);
+    check('витрина: у своей записи есть кейс',
+          mine.every((d) => !!d.caseId), mine.map((d) => d.caseId).join(','));
+  }
+
   const ids = new Set(feed.drops.map((d) => d.id));
   check('витрина: ключи записей уникальны', ids.size === feed.drops.length,
         `${ids.size} из ${feed.drops.length}`);

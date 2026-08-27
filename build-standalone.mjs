@@ -368,7 +368,7 @@ function freshUser() {
     serverSeed, serverSeedHash: sha256Hex(serverSeed),
     clientSeed: randHex(8), nonce: 0,
     prevServerSeed: null, prevServerHash: null,
-    x2CaseId: null, vouchers: {}, gambleStake: 0,
+    x2Perks: {}, vouchers: {}, gambleStake: 0,
     deposits: [{ amount: 5_000_000, source: 'start', comment: 'Стартовый баланс',
                  created_at: Date.now() }],
     payouts: [],
@@ -415,7 +415,14 @@ function load() {
     const raw = localStorage.getItem(STORE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (parsed && parsed.user) return parsed;
+      if (parsed && parsed.user) {
+        // Сохранение могло остаться от версии с одним удвоителем на игрока.
+        if (!parsed.user.x2Perks) {
+          parsed.user.x2Perks = parsed.user.x2CaseId ? { [parsed.user.x2CaseId]: 1 } : {};
+          delete parsed.user.x2CaseId;
+        }
+        return parsed;
+      }
     }
   } catch { /* повреждённое хранилище просто игнорируем */ }
   return { user: freshUser(), players: demoPlayers(), adminLog: [], showAdmin: false,
@@ -436,7 +443,8 @@ function publicUser() {
     // Кнопка «Админ» скрыта: в рабочей версии её видят только Telegram ID
     // из ADMIN_TG_IDS. Посмотреть панель в демо — demoAdmin() в консоли.
     isAdmin: !!store.showAdmin,
-    x2CaseId: u.x2CaseId,
+    x2Perks: Object.entries(u.x2Perks || {})
+      .filter(([, n]) => n > 0).map(([case_id, count]) => ({ case_id, count })),
     gambleStake: u.gambleStake || 0,
     vouchers: Object.entries(u.vouchers).filter(([, n]) => n > 0)
       .map(([case_id, count]) => ({ case_id, count })),
@@ -481,7 +489,7 @@ function runFreeSpinSeries(table, startCount) {
   const spins = [];
   let remaining = startCount;
   let count = startCount;
-  let seriesX2 = false;
+  let x2Won = 0;
   let total = 0;
 
   while (remaining > 0 && spins.length < 300) {
@@ -490,28 +498,26 @@ function runFreeSpinSeries(table, startCount) {
     const fRoll = computeRoll(u.serverSeed, u.clientSeed, u.nonce);
     const fItem = pickItem(table, fRoll);
 
-    const doubled = seriesX2 && fItem.value > 0;
-    const value = fItem.value * (doubled ? 2 : 1);
-    seriesX2 = false;
-
     let added = 0;
     if (fItem.perk) {
       if (fItem.perk.type === 'freespins') {
         added = fItem.perk.count; remaining += added; count += added;
       }
-      if (fItem.perk.type === 'x2') seriesX2 = true;
+      // Удвоитель внутри серии её прокруты не трогает: копится и ждёт платного
+      // открытия этого кейса.
+      if (fItem.perk.type === 'x2') x2Won++;
       if (fItem.perk.type === 'voucher') {
         u.vouchers[fItem.perk.caseId] = (u.vouchers[fItem.perk.caseId] || 0) + 1;
       }
     }
 
-    total += value;
-    spins.push({ name: fItem.name, value, tier: fItem.tier, kind: fItem.kind,
-      perkType: fItem.perk?.type || null, added, x2: doubled,
+    total += fItem.value;
+    spins.push({ name: fItem.name, value: fItem.value, tier: fItem.tier, kind: fItem.kind,
+      perkType: fItem.perk?.type || null, added, x2: false,
       roll: fRoll, nonce: u.nonce });
   }
 
-  return { spins, total, count, seriesX2 };
+  return { spins, total, count, x2Won };
 }
 
 /**
@@ -558,8 +564,11 @@ function openOnce(table) {
     const roll = computeRoll(u.serverSeed, u.clientSeed, u.nonce);
     const item = pickItem(table, roll);
 
-    const x2Active = u.x2CaseId === table.id;
-    const payout = item.value * (x2Active && item.value > 0 ? 2 : 1);
+    // Удвоитель тратится только на денежный выигрыш: у фриспинов, подарка и
+    // самого удвоителя value = 0, и он на них не расходуется.
+    const x2Active = item.value > 0 && (u.x2Perks[table.id] || 0) > 0;
+    const payout = x2Active ? item.value * 2 : item.value;
+    if (x2Active) u.x2Perks[table.id]--;
 
     const granted = [];
     let freeSpinsPayout = 0;
@@ -571,23 +580,23 @@ function openOnce(table) {
         granted.push({ type: 'voucher', caseId: item.perk.caseId,
           caseName: DRAW_BY_ID.get(item.perk.caseId)?.name });
       }
-      if (item.perk.type === 'x2') granted.push({ type: 'x2', caseId: table.id });
+      if (item.perk.type === 'x2') {
+        u.x2Perks[table.id] = (u.x2Perks[table.id] || 0) + 1;
+        granted.push({ type: 'x2', caseId: table.id });
+      }
       if (item.perk.type === 'freespins') {
         const series = runFreeSpinSeries(table, item.perk.count);
         freeSpinsPayout = series.total;
-        if (series.seriesX2) granted.push({ type: 'x2', caseId: table.id });
+        if (series.x2Won > 0) {
+          u.x2Perks[table.id] = (u.x2Perks[table.id] || 0) + series.x2Won;
+          for (let i = 0; i < series.x2Won; i++) granted.push({ type: 'x2', caseId: table.id });
+        }
         granted.push({ type: 'freespins', caseId: table.id,
           count: series.count, spins: series.spins, total: series.total });
       }
     }
 
     if (free) u.vouchers[table.id]--;
-    // ×2 расходуется только если действительно что-то удвоил.
-    const x2Used = x2Active && item.value > 0;
-    const seriesX2Granted = granted.some((g) => g.type === 'x2' && item.perk?.type !== 'x2');
-    u.x2CaseId = (item.perk?.type === 'x2' || seriesX2Granted)
-      ? table.id
-      : (x2Used ? null : u.x2CaseId);
 
     const spent = free ? 0 : table.price;
     const totalPayout = payout + freeSpinsPayout;
@@ -602,8 +611,8 @@ function openOnce(table) {
     u.gambleStake = payout > 0 ? payout : 0;
 
     pushRound({
-      game: 'case', title: table.name,
-      subtitle: item.name + (x2Active && item.value > 0 ? ' (×2)' : ''),
+      game: 'case', caseId: table.id, title: table.name,
+      subtitle: item.name + (x2Active ? ' (×2)' : ''),
       bet: spent, payout: totalPayout, multiplier: free ? 0 : totalPayout / table.price,
       tier: item.tier, free: free ? 1 : 0,
     });
@@ -689,9 +698,10 @@ const routes = {
     u.stats.spent += cost;
     u.stats.won += series.total;
     u.stats.bestMultiplier = Math.max(u.stats.bestMultiplier, series.total / cost);
-    if (series.seriesX2) u.x2CaseId = table.id;
+    if (series.x2Won > 0) u.x2Perks[table.id] = (u.x2Perks[table.id] || 0) + series.x2Won;
 
-    pushRound({ game: 'case', title: table.name, subtitle: pack.count + ' фриспинов',
+    pushRound({ game: 'case', caseId: table.id, title: table.name,
+      subtitle: pack.count + ' фриспинов',
       bet: cost, payout: series.total, multiplier: series.total / cost,
       tier: 'unique', free: 0 });
     consumeWager(cost);
@@ -993,8 +1003,35 @@ const routes = {
     }
     if (feedRing.length > 40) feedRing.length = 40;
 
+    /*
+     * Свои выпадения идут в ленту наравне с выдуманными.
+     *
+     * Живых игроков в автономной версии нет, но сам игрок есть, и не видеть
+     * в витрине собственное открытие странно. Порог тут только по сумме -
+     * тот же, что у выдуманных.
+     */
+    const mine = store.user.rounds
+      .filter((r) => r.game === 'case' && r.payout >= 40)
+      .slice(0, 24)
+      .map((r, i) => ({
+        id: 'mine' + r.created_at + '_' + i,
+        nick: store.user.username,
+        caseId: r.caseId || null,
+        caseName: r.title,
+        name: r.subtitle,
+        tier: r.tier,
+        value: r.payout,
+        multiplier: Number((r.multiplier || 0).toFixed(2)),
+        at: r.created_at,
+        real: true,
+      }));
+
+    const merged = [...mine, ...feedRing]
+      .sort((a, b) => b.at - a.at)
+      .slice(0, 40);
+
     return {
-      drops: feedRing.slice(0, Math.min(40, feedRing.length)),
+      drops: merged,
       minMultiplier: CONFIG.feed.minMultiplier,
       minValue: CONFIG.feed.minValue,
       bigShare: FEED_BIG_SHARE,

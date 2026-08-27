@@ -391,8 +391,28 @@ async function openCaseAndVerify(caseId) {
   await page.waitForSelector('#doOpenBtn', { state: 'visible' });
   await page.click('#doOpenBtn');
 
+  /*
+   * Если выпали фриспины, серия играется до результата и может идти минуту:
+   * прокрутов бывает под два десятка. Дожидаемся её конца и забираем выигрыш -
+   * иначе проверка упирается в таймаут на ровном месте, а не на ошибке.
+   */
+  const seriesWaiting = () => page.evaluate(() => {
+    const fs = document.getElementById('freespins');
+    const btn = document.getElementById('fsCollect');
+    return !!fs && !fs.hidden && !!btn && !btn.hidden;
+  });
+
+  await page.waitForFunction(() => {
+    const res = document.getElementById('result');
+    const fs = document.getElementById('freespins');
+    const btn = document.getElementById('fsCollect');
+    return (!!res && !res.hidden) || (!!fs && !fs.hidden && !!btn && !btn.hidden);
+  }, { timeout: 120000 });
+
+  if (await seriesWaiting()) await page.click('#fsCollect');
+
   // Ждём окончания прокрутки: результат появляется после неё.
-  await page.waitForSelector('#result:not([hidden])', { timeout: 25000 });
+  await page.waitForSelector('#result:not([hidden])', { timeout: 30000 });
   await page.waitForTimeout(500);
 
   return page.evaluate(() => {

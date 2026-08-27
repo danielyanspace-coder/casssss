@@ -342,10 +342,12 @@ function renderPerkBar() {
   const bar = document.getElementById('perkBar');
   const chips = [];
 
-  if (state.user.x2CaseId) {
-    const c = state.config.cases.find((x) => x.id === state.user.x2CaseId);
+  // Удвоители копятся по кейсам: у одного игрока их может быть несколько и на
+  // разные кейсы. Показываем каждый кейс отдельной плашкой со счётчиком.
+  for (const p of state.user.x2Perks || []) {
+    const c = state.config.cases.find((x) => x.id === p.case_id);
     chips.push(`<span class="perk-chip"><span data-ico="x2"></span>
-      ×2 на «${esc(c?.name || '-')}»</span>`);
+      ×2 на «${esc(c?.name || '-')}»${p.count > 1 ? ` · ${p.count}` : ''}</span>`);
   }
 
   // Выигранных кейсов здесь нет намеренно: их место в «Бонусах». Полоса над
@@ -423,7 +425,7 @@ function lockedUntil(c) {
 function caseCardHtml(c, vouchers, artAspect = null) {
   const color = CATEGORY_COLORS[c.category] || '#a020ff';
   const freeCount = vouchers.get(c.id) || 0;
-  const x2 = state.user.x2CaseId === c.id;
+  const x2 = (state.user.x2Perks || []).some((p) => p.case_id === c.id);
   const locked = lockedUntil(c);
 
   let badge = '';
@@ -608,11 +610,11 @@ function renderBonuses() {
 
   if (perks) {
     perks.innerHTML = '';
-    if (state.user.x2CaseId) {
-      const c = state.config.cases.find((x) => x.id === state.user.x2CaseId);
-      if (c) perks.innerHTML = `<span class="perk-chip"><span data-ico="x2"></span>
-        ×2 на «${esc(c.name)}»</span>`;
-    }
+    perks.innerHTML = (state.user.x2Perks || []).map((p) => {
+      const c = state.config.cases.find((x) => x.id === p.case_id);
+      return c ? `<span class="perk-chip"><span data-ico="x2"></span>
+        ×2 на «${esc(c.name)}»${p.count > 1 ? ` · ${p.count}` : ''}</span>` : '';
+    }).join('');
     perks.hidden = !perks.innerHTML;
     mountIcons(perks);
   }
@@ -813,6 +815,7 @@ function openCase(caseId) {
   document.getElementById('gambleStartBtn').hidden = true;
   document.getElementById('batchSummary').hidden = true;
   document.getElementById('freespins').hidden = true;
+  document.getElementById('fsCollect').hidden = true;
   document.getElementById('autoPanel').hidden = true;
   document.getElementById('casePanel').hidden = false;
 
@@ -1011,6 +1014,7 @@ async function startOpening(caseId, count = 1) {
   document.getElementById('gambleStartBtn').hidden = true;
   document.getElementById('batchSummary').hidden = true;
   document.getElementById('freespins').hidden = true;
+  document.getElementById('fsCollect').hidden = true;
   document.getElementById('casePanel').hidden = true;
   opener.hidden = false;
   document.querySelector('.opener-scroll').scrollTop = 0;
@@ -1378,6 +1382,7 @@ async function runAutoOpen(caseId, times) {
   document.getElementById('gambleStartBtn').hidden = true;
   document.getElementById('batchSummary').hidden = true;
   document.getElementById('freespins').hidden = true;
+  document.getElementById('fsCollect').hidden = true;
   document.getElementById('casePanel').hidden = true;
   document.getElementById('opener').hidden = false;
   panel.hidden = false;
@@ -1576,12 +1581,11 @@ function runFreeSpins(grant, caseData, { auto = false, replay = false } = {}) {
         void totalEl.offsetWidth;
         totalEl.classList.add('bump');
 
-        // У удвоенного прокрута показываем обе суммы: иначе непонятно, что
-        // ×2 вообще сработал - в ленте видно только итоговое число.
+        // Удвоитель внутри серии её прокруты не удваивает - он откладывается
+        // до платного открытия, и подпись говорит именно это.
         const label = spin.perkType === 'freespins' ? `+${spin.added} прокрутов`
-                    : spin.perkType === 'x2' ? '×2 дальше'
+                    : spin.perkType === 'x2' ? '×2 в запас'
                     : spin.perkType === 'voucher' ? 'подарок'
-                    : spin.x2 ? `${money(spin.value / 2)} ×2 = ${money(spin.value)}`
                     : money(spin.value);
         logEl.insertAdjacentHTML('beforeend',
           `<span class="fs-chip${spin.added ? ' retrigger' : ''}" ` +
@@ -1675,6 +1679,9 @@ function showBatchResult(data, caseData) {
   if (data.totalWon > data.totalSpent) { sndCollect(); haptic('success'); }
   else { sndLose(); haptic('light'); }
 
+  // Выпадения пачки тоже идут в витрину.
+  setTimeout(pollFeed, 400);
+
   // В пачке ориентируемся на лучший предмет: именно он и есть событие.
   setTimeout(() => celebrateWin(best.item.multiplier, best.item.value), 220);
 
@@ -1697,9 +1704,15 @@ function showCaseResult(data, caseData) {
 
   const net = document.getElementById('resultNet');
   const parts = [];
-  if (data.x2Applied) parts.push('множитель ×2 применён');
+  if (data.x2Applied) parts.push('удвоитель применён');
+
+  // Удвоителей за один прокрут может прийти несколько: сам предмет плюс те,
+  // что выпали внутри серии фриспинов. Считаем их, а не пишем строку на каждый.
+  const x2Won = (data.granted || []).filter((g) => g.type === 'x2').length;
+  if (x2Won === 1) parts.push('получен удвоитель');
+  else if (x2Won > 1) parts.push(`получено удвоителей: ${x2Won}`);
+
   for (const g of data.granted || []) {
-    if (g.type === 'x2') parts.push('получен ×2 на следующий прокрут');
     if (g.type === 'voucher') parts.push(`подарок: кейс «${g.caseName}»`);
     // Крупное число над строкой - это только сам предмет. То, что пришло
     // деньгами сверх него, иначе нигде не видно.
@@ -1726,13 +1739,10 @@ function showCaseResult(data, caseData) {
   loadCaseHistory(caseData.name);
   state.busy = false;
 
-  // Крупный выигрыш игрока должен попасть в ленту сразу, а не в следующий
-  // плановый опрос: сервер уже записал раунд, осталось его забрать.
-  const feedMin = state.config?.feed;
-  if (feedMin && item.value >= feedMin.minValue
-      && item.value / caseData.price >= feedMin.minMultiplier) {
-    setTimeout(pollFeed, 400);
-  }
+  // Выигрыш игрока должен попасть в ленту сразу, а не в следующий плановый
+  // опрос: сервер уже записал раунд, осталось его забрать. Порог тут не нужен -
+  // лента показывает и обычные выпадения, отсекает их уже сервер.
+  setTimeout(pollFeed, 400);
 
   sndReveal(item.tier);
   if (data.net > 0) { setTimeout(sndCollect, 260); haptic('success'); }

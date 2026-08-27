@@ -4212,7 +4212,7 @@ function freshUser() {
     serverSeed, serverSeedHash: sha256Hex(serverSeed),
     clientSeed: randHex(8), nonce: 0,
     prevServerSeed: null, prevServerHash: null,
-    x2CaseId: null, vouchers: {}, gambleStake: 0,
+    x2Perks: {}, vouchers: {}, gambleStake: 0,
     deposits: [{ amount: 5_000_000, source: 'start', comment: 'Стартовый баланс',
                  created_at: Date.now() }],
     payouts: [],
@@ -4259,7 +4259,14 @@ function load() {
     const raw = localStorage.getItem(STORE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (parsed && parsed.user) return parsed;
+      if (parsed && parsed.user) {
+        // Сохранение могло остаться от версии с одним удвоителем на игрока.
+        if (!parsed.user.x2Perks) {
+          parsed.user.x2Perks = parsed.user.x2CaseId ? { [parsed.user.x2CaseId]: 1 } : {};
+          delete parsed.user.x2CaseId;
+        }
+        return parsed;
+      }
     }
   } catch { /* повреждённое хранилище просто игнорируем */ }
   return { user: freshUser(), players: demoPlayers(), adminLog: [], showAdmin: false,
@@ -4280,7 +4287,8 @@ function publicUser() {
     // Кнопка «Админ» скрыта: в рабочей версии её видят только Telegram ID
     // из ADMIN_TG_IDS. Посмотреть панель в демо — demoAdmin() в консоли.
     isAdmin: !!store.showAdmin,
-    x2CaseId: u.x2CaseId,
+    x2Perks: Object.entries(u.x2Perks || {})
+      .filter(([, n]) => n > 0).map(([case_id, count]) => ({ case_id, count })),
     gambleStake: u.gambleStake || 0,
     vouchers: Object.entries(u.vouchers).filter(([, n]) => n > 0)
       .map(([case_id, count]) => ({ case_id, count })),
@@ -4325,7 +4333,7 @@ function runFreeSpinSeries(table, startCount) {
   const spins = [];
   let remaining = startCount;
   let count = startCount;
-  let seriesX2 = false;
+  let x2Won = 0;
   let total = 0;
 
   while (remaining > 0 && spins.length < 300) {
@@ -4334,28 +4342,26 @@ function runFreeSpinSeries(table, startCount) {
     const fRoll = computeRoll(u.serverSeed, u.clientSeed, u.nonce);
     const fItem = pickItem(table, fRoll);
 
-    const doubled = seriesX2 && fItem.value > 0;
-    const value = fItem.value * (doubled ? 2 : 1);
-    seriesX2 = false;
-
     let added = 0;
     if (fItem.perk) {
       if (fItem.perk.type === 'freespins') {
         added = fItem.perk.count; remaining += added; count += added;
       }
-      if (fItem.perk.type === 'x2') seriesX2 = true;
+      // Удвоитель внутри серии её прокруты не трогает: копится и ждёт платного
+      // открытия этого кейса.
+      if (fItem.perk.type === 'x2') x2Won++;
       if (fItem.perk.type === 'voucher') {
         u.vouchers[fItem.perk.caseId] = (u.vouchers[fItem.perk.caseId] || 0) + 1;
       }
     }
 
-    total += value;
-    spins.push({ name: fItem.name, value, tier: fItem.tier, kind: fItem.kind,
-      perkType: fItem.perk?.type || null, added, x2: doubled,
+    total += fItem.value;
+    spins.push({ name: fItem.name, value: fItem.value, tier: fItem.tier, kind: fItem.kind,
+      perkType: fItem.perk?.type || null, added, x2: false,
       roll: fRoll, nonce: u.nonce });
   }
 
-  return { spins, total, count, seriesX2 };
+  return { spins, total, count, x2Won };
 }
 
 /**
@@ -4402,8 +4408,11 @@ function openOnce(table) {
     const roll = computeRoll(u.serverSeed, u.clientSeed, u.nonce);
     const item = pickItem(table, roll);
 
-    const x2Active = u.x2CaseId === table.id;
-    const payout = item.value * (x2Active && item.value > 0 ? 2 : 1);
+    // Удвоитель тратится только на денежный выигрыш: у фриспинов, подарка и
+    // самого удвоителя value = 0, и он на них не расходуется.
+    const x2Active = item.value > 0 && (u.x2Perks[table.id] || 0) > 0;
+    const payout = x2Active ? item.value * 2 : item.value;
+    if (x2Active) u.x2Perks[table.id]--;
 
     const granted = [];
     let freeSpinsPayout = 0;
@@ -4415,23 +4424,23 @@ function openOnce(table) {
         granted.push({ type: 'voucher', caseId: item.perk.caseId,
           caseName: DRAW_BY_ID.get(item.perk.caseId)?.name });
       }
-      if (item.perk.type === 'x2') granted.push({ type: 'x2', caseId: table.id });
+      if (item.perk.type === 'x2') {
+        u.x2Perks[table.id] = (u.x2Perks[table.id] || 0) + 1;
+        granted.push({ type: 'x2', caseId: table.id });
+      }
       if (item.perk.type === 'freespins') {
         const series = runFreeSpinSeries(table, item.perk.count);
         freeSpinsPayout = series.total;
-        if (series.seriesX2) granted.push({ type: 'x2', caseId: table.id });
+        if (series.x2Won > 0) {
+          u.x2Perks[table.id] = (u.x2Perks[table.id] || 0) + series.x2Won;
+          for (let i = 0; i < series.x2Won; i++) granted.push({ type: 'x2', caseId: table.id });
+        }
         granted.push({ type: 'freespins', caseId: table.id,
           count: series.count, spins: series.spins, total: series.total });
       }
     }
 
     if (free) u.vouchers[table.id]--;
-    // ×2 расходуется только если действительно что-то удвоил.
-    const x2Used = x2Active && item.value > 0;
-    const seriesX2Granted = granted.some((g) => g.type === 'x2' && item.perk?.type !== 'x2');
-    u.x2CaseId = (item.perk?.type === 'x2' || seriesX2Granted)
-      ? table.id
-      : (x2Used ? null : u.x2CaseId);
 
     const spent = free ? 0 : table.price;
     const totalPayout = payout + freeSpinsPayout;
@@ -4446,8 +4455,8 @@ function openOnce(table) {
     u.gambleStake = payout > 0 ? payout : 0;
 
     pushRound({
-      game: 'case', title: table.name,
-      subtitle: item.name + (x2Active && item.value > 0 ? ' (×2)' : ''),
+      game: 'case', caseId: table.id, title: table.name,
+      subtitle: item.name + (x2Active ? ' (×2)' : ''),
       bet: spent, payout: totalPayout, multiplier: free ? 0 : totalPayout / table.price,
       tier: item.tier, free: free ? 1 : 0,
     });
@@ -4533,9 +4542,10 @@ const routes = {
     u.stats.spent += cost;
     u.stats.won += series.total;
     u.stats.bestMultiplier = Math.max(u.stats.bestMultiplier, series.total / cost);
-    if (series.seriesX2) u.x2CaseId = table.id;
+    if (series.x2Won > 0) u.x2Perks[table.id] = (u.x2Perks[table.id] || 0) + series.x2Won;
 
-    pushRound({ game: 'case', title: table.name, subtitle: pack.count + ' фриспинов',
+    pushRound({ game: 'case', caseId: table.id, title: table.name,
+      subtitle: pack.count + ' фриспинов',
       bet: cost, payout: series.total, multiplier: series.total / cost,
       tier: 'unique', free: 0 });
     consumeWager(cost);
@@ -4837,8 +4847,35 @@ const routes = {
     }
     if (feedRing.length > 40) feedRing.length = 40;
 
+    /*
+     * Свои выпадения идут в ленту наравне с выдуманными.
+     *
+     * Живых игроков в автономной версии нет, но сам игрок есть, и не видеть
+     * в витрине собственное открытие странно. Порог тут только по сумме -
+     * тот же, что у выдуманных.
+     */
+    const mine = store.user.rounds
+      .filter((r) => r.game === 'case' && r.payout >= 40)
+      .slice(0, 24)
+      .map((r, i) => ({
+        id: 'mine' + r.created_at + '_' + i,
+        nick: store.user.username,
+        caseId: r.caseId || null,
+        caseName: r.title,
+        name: r.subtitle,
+        tier: r.tier,
+        value: r.payout,
+        multiplier: Number((r.multiplier || 0).toFixed(2)),
+        at: r.created_at,
+        real: true,
+      }));
+
+    const merged = [...mine, ...feedRing]
+      .sort((a, b) => b.at - a.at)
+      .slice(0, 40);
+
     return {
-      drops: feedRing.slice(0, Math.min(40, feedRing.length)),
+      drops: merged,
       minMultiplier: CONFIG.feed.minMultiplier,
       minValue: CONFIG.feed.minValue,
       bigShare: FEED_BIG_SHARE,
@@ -7078,13 +7115,6 @@ const FAQ = [
     'его вместе с client seed и номером раунда в формулу HMAC-SHA256 и сверьте ' +
     'результат. Всё нужное собрано на экране «Честность».'),
 
-  h('Почему баланс на дистанции уменьшается?'),
-  p('Средняя отдача любой игры меньше внесённой ставки - так устроены все игры ' +
-    'этого типа. Отдельные раунды могут дать выигрыш многократно больше ставки, ' +
-    'но чем больше раундов сыграно, тем ближе итог к средней величине, а она не ' +
-    'в пользу игрока. Стратегии, которая делала бы её положительной, не ' +
-    'существует.'),
-
   h('Шансы зависят от того, сколько я уже проиграл?'),
   p('Нет. Таблица вероятностей у кейса фиксированная и одинаковая для всех. ' +
     'Ни история раундов, ни размер баланса, ни время в игре на неё не влияют. ' +
@@ -7559,10 +7589,12 @@ function renderPerkBar() {
   const bar = document.getElementById('perkBar');
   const chips = [];
 
-  if (state.user.x2CaseId) {
-    const c = state.config.cases.find((x) => x.id === state.user.x2CaseId);
+  // Удвоители копятся по кейсам: у одного игрока их может быть несколько и на
+  // разные кейсы. Показываем каждый кейс отдельной плашкой со счётчиком.
+  for (const p of state.user.x2Perks || []) {
+    const c = state.config.cases.find((x) => x.id === p.case_id);
     chips.push(`<span class="perk-chip"><span data-ico="x2"></span>
-      ×2 на «${esc(c?.name || '-')}»</span>`);
+      ×2 на «${esc(c?.name || '-')}»${p.count > 1 ? ` · ${p.count}` : ''}</span>`);
   }
 
   // Выигранных кейсов здесь нет намеренно: их место в «Бонусах». Полоса над
@@ -7640,7 +7672,7 @@ function lockedUntil(c) {
 function caseCardHtml(c, vouchers, artAspect = null) {
   const color = CATEGORY_COLORS[c.category] || '#a020ff';
   const freeCount = vouchers.get(c.id) || 0;
-  const x2 = state.user.x2CaseId === c.id;
+  const x2 = (state.user.x2Perks || []).some((p) => p.case_id === c.id);
   const locked = lockedUntil(c);
 
   let badge = '';
@@ -7825,11 +7857,11 @@ function renderBonuses() {
 
   if (perks) {
     perks.innerHTML = '';
-    if (state.user.x2CaseId) {
-      const c = state.config.cases.find((x) => x.id === state.user.x2CaseId);
-      if (c) perks.innerHTML = `<span class="perk-chip"><span data-ico="x2"></span>
-        ×2 на «${esc(c.name)}»</span>`;
-    }
+    perks.innerHTML = (state.user.x2Perks || []).map((p) => {
+      const c = state.config.cases.find((x) => x.id === p.case_id);
+      return c ? `<span class="perk-chip"><span data-ico="x2"></span>
+        ×2 на «${esc(c.name)}»${p.count > 1 ? ` · ${p.count}` : ''}</span>` : '';
+    }).join('');
     perks.hidden = !perks.innerHTML;
     mountIcons(perks);
   }
@@ -8030,6 +8062,7 @@ function openCase(caseId) {
   document.getElementById('gambleStartBtn').hidden = true;
   document.getElementById('batchSummary').hidden = true;
   document.getElementById('freespins').hidden = true;
+  document.getElementById('fsCollect').hidden = true;
   document.getElementById('autoPanel').hidden = true;
   document.getElementById('casePanel').hidden = false;
 
@@ -8228,6 +8261,7 @@ async function startOpening(caseId, count = 1) {
   document.getElementById('gambleStartBtn').hidden = true;
   document.getElementById('batchSummary').hidden = true;
   document.getElementById('freespins').hidden = true;
+  document.getElementById('fsCollect').hidden = true;
   document.getElementById('casePanel').hidden = true;
   opener.hidden = false;
   document.querySelector('.opener-scroll').scrollTop = 0;
@@ -8595,6 +8629,7 @@ async function runAutoOpen(caseId, times) {
   document.getElementById('gambleStartBtn').hidden = true;
   document.getElementById('batchSummary').hidden = true;
   document.getElementById('freespins').hidden = true;
+  document.getElementById('fsCollect').hidden = true;
   document.getElementById('casePanel').hidden = true;
   document.getElementById('opener').hidden = false;
   panel.hidden = false;
@@ -8793,12 +8828,11 @@ function runFreeSpins(grant, caseData, { auto = false, replay = false } = {}) {
         void totalEl.offsetWidth;
         totalEl.classList.add('bump');
 
-        // У удвоенного прокрута показываем обе суммы: иначе непонятно, что
-        // ×2 вообще сработал - в ленте видно только итоговое число.
+        // Удвоитель внутри серии её прокруты не удваивает - он откладывается
+        // до платного открытия, и подпись говорит именно это.
         const label = spin.perkType === 'freespins' ? `+${spin.added} прокрутов`
-                    : spin.perkType === 'x2' ? '×2 дальше'
+                    : spin.perkType === 'x2' ? '×2 в запас'
                     : spin.perkType === 'voucher' ? 'подарок'
-                    : spin.x2 ? `${money(spin.value / 2)} ×2 = ${money(spin.value)}`
                     : money(spin.value);
         logEl.insertAdjacentHTML('beforeend',
           `<span class="fs-chip${spin.added ? ' retrigger' : ''}" ` +
@@ -8892,6 +8926,9 @@ function showBatchResult(data, caseData) {
   if (data.totalWon > data.totalSpent) { sndCollect(); haptic('success'); }
   else { sndLose(); haptic('light'); }
 
+  // Выпадения пачки тоже идут в витрину.
+  setTimeout(pollFeed, 400);
+
   // В пачке ориентируемся на лучший предмет: именно он и есть событие.
   setTimeout(() => celebrateWin(best.item.multiplier, best.item.value), 220);
 
@@ -8914,9 +8951,15 @@ function showCaseResult(data, caseData) {
 
   const net = document.getElementById('resultNet');
   const parts = [];
-  if (data.x2Applied) parts.push('множитель ×2 применён');
+  if (data.x2Applied) parts.push('удвоитель применён');
+
+  // Удвоителей за один прокрут может прийти несколько: сам предмет плюс те,
+  // что выпали внутри серии фриспинов. Считаем их, а не пишем строку на каждый.
+  const x2Won = (data.granted || []).filter((g) => g.type === 'x2').length;
+  if (x2Won === 1) parts.push('получен удвоитель');
+  else if (x2Won > 1) parts.push(`получено удвоителей: ${x2Won}`);
+
   for (const g of data.granted || []) {
-    if (g.type === 'x2') parts.push('получен ×2 на следующий прокрут');
     if (g.type === 'voucher') parts.push(`подарок: кейс «${g.caseName}»`);
     // Крупное число над строкой - это только сам предмет. То, что пришло
     // деньгами сверх него, иначе нигде не видно.
@@ -8943,13 +8986,10 @@ function showCaseResult(data, caseData) {
   loadCaseHistory(caseData.name);
   state.busy = false;
 
-  // Крупный выигрыш игрока должен попасть в ленту сразу, а не в следующий
-  // плановый опрос: сервер уже записал раунд, осталось его забрать.
-  const feedMin = state.config?.feed;
-  if (feedMin && item.value >= feedMin.minValue
-      && item.value / caseData.price >= feedMin.minMultiplier) {
-    setTimeout(pollFeed, 400);
-  }
+  // Выигрыш игрока должен попасть в ленту сразу, а не в следующий плановый
+  // опрос: сервер уже записал раунд, осталось его забрать. Порог тут не нужен -
+  // лента показывает и обычные выпадения, отсекает их уже сервер.
+  setTimeout(pollFeed, 400);
 
   sndReveal(item.tier);
   if (data.net > 0) { setTimeout(sndCollect, 260); haptic('success'); }

@@ -50,7 +50,7 @@ import {
   rotateServerSeed,
   setClientSeed,
   startCrashRound,
-  getVouchers,
+  getVouchers, getX2Perks,
   syncAdmins,
   adminOverview,
   adminUsers,
@@ -92,7 +92,7 @@ import {
 } from './db.js';
 import { resolveUser } from './auth.js';
 import {
-  startFeed, getFeed, FEED_CONFIG, FEED_MIN_MULTIPLIER, FEED_MIN_VALUE,
+  startFeed, getFeed, FEED_CONFIG, FEED_MIN_MULTIPLIER, FEED_MIN_VALUE, FEED_PLAIN_MIN_VALUE,
 } from './feed.js';
 import {
   isConfigured as subscriptionConfigured,
@@ -153,7 +153,7 @@ function publicUser(user) {
     firstName: user.first_name,
     balance: user.balance,
     isAdmin: !!user.is_admin,
-    x2CaseId: user.x2_case_id,
+    x2Perks: getX2Perks(user.id),
     gambleStake: user.gamble_stake,
     gambleCase: user.gamble_case,
     vouchers: getVouchers(user.id),
@@ -242,7 +242,10 @@ app.get('/api/config', (req, res) => {
  */
 app.get('/api/feed', (req, res) => {
   const limit = Math.min(Math.max(Number(req.query.limit) || 24, 1), 40);
-  const real = recentPublicDrops(limit, FEED_MIN_MULTIPLIER, FEED_MIN_VALUE);
+  // Свои выпадения игрок должен видеть в ленте наравне с выдуманными, поэтому
+  // порог тут только по сумме - тот же, ниже которого выпадение выглядит
+  // поломкой, а не скромным выигрышем.
+  const real = recentPublicDrops(limit, FEED_PLAIN_MIN_VALUE);
   const shown = FEED_CONFIG.synthetic ? getFeed(limit) : [];
 
   // Настоящие выпадения идут первыми при равной свежести.

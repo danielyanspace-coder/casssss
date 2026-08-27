@@ -43,8 +43,11 @@ export const FEED_BIG_SHARE = 0.3;
 /**
  * Нижний порог для обычных выпадений: совсем мелочь вроде «3 ₽» в ленте
  * выглядит поломкой, а не скромным выигрышем.
+ *
+ * Тот же порог применяется к настоящим выпадениям живых игроков - иначе
+ * витрина показывала бы выдуманные щедрее, чем свои.
  */
-const PLAIN_MIN_VALUE = 40;
+export const FEED_PLAIN_MIN_VALUE = 40;
 
 /** Сколько записей держим в памяти. */
 const CAPACITY = 60;
@@ -94,7 +97,7 @@ for (const c of CASES) {
 
     if (multiplier >= FEED_MIN_MULTIPLIER && item.value >= FEED_MIN_VALUE) {
       POOL.push({ ...entry, weight: Math.pow(item.probability, BIAS) });
-    } else if (item.value >= PLAIN_MIN_VALUE) {
+    } else if (item.value >= FEED_PLAIN_MIN_VALUE) {
       PLAIN_POOL.push({ ...entry, weight: item.probability });
     }
   }
