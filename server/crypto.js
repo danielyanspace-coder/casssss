@@ -5,18 +5,24 @@
  * пересчитывает сумму в выбранную монету по своему курсу, ждёт перевод в
  * блокчейне и сообщает нам о зачислении вебхуком.
  *
- * ПОЧЕМУ СЧЁТ ВЫСТАВЛЯЕТСЯ В РУБЛЯХ, А НЕ В МОНЕТЕ. Игрок пополняет счёт на
- * 1000 ₽ и должен получить ровно 1000 ₽, сколько бы ни стоил биткоин в момент
- * оплаты. Если считать сумму в монете самим, между показом курса и приходом
- * перевода он успевает уехать, и на баланс попадает не то, что человек видел.
- * Поэтому в запросе идут `currency: RUB` и `to_currency: <монета>`: пересчёт и
- * риск курса берёт на себя шлюз, а мы зачисляем ровно исходную сумму в рублях.
+ * ПОЧЕМУ МОНЕТУ ВЫБИРАЮТ У НАС. Счёт выставляется сразу на выбранную монету и
+ * сеть, а не отдаёт выбор странице шлюза: касса остаётся частью приложения, и
+ * игрок не уходит на чужой домен посреди оплаты. Плата за это - мы обязаны
+ * сами следить за тем, за чем следила бы его страница: какие пары монета/сеть
+ * включены и какая у пары минимальная сумма. И то, и другое берётся у шлюза,
+ * а не зашито в код (см. coins()).
  *
- * ПОЧЕМУ СПИСОК МОНЕТ НЕ ЗАШИТ В КОД. Какие монеты и сети включены, решается в
- * кабинете Heleket, а не здесь. Список берётся у шлюза (`/v1/payment/services`)
- * и кешируется: включили в кабинете новую сеть - она появилась в кассе сама,
- * выключили - пропала. Зашитый список рано или поздно разошёлся бы с
- * действительностью, и игрок платил бы в сеть, которую мы не принимаем.
+ * ПОЧЕМУ ЗАЧИСЛЯЕМ ПО ФАКТУ, А НЕ ПО СЧЁТУ. Зачисляется столько, сколько
+ * реально пришло, пересчитанное по курсу этого же счёта. Заплатил ровно -
+ * получил сумму счёта. Заплатил больше - получил больше: деньги пришли, и
+ * оставлять их себе нечестно. Курс берётся не из внешнего источника, а из
+ * самого счёта (сумма в рублях делённая на сумму в монете) - это ровно тот
+ * курс, по которому шлюз посчитал платёж, и расхождению взяться неоткуда.
+ *
+ * СПИСОК МОНЕТ берётся у шлюза и кешируется: включили в кабинете новую сеть -
+ * она появилась и в пополнении, и в выводе сама, выключили - пропала. Зашитый
+ * список рано или поздно разошёлся бы с действительностью, и игрок платил бы
+ * в сеть, которую мы не принимаем.
  *
  * ПОЧЕМУ ВЫВОД НЕ АВТОМАТИЧЕСКИЙ. У Heleket есть ручка выплат, но заявка на
  * вывод здесь проходит через админку теми же состояниями, что и рублёвая:
@@ -26,7 +32,7 @@
  */
 
 import { createHash, timingSafeEqual } from 'node:crypto';
-import { db, getUserById } from './db.js';
+import { db, getUserById, registerDeposit } from './db.js';
 
 /*
  * Зачисления обоих способов оплаты идут в один журнал balance_transactions, а
@@ -78,9 +84,11 @@ db.exec(`
     network      TEXT    NOT NULL,
     payer_amount TEXT,
     address      TEXT,
+    address_qr   TEXT,
     pay_url      TEXT,
     status       TEXT    NOT NULL DEFAULT 'pending',
     txid         TEXT,
+    credited_rub INTEGER,
     created_at   INTEGER NOT NULL,
     expires_at   INTEGER,
     paid_at      INTEGER
@@ -95,6 +103,14 @@ db.exec(`
  * он повторяет доставку до успешного ответа), и без этого ограничения каждый
  * повтор клал бы деньги заново.
  */
+const payCols = db.prepare('PRAGMA table_info(crypto_payments)').all().map((c) => c.name);
+if (!payCols.includes('credited_rub')) {
+  db.exec('ALTER TABLE crypto_payments ADD COLUMN credited_rub INTEGER');
+}
+if (!payCols.includes('address_qr')) {
+  db.exec('ALTER TABLE crypto_payments ADD COLUMN address_qr TEXT');
+}
+
 const txCols = db.prepare('PRAGMA table_info(balance_transactions)').all().map((c) => c.name);
 if (!txCols.includes('crypto_payment_id')) {
   db.exec('ALTER TABLE balance_transactions ADD COLUMN crypto_payment_id INTEGER REFERENCES crypto_payments(id)');
@@ -353,7 +369,7 @@ function makeOrderId(userId) {
  * дороге, платёж всё равно найдётся по order_id, когда придёт вебхук. Обратный
  * порядок оставил бы зачисление без строки, к которой его привязать.
  */
-export async function createDeposit(userId, amountRub, currency, network) {
+export async function createDeposit(userId, amountRub, currency, network, rubRate = null) {
   const amount = Math.trunc(Number(amountRub));
   if (!Number.isFinite(amount) || amount < CRYPTO_MIN) {
     throw Object.assign(new Error(`Минимальная сумма пополнения - ${CRYPTO_MIN} ₽`), { code: 'MIN' });
@@ -367,6 +383,24 @@ export async function createDeposit(userId, amountRub, currency, network) {
   if (!coin) throw Object.assign(new Error('Такая монета не принимается'), { code: 'BAD_CURRENCY' });
   const net = coin.networks.find((n) => n.network === String(network || '').toUpperCase());
   if (!net) throw Object.assign(new Error('Такая сеть не принимается'), { code: 'BAD_NETWORK' });
+
+  /*
+   * У каждой пары монета/сеть свой минимум, и он задан в монете, а не в
+   * рублях: у биткоина это сотые доли, у Dogecoin - десятки штук. Шлюз
+   * отвергнет счёт ниже минимума, но сообщение придёт по-английски и про
+   * монету, которую игрок не выбирал осознанно. Проверяем сами и говорим
+   * по-русски, во сколько это обходится в рублях.
+   */
+  const rate = Number(rubRate) > 0 ? Number(rubRate) : (await rates())[coin.currency];
+  if (net.minAmount > 0 && rate > 0) {
+    const minRub = Math.ceil(net.minAmount * rate);
+    if (amount < minRub) {
+      throw Object.assign(
+        new Error(`Минимум для ${coin.currency} в сети ${net.name} - около ${minRub} ₽`),
+        { code: 'MIN_NETWORK', minRub }
+      );
+    }
+  }
 
   const orderId = makeOrderId(userId);
   const row = db.prepare(`
@@ -386,21 +420,35 @@ export async function createDeposit(userId, amountRub, currency, network) {
       lifetime: INVOICE_LIFETIME_S,
       url_callback: WEBAPP_URL ? `${WEBAPP_URL}/api/webhooks/heleket` : undefined,
       url_success: WEBAPP_URL || undefined,
-      is_payment_multiple: false,
+      // Доплата разрешена: игрок может прислать меньше, чем нужно, и добить
+      // остаток вторым переводом. Зачислим по факту пришедшего.
+      is_payment_multiple: true,
     });
   } catch (err) {
     db.prepare("UPDATE crypto_payments SET status='failed' WHERE id=?").run(id);
     throw err;
   }
 
+  /*
+   * QR-код приходит от шлюза готовой картинкой, и мы её сохраняем.
+   *
+   * Рисовать его самим значило бы тянуть библиотеку ради того, что уже есть в
+   * ответе. А сохраняем потому, что игрок закрывает приложение и возвращается:
+   * без картинки в базе ему пришлось бы заводить новый счёт вместо того, чтобы
+   * доплатить по старому.
+   */
   db.prepare(`
     UPDATE crypto_payments
-       SET uuid=?, payer_amount=?, address=?, pay_url=?, status=?, expires_at=?
+       SET uuid=?, currency=?, network=?, payer_amount=?, address=?, address_qr=?,
+           pay_url=?, status=?, expires_at=?
      WHERE id=?
   `).run(
     invoice.uuid || null,
+    (invoice.payer_currency || coin.currency || '').toUpperCase(),
+    (invoice.network || net.network || '').toUpperCase(),
     invoice.payer_amount != null ? String(invoice.payer_amount) : null,
     invoice.address || null,
+    invoice.address_qr_code || null,
     invoice.url || null,
     invoice.payment_status || 'pending',
     invoice.expired_at ? invoice.expired_at * 1000 : null,
@@ -427,33 +475,76 @@ export const applyWebhook = db.transaction((payload) => {
   if (!row) throw Object.assign(new Error('Платёж не найден'), { code: 'NOT_FOUND' });
 
   const status = String(payload.status || '');
-  db.prepare('UPDATE crypto_payments SET status=?, txid=COALESCE(?,txid) WHERE id=?')
-    .run(status, payload.txid || null, row.id);
+  const currency = String(payload.payer_currency || row.currency || '');
+  const network = String(payload.network || row.network || '');
+
+  db.prepare(`UPDATE crypto_payments
+                 SET status=?, txid=COALESCE(?,txid),
+                     currency=COALESCE(NULLIF(?,''), currency),
+                     network=COALESCE(NULLIF(?,''), network)
+               WHERE id=?`)
+    .run(status, payload.txid || null, currency, network, row.id);
 
   if (!PAID_STATUSES.has(status)) return { credited: false, status };
 
   const already = db.prepare('SELECT 1 FROM balance_transactions WHERE crypto_payment_id=?').get(row.id);
   if (already) return { credited: false, status, duplicate: true };
 
+  const credited = creditedRubles(row, payload);
+  if (!(credited > 0)) return { credited: false, status, empty: true };
+
   const now = Date.now();
-  db.prepare('UPDATE users SET balance=balance+? WHERE id=?').run(row.amount_rub, row.user_id);
+  const label = currency ? `${currency}${network ? ` · ${network}` : ''}` : 'криптовалюта';
+
+  db.prepare('UPDATE users SET balance=balance+? WHERE id=?').run(credited, row.user_id);
   db.prepare(`INSERT INTO balance_transactions (user_id, type, amount, crypto_payment_id, comment, created_at)
               VALUES (?, 'DEPOSIT', ?, ?, ?, ?)`)
-    .run(row.user_id, row.amount_rub, row.id, `Криптоплатёж ${row.currency} (${row.network})`, now);
+    .run(row.user_id, credited, row.id, `Криптоплатёж ${label}`, now);
   db.prepare(`INSERT INTO deposits (user_id, amount, source, comment, created_at)
               VALUES (?, ?, 'crypto', ?, ?)`)
-    .run(row.user_id, row.amount_rub, `${row.currency} · ${row.network}`, now);
-  db.prepare('UPDATE crypto_payments SET paid_at=? WHERE id=?').run(now, row.id);
+    .run(row.user_id, credited, label, now);
+  db.prepare('UPDATE crypto_payments SET paid_at=?, credited_rub=? WHERE id=?')
+    .run(now, credited, row.id);
+
+  // Пополнение обязано быть отыграно ставками, прежде чем его можно вывести.
+  registerDeposit(row.user_id, credited);
 
   return {
     credited: true,
     status,
     paymentId: row.id,
     userId: row.user_id,
-    amount: row.amount_rub,
+    amount: credited,
+    invoiced: row.amount_rub,
     balance: getUserById(row.user_id).balance,
   };
 });
+
+/**
+ * Сколько рублей зачислить за пришедший перевод.
+ *
+ * Считаем от того, что пришло на самом деле, а не от суммы счёта: заплатил
+ * ровно - получил сумму счёта, заплатил больше - получил больше. Деньги ведь
+ * пришли, и оставлять излишек себе нечестно.
+ *
+ * Курс берётся из самого счёта: сумма в рублях, делённая на сумму в монете,
+ * которую шлюз просил перевести. Это ровно тот курс, по которому он считал
+ * этот платёж, поэтому расхождению взяться неоткуда - в отличие от внешнего
+ * источника, который к моменту прихода перевода уже другой.
+ *
+ * Если чего-то из этих чисел нет, зачисляем сумму счёта: недоплата и
+ * переплата - редкость, а платёж без зачисления - всегда разбирательство.
+ */
+function creditedRubles(row, payload) {
+  const paid = Number(payload.payment_amount);
+  const asked = Number(payload.payer_amount ?? row.payer_amount);
+  const invoiced = Number(payload.amount) || row.amount_rub;
+
+  if (paid > 0 && asked > 0 && invoiced > 0) {
+    return Math.max(1, Math.round(paid * (invoiced / asked)));
+  }
+  return row.amount_rub;
+}
 
 function publicPayment(r) {
   if (!r) return null;
@@ -465,6 +556,7 @@ function publicPayment(r) {
     networkName: NETWORKS[r.network] || r.network,
     payerAmount: r.payer_amount,
     address: r.address,
+    addressQr: r.address_qr,
     payUrl: r.pay_url,
     status: r.status,
     txid: r.txid,

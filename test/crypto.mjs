@@ -71,12 +71,18 @@ const check = (name, ok, detail = '') => {
   db.prepare(`INSERT INTO crypto_payments (user_id, order_id, amount_rub, currency, network, created_at)
               VALUES (?, 'ord-1', 1500, 'USDT', 'TRON', ?)`).run(user.id, now);
 
-  const first = crypto.applyWebhook({ order_id: 'ord-1', status: 'paid', txid: 'tx1' });
+  const first = crypto.applyWebhook({
+    order_id: 'ord-1', status: 'paid', txid: 'tx1',
+    amount: '1500', payer_amount: '17.40', payment_amount: '17.40', payer_currency: 'USDT',
+  });
   check('оплата зачисляется', first.credited === true && first.amount === 1500);
   check('баланс вырос ровно на сумму заявки', getUserById(user.id).balance === 1500,
         String(getUserById(user.id).balance));
 
-  const second = crypto.applyWebhook({ order_id: 'ord-1', status: 'paid', txid: 'tx1' });
+  const second = crypto.applyWebhook({
+    order_id: 'ord-1', status: 'paid', txid: 'tx1',
+    amount: '1500', payer_amount: '17.40', payment_amount: '17.40',
+  });
   check('повторный вебхук не зачисляет второй раз', second.credited === false && second.duplicate);
   check('баланс после повтора не изменился', getUserById(user.id).balance === 1500,
         String(getUserById(user.id).balance));
@@ -97,11 +103,54 @@ const check = (name, ok, detail = '') => {
   }
   check('баланс при незавершённых статусах нулевой', getUserById(user.id).balance === 0);
 
-  // Переплата - это оплата: деньги пришли, и заявку надо закрыть.
-  const over = crypto.applyWebhook({ order_id: 'ord-2', status: 'paid_over' });
+  /*
+   * Переплата. Пришло вдвое больше, чем просили, - значит и зачислить надо
+   * вдвое больше: деньги у нас, оставлять их себе нечестно. Курс берётся из
+   * самого счёта, поэтому пересчёт точный.
+   */
+  const over = crypto.applyWebhook({
+    order_id: 'ord-2', status: 'paid_over',
+    amount: '700', payer_amount: '8.12', payment_amount: '16.24', payer_currency: 'USDT',
+  });
   check('переплата зачисляется', over.credited === true);
-  check('при переплате зачисляется исходная сумма', getUserById(user.id).balance === 700,
+  check('при переплате зачисляется по факту пришедшего',
+        getUserById(user.id).balance === 1400, String(getUserById(user.id).balance));
+}
+
+/* ---------- Зачисление по факту, а не по счёту ---------- */
+{
+  const user = getOrCreateUser({ id: 'crypto-d', username: 'd' });
+  db.prepare(`INSERT INTO crypto_payments (user_id, order_id, amount_rub, currency, network, created_at)
+              VALUES (?, 'ord-3', 1000, '', '', ?)`).run(user.id, Date.now());
+
+  // Курс счёта: 1000 ₽ за 10 USDT, то есть 100 ₽ за монету. Пришло 100 USDT.
+  const r = crypto.applyWebhook({
+    order_id: 'ord-3', status: 'paid',
+    amount: '1000', payer_amount: '10', payment_amount: '100', payer_currency: 'USDT',
+  });
+  check('сто монет по сто рублей дают десять тысяч',
+        r.credited && getUserById(user.id).balance === 10000,
         String(getUserById(user.id).balance));
+
+  // Недоплата: пришла половина - зачисляем половину.
+  const u2 = getOrCreateUser({ id: 'crypto-e', username: 'e' });
+  db.prepare(`INSERT INTO crypto_payments (user_id, order_id, amount_rub, currency, network, created_at)
+              VALUES (?, 'ord-4', 2000, '', '', ?)`).run(u2.id, Date.now());
+  crypto.applyWebhook({
+    order_id: 'ord-4', status: 'paid',
+    amount: '2000', payer_amount: '20', payment_amount: '10', payer_currency: 'USDT',
+  });
+  check('недоплата зачисляется тем, что пришло',
+        getUserById(u2.id).balance === 1000, String(getUserById(u2.id).balance));
+
+  // Без чисел о фактическом переводе зачисляем сумму счёта: платёж без
+  // зачисления хуже, чем зачисление по счёту.
+  const u3 = getOrCreateUser({ id: 'crypto-f', username: 'f' });
+  db.prepare(`INSERT INTO crypto_payments (user_id, order_id, amount_rub, currency, network, created_at)
+              VALUES (?, 'ord-5', 300, '', '', ?)`).run(u3.id, Date.now());
+  crypto.applyWebhook({ order_id: 'ord-5', status: 'paid' });
+  check('без данных о переводе зачисляется сумма счёта',
+        getUserById(u3.id).balance === 300, String(getUserById(u3.id).balance));
 }
 
 /* ---------- Неизвестный заказ ---------- */
@@ -115,7 +164,9 @@ const check = (name, ok, detail = '') => {
 /* ---------- Заявка на вывод криптой ---------- */
 {
   const user = getOrCreateUser({ id: 'crypto-c', username: 'c' });
-  db.prepare('UPDATE users SET balance = 50000 WHERE id = ?').run(user.id);
+  // Отыгранный оборот выставляем прямо: правило проверяется отдельным тестом,
+  // здесь нас интересуют реквизиты, а не оно.
+  db.prepare('UPDATE users SET balance = 50000, wager_progress = 50000 WHERE id = ?').run(user.id);
 
   const good = {
     method: 'crypto', cryptoCurrency: 'usdt', cryptoNetwork: 'tron',

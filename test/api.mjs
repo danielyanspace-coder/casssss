@@ -552,6 +552,16 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
 /* ---------- Криптокасса ---------- */
 
 {
+  /*
+   * Правило отыгрыша проверяется целиком в test/wager.mjs, здесь только его
+   * видимая часть: касса не должна обещать больше, чем можно вывести.
+   */
+  const w = (await post('/api/wallet')).data;
+  check('касса: доступное не больше баланса', w.available <= w.balance,
+        `${w.available} из ${w.balance}`);
+  check('касса: доступное не больше отыгранного', w.available <= w.wagerProgress,
+        `${w.available} при отыгранных ${w.wagerProgress}`);
+
   const opts = await post('/api/crypto/options');
   check('криптокасса: настройки отдаются', opts.status === 200, `HTTP ${opts.status}`);
 

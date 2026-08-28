@@ -3388,8 +3388,18 @@ async function loadWallet() {
   renderPayoutList(w.payouts);
   loadPayments();
 
+  /*
+   * Игроку важно не только сколько доступно, но и почему меньше баланса.
+   * Молчаливое «доступно 200» при балансе 1000 читается как ошибка, поэтому
+   * недостающее объясняется прямо здесь, а не в правилах.
+   */
+  const locked = Math.max(0, w.balance - w.available);
   document.getElementById('withdrawHint').innerHTML =
-    `Доступно <b>${money(w.available)}</b> · минимум ${money(w.minPayout)}`;
+    `Доступно <b>${money(w.available)}</b> · минимум ${money(w.minPayout)}`
+    + (locked > 0
+      ? `<span class="withdraw-locked">Ещё ${money(locked)} откроется по мере игры:
+           вывести можно не больше, чем поставлено.</span>`
+      : '');
 }
 
 /**
@@ -3616,7 +3626,8 @@ function refreshCryptoRate(side) {
     <span class="rate-amount">${coinMark(currency, 20)} ≈ ${amount} ${currency}</span>
     <span class="rate-course">${course}</span>
     <span class="rate-note">${isDeposit
-      ? 'Точная сумма посчитается на странице оплаты по курсу шлюза'
+      ? 'Точную сумму к переводу назовёт шлюз. Зачислим по факту пришедшего: '
+        + 'заплатите больше - получите больше'
       : 'Итоговая сумма считается по курсу на момент заявки'}</span>`;
 }
 
@@ -3649,15 +3660,16 @@ async function openCryptoDeposit() {
 
   renderCoinGrid(document.getElementById('coinGrid'), 'deposit');
   renderCryptoQuick();
-  const amount = document.getElementById('cryptoAmount');
-  amount.placeholder = `Сумма пополнения, ₽ (от ${money(cryptoState.min)})`;
-  if (!cryptoState.deposit.currency) selectCoin('deposit', cryptoState.coins[0].currency);
-  else selectCoin('deposit', cryptoState.deposit.currency);
+  document.getElementById('cryptoAmount').placeholder =
+    `Сумма пополнения, ₽ (от ${money(cryptoState.min)})`;
+  selectCoin('deposit', cryptoState.deposit.currency || cryptoState.coins[0].currency);
 }
 
 document.getElementById('coinNetworkSelect')?.addEventListener('change', (e) => {
   cryptoState.deposit.network = e.target.value;
+  refreshCryptoRate('deposit');
 });
+
 document.getElementById('withdrawNetwork')?.addEventListener('change', (e) => {
   cryptoState.withdraw.network = e.target.value;
 });
@@ -3703,6 +3715,10 @@ function showCryptoCheckout(p) {
           <div class="invoice-sub">за ${money(p.amountRub)} · сеть ${esc(p.networkName)}</div>
         </div>
       </div>
+
+      ${p.addressQr ? `
+        <img class="invoice-qr" src="${p.addressQr}" alt="QR-код адреса"
+             width="180" height="180" decoding="async">` : ''}
 
       ${p.address ? `
         <div class="field-label">Адрес для перевода</div>

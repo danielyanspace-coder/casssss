@@ -279,11 +279,18 @@ if (userColumns.includes('total_opened') && !userColumns.includes('total_rounds'
  * поэтому новые поля досыпаем вручную — иначе база игрока со старой версии
  * уронит сервер на первом же запросе.
  */
+/**
+ * Добавляет колонку, если её ещё нет.
+ *
+ * Возвращает true, когда колонка действительно появилась. Это нужно разовым
+ * пересчётам: их надо выполнить ровно один раз, в момент появления колонки, и
+ * заводить ради этого отдельную таблицу отметок незачем.
+ */
 function ensureColumn(table, column, definition) {
   const cols = db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
-  if (!cols.includes(column)) {
-    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition};`);
-  }
+  if (cols.includes(column)) return false;
+  db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition};`);
+  return true;
 }
 
 ensureColumn('users', 'is_admin', 'INTEGER NOT NULL DEFAULT 0');
@@ -328,6 +335,34 @@ ensureColumn('payouts', 'crypto_rate', 'REAL');
 
 // Отыгрыш бонусов: сколько ещё надо поставить, прежде чем выводить средства.
 ensureColumn('users', 'wager_required', 'INTEGER NOT NULL DEFAULT 0');
+
+/*
+ * Отыгранный оборот: сколько из внесённого игрок уже прокрутил ставками.
+ *
+ * Правило простое: вывести можно не больше, чем поставлено. Внёс тысячу и
+ * сразу пошёл выводить - вывести нечего; поставил двести - двести и доступно.
+ *
+ * Счётчик, а не флаг, потому что открывается вывод постепенно, по мере игры,
+ * а не разом после какой-то отметки. Растёт от каждой ставки, уменьшается на
+ * сумму заявки на вывод и возвращается, если заявку отменили или отклонили.
+ */
+const wagerProgressAdded = ensureColumn('users', 'wager_progress', 'INTEGER NOT NULL DEFAULT 0');
+
+/*
+ * Разовый пересчёт для тех, кто играл до появления правила. Без него игрок с
+ * тысячей прокрутов увидел бы нулевой доступный вывод и решил бы, что деньги
+ * пропали. Считаем по фактическим ставкам за вычетом уже выведенного.
+ */
+if (wagerProgressAdded) {
+  db.exec(`
+    UPDATE users SET wager_progress = MAX(0,
+      COALESCE((SELECT SUM(bet) FROM rounds WHERE rounds.user_id = users.id), 0)
+      - COALESCE((SELECT SUM(amount) FROM payouts
+                   WHERE payouts.user_id = users.id
+                     AND status IN ('pending','processing','paid')), 0));
+  `);
+}
+
 // Сумма выданных игроку бонусов - вычитается из прибыли при расчёте партнёру.
 ensureColumn('users', 'bonus_granted', 'INTEGER NOT NULL DEFAULT 0');
 // Сколько раз игрок пополнял счёт: по нему работает условие «только новым».
@@ -1087,14 +1122,41 @@ function addWager(userId, bonusAmount, multiplier) {
 }
 
 /**
- * Гасит долг по обороту сделанной ставкой.
+ * Учитывает сделанную ставку.
  *
- * Вызывается из каждой игры. Долг не уходит в минус: лишнее просто сгорает.
+ * Делает две вещи сразу, и обе про одну ставку. Гасит долг по обороту за
+ * выданный бонус - он не уходит в минус, лишнее просто сгорает. И копит
+ * отыгранный оборот, которым открывается вывод внесённого.
+ *
+ * Одна функция, а не две, потому что вызывается она из каждой игры: две
+ * означали бы, что однажды где-то вызовут только одну, и правило поедет
+ * молча, в пользу того, кто это заметит первым.
  */
 export function consumeWager(userId, bet) {
   if (!(bet > 0)) return;
-  db.prepare('UPDATE users SET wager_required = MAX(0, wager_required - ?) WHERE id = ?')
-    .run(Math.round(bet), userId);
+  const amount = Math.round(bet);
+  db.prepare(`UPDATE users
+                 SET wager_required = MAX(0, wager_required - ?),
+                     wager_progress = wager_progress + ?
+               WHERE id = ?`).run(amount, amount, userId);
+}
+
+/** Пополнение отыгрывать надо: доступное к выводу от него не растёт. */
+export function registerDeposit(userId, amount) {
+  // Ничего не делает намеренно: пополнение просто не увеличивает отыгранное.
+  // Функция есть, чтобы место, где это решается, было видно из платёжных
+  // модулей, а не подразумевалось их молчанием.
+  void userId; void amount;
+}
+
+/**
+ * Сколько игрок может вывести прямо сейчас.
+ *
+ * Меньшее из двух: что есть на балансе и что отыграно ставками. Первое
+ * очевидно, второе - то самое правило: вывести можно не больше, чем поставил.
+ */
+export function withdrawable(user) {
+  return Math.max(0, Math.min(user.balance, user.wager_progress));
 }
 
 /* ============================================================
@@ -1755,6 +1817,20 @@ export const createPayout = db.transaction((userId, amount, details = {}) => {
   if (amount > user.balance) {
     throw Object.assign(new Error('Недостаточно средств'), { code: 'INSUFFICIENT_FUNDS' });
   }
+  /*
+   * Вывести можно не больше, чем поставлено. Сообщение обязано называть
+   * конкретное число: «отыграйте депозит» игрок читает как отказ без причины,
+   * а «доступно 200 ₽, поставлено 200 из 1000» - как понятное правило.
+   */
+  const free = withdrawable(user);
+  if (amount > free) {
+    throw Object.assign(
+      new Error(free > 0
+        ? `Доступно к выводу ${free} - остальное нужно отыграть ставками`
+        : 'Сначала сыграйте: вывести можно не больше, чем поставлено'),
+      { code: 'WAGER_PROGRESS', available: free }
+    );
+  }
   if (user.wager_required > 0) {
     throw Object.assign(
       new Error(`Бонус не отыгран: осталось поставить ${user.wager_required}`),
@@ -1806,7 +1882,12 @@ export const createPayout = db.transaction((userId, amount, details = {}) => {
     throw Object.assign(new Error('Выберите способ вывода'), { code: 'BAD_METHOD' });
   }
 
-  db.prepare('UPDATE users SET balance = balance - ? WHERE id = ?').run(amount, userId);
+  // Вместе с деньгами расходуется и отыгранное: одну и ту же тысячу ставок
+  // нельзя предъявить дважды.
+  db.prepare(`UPDATE users
+                 SET balance = balance - ?,
+                     wager_progress = MAX(0, wager_progress - ?)
+               WHERE id = ?`).run(amount, amount, userId);
   const info = db.prepare(`
     INSERT INTO payouts (user_id, amount, status, method, phone, bank, card_number,
                          crypto_currency, crypto_network, crypto_address, crypto_amount,
@@ -1830,7 +1911,9 @@ export const cancelPayout = db.transaction((userId, payoutId) => {
 
   db.prepare(`UPDATE payouts SET status = 'cancelled', resolved_at = ? WHERE id = ?`)
     .run(Date.now(), payoutId);
-  db.prepare('UPDATE users SET balance = balance + ? WHERE id = ?').run(row.amount, userId);
+  // Деньги вернулись - вернулось и отыгранное, которым они были открыты.
+  db.prepare('UPDATE users SET balance = balance + ?, wager_progress = wager_progress + ? WHERE id = ?')
+    .run(row.amount, row.amount, userId);
 
   return { balance: getUserById(userId).balance };
 });
@@ -1856,8 +1939,8 @@ export const resolvePayout = db.transaction((adminId, payoutId, status, comment)
                WHERE id = ?`)
     .run(status, comment || null, Date.now(), adminId, payoutId);
 
-  db.prepare('UPDATE users SET balance = balance + ? WHERE id = ?')
-    .run(row.amount, row.user_id);
+  db.prepare('UPDATE users SET balance = balance + ?, wager_progress = wager_progress + ? WHERE id = ?')
+    .run(row.amount, row.amount, row.user_id);
 
   db.prepare(`
     INSERT INTO admin_log (admin_id, target_id, action, amount, note, created_at)

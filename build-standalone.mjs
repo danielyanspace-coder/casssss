@@ -384,7 +384,7 @@ function freshUser() {
     rounds: [],
     lastBonusAt: 0,
     // Промокоды и партнёрка: то же, что в базе рабочей версии.
-    wagerRequired: 0, bonusGranted: 0, depositsCount: 0,
+    wagerRequired: 0, wagerProgress: 0, bonusGranted: 0, depositsCount: 0,
     partnerId: null, redemptions: [], pendingDeposit: null,
     // Недосмотренная серия фриспинов - как в рабочей версии.
     pendingSpins: null,
@@ -561,7 +561,11 @@ function partnerStats(partnerId) {
 /** Гасит долг по обороту сделанной ставкой - как consumeWager на сервере. */
 function consumeWager(bet) {
   const u = store.user;
-  if (bet > 0) u.wagerRequired = Math.max(0, (u.wagerRequired || 0) - Math.round(bet));
+  if (bet > 0) {
+    u.wagerRequired = Math.max(0, (u.wagerRequired || 0) - Math.round(bet));
+    // Ставка открывает вывод: то же правило, что на сервере.
+    u.wagerProgress = (u.wagerProgress || 0) + Math.round(bet);
+  }
 }
 
 /** Одно открытие кейса. Общая часть для одиночного открытия и пачки. */
@@ -1111,8 +1115,11 @@ const routes = {
     const u = store.user;
     const pending = u.payouts.filter((p) => p.status === 'pending')
       .reduce((a, p) => a + p.amount, 0);
+    // Доступно меньшее из баланса и отыгранного - как на сервере.
+    const available = Math.max(0, Math.min(u.balance, u.wagerProgress || 0));
     return {
-      balance: u.balance, pending, available: u.balance,
+      balance: u.balance, pending, available,
+      wagerProgress: u.wagerProgress || 0,
       minPayout: CONFIG.minPayout,
       deposits: u.deposits, payouts: u.payouts,
     };
@@ -1133,9 +1140,18 @@ const routes = {
       return { status: 400, body: { error: 'WAGER',
         message: 'Бонус не отыгран: осталось поставить ' + u.wagerRequired } };
     }
+    const free = Math.max(0, Math.min(u.balance, u.wagerProgress || 0));
+    if (amount > free) {
+      return { status: 400, body: { error: 'WAGER_PROGRESS', available: free,
+        message: free > 0
+          ? 'Доступно к выводу ' + free + ' - остальное нужно отыграть ставками'
+          : 'Сначала сыграйте: вывести можно не больше, чем поставлено' } };
+    }
 
     // Списываем сразу — как на сервере: иначе один баланс можно заявить дважды.
+    // Вместе с деньгами расходуется и отыгранное.
     u.balance -= amount;
+    u.wagerProgress = Math.max(0, (u.wagerProgress || 0) - amount);
     const id = Date.now();
     u.payouts.unshift({
       id, amount, status: 'pending', comment: null,
@@ -1195,6 +1211,9 @@ const routes = {
     if (!amount || amount < 500) {
       return { status: 400, body: { error: 'MIN', message: 'Минимальная сумма - 500 ₽' } };
     }
+    if (!body.currency || !body.network) {
+      return { status: 400, body: { error: 'BAD_CURRENCY', message: 'Выберите монету и сеть' } };
+    }
     const rates = { USDT: 86.2, USDC: 86.2, BTC: 6850000, ETH: 216000, TRX: 29.4,
                     BNB: 60700, SOL: 9160, LTC: 4250, DOGE: 7.6, XMR: 40700, GRAM: 0.4 };
     const rate = rates[body.currency] || 1;
@@ -1238,6 +1257,7 @@ const routes = {
     const p = u.payouts.find((x) => x.id === Number(body.id));
     if (!p) return { status: 404, body: { error: 'Заявка не найдена' } };
     if (p.status !== 'pending') return { status: 400, body: { error: 'Заявка уже обработана' } };
+    u.wagerProgress = (u.wagerProgress || 0) + p.amount;
 
     p.status = 'cancelled';
     p.resolved_at = Date.now();

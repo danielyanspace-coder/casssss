@@ -3789,3 +3789,26 @@ select.seed-input {
   font-size: 11px; line-height: 1.4; color: var(--muted); word-break: break-all;
 }
 .payout-rate { display: block; margin-top: 3px; font-size: 10.5px; color: var(--muted); opacity: 0.8; }
+
+/* Лента значков монет над полем суммы: показывает, чем можно заплатить,
+   но выбор делается уже на странице шлюза. */
+.coin-strip { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.coin-strip .coin-mark { opacity: 0.9; }
+
+/* Объяснение, почему доступно меньше баланса. Отдельной строкой и мельче:
+   это пояснение к числу, а не второе число. */
+.withdraw-locked {
+  display: block; margin-top: 6px;
+  font-size: 11.5px; line-height: 1.45; color: var(--muted);
+}
+
+/* QR-код адреса приходит от шлюза готовой картинкой. Белая подложка
+   обязательна: телефон не считывает код на тёмном фоне. */
+.invoice-qr {
+  display: block;
+  margin: 0 auto 14px;
+  border-radius: 12px;
+  background: #fff;
+  padding: 8px;
+  image-rendering: pixelated;
+}

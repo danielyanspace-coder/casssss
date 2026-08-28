@@ -69,7 +69,7 @@ import {
   getDeposits,
   getPayouts,
   pendingPayoutTotal,
-  createPayout,
+  createPayout, withdrawable,
   cancelPayout,
   resolvePayout,
   startPayout,
@@ -751,9 +751,13 @@ app.post('/api/wallet', auth, limits.read, (req, res) => {
   res.json({
     balance: req.player.balance,
     pending,
-    // Заявка списывает сумму сразу, поэтому доступное к выводу — это и есть
-    // текущий баланс; ожидающие заявки показываются отдельной строкой.
-    available: req.player.balance,
+    /*
+     * Доступное к выводу - меньшее из баланса и отыгранного ставками. Заявка
+     * списывает сумму сразу, поэтому ожидающие показываются отдельной строкой
+     * и в этом числе уже не участвуют.
+     */
+    available: withdrawable(req.player),
+    wagerProgress: req.player.wager_progress,
     minPayout: MIN_PAYOUT,
     deposits: getDeposits(req.player.id),
     payouts: getPayouts(req.player.id),
