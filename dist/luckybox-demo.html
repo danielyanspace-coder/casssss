@@ -3679,6 +3679,124 @@ select.seed-input {
 .deposit-methods,.bank-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0}.payment-method,.bank-grid button{padding:8px;border:1px solid #4b3a62;border-radius:12px;background:#fff;color:#191321;min-height:72px;display:flex;align-items:center;justify-content:center;gap:8px;overflow:hidden}.bank-grid button img{display:block;width:100%;height:54px;object-fit:contain}.bank-grid button.active{border-color:#ffd60a;box-shadow:0 0 0 2px #ffd60a}.payment-method{background:#181124;color:#fff}.payment-method.active{border-color:#ffd60a;box-shadow:0 0 0 1px #ffd60a}.any-bank-icon{font-size:28px;color:#6b4bb4;transform:rotate(-8deg)}.bank-grid [data-bank="any"] span:last-child{font-weight:700;line-height:1.15}.payment-method small{display:block;color:#8f829e}.payment-create .seed-input{width:100%;box-sizing:border-box;margin:8px 0}.payment-checkout{padding:18px;border:1px solid #ffd60a;border-radius:16px;background:linear-gradient(145deg,#201629,#15101d);text-align:center;margin:12px 0}.payment-timer{font-size:34px;font-weight:800;color:#ffd60a}.payment-requisite{display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid #392d45}.payment-requisite b{font-size:18px}.payment-status{padding:5px 9px;border-radius:99px;font-size:11px}.payment-status.PAID{background:#154b37;color:#61f1ac}.payment-status.PENDING{background:#5b4610;color:#ffd966}.payment-status.EXPIRED,.payment-status.MANUAL_REVIEW{background:#5b2028;color:#ff8b99}.payment-history{padding:12px;margin:8px 0;background:#191321;border-radius:12px}.support-message{padding:9px 11px;margin:6px 0;border-radius:10px;background:#2a2035}.support-message.USER{text-align:right;background:#44315b}.settings-grid{display:grid;gap:10px}.settings-grid label{display:grid;gap:4px;color:#ac9fba}.settings-grid input{padding:10px;border-radius:8px;border:1px solid #4b3a62;background:#17111f;color:#fff}
 .beeline-brand{width:min(280px,100%);margin:8px auto 14px;padding:8px 14px;background:#fff;border-radius:14px;box-sizing:border-box}.beeline-brand img{display:block;width:100%;height:64px;object-fit:contain}
 
+/* ============================================================
+   КРИПТОКАССА
+   ============================================================ */
+
+/* Сетка монет. Три в ряд на телефоне: четыре превращают название монеты в
+   обрубок, две оставляют половину экрана пустой. */
+.coin-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 14px;
+}
+@media (min-width: 480px) { .coin-grid { grid-template-columns: repeat(4, 1fr); } }
+
+.coin-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 11px 6px 9px;
+  border-radius: 14px;
+  border: 2px solid var(--line);
+  background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(0,0,0,0.18));
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.1s, box-shadow 0.2s;
+}
+.coin-card:active { transform: scale(0.97); }
+
+/* Выбранная монета подсвечивается своим цветом, а не общим акцентом: так
+   видно не только что выбрано, но и что именно. */
+.coin-card.active {
+  border-color: var(--coin);
+  box-shadow: 0 0 0 1px var(--coin), 0 6px 20px -8px var(--coin);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--coin) 18%, transparent), rgba(0,0,0,0.2));
+}
+
+.coin-mark { display: block; flex: none; }
+.coin-code { font-size: 12.5px; font-weight: 800; color: var(--text); letter-spacing: 0.4px; }
+.coin-name {
+  font-size: 9.5px; color: var(--muted); text-align: center; line-height: 1.15;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* В форме вывода сетка теснее: там под ней ещё три поля и кнопка. */
+.coin-grid.compact .coin-card { padding: 8px 4px 7px; gap: 3px; }
+.coin-grid.compact .coin-name { display: none; }
+
+.coin-note {
+  font-size: 11px; line-height: 1.4; color: var(--muted);
+  margin: 8px 0 4px;
+}
+
+/* Строка курса. Три уровня по важности: сумма крупно, курс мельче,
+   оговорка совсем мелко - её читают один раз и запоминают. */
+.rate-line { margin: 10px 0 14px; min-height: 20px; }
+.rate-amount {
+  display: flex; align-items: center; gap: 7px;
+  font-size: 17px; font-weight: 800; color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.rate-course { display: block; font-size: 12px; color: var(--muted); margin-top: 3px; }
+.rate-note { display: block; font-size: 10.5px; color: var(--muted); opacity: 0.75; margin-top: 3px; }
+
+.quick-row { display: flex; gap: 8px; margin: 10px 0; flex-wrap: wrap; }
+.quick-btn {
+  flex: 1 1 auto; padding: 9px 12px; border-radius: 11px;
+  border: 2px solid var(--line); background: rgba(255,255,255,0.03);
+  color: var(--text); font-size: 13px; font-weight: 700; cursor: pointer;
+}
+.quick-btn:active { transform: scale(0.97); }
+
+/* Счёт на оплату. Рамка красится цветом монеты - экран оплаты биткоином и
+   экран оплаты USDT не должны выглядеть одинаково. */
+.crypto-invoice {
+  border: 2px solid color-mix(in srgb, var(--coin) 55%, var(--line));
+  border-radius: 18px;
+  padding: 16px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--coin) 10%, transparent), rgba(0,0,0,0.25));
+  box-shadow: 0 10px 34px -18px var(--coin);
+}
+.invoice-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.invoice-sum {
+  font-size: 22px; font-weight: 900; color: var(--text);
+  font-variant-numeric: tabular-nums; line-height: 1.1;
+}
+.invoice-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+/* Адрес - кнопка во всю ширину: по нему нажимают, чтобы скопировать, и
+   промахнуться мимо мелкой иконки на телефоне слишком легко. */
+.invoice-address {
+  display: block; width: 100%; text-align: left;
+  padding: 11px 13px; margin-bottom: 12px;
+  border-radius: 12px; border: 2px dashed var(--line);
+  background: rgba(0,0,0,0.3); color: var(--text); cursor: pointer;
+}
+.invoice-address span {
+  display: block; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px; line-height: 1.45; word-break: break-all;
+}
+.invoice-address small { display: block; font-size: 10.5px; color: var(--muted); margin-top: 5px; }
+
+.invoice-warn {
+  font-size: 11.5px; line-height: 1.45; color: #ffd08a;
+  background: rgba(255, 170, 40, 0.1);
+  border-left: 3px solid #ffaa28;
+  padding: 9px 11px; border-radius: 0 10px 10px 0; margin-bottom: 14px;
+}
+.invoice-status { font-size: 12.5px; color: var(--muted); margin-top: 10px; text-align: center; }
+
+/* Адрес кошелька в списке заявок. Моноширинный и с переносом по символам:
+   администратор сверяет его посимвольно перед отправкой. */
+.payout-address {
+  display: block; margin-top: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px; line-height: 1.4; color: var(--muted); word-break: break-all;
+}
+.payout-rate { display: block; margin-top: 3px; font-size: 10.5px; color: var(--muted); opacity: 0.8; }
+
 
 /* ---------- Только для автономной версии ---------- */
 
@@ -3976,7 +4094,7 @@ select.seed-input {
       <div class="wallet-pane" id="walletDepositPane" hidden>
         <div class="deposit-methods">
           <button class="payment-method active" data-payment-method="card">Банковской картой</button>
-          <button class="payment-method" data-payment-method="crypto">Криптовалюта <small>скоро</small></button>
+          <button class="payment-method" data-payment-method="crypto">Криптовалюта</button>
         </div>
         <div class="payment-create" id="paymentCreate">
           <h2 class="section-title">Пополнение через мобильную связь</h2>
@@ -3992,6 +4110,26 @@ select.seed-input {
           <button class="btn btn-primary btn-wide" id="paymentCreateBtn">Продолжить</button>
         </div>
         <div class="payment-checkout" id="paymentCheckout" hidden></div>
+
+        <!-- Пополнение криптовалютой. Список монет приходит от шлюза, поэтому
+             сетка и выпадающий список сетей собираются в коде. -->
+        <div class="crypto-create" id="cryptoCreate" hidden>
+          <h2 class="section-title">Пополнение криптовалютой</h2>
+          <div class="coin-grid" id="coinGrid"></div>
+          <div class="coin-network" id="coinNetwork" hidden>
+            <label class="field-label" for="coinNetworkSelect">Сеть перевода</label>
+            <select class="seed-input" id="coinNetworkSelect"></select>
+            <p class="coin-note">Отправляйте только в выбранной сети. Перевод в
+              другой сети теряется без возврата.</p>
+          </div>
+          <input class="seed-input" id="cryptoAmount" type="number" inputmode="numeric"
+                 placeholder="Сумма пополнения, ₽">
+          <div class="quick-row" id="cryptoQuick"></div>
+          <div class="rate-line" id="cryptoRate"></div>
+          <button class="btn btn-primary btn-wide" id="cryptoCreateBtn">Продолжить</button>
+        </div>
+        <div class="payment-checkout" id="cryptoCheckout" hidden></div>
+
         <h2 class="section-title">История пополнений</h2>
         <div id="paymentList"></div>
         <div id="depositList"></div>
@@ -4010,6 +4148,7 @@ select.seed-input {
           <div class="payout-methods" role="group" aria-label="Способ вывода">
             <button class="payment-method active" type="button" data-withdraw-method="sbp">СБП</button>
             <button class="payment-method" type="button" data-withdraw-method="card">Банковская карта</button>
+            <button class="payment-method" type="button" data-withdraw-method="crypto">Криптовалюта</button>
           </div>
           <div id="withdrawSbpFields">
             <input class="seed-input" id="withdrawPhone" type="tel" inputmode="tel"
@@ -4020,6 +4159,16 @@ select.seed-input {
           <div id="withdrawCardFields" hidden>
             <input class="seed-input" id="withdrawCard" type="text" inputmode="numeric"
                    autocomplete="cc-number" maxlength="23" placeholder="Номер банковской карты">
+          </div>
+          <div id="withdrawCryptoFields" hidden>
+            <div class="coin-grid compact" id="withdrawCoinGrid"></div>
+            <label class="field-label" for="withdrawNetwork">Сеть перевода</label>
+            <select class="seed-input" id="withdrawNetwork"></select>
+            <input class="seed-input" id="withdrawAddress" type="text"
+                   autocomplete="off" spellcheck="false" placeholder="Адрес кошелька">
+            <p class="coin-note">Проверьте адрес и сеть. Перевод в блокчейне
+              необратим: ошибка в адресе означает потерю средств.</p>
+            <div class="rate-line" id="withdrawRate"></div>
           </div>
           <button class="btn btn-primary btn-wide" id="withdrawSubmit">Вывести</button>
         </div>
@@ -5193,10 +5342,100 @@ const routes = {
     // Списываем сразу — как на сервере: иначе один баланс можно заявить дважды.
     u.balance -= amount;
     const id = Date.now();
-    u.payouts.unshift({ id, amount, status: 'pending', comment: null,
-                        created_at: Date.now(), resolved_at: null });
+    u.payouts.unshift({
+      id, amount, status: 'pending', comment: null,
+      created_at: Date.now(), resolved_at: null,
+      method: body.method || 'sbp',
+      phone: body.phone || null, bank: body.bank || null,
+      card_number: body.cardNumber ? String(body.cardNumber).slice(-4) : null,
+      crypto_currency: body.cryptoCurrency || null,
+      crypto_network: body.cryptoNetwork || null,
+      crypto_address: body.cryptoAddress || null,
+      crypto_amount: body.cryptoAmount || null,
+      crypto_rate: body.cryptoRate || null,
+    });
     save();
     return { id, amount, balance: u.balance, user: publicUser() };
+  },
+
+  /* ---------- Криптокасса ----------
+   *
+   * Настоящего шлюза в автономной версии нет: ходить в сеть она не может по
+   * определению. Поэтому список монет здесь свой, короткий, а курсы взяты
+   * приблизительными и постоянными - показать, как выглядит и работает касса,
+   * этого достаточно, а «настоящий курс» в файле без интернета всё равно
+   * невозможен и обещать его нечестно.
+   */
+  'POST /api/crypto/options': () => ({
+    enabled: true,
+    min: 500,
+    max: 500000,
+    coins: [
+      { currency: 'USDT', name: 'Tether', networks: [
+        { network: 'TRON', name: 'TRON' }, { network: 'BSC', name: 'BNB Smart Chain' },
+        { network: 'SOL', name: 'Solana' }, { network: 'TON', name: 'TON' },
+        { network: 'ETH', name: 'Ethereum' }] },
+      { currency: 'USDC', name: 'USD Coin', networks: [
+        { network: 'BSC', name: 'BNB Smart Chain' }, { network: 'SOL', name: 'Solana' },
+        { network: 'ETH', name: 'Ethereum' }] },
+      { currency: 'BTC', name: 'Bitcoin', networks: [{ network: 'BTC', name: 'Bitcoin' }] },
+      { currency: 'ETH', name: 'Ethereum', networks: [
+        { network: 'ETH', name: 'Ethereum' }, { network: 'ARBITRUM', name: 'Arbitrum' }] },
+      { currency: 'TRX', name: 'TRON', networks: [{ network: 'TRON', name: 'TRON' }] },
+      { currency: 'BNB', name: 'BNB', networks: [{ network: 'BSC', name: 'BNB Smart Chain' }] },
+      { currency: 'SOL', name: 'Solana', networks: [{ network: 'SOL', name: 'Solana' }] },
+      { currency: 'LTC', name: 'Litecoin', networks: [{ network: 'LTC', name: 'Litecoin' }] },
+      { currency: 'DOGE', name: 'Dogecoin', networks: [{ network: 'DOGE', name: 'Dogecoin' }] },
+      { currency: 'XMR', name: 'Monero', networks: [{ network: 'XMR', name: 'Monero' }] },
+      { currency: 'GRAM', name: 'Gram', networks: [{ network: 'TON', name: 'TON' }] },
+    ],
+    rates: {
+      USDT: 86.2, USDC: 86.2, BTC: 6850000, ETH: 216000, TRX: 29.4,
+      BNB: 60700, SOL: 9160, LTC: 4250, DOGE: 7.6, XMR: 40700, GRAM: 0.4,
+    },
+  }),
+
+  'POST /api/crypto/create': (body) => {
+    const amount = Math.trunc(Number(body.amount));
+    if (!amount || amount < 500) {
+      return { status: 400, body: { error: 'MIN', message: 'Минимальная сумма - 500 ₽' } };
+    }
+    const rates = { USDT: 86.2, USDC: 86.2, BTC: 6850000, ETH: 216000, TRX: 29.4,
+                    BNB: 60700, SOL: 9160, LTC: 4250, DOGE: 7.6, XMR: 40700, GRAM: 0.4 };
+    const rate = rates[body.currency] || 1;
+    const id = Date.now();
+    // Адрес выдуманный и подписан таковым: платить по нему нельзя и не нужно.
+    const payment = {
+      id, amountRub: amount, currency: body.currency, network: body.network,
+      networkName: body.network,
+      payerAmount: (amount / rate).toFixed(rate > 1000 ? 6 : 2),
+      address: 'ДЕМО-АДРЕС-ПЛАТИТЬ-НЕ-НУЖНО',
+      payUrl: null, status: 'check', txid: null,
+      createdAt: Date.now(), expiresAt: Date.now() + 3 * 3600 * 1000, paidAt: null,
+    };
+    store.user.cryptoPayments = [payment, ...(store.user.cryptoPayments || [])].slice(0, 20);
+    save();
+    return { status: 201, body: payment };
+  },
+
+  'POST /api/crypto/list': () => ({ rows: store.user.cryptoPayments || [] }),
+
+  /*
+   * В демо «проверить» сразу зачисляет: ждать настоящего перевода неоткуда, а
+   * показать, что происходит после оплаты, надо.
+   */
+  'POST /api/crypto/refresh': (body) => {
+    const list = store.user.cryptoPayments || [];
+    const p = list.find((x) => x.id === Number(body.id));
+    if (!p) return { status: 404, body: { error: 'Платёж не найден' } };
+    if (p.paidAt) return { payment: p, credited: false, user: publicUser() };
+    p.paidAt = Date.now();
+    p.status = 'paid';
+    store.user.balance += p.amountRub;
+    store.user.deposits.unshift({ amount: p.amountRub, source: 'crypto',
+                                  comment: p.currency + ' · ' + p.network, created_at: Date.now() });
+    save();
+    return { payment: p, credited: true, user: publicUser() };
   },
 
   'POST /api/payout/cancel': (body) => {
@@ -6865,6 +7104,107 @@ const ART_COUNT = Object.keys(ART).length;
 
 
 /**
+ * Значки криптовалют.
+ *
+ * ПОЧЕМУ НАРИСОВАНЫ, А НЕ СКАЧАНЫ. Официальные логотипы - чужие товарные
+ * знаки: их нельзя просто положить в репозиторий, у каждого свои условия
+ * использования. Плюс это два десятка файлов, которые надо тянуть по сети и
+ * держать в автономной сборке. Вектор здесь весит килобайты, остаётся резким
+ * на любом экране и красится переменными вместе с остальным интерфейсом.
+ *
+ * Знак строится из двух частей: круг фирменного цвета монеты и её символ.
+ * Монеты, которой здесь нет, достанется круг нейтрального цвета с её кодом -
+ * список у шлюза может пополниться в любой момент, и пустого места на её
+ * месте быть не должно.
+ */
+
+/** Фирменные цвета. Взяты как узнаваемые, а не как точные значения брендбуков. */
+const COLORS = {
+  BTC: '#f7931a', ETH: '#8a92b2', USDT: '#26a17b', USDC: '#2775ca',
+  TRX: '#eb0029', BNB: '#f0b90b', SOL: '#14f195', LTC: '#345d9d',
+  DOGE: '#c2a633', XMR: '#ff6600', BCH: '#0ac18e', DASH: '#008ce7',
+  AVAX: '#e84142', POL: '#8247e5', SHIB: '#ffa409', DAI: '#f5ac37',
+  GRAM: '#0098ea',
+};
+
+/** Нейтральный круг для монеты, о которой мы ничего не знаем. */
+const FALLBACK = '#7c6a94';
+
+function coinColor(code) {
+  return COLORS[String(code || '').toUpperCase()] || FALLBACK;
+}
+
+/*
+ * Символы монет.
+ *
+ * Рисуются путями, а не текстом: символы вроде ₿, ₮ и Ł есть не во всех
+ * системных шрифтах, и на части телефонов вместо знака показался бы пустой
+ * прямоугольник. Путь выглядит одинаково везде.
+ *
+ * Все пути нарисованы в квадрате 32x32, поэтому их можно ставить в любой
+ * размер, меняя только viewBox снаружи.
+ */
+const GLYPHS = {
+  // ₿ - B с двумя вертикальными штрихами.
+  BTC: `<path fill="#fff" d="M21.6 14.3c.3-2-1.2-3-3.3-3.7l.7-2.7-1.7-.4-.7 2.6-1.3-.3.7-2.6-1.6-.4-.7 2.7-1.1-.3-2.3-.6-.4 1.8s1.2.3 1.2.3c.7.2.8.6.8.9l-.8 3.1v.1l-1.1 4.4c-.1.2-.3.5-.8.4 0 0-1.2-.3-1.2-.3l-.8 1.9 2.2.5 1.2.3-.7 2.7 1.6.4.7-2.7 1.3.3-.7 2.7 1.7.4.7-2.7c2.8.5 4.9.3 5.8-2.2.7-2-.1-3.2-1.5-4 1.1-.2 1.8-.9 2.1-2.4zm-3.7 5.3c-.5 2-3.9.9-5 .6l.9-3.6c1.1.3 4.6.8 4.1 3zm.5-5.3c-.5 1.9-3.3.9-4.2.7l.8-3.3c.9.3 3.9.7 3.4 2.6z"/>`,
+  // Ромб Ethereum из двух половин.
+  ETH: `<path fill="#fff" fill-opacity=".75" d="M16 5 9.2 16.3 16 20.3z"/>
+        <path fill="#fff" d="M16 5v15.3l6.8-4z"/>
+        <path fill="#fff" fill-opacity=".75" d="M16 21.6 9.2 17.6 16 27z"/>
+        <path fill="#fff" d="M16 27v-5.4l6.8-4z"/>`,
+  // ₮ - T с перечёркнутой ножкой.
+  USDT: `<path fill="#fff" d="M17.9 15.6v-2.4h5.4V9.6H8.7v3.6h5.4v2.4c-4.4.2-7.7 1.1-7.7 2.1s3.3 1.9 7.7 2.1v6.8h3.8v-6.8c4.4-.2 7.7-1.1 7.7-2.1s-3.3-1.9-7.7-2.1zm0 3.6v0c-.1 0-.7.1-1.9.1-1 0-1.7 0-2 0v0c-3.8-.2-6.7-.8-6.7-1.6s2.9-1.4 6.7-1.6v2.7c.3 0 1 .1 2 .1 1.2 0 1.8-.1 1.9-.1v-2.7c3.8.2 6.6.8 6.6 1.6s-2.8 1.4-6.6 1.6z"/>`,
+  // Кольцо с долларом.
+  USDC: `<circle cx="16" cy="16" r="9.5" fill="none" stroke="#fff" stroke-width="2"/>
+         <path fill="#fff" d="M16.9 15.2c-1.9-.5-2.5-.9-2.5-1.7 0-.7.6-1.2 1.7-1.2 1 0 1.6.4 1.8 1.2h1.7c-.2-1.4-1.1-2.3-2.5-2.5v-1.4h-1.9V11c-1.6.2-2.6 1.2-2.6 2.6 0 1.6 1 2.4 3.1 2.9 1.8.4 2.3.9 2.3 1.7 0 .8-.7 1.3-1.9 1.3-1.3 0-1.9-.5-2.1-1.4h-1.7c.2 1.5 1.2 2.5 2.9 2.7v1.4h1.9v-1.4c1.7-.2 2.7-1.3 2.7-2.8 0-1.6-1-2.4-3-2.8z"/>`,
+  // Треугольник TRON.
+  TRX: `<path fill="#fff" d="M7 8.4 25 12l-8.7 13.6L7 8.4zm2.9 2.3 5.6 10.3.9-7.5-6.5-2.8zm8.3 3.3-.9 7.4 4.9-7.7-4-.3zm3.3-1.6-3.8-.8-5.7-2.4 9.5 3.2z"/>`,
+  // Ромбы BNB.
+  BNB: `<path fill="#fff" d="m16 6 3 3.1-7.6 7.6-3-3.1L16 6zm5.6 5.6 3 3.1-12.6 12.6-3-3.1 12.6-12.6zM7.4 16.3l3 3.1-3 3-3-3 3-3.1zM24.6 16.3l3 3.1-11.6 11.5v-.1l-.1.1-3-3 11.7-11.6z" transform="translate(0 -2) scale(.92) translate(1.4 1.4)"/>`,
+  // Три полосы Solana.
+  SOL: `<path fill="#fff" d="M9 20.6c.2-.2.4-.3.7-.3h14.6c.4 0 .6.5.3.8l-2.9 2.9c-.2.2-.4.3-.7.3H6.4c-.4 0-.6-.5-.3-.8L9 20.6zm0-10.8c.2-.2.5-.3.7-.3h14.6c.4 0 .6.5.3.8l-2.9 2.9c-.2.2-.4.3-.7.3H6.4c-.4 0-.6-.5-.3-.8L9 9.8zm12.7 5.4c-.2-.2-.4-.3-.7-.3H6.4c-.4 0-.6.5-.3.8l2.9 2.9c.2.2.4.3.7.3h14.6c.4 0 .6-.5.3-.8l-2.9-2.9z"/>`,
+  // Ł
+  LTC: `<path fill="#fff" d="M13.2 7h4.3l-2.4 9.1 3.3-1-.7 2.8-3.3 1-1.2 4.6h9.1L21.4 27H8.6l1.7-6.4-2.4.7.7-2.8 2.4-.7L13.2 7z"/>`,
+  // Ð
+  DOGE: `<path fill="#fff" d="M11.4 7h5.9c4.8 0 8 3.4 8 8.9s-3.3 9.1-8.2 9.1h-5.7v-7.4H9.1v-2.6h2.3V7zm3.5 2.7v4.3h3v2.6h-3v5.7h2.1c3 0 4.6-2.2 4.6-6.3s-1.6-6.3-4.6-6.3h-2.1z"/>`,
+  // M Monero: две боковые стойки и V посередине.
+  XMR: `<path fill="#fff" d="M6.8 22.6V9.6L16 18.8l9.2-9.2v13h-4.5v-6.6L16 20.7l-4.7-4.7v6.6z"/>`,
+  BCH: `<path fill="#fff" d="M20.9 14.5c.3-1.9-1.2-2.9-3.2-3.6l.7-2.6-1.6-.4-.6 2.5-1.3-.3.6-2.6-1.6-.4-.7 2.6-3.3-.8-.4 1.7s1.2.3 1.2.3c.6.2.8.6.7.9l-1.8 7.4c-.1.2-.3.4-.7.3 0 0-1.2-.3-1.2-.3l-.8 1.9 3.2.8-.7 2.7 1.6.4.7-2.6 1.3.3-.7 2.6 1.6.4.7-2.7c2.7.5 4.8.3 5.6-2.1.7-2-.1-3.1-1.5-3.9 1.1-.2 1.8-.9 2-2.3zm-3.6 5.1c-.5 2-3.8.9-4.9.6l.9-3.5c1.1.3 4.5.8 4 2.9zm.5-5.1c-.4 1.8-3.2.9-4.1.7l.8-3.2c.9.2 3.7.6 3.3 2.5z"/>`,
+  DASH: `<path fill="#fff" d="M19.7 9.5H10l-.8 4.6h9.5c2.8 0 3.6.9 3.5 2.4-.1 1.1-.7 3-1 3.8-.5 1.4-1.3 2.1-3.7 2.1H8.2l-.8 4.6h9.6c3.4 0 4.8-.4 6.3-1.1 3.3-1.5 5.2-4.8 6-9.1.9-6.5-1.1-7.3-9.6-7.3zM6.9 14.1H4.1l-.8 4.6H6l.9-4.6z"/>`,
+  AVAX: `<path fill="#fff" d="M20.4 21.4h4.1c.8 0 1.2 0 1.4-.2.3-.2.5-.5.5-.8 0-.3-.2-.7-.6-1.4l-6.2-10.8c-.4-.7-.6-1-.9-1.2-.3-.1-.7-.1-1 0-.3.2-.5.5-.9 1.2l-1.5 2.6c-.4.7-.6 1-.6 1.4 0 .3.2.7.6 1.4l4.2 7.3c.4.7.6 1 .9 1.2.3.2.7.3 1.4.3h-1.4zm-8.6 0h-3c-.8 0-1.2 0-1.4-.2-.3-.2-.5-.5-.5-.8 0-.3.2-.7.6-1.4l6.3-10.9c.4-.7.6-1 .9-1.2.3-.2.7-.2 1 0-.3.2-.5.5-.9 1.2l-6.3 10.9c-.4.7-.6 1-.6 1.4 0 .3.2.6.5.8.2.2.6.2 1.4.2z"/>
+         <path fill="#fff" d="M13.5 24.5c.4-.7.6-1 .9-1.2.3-.1.7-.1 1 0 .3.2.5.5.9 1.2l1.4 2.4H10l3.5-2.4z" opacity=".01"/>
+         <path fill="#fff" d="M9.6 24.4h4.2c.8 0 1.2 0 1.4-.2.3-.2.5-.5.5-.8 0-.3-.2-.7-.6-1.4l-2.1-3.6c-.4-.7-.6-1-.9-1.2-.3-.1-.7-.1-1 0-.3.2-.5.5-.9 1.2l-2.1 3.6c-.4.7-.6 1-.6 1.4 0 .3.2.6.5.8.2.2.6.2 1.4.2z"/>`,
+  POL: `<path fill="#fff" d="m21.4 12.4-3.8-2.2c-.5-.3-1.1-.3-1.6 0l-3.8 2.2-2.6 1.4-3.7 2.2c-.5.3-1.1.3-1.6 0L1.3 14.3c-.5-.3-.8-.8-.8-1.4V9c0-.6.3-1.1.8-1.4l2.9-1.6c.5-.3 1.1-.3 1.6 0l2.9 1.7c.5.3.8.8.8 1.4v2.2l2.6-1.5V7.6c0-.6-.3-1.1-.8-1.4L5.9 2.9c-.5-.3-1.1-.3-1.6 0L-1.2 6.2c-.5.3-.8.8-.8 1.4v6.6c0 .6.3 1.1.8 1.4l5.5 3.2c.5.3 1.1.3 1.6 0l3.7-2.1 2.6-1.5 3.7-2.1c.5-.3 1.1-.3 1.6 0l2.9 1.7c.5.3.8.8.8 1.4v3.3c0 .6-.3 1.1-.8 1.4l-2.9 1.7c-.5.3-1.1.3-1.6 0l-2.9-1.7c-.5-.3-.8-.8-.8-1.4v-2.2l-2.6 1.5v2.2c0 .6.3 1.1.8 1.4l5.5 3.2c.5.3 1.1.3 1.6 0l5.5-3.2c.5-.3.8-.8.8-1.4v-6.6c0-.6-.3-1.1-.8-1.4l-5.6-3.2z" transform="translate(8 4) scale(.72)"/>`,
+  SHIB: `<path fill="#fff" d="M16 5.5 8 11v8.5l8 7 8-7V11l-8-5.5zm0 3.2 5.2 3.6v6L16 22.9l-5.2-4.6v-6L16 8.7zm0 3.3-2.6 1.8v3.4l2.6 2.3 2.6-2.3v-3.4L16 12z"/>`,
+  DAI: `<path fill="#fff" d="M15.9 7.5h-6v5.9H7.4v1.8h2.5v2.3H7.4v1.8h2.5v5.2h6c4.4 0 7.6-2.9 8.5-7h1.6v-1.8h-1.3v-.2-2h1.3v-1.8h-1.6c-.9-4.2-4.1-6.2-8.5-6.2zm-3.7 2h3.7c3 0 5.2 1.2 6.1 4.2h-9.8V9.5zm0 12.9v-3.9h9.8c-.9 2.9-3.1 3.9-6.1 3.9h-3.7zm9.9-5.7v.4h-9.9v-2.3h9.9v1.9z"/>`,
+  GRAM: `<path fill="#fff" d="M9 11.5h14L16 25 9 11.5zm2.9 1.8 3.2 6.2v-6.2h-3.2zm5 0v6.2l3.2-6.2h-3.2z"/>`,
+};
+
+/**
+ * Значок монеты как строка SVG.
+ *
+ * Возвращается именно строка: клиент собирает разметку шаблонами, и вставлять
+ * узел через DOM ради одного значка было бы лишней работой.
+ */
+function coinMark(code, size = 34) {
+  const key = String(code || '').toUpperCase();
+  const color = coinColor(key);
+  const glyph = GLYPHS[key];
+
+  // Незнакомая монета: круг и её код в две-три буквы.
+  const body = glyph || `<text x="16" y="21" text-anchor="middle"
+      font-family="system-ui, -apple-system, Segoe UI, sans-serif"
+      font-size="${key.length > 3 ? 9 : 11}" font-weight="700" fill="#fff">${key.slice(0, 4)}</text>`;
+
+  return `<svg class="coin-mark" width="${size}" height="${size}" viewBox="0 0 32 32"
+      role="img" aria-label="${key}">
+    <circle cx="16" cy="16" r="16" fill="${color}"/>
+    ${body}
+  </svg>`;
+}
+
+
+/**
  * Правовые документы и реквизиты для подвала.
  *
  * ВАЖНО ДЛЯ ТОГО, КТО БУДЕТ ЗАПУСКАТЬ ПРОЕКТ.
@@ -7486,6 +7826,7 @@ function footerHtml() {
  * результат и лишь проигрывает анимацию. В краше точка взрыва вообще не
  * приходит на клиент до конца раунда.
  */
+
 
 
 
@@ -10591,9 +10932,7 @@ async function loadAdminPayouts() {
       </div>
       <div class="payout-date">${esc(name)} · ID ${p.tg_id} ·
         баланс ${money(p.balance)} · ${new Date(p.created_at).toLocaleString('ru-RU')}</div>
-      <div class="payout-requisites"><b>${p.method === 'card' ? 'Банковская карта' : 'СБП'}</b><br>
-        ${p.method === 'card' ? esc(String(p.card_number || '').replace(/(.{4})/g, '$1 ').trim())
-          : `${esc(p.phone || '')} · ${esc(p.bank || '')}`}</div>
+      <div class="payout-requisites">${payoutRequisites(p, { full: true })}</div>
       ${p.comment ? `<div class="payout-comment">${esc(p.comment)}</div>` : ''}
       ${p.status === 'pending' ? `
         <input class="seed-input payout-note" data-note="${p.id}" placeholder="комментарий игроку">
@@ -10864,6 +11203,33 @@ async function loadWallet() {
     `Доступно <b>${money(w.available)}</b> · минимум ${money(w.minPayout)}`;
 }
 
+/**
+ * Реквизиты заявки на вывод одной строкой.
+ *
+ * Общий для истории игрока и для админки: писать это в двух местах значило бы
+ * однажды показать администратору не тот адрес, что видел игрок. Адрес
+ * кошелька не сокращаем - именно по нему человек и отправляет перевод, и
+ * многоточие посередине здесь означало бы потерянные деньги.
+ */
+function payoutRequisites(p, { full = false } = {}) {
+  if (p.method === 'crypto') {
+    const coin = esc(p.crypto_currency || '');
+    const amount = p.crypto_amount ? ` · <b>${esc(p.crypto_amount)} ${coin}</b>` : '';
+    const rate = full && p.crypto_rate
+      ? `<span class="payout-rate">курс на момент заявки: ${Number(p.crypto_rate)
+          .toLocaleString('ru-RU', { maximumFractionDigits: 2 })} ₽</span>` : '';
+    return `${coinMark(p.crypto_currency, 18)} ${coin} · ${esc(p.crypto_network || '')}${amount}`
+      + `<span class="payout-address">${esc(p.crypto_address || '')}</span>${rate}`;
+  }
+  if (p.method === 'card') {
+    const digits = String(p.card_number || '');
+    return full
+      ? `Банковская карта<br>${esc(digits.replace(/(.{4})/g, '$1 ').trim())}`
+      : `Карта ···· ${esc(digits.slice(-4))}`;
+  }
+  return `${full ? 'СБП<br>' : 'СБП · '}${esc(p.phone || '')} · ${esc(p.bank || '')}`;
+}
+
 function renderPayoutList(payouts) {
   const box = document.getElementById('payoutList');
   if (!payouts.length) {
@@ -10878,9 +11244,7 @@ function renderPayoutList(payouts) {
         <span class="payout-status ${p.status}">${STATUS_LABEL[p.status] || p.status}</span>
       </div>
       <div class="payout-date">${new Date(p.created_at).toLocaleString('ru-RU')}</div>
-      <div class="payout-requisites">${p.method === 'card'
-        ? `Карта ···· ${esc(String(p.card_number || '').slice(-4))}`
-        : `СБП · ${esc(p.phone || '')} · ${esc(p.bank || '')}`}</div>
+      <div class="payout-requisites">${payoutRequisites(p)}</div>
       ${p.comment ? `<div class="payout-comment">${esc(p.comment)}</div>` : ''}
       ${p.status === 'pending'
         ? `<button class="btn btn-outline btn-sm payout-cancel" data-cancel="${p.id}">Отменить</button>`
@@ -10915,7 +11279,305 @@ document.querySelectorAll('[data-bank]').forEach((btn) => btn.addEventListener('
   document.querySelectorAll('[data-bank]').forEach(b => b.classList.toggle('active', b === btn));
 }));
 document.querySelector('[data-bank="sber"]')?.classList.add('active');
-document.querySelector('[data-payment-method="crypto"]')?.addEventListener('click', () => toast('Криптовалюта скоро будет доступна'));
+/* ============================================================
+   КРИПТОКАССА
+   ============================================================ */
+
+/*
+ * Состояние криптокассы держим в одном месте: список монет приходит от шлюза
+ * один раз и нужен сразу двум экранам - пополнению и выводу. Тянуть его
+ * дважды значило бы показать в них разные наборы монет, если между запросами
+ * что-то поменялось в кабинете.
+ */
+const cryptoState = {
+  loaded: false, enabled: false, coins: [], rates: {}, min: 500, max: 500000,
+  deposit: { currency: null, network: null },
+  withdraw: { currency: null, network: null },
+};
+
+/**
+ * Сколько знаков после запятой показывать у монеты.
+ *
+ * У биткоина хватает пяти, у Shiba Inu их нужно ноль - её курс меньше копейки,
+ * и «0.00» вместо суммы выглядит поломкой. Считаем от самого курса: чем монета
+ * дешевле, тем больше знаков.
+ */
+function coinDecimals(rate) {
+  if (!rate || rate <= 0) return 4;
+  if (rate >= 100000) return 6;
+  if (rate >= 1000) return 4;
+  if (rate >= 10) return 2;
+  if (rate >= 0.1) return 1;
+  return 0;
+}
+
+function coinAmount(rub, currency) {
+  const rate = cryptoState.rates[currency];
+  if (!rate || !rub) return null;
+  const value = rub / rate;
+  return value.toFixed(coinDecimals(rate));
+}
+
+/** Курс монеты словами: «1 USDT = 86,15 ₽». */
+function rateLine(currency) {
+  const rate = cryptoState.rates[currency];
+  if (!rate) return '';
+  const digits = rate >= 100 ? 0 : rate >= 1 ? 2 : 6;
+  return `1 ${currency} = ${rate.toLocaleString('ru-RU', {
+    minimumFractionDigits: digits, maximumFractionDigits: digits })} ₽`;
+}
+
+async function loadCryptoOptions() {
+  if (cryptoState.loaded) return cryptoState;
+  try {
+    const data = await api('/api/crypto/options');
+    Object.assign(cryptoState, {
+      loaded: true,
+      enabled: !!data.enabled,
+      coins: data.coins || [],
+      rates: data.rates || {},
+      min: data.min ?? 500,
+      max: data.max ?? 500000,
+    });
+  } catch {
+    cryptoState.loaded = true;
+    cryptoState.enabled = false;
+  }
+  return cryptoState;
+}
+
+/** Сетка монет. Одна и та же и для пополнения, и для вывода. */
+function renderCoinGrid(el, side) {
+  const pick = cryptoState[side];
+  el.innerHTML = cryptoState.coins.map((c) => `
+    <button type="button" class="coin-card${c.currency === pick.currency ? ' active' : ''}"
+            data-coin="${c.currency}" style="--coin:${coinColor(c.currency)}">
+      ${coinMark(c.currency, 34)}
+      <span class="coin-code">${c.currency}</span>
+      <span class="coin-name">${esc(c.name)}</span>
+    </button>`).join('');
+
+  el.querySelectorAll('.coin-card').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      selectCoin(side, btn.dataset.coin);
+      haptic('light');
+    });
+  });
+}
+
+/**
+ * Выбор монеты и её сети.
+ *
+ * Сети уходят в выпадающий список, а не в общий ряд кнопок: у USDT их восемь,
+ * и в одну ленту с монетами они превратились бы в список из тридцати с лишним
+ * плиток, где не видно, где кончается одна монета и начинается другая.
+ * Список сетей показывается только когда их больше одной - у биткоина
+ * выбирать не из чего.
+ */
+function selectCoin(side, currency) {
+  const coin = cryptoState.coins.find((c) => c.currency === currency);
+  if (!coin) return;
+
+  cryptoState[side].currency = currency;
+  cryptoState[side].network = coin.networks[0]?.network || null;
+
+  const isDeposit = side === 'deposit';
+  const grid = document.getElementById(isDeposit ? 'coinGrid' : 'withdrawCoinGrid');
+  grid.querySelectorAll('.coin-card').forEach((b) =>
+    b.classList.toggle('active', b.dataset.coin === currency));
+
+  const select = document.getElementById(isDeposit ? 'coinNetworkSelect' : 'withdrawNetwork');
+  // У части сетей понятное имя совпадает с кодом (TRON, SOL) - «TRON · TRON»
+  // выглядит опечаткой, поэтому код дописывается только когда он добавляет смысл.
+  select.innerHTML = coin.networks.map((n) =>
+    `<option value="${n.network}">${esc(n.name)}${
+      n.name.toUpperCase() === n.network ? '' : ` · ${n.network}`}</option>`).join('');
+
+  if (isDeposit) {
+    // У монеты с единственной сетью выбирать нечего - список прячем.
+    document.getElementById('coinNetwork').hidden = coin.networks.length < 2;
+  } else {
+    select.parentElement.querySelector('label[for="withdrawNetwork"]').hidden =
+      coin.networks.length < 2;
+    select.hidden = coin.networks.length < 2;
+  }
+
+  refreshCryptoRate(side);
+}
+
+/** Строка «получите примерно столько-то» под суммой. */
+function refreshCryptoRate(side) {
+  const isDeposit = side === 'deposit';
+  const box = document.getElementById(isDeposit ? 'cryptoRate' : 'withdrawRate');
+  const currency = cryptoState[side].currency;
+  if (!box) return;
+
+  if (!currency) { box.innerHTML = ''; return; }
+
+  const rub = Number(document.getElementById(isDeposit ? 'cryptoAmount' : 'withdrawAmount')?.value);
+  const amount = coinAmount(rub, currency);
+  const course = rateLine(currency);
+
+  if (!amount) {
+    box.innerHTML = course ? `<span class="rate-course">${course}</span>` : '';
+    return;
+  }
+
+  box.innerHTML = `
+    <span class="rate-amount">${coinMark(currency, 20)} ≈ ${amount} ${currency}</span>
+    <span class="rate-course">${course}</span>
+    <span class="rate-note">${isDeposit
+      ? 'Точная сумма посчитается на странице оплаты по курсу шлюза'
+      : 'Итоговая сумма считается по курсу на момент заявки'}</span>`;
+}
+
+/** Быстрые суммы: чаще всего пополняют круглыми, набирать их руками незачем. */
+function renderCryptoQuick() {
+  const row = document.getElementById('cryptoQuick');
+  const input = document.getElementById('cryptoAmount');
+  const sums = [1000, 3000, 5000, 10000].filter((v) =>
+    v >= cryptoState.min && v <= cryptoState.max);
+  row.innerHTML = sums.map((v) =>
+    `<button type="button" class="quick-btn" data-sum="${v}">${money(v)}</button>`).join('');
+  row.querySelectorAll('.quick-btn').forEach((b) => b.addEventListener('click', () => {
+    input.value = b.dataset.sum;
+    refreshCryptoRate('deposit');
+    haptic('light');
+  }));
+}
+
+async function openCryptoDeposit() {
+  const box = document.getElementById('cryptoCreate');
+  document.getElementById('paymentCreate').hidden = true;
+  document.getElementById('paymentCheckout').hidden = true;
+  box.hidden = false;
+
+  await loadCryptoOptions();
+  if (!cryptoState.enabled || !cryptoState.coins.length) {
+    box.innerHTML = '<p class="empty">Криптокасса временно недоступна. Попробуйте позже.</p>';
+    return;
+  }
+
+  renderCoinGrid(document.getElementById('coinGrid'), 'deposit');
+  renderCryptoQuick();
+  const amount = document.getElementById('cryptoAmount');
+  amount.placeholder = `Сумма пополнения, ₽ (от ${money(cryptoState.min)})`;
+  if (!cryptoState.deposit.currency) selectCoin('deposit', cryptoState.coins[0].currency);
+  else selectCoin('deposit', cryptoState.deposit.currency);
+}
+
+document.getElementById('coinNetworkSelect')?.addEventListener('change', (e) => {
+  cryptoState.deposit.network = e.target.value;
+});
+document.getElementById('withdrawNetwork')?.addEventListener('change', (e) => {
+  cryptoState.withdraw.network = e.target.value;
+});
+document.getElementById('cryptoAmount')?.addEventListener('input', () => refreshCryptoRate('deposit'));
+
+document.getElementById('cryptoCreateBtn')?.addEventListener('click', async () => {
+  const { currency, network } = cryptoState.deposit;
+  const amount = Number(document.getElementById('cryptoAmount').value);
+  if (!currency || !network) return toast('Выберите монету и сеть');
+  if (!amount || amount < cryptoState.min) return toast(`Минимум ${money(cryptoState.min)}`);
+
+  const btn = document.getElementById('cryptoCreateBtn');
+  btn.disabled = true;
+  try {
+    const payment = await api('/api/crypto/create', { amount, currency, network });
+    showCryptoCheckout(payment);
+    haptic('success');
+  } catch (err) {
+    toast(err.message);
+    haptic('error');
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+/**
+ * Экран оплаты: адрес, сумма в монете и обратный отсчёт.
+ *
+ * Адрес показывается крупно и копируется нажатием: переписывать его руками с
+ * экрана телефона - верный способ потерять перевод.
+ */
+function showCryptoCheckout(p) {
+  const box = document.getElementById('cryptoCheckout');
+  document.getElementById('cryptoCreate').hidden = true;
+  box.hidden = false;
+
+  box.innerHTML = `
+    <div class="crypto-invoice" style="--coin:${coinColor(p.currency)}">
+      <div class="invoice-head">
+        ${coinMark(p.currency, 44)}
+        <div>
+          <div class="invoice-sum">${p.payerAmount || '-'} ${p.currency}</div>
+          <div class="invoice-sub">за ${money(p.amountRub)} · сеть ${esc(p.networkName)}</div>
+        </div>
+      </div>
+
+      ${p.address ? `
+        <div class="field-label">Адрес для перевода</div>
+        <button class="invoice-address" id="cryptoCopy" type="button">
+          <span>${esc(p.address)}</span><small>нажмите, чтобы скопировать</small>
+        </button>` : ''}
+
+      <div class="invoice-warn">Отправляйте только ${p.currency} в сети
+        ${esc(p.networkName)}. Перевод в другой сети теряется без возврата.</div>
+
+      ${p.payUrl ? `<a class="btn btn-primary btn-wide" href="${p.payUrl}"
+         target="_blank" rel="noopener">Открыть страницу оплаты</a>` : ''}
+
+      <button class="btn btn-outline btn-wide" id="cryptoCheck">Я оплатил, проверить</button>
+      <button class="btn btn-outline btn-wide" id="cryptoBack">Другой способ</button>
+      <div class="invoice-status" id="cryptoStatus"></div>
+    </div>`;
+
+  document.getElementById('cryptoCopy')?.addEventListener('click', () => {
+    navigator.clipboard?.writeText(p.address).then(
+      () => toast('Адрес скопирован'), () => toast('Скопируйте адрес вручную'));
+    haptic('light');
+  });
+
+  document.getElementById('cryptoBack').addEventListener('click', () => {
+    box.hidden = true;
+    openCryptoDeposit();
+  });
+
+  document.getElementById('cryptoCheck').addEventListener('click', async () => {
+    const status = document.getElementById('cryptoStatus');
+    status.textContent = 'Спрашиваем шлюз…';
+    try {
+      const r = await api('/api/crypto/refresh', { id: p.id });
+      if (r.credited) {
+        applyUser(r.user);
+        status.textContent = 'Платёж зачислен.';
+        toast('Платёж зачислен');
+        sndCollect(); haptic('success');
+        loadWallet();
+      } else {
+        status.textContent = r.payment?.paidAt
+          ? 'Платёж уже был зачислен.'
+          : 'Перевод ещё не пришёл. Это может занять несколько минут.';
+      }
+    } catch (err) {
+      status.textContent = err.message;
+    }
+  });
+}
+
+document.querySelector('[data-payment-method="crypto"]')?.addEventListener('click', () => {
+  document.querySelectorAll('[data-payment-method]').forEach((b) =>
+    b.classList.toggle('active', b.dataset.paymentMethod === 'crypto'));
+  openCryptoDeposit();
+});
+
+document.querySelector('[data-payment-method="card"]')?.addEventListener('click', () => {
+  document.querySelectorAll('[data-payment-method]').forEach((b) =>
+    b.classList.toggle('active', b.dataset.paymentMethod === 'card'));
+  document.getElementById('cryptoCreate').hidden = true;
+  document.getElementById('cryptoCheckout').hidden = true;
+  document.getElementById('paymentCreate').hidden = false;
+});
 
 async function loadPayments() {
   try {
@@ -10993,12 +11655,29 @@ async function loadSbpBanks() {
 }
 loadSbpBanks();
 
-document.querySelectorAll('[data-withdraw-method]').forEach(btn => btn.addEventListener('click', () => {
+document.querySelectorAll('[data-withdraw-method]').forEach(btn => btn.addEventListener('click', async () => {
   state.withdrawMethod = btn.dataset.withdrawMethod;
   document.querySelectorAll('[data-withdraw-method]').forEach(x => x.classList.toggle('active', x === btn));
   document.getElementById('withdrawSbpFields').hidden = state.withdrawMethod !== 'sbp';
   document.getElementById('withdrawCardFields').hidden = state.withdrawMethod !== 'card';
+  document.getElementById('withdrawCryptoFields').hidden = state.withdrawMethod !== 'crypto';
+
+  if (state.withdrawMethod === 'crypto') {
+    await loadCryptoOptions();
+    if (!cryptoState.enabled || !cryptoState.coins.length) {
+      toast('Вывод криптовалютой временно недоступен');
+      return;
+    }
+    renderCoinGrid(document.getElementById('withdrawCoinGrid'), 'withdraw');
+    selectCoin('withdraw', cryptoState.withdraw.currency || cryptoState.coins[0].currency);
+  }
 }));
+
+// Сумма вводится в рублях, поэтому строку «получите примерно столько-то»
+// пересчитываем на каждый ввод, а не только при выборе монеты.
+document.getElementById('withdrawAmount')?.addEventListener('input', () => {
+  if (state.withdrawMethod === 'crypto') refreshCryptoRate('withdraw');
+});
 
 document.getElementById('withdrawCard').addEventListener('input', (event) => {
   const digits = event.target.value.replace(/\D/g, '').slice(0, 19);
@@ -11014,12 +11693,28 @@ document.getElementById('withdrawSubmit').addEventListener('click', async () => 
     if (state.withdrawMethod === 'sbp') {
       payload.phone = document.getElementById('withdrawPhone').value;
       payload.bank = document.getElementById('withdrawBank').value;
+    } else if (state.withdrawMethod === 'crypto') {
+      const { currency, network } = cryptoState.withdraw;
+      if (!currency || !network) { toast('Выберите монету и сеть'); return; }
+      /*
+       * Курс и сумму в монете считает клиент, но сервер их не берёт на веру:
+       * он проверяет, что курс положительный, и сохраняет обе величины в
+       * заявку. Отправлять перевод будет человек, глядя на эти числа, поэтому
+       * они должны быть теми же, что видел игрок в момент нажатия.
+       */
+      payload.cryptoCurrency = currency;
+      payload.cryptoNetwork = network;
+      payload.cryptoAddress = document.getElementById('withdrawAddress').value.trim();
+      payload.cryptoAmount = coinAmount(amount, currency) || '';
+      payload.cryptoRate = cryptoState.rates[currency] || 0;
     } else payload.cardNumber = document.getElementById('withdrawCard').value;
     const r = await api('/api/payout/create', payload);
     applyUser(r.user);
     document.getElementById('withdrawAmount').value = '';
     document.getElementById('withdrawPhone').value = '';
     document.getElementById('withdrawCard').value = '';
+    const addr = document.getElementById('withdrawAddress');
+    if (addr) addr.value = '';
     toast(`Заявка на ${money(amount)} создана`);
     sndBet();
     haptic('success');

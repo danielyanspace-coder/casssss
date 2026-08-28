@@ -298,7 +298,7 @@
       <div class="wallet-pane" id="walletDepositPane" hidden>
         <div class="deposit-methods">
           <button class="payment-method active" data-payment-method="card">Банковской картой</button>
-          <button class="payment-method" data-payment-method="crypto">Криптовалюта <small>скоро</small></button>
+          <button class="payment-method" data-payment-method="crypto">Криптовалюта</button>
         </div>
         <div class="payment-create" id="paymentCreate">
           <h2 class="section-title">Пополнение через мобильную связь</h2>
@@ -314,6 +314,26 @@
           <button class="btn btn-primary btn-wide" id="paymentCreateBtn">Продолжить</button>
         </div>
         <div class="payment-checkout" id="paymentCheckout" hidden></div>
+
+        <!-- Пополнение криптовалютой. Список монет приходит от шлюза, поэтому
+             сетка и выпадающий список сетей собираются в коде. -->
+        <div class="crypto-create" id="cryptoCreate" hidden>
+          <h2 class="section-title">Пополнение криптовалютой</h2>
+          <div class="coin-grid" id="coinGrid"></div>
+          <div class="coin-network" id="coinNetwork" hidden>
+            <label class="field-label" for="coinNetworkSelect">Сеть перевода</label>
+            <select class="seed-input" id="coinNetworkSelect"></select>
+            <p class="coin-note">Отправляйте только в выбранной сети. Перевод в
+              другой сети теряется без возврата.</p>
+          </div>
+          <input class="seed-input" id="cryptoAmount" type="number" inputmode="numeric"
+                 placeholder="Сумма пополнения, ₽">
+          <div class="quick-row" id="cryptoQuick"></div>
+          <div class="rate-line" id="cryptoRate"></div>
+          <button class="btn btn-primary btn-wide" id="cryptoCreateBtn">Продолжить</button>
+        </div>
+        <div class="payment-checkout" id="cryptoCheckout" hidden></div>
+
         <h2 class="section-title">История пополнений</h2>
         <div id="paymentList"></div>
         <div id="depositList"></div>
@@ -332,6 +352,7 @@
           <div class="payout-methods" role="group" aria-label="Способ вывода">
             <button class="payment-method active" type="button" data-withdraw-method="sbp">СБП</button>
             <button class="payment-method" type="button" data-withdraw-method="card">Банковская карта</button>
+            <button class="payment-method" type="button" data-withdraw-method="crypto">Криптовалюта</button>
           </div>
           <div id="withdrawSbpFields">
             <input class="seed-input" id="withdrawPhone" type="tel" inputmode="tel"
@@ -342,6 +363,16 @@
           <div id="withdrawCardFields" hidden>
             <input class="seed-input" id="withdrawCard" type="text" inputmode="numeric"
                    autocomplete="cc-number" maxlength="23" placeholder="Номер банковской карты">
+          </div>
+          <div id="withdrawCryptoFields" hidden>
+            <div class="coin-grid compact" id="withdrawCoinGrid"></div>
+            <label class="field-label" for="withdrawNetwork">Сеть перевода</label>
+            <select class="seed-input" id="withdrawNetwork"></select>
+            <input class="seed-input" id="withdrawAddress" type="text"
+                   autocomplete="off" spellcheck="false" placeholder="Адрес кошелька">
+            <p class="coin-note">Проверьте адрес и сеть. Перевод в блокчейне
+              необратим: ошибка в адресе означает потерю средств.</p>
+            <div class="rate-line" id="withdrawRate"></div>
           </div>
           <button class="btn btn-primary btn-wide" id="withdrawSubmit">Вывести</button>
         </div>

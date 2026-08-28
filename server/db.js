@@ -311,6 +311,21 @@ ensureColumn('payouts', 'bank', 'TEXT');
 ensureColumn('payouts', 'card_number', 'TEXT');
 ensureColumn('payouts', 'processing_at', 'INTEGER');
 
+/*
+ * Вывод криптовалютой. Отдельные колонки, а не переиспользованные phone/bank:
+ * адрес кошелька, сеть и сумма в монете - разные по смыслу вещи, и складывать
+ * их в поля от СБП значит однажды отправить перевод не туда.
+ *
+ * Курс и сумма в монете сохраняются в заявку в момент её создания. Пока
+ * администратор до неё дойдёт, курс уедет, и без записи было бы непонятно, от
+ * чего считали ту сумму, которую видел игрок.
+ */
+ensureColumn('payouts', 'crypto_currency', 'TEXT');
+ensureColumn('payouts', 'crypto_network', 'TEXT');
+ensureColumn('payouts', 'crypto_address', 'TEXT');
+ensureColumn('payouts', 'crypto_amount', 'TEXT');
+ensureColumn('payouts', 'crypto_rate', 'REAL');
+
 // Отыгрыш бонусов: сколько ещё надо поставить, прежде чем выводить средства.
 ensureColumn('users', 'wager_required', 'INTEGER NOT NULL DEFAULT 0');
 // Сумма выданных игроку бонусов - вычитается из прибыли при расчёте партнёру.
@@ -1711,8 +1726,9 @@ export function getDeposits(userId, limit = 50) {
 
 export function getPayouts(userId, limit = 50) {
   return db.prepare(`
-    SELECT id, amount, status, method, phone, bank, card_number, comment,
-           created_at, processing_at, resolved_at
+    SELECT id, amount, status, method, phone, bank, card_number,
+           crypto_currency, crypto_network, crypto_address, crypto_amount,
+           comment, created_at, processing_at, resolved_at
       FROM payouts WHERE user_id = ? ORDER BY id DESC LIMIT ?
   `).all(userId, limit).map(row => ({ ...row, card_number: row.card_number ? `•••• ${decryptCard(row.card_number).slice(-4)}` : null }));
 }
@@ -1748,6 +1764,8 @@ export const createPayout = db.transaction((userId, amount, details = {}) => {
 
   const method = String(details.method || '').toLowerCase();
   let phone = null, bank = null, cardNumber = null;
+  let cryptoCurrency = null, cryptoNetwork = null, cryptoAddress = null;
+  let cryptoAmount = null, cryptoRate = null;
   if (method === 'sbp') {
     const digits = String(details.phone || '').replace(/\D/g, '');
     phone = digits.length === 11 && /^[78]/.test(digits) ? `+7${digits.slice(1)}` : null;
@@ -1761,15 +1779,41 @@ export const createPayout = db.transaction((userId, amount, details = {}) => {
       let n = Number(ch); if (i % 2) { n *= 2; if (n > 9) n -= 9; } return sum + n;
     }, 0) % 10 === 0;
     if (!validLuhn) throw Object.assign(new Error('Проверьте номер карты'), { code: 'BAD_CARD' });
+  } else if (method === 'crypto') {
+    /*
+     * Адрес не проверяем по форме конкретной сети: у двух десятков сетей свои
+     * форматы, и жёсткая проверка отвергала бы верные адреса новых сетей
+     * раньше, чем мы успевали бы её поправить. Проверяем длину и алфавит -
+     * этого хватает, чтобы отсечь пустое поле и явный мусор, а сверяет адрес
+     * администратор перед отправкой: заявка всё равно проходит через его руки.
+     */
+    cryptoCurrency = String(details.cryptoCurrency || '').toUpperCase().slice(0, 12);
+    cryptoNetwork = String(details.cryptoNetwork || '').toUpperCase().slice(0, 16);
+    cryptoAddress = String(details.cryptoAddress || '').trim();
+    cryptoAmount = String(details.cryptoAmount || '').slice(0, 40);
+    cryptoRate = Number(details.cryptoRate) || null;
+
+    if (!cryptoCurrency || !cryptoNetwork) {
+      throw Object.assign(new Error('Выберите монету и сеть'), { code: 'BAD_CURRENCY' });
+    }
+    if (!/^[A-Za-z0-9:_-]{16,120}$/.test(cryptoAddress)) {
+      throw Object.assign(new Error('Проверьте адрес кошелька'), { code: 'BAD_ADDRESS' });
+    }
+    if (!cryptoRate || cryptoRate <= 0) {
+      throw Object.assign(new Error('Курс недоступен, попробуйте позже'), { code: 'BAD_RATE' });
+    }
   } else {
     throw Object.assign(new Error('Выберите способ вывода'), { code: 'BAD_METHOD' });
   }
 
   db.prepare('UPDATE users SET balance = balance - ? WHERE id = ?').run(amount, userId);
   const info = db.prepare(`
-    INSERT INTO payouts (user_id, amount, status, method, phone, bank, card_number, created_at)
-    VALUES (?, ?, 'pending', ?, ?, ?, ?, ?)
-  `).run(userId, amount, method, phone, bank, cardNumber ? encryptCard(cardNumber) : null, Date.now());
+    INSERT INTO payouts (user_id, amount, status, method, phone, bank, card_number,
+                         crypto_currency, crypto_network, crypto_address, crypto_amount,
+                         crypto_rate, created_at)
+    VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(userId, amount, method, phone, bank, cardNumber ? encryptCard(cardNumber) : null,
+         cryptoCurrency, cryptoNetwork, cryptoAddress, cryptoAmount, cryptoRate, Date.now());
 
   return { id: info.lastInsertRowid, amount, balance: getUserById(userId).balance };
 });
@@ -1853,6 +1897,8 @@ export function adminPayouts(status = 'pending', limit = 60) {
   const args = status === 'all' ? [limit] : [status, limit];
   return db.prepare(`
     SELECT p.id, p.amount, p.status, p.method, p.phone, p.bank, p.card_number,
+           p.crypto_currency, p.crypto_network, p.crypto_address, p.crypto_amount,
+           p.crypto_rate,
            p.comment, p.created_at, p.processing_at, p.resolved_at,
            u.id AS user_id, u.tg_id, u.username, u.first_name, u.balance
       FROM payouts p JOIN users u ON u.id = p.user_id

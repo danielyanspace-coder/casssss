@@ -38,6 +38,7 @@ import {
 } from './games.js';
 import { computeRoll, generateClientSeed } from './fair.js';
 import { limits } from './ratelimit.js';
+import * as crypto from './crypto.js';
 import {
   BONUS_CONFIG,
   claimBonus,
@@ -771,6 +772,11 @@ app.post('/api/payout/create', auth, limits.cashier, (req, res) => {
       phone: req.body?.phone,
       bank: req.body?.bank,
       cardNumber: req.body?.cardNumber,
+      cryptoCurrency: req.body?.cryptoCurrency,
+      cryptoNetwork: req.body?.cryptoNetwork,
+      cryptoAddress: req.body?.cryptoAddress,
+      cryptoAmount: req.body?.cryptoAmount,
+      cryptoRate: req.body?.cryptoRate,
     });
     res.json({ ...result, user: publicUser(getUserById(req.player.id)) });
   } catch (err) {
@@ -780,6 +786,7 @@ app.post('/api/payout/create', auth, limits.cashier, (req, res) => {
     if ([
       'MIN', 'INSUFFICIENT_FUNDS', 'WAGER',
       'BAD_PHONE', 'BAD_BANK', 'BAD_CARD', 'BAD_METHOD', 'PAYOUT_KEY_MISSING',
+      'BAD_CURRENCY', 'BAD_NETWORK', 'BAD_ADDRESS', 'BAD_RATE',
     ].includes(err.code)) {
       return res.status(400).json({ error: err.code, message: err.message });
     }
@@ -1047,6 +1054,95 @@ app.post('/api/admin/payout/resolve', auth, adminOnly, (req, res) => {
     if (err.code === 'RESOLVED' || err.code === 'BAD_STATUS') {
       return res.status(400).json({ error: err.message });
     }
+    throw err;
+  }
+});
+
+/* ============================================================
+   КРИПТОКАССА HELEKET
+   ============================================================ */
+
+/**
+ * Что доступно к оплате: монеты, сети и курсы.
+ *
+ * Курсы отдаются здесь же, а не отдельной ручкой: интерфейсу они нужны ровно
+ * в тот момент, когда он рисует список монет, и второй запрос был бы лишним
+ * походом по сети ради тех же данных.
+ */
+app.post('/api/crypto/options', auth, limits.read, async (req, res) => {
+  if (!crypto.isConfigured()) return res.json({ enabled: false, coins: [], rates: {} });
+  try {
+    const [coins, rates] = await Promise.all([crypto.coins(), crypto.rates()]);
+    res.json({
+      enabled: true,
+      coins,
+      rates,
+      min: crypto.CRYPTO_MIN,
+      max: crypto.CRYPTO_MAX,
+    });
+  } catch (err) {
+    res.status(503).json({ error: err.code || 'GATEWAY_ERROR', message: err.message });
+  }
+});
+
+app.post('/api/crypto/create', auth, limits.cashier, async (req, res) => {
+  try {
+    const payment = await crypto.createDeposit(
+      req.player.id, req.body?.amount, req.body?.currency, req.body?.network
+    );
+    res.status(201).json(payment);
+  } catch (err) {
+    const status = err.code === 'GATEWAY_UNREACHABLE' || err.code === 'NOT_CONFIGURED' ? 503 : 400;
+    res.status(status).json({ error: err.code || 'CRYPTO_ERROR', message: err.message });
+  }
+});
+
+app.post('/api/crypto/list', auth, limits.read, (req, res) => {
+  res.json({ rows: crypto.listDeposits(req.player.id) });
+});
+
+/**
+ * Сверка платежа со шлюзом по просьбе игрока.
+ *
+ * Нужна, когда вебхук не дошёл: сеть моргнула, приложение перезапускалось.
+ * Без неё деньги висели бы до ручного разбора, а игрок видел бы «ожидание»
+ * при уже отправленном переводе.
+ */
+app.post('/api/crypto/refresh', auth, limits.cashier, async (req, res) => {
+  try {
+    const result = await crypto.refreshDeposit(req.body?.id, req.player.id);
+    if (result.credited) {
+      emitPayment(req.player.id, 'payment.completed', { source: 'crypto' });
+    }
+    res.json({ ...result, user: publicUser(getUserById(req.player.id)) });
+  } catch (err) {
+    const status = err.code === 'NOT_FOUND' ? 404 : 400;
+    res.status(status).json({ error: err.code || 'CRYPTO_ERROR', message: err.message });
+  }
+});
+
+/**
+ * Вебхук шлюза.
+ *
+ * Отвечаем 200 на всё, что подписано нашим ключом, даже если платёж уже был
+ * зачислен: шлюз повторяет доставку до успешного ответа, и на любой другой
+ * код он будет ломиться снова и снова. Защита от повторного зачисления живёт
+ * в базе, а не в коде ответа.
+ */
+app.post('/api/webhooks/heleket', limits.webhook, (req, res) => {
+  if (!crypto.webhookIpAllowed(req.ip)) {
+    return res.status(403).json({ error: 'Чужой адрес' });
+  }
+  if (!crypto.verifyWebhook(req.body)) {
+    return res.status(401).json({ error: 'Подпись не совпала' });
+  }
+
+  try {
+    const result = crypto.applyWebhook(req.body);
+    if (result.credited) emitPayment(result.userId, 'payment.completed', { source: 'crypto' });
+    res.json({ ok: true });
+  } catch (err) {
+    if (err.code === 'NOT_FOUND') return res.status(200).json({ ok: true, unknown: true });
     throw err;
   }
 });

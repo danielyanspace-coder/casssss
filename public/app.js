@@ -14,6 +14,7 @@ import {
 } from './icons.js';
 import { caseCover, porschePhotoSrc, caseArtSrc } from './covers.js';
 import { itemArt } from './item-art.js';
+import { coinMark, coinColor } from './coin-art.js';
 import { COMPANY, DOCS, footerHtml } from './legal.js';
 import {
   sndTick, sndSpinStart, sndLand, sndReveal,
@@ -3120,9 +3121,7 @@ async function loadAdminPayouts() {
       </div>
       <div class="payout-date">${esc(name)} · ID ${p.tg_id} ·
         баланс ${money(p.balance)} · ${new Date(p.created_at).toLocaleString('ru-RU')}</div>
-      <div class="payout-requisites"><b>${p.method === 'card' ? 'Банковская карта' : 'СБП'}</b><br>
-        ${p.method === 'card' ? esc(String(p.card_number || '').replace(/(.{4})/g, '$1 ').trim())
-          : `${esc(p.phone || '')} · ${esc(p.bank || '')}`}</div>
+      <div class="payout-requisites">${payoutRequisites(p, { full: true })}</div>
       ${p.comment ? `<div class="payout-comment">${esc(p.comment)}</div>` : ''}
       ${p.status === 'pending' ? `
         <input class="seed-input payout-note" data-note="${p.id}" placeholder="комментарий игроку">
@@ -3393,6 +3392,33 @@ async function loadWallet() {
     `Доступно <b>${money(w.available)}</b> · минимум ${money(w.minPayout)}`;
 }
 
+/**
+ * Реквизиты заявки на вывод одной строкой.
+ *
+ * Общий для истории игрока и для админки: писать это в двух местах значило бы
+ * однажды показать администратору не тот адрес, что видел игрок. Адрес
+ * кошелька не сокращаем - именно по нему человек и отправляет перевод, и
+ * многоточие посередине здесь означало бы потерянные деньги.
+ */
+function payoutRequisites(p, { full = false } = {}) {
+  if (p.method === 'crypto') {
+    const coin = esc(p.crypto_currency || '');
+    const amount = p.crypto_amount ? ` · <b>${esc(p.crypto_amount)} ${coin}</b>` : '';
+    const rate = full && p.crypto_rate
+      ? `<span class="payout-rate">курс на момент заявки: ${Number(p.crypto_rate)
+          .toLocaleString('ru-RU', { maximumFractionDigits: 2 })} ₽</span>` : '';
+    return `${coinMark(p.crypto_currency, 18)} ${coin} · ${esc(p.crypto_network || '')}${amount}`
+      + `<span class="payout-address">${esc(p.crypto_address || '')}</span>${rate}`;
+  }
+  if (p.method === 'card') {
+    const digits = String(p.card_number || '');
+    return full
+      ? `Банковская карта<br>${esc(digits.replace(/(.{4})/g, '$1 ').trim())}`
+      : `Карта ···· ${esc(digits.slice(-4))}`;
+  }
+  return `${full ? 'СБП<br>' : 'СБП · '}${esc(p.phone || '')} · ${esc(p.bank || '')}`;
+}
+
 function renderPayoutList(payouts) {
   const box = document.getElementById('payoutList');
   if (!payouts.length) {
@@ -3407,9 +3433,7 @@ function renderPayoutList(payouts) {
         <span class="payout-status ${p.status}">${STATUS_LABEL[p.status] || p.status}</span>
       </div>
       <div class="payout-date">${new Date(p.created_at).toLocaleString('ru-RU')}</div>
-      <div class="payout-requisites">${p.method === 'card'
-        ? `Карта ···· ${esc(String(p.card_number || '').slice(-4))}`
-        : `СБП · ${esc(p.phone || '')} · ${esc(p.bank || '')}`}</div>
+      <div class="payout-requisites">${payoutRequisites(p)}</div>
       ${p.comment ? `<div class="payout-comment">${esc(p.comment)}</div>` : ''}
       ${p.status === 'pending'
         ? `<button class="btn btn-outline btn-sm payout-cancel" data-cancel="${p.id}">Отменить</button>`
@@ -3444,7 +3468,305 @@ document.querySelectorAll('[data-bank]').forEach((btn) => btn.addEventListener('
   document.querySelectorAll('[data-bank]').forEach(b => b.classList.toggle('active', b === btn));
 }));
 document.querySelector('[data-bank="sber"]')?.classList.add('active');
-document.querySelector('[data-payment-method="crypto"]')?.addEventListener('click', () => toast('Криптовалюта скоро будет доступна'));
+/* ============================================================
+   КРИПТОКАССА
+   ============================================================ */
+
+/*
+ * Состояние криптокассы держим в одном месте: список монет приходит от шлюза
+ * один раз и нужен сразу двум экранам - пополнению и выводу. Тянуть его
+ * дважды значило бы показать в них разные наборы монет, если между запросами
+ * что-то поменялось в кабинете.
+ */
+const cryptoState = {
+  loaded: false, enabled: false, coins: [], rates: {}, min: 500, max: 500000,
+  deposit: { currency: null, network: null },
+  withdraw: { currency: null, network: null },
+};
+
+/**
+ * Сколько знаков после запятой показывать у монеты.
+ *
+ * У биткоина хватает пяти, у Shiba Inu их нужно ноль - её курс меньше копейки,
+ * и «0.00» вместо суммы выглядит поломкой. Считаем от самого курса: чем монета
+ * дешевле, тем больше знаков.
+ */
+function coinDecimals(rate) {
+  if (!rate || rate <= 0) return 4;
+  if (rate >= 100000) return 6;
+  if (rate >= 1000) return 4;
+  if (rate >= 10) return 2;
+  if (rate >= 0.1) return 1;
+  return 0;
+}
+
+function coinAmount(rub, currency) {
+  const rate = cryptoState.rates[currency];
+  if (!rate || !rub) return null;
+  const value = rub / rate;
+  return value.toFixed(coinDecimals(rate));
+}
+
+/** Курс монеты словами: «1 USDT = 86,15 ₽». */
+function rateLine(currency) {
+  const rate = cryptoState.rates[currency];
+  if (!rate) return '';
+  const digits = rate >= 100 ? 0 : rate >= 1 ? 2 : 6;
+  return `1 ${currency} = ${rate.toLocaleString('ru-RU', {
+    minimumFractionDigits: digits, maximumFractionDigits: digits })} ₽`;
+}
+
+async function loadCryptoOptions() {
+  if (cryptoState.loaded) return cryptoState;
+  try {
+    const data = await api('/api/crypto/options');
+    Object.assign(cryptoState, {
+      loaded: true,
+      enabled: !!data.enabled,
+      coins: data.coins || [],
+      rates: data.rates || {},
+      min: data.min ?? 500,
+      max: data.max ?? 500000,
+    });
+  } catch {
+    cryptoState.loaded = true;
+    cryptoState.enabled = false;
+  }
+  return cryptoState;
+}
+
+/** Сетка монет. Одна и та же и для пополнения, и для вывода. */
+function renderCoinGrid(el, side) {
+  const pick = cryptoState[side];
+  el.innerHTML = cryptoState.coins.map((c) => `
+    <button type="button" class="coin-card${c.currency === pick.currency ? ' active' : ''}"
+            data-coin="${c.currency}" style="--coin:${coinColor(c.currency)}">
+      ${coinMark(c.currency, 34)}
+      <span class="coin-code">${c.currency}</span>
+      <span class="coin-name">${esc(c.name)}</span>
+    </button>`).join('');
+
+  el.querySelectorAll('.coin-card').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      selectCoin(side, btn.dataset.coin);
+      haptic('light');
+    });
+  });
+}
+
+/**
+ * Выбор монеты и её сети.
+ *
+ * Сети уходят в выпадающий список, а не в общий ряд кнопок: у USDT их восемь,
+ * и в одну ленту с монетами они превратились бы в список из тридцати с лишним
+ * плиток, где не видно, где кончается одна монета и начинается другая.
+ * Список сетей показывается только когда их больше одной - у биткоина
+ * выбирать не из чего.
+ */
+function selectCoin(side, currency) {
+  const coin = cryptoState.coins.find((c) => c.currency === currency);
+  if (!coin) return;
+
+  cryptoState[side].currency = currency;
+  cryptoState[side].network = coin.networks[0]?.network || null;
+
+  const isDeposit = side === 'deposit';
+  const grid = document.getElementById(isDeposit ? 'coinGrid' : 'withdrawCoinGrid');
+  grid.querySelectorAll('.coin-card').forEach((b) =>
+    b.classList.toggle('active', b.dataset.coin === currency));
+
+  const select = document.getElementById(isDeposit ? 'coinNetworkSelect' : 'withdrawNetwork');
+  // У части сетей понятное имя совпадает с кодом (TRON, SOL) - «TRON · TRON»
+  // выглядит опечаткой, поэтому код дописывается только когда он добавляет смысл.
+  select.innerHTML = coin.networks.map((n) =>
+    `<option value="${n.network}">${esc(n.name)}${
+      n.name.toUpperCase() === n.network ? '' : ` · ${n.network}`}</option>`).join('');
+
+  if (isDeposit) {
+    // У монеты с единственной сетью выбирать нечего - список прячем.
+    document.getElementById('coinNetwork').hidden = coin.networks.length < 2;
+  } else {
+    select.parentElement.querySelector('label[for="withdrawNetwork"]').hidden =
+      coin.networks.length < 2;
+    select.hidden = coin.networks.length < 2;
+  }
+
+  refreshCryptoRate(side);
+}
+
+/** Строка «получите примерно столько-то» под суммой. */
+function refreshCryptoRate(side) {
+  const isDeposit = side === 'deposit';
+  const box = document.getElementById(isDeposit ? 'cryptoRate' : 'withdrawRate');
+  const currency = cryptoState[side].currency;
+  if (!box) return;
+
+  if (!currency) { box.innerHTML = ''; return; }
+
+  const rub = Number(document.getElementById(isDeposit ? 'cryptoAmount' : 'withdrawAmount')?.value);
+  const amount = coinAmount(rub, currency);
+  const course = rateLine(currency);
+
+  if (!amount) {
+    box.innerHTML = course ? `<span class="rate-course">${course}</span>` : '';
+    return;
+  }
+
+  box.innerHTML = `
+    <span class="rate-amount">${coinMark(currency, 20)} ≈ ${amount} ${currency}</span>
+    <span class="rate-course">${course}</span>
+    <span class="rate-note">${isDeposit
+      ? 'Точная сумма посчитается на странице оплаты по курсу шлюза'
+      : 'Итоговая сумма считается по курсу на момент заявки'}</span>`;
+}
+
+/** Быстрые суммы: чаще всего пополняют круглыми, набирать их руками незачем. */
+function renderCryptoQuick() {
+  const row = document.getElementById('cryptoQuick');
+  const input = document.getElementById('cryptoAmount');
+  const sums = [1000, 3000, 5000, 10000].filter((v) =>
+    v >= cryptoState.min && v <= cryptoState.max);
+  row.innerHTML = sums.map((v) =>
+    `<button type="button" class="quick-btn" data-sum="${v}">${money(v)}</button>`).join('');
+  row.querySelectorAll('.quick-btn').forEach((b) => b.addEventListener('click', () => {
+    input.value = b.dataset.sum;
+    refreshCryptoRate('deposit');
+    haptic('light');
+  }));
+}
+
+async function openCryptoDeposit() {
+  const box = document.getElementById('cryptoCreate');
+  document.getElementById('paymentCreate').hidden = true;
+  document.getElementById('paymentCheckout').hidden = true;
+  box.hidden = false;
+
+  await loadCryptoOptions();
+  if (!cryptoState.enabled || !cryptoState.coins.length) {
+    box.innerHTML = '<p class="empty">Криптокасса временно недоступна. Попробуйте позже.</p>';
+    return;
+  }
+
+  renderCoinGrid(document.getElementById('coinGrid'), 'deposit');
+  renderCryptoQuick();
+  const amount = document.getElementById('cryptoAmount');
+  amount.placeholder = `Сумма пополнения, ₽ (от ${money(cryptoState.min)})`;
+  if (!cryptoState.deposit.currency) selectCoin('deposit', cryptoState.coins[0].currency);
+  else selectCoin('deposit', cryptoState.deposit.currency);
+}
+
+document.getElementById('coinNetworkSelect')?.addEventListener('change', (e) => {
+  cryptoState.deposit.network = e.target.value;
+});
+document.getElementById('withdrawNetwork')?.addEventListener('change', (e) => {
+  cryptoState.withdraw.network = e.target.value;
+});
+document.getElementById('cryptoAmount')?.addEventListener('input', () => refreshCryptoRate('deposit'));
+
+document.getElementById('cryptoCreateBtn')?.addEventListener('click', async () => {
+  const { currency, network } = cryptoState.deposit;
+  const amount = Number(document.getElementById('cryptoAmount').value);
+  if (!currency || !network) return toast('Выберите монету и сеть');
+  if (!amount || amount < cryptoState.min) return toast(`Минимум ${money(cryptoState.min)}`);
+
+  const btn = document.getElementById('cryptoCreateBtn');
+  btn.disabled = true;
+  try {
+    const payment = await api('/api/crypto/create', { amount, currency, network });
+    showCryptoCheckout(payment);
+    haptic('success');
+  } catch (err) {
+    toast(err.message);
+    haptic('error');
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+/**
+ * Экран оплаты: адрес, сумма в монете и обратный отсчёт.
+ *
+ * Адрес показывается крупно и копируется нажатием: переписывать его руками с
+ * экрана телефона - верный способ потерять перевод.
+ */
+function showCryptoCheckout(p) {
+  const box = document.getElementById('cryptoCheckout');
+  document.getElementById('cryptoCreate').hidden = true;
+  box.hidden = false;
+
+  box.innerHTML = `
+    <div class="crypto-invoice" style="--coin:${coinColor(p.currency)}">
+      <div class="invoice-head">
+        ${coinMark(p.currency, 44)}
+        <div>
+          <div class="invoice-sum">${p.payerAmount || '-'} ${p.currency}</div>
+          <div class="invoice-sub">за ${money(p.amountRub)} · сеть ${esc(p.networkName)}</div>
+        </div>
+      </div>
+
+      ${p.address ? `
+        <div class="field-label">Адрес для перевода</div>
+        <button class="invoice-address" id="cryptoCopy" type="button">
+          <span>${esc(p.address)}</span><small>нажмите, чтобы скопировать</small>
+        </button>` : ''}
+
+      <div class="invoice-warn">Отправляйте только ${p.currency} в сети
+        ${esc(p.networkName)}. Перевод в другой сети теряется без возврата.</div>
+
+      ${p.payUrl ? `<a class="btn btn-primary btn-wide" href="${p.payUrl}"
+         target="_blank" rel="noopener">Открыть страницу оплаты</a>` : ''}
+
+      <button class="btn btn-outline btn-wide" id="cryptoCheck">Я оплатил, проверить</button>
+      <button class="btn btn-outline btn-wide" id="cryptoBack">Другой способ</button>
+      <div class="invoice-status" id="cryptoStatus"></div>
+    </div>`;
+
+  document.getElementById('cryptoCopy')?.addEventListener('click', () => {
+    navigator.clipboard?.writeText(p.address).then(
+      () => toast('Адрес скопирован'), () => toast('Скопируйте адрес вручную'));
+    haptic('light');
+  });
+
+  document.getElementById('cryptoBack').addEventListener('click', () => {
+    box.hidden = true;
+    openCryptoDeposit();
+  });
+
+  document.getElementById('cryptoCheck').addEventListener('click', async () => {
+    const status = document.getElementById('cryptoStatus');
+    status.textContent = 'Спрашиваем шлюз…';
+    try {
+      const r = await api('/api/crypto/refresh', { id: p.id });
+      if (r.credited) {
+        applyUser(r.user);
+        status.textContent = 'Платёж зачислен.';
+        toast('Платёж зачислен');
+        sndCollect(); haptic('success');
+        loadWallet();
+      } else {
+        status.textContent = r.payment?.paidAt
+          ? 'Платёж уже был зачислен.'
+          : 'Перевод ещё не пришёл. Это может занять несколько минут.';
+      }
+    } catch (err) {
+      status.textContent = err.message;
+    }
+  });
+}
+
+document.querySelector('[data-payment-method="crypto"]')?.addEventListener('click', () => {
+  document.querySelectorAll('[data-payment-method]').forEach((b) =>
+    b.classList.toggle('active', b.dataset.paymentMethod === 'crypto'));
+  openCryptoDeposit();
+});
+
+document.querySelector('[data-payment-method="card"]')?.addEventListener('click', () => {
+  document.querySelectorAll('[data-payment-method]').forEach((b) =>
+    b.classList.toggle('active', b.dataset.paymentMethod === 'card'));
+  document.getElementById('cryptoCreate').hidden = true;
+  document.getElementById('cryptoCheckout').hidden = true;
+  document.getElementById('paymentCreate').hidden = false;
+});
 
 async function loadPayments() {
   try {
@@ -3522,12 +3844,29 @@ async function loadSbpBanks() {
 }
 loadSbpBanks();
 
-document.querySelectorAll('[data-withdraw-method]').forEach(btn => btn.addEventListener('click', () => {
+document.querySelectorAll('[data-withdraw-method]').forEach(btn => btn.addEventListener('click', async () => {
   state.withdrawMethod = btn.dataset.withdrawMethod;
   document.querySelectorAll('[data-withdraw-method]').forEach(x => x.classList.toggle('active', x === btn));
   document.getElementById('withdrawSbpFields').hidden = state.withdrawMethod !== 'sbp';
   document.getElementById('withdrawCardFields').hidden = state.withdrawMethod !== 'card';
+  document.getElementById('withdrawCryptoFields').hidden = state.withdrawMethod !== 'crypto';
+
+  if (state.withdrawMethod === 'crypto') {
+    await loadCryptoOptions();
+    if (!cryptoState.enabled || !cryptoState.coins.length) {
+      toast('Вывод криптовалютой временно недоступен');
+      return;
+    }
+    renderCoinGrid(document.getElementById('withdrawCoinGrid'), 'withdraw');
+    selectCoin('withdraw', cryptoState.withdraw.currency || cryptoState.coins[0].currency);
+  }
 }));
+
+// Сумма вводится в рублях, поэтому строку «получите примерно столько-то»
+// пересчитываем на каждый ввод, а не только при выборе монеты.
+document.getElementById('withdrawAmount')?.addEventListener('input', () => {
+  if (state.withdrawMethod === 'crypto') refreshCryptoRate('withdraw');
+});
 
 document.getElementById('withdrawCard').addEventListener('input', (event) => {
   const digits = event.target.value.replace(/\D/g, '').slice(0, 19);
@@ -3543,12 +3882,28 @@ document.getElementById('withdrawSubmit').addEventListener('click', async () => 
     if (state.withdrawMethod === 'sbp') {
       payload.phone = document.getElementById('withdrawPhone').value;
       payload.bank = document.getElementById('withdrawBank').value;
+    } else if (state.withdrawMethod === 'crypto') {
+      const { currency, network } = cryptoState.withdraw;
+      if (!currency || !network) { toast('Выберите монету и сеть'); return; }
+      /*
+       * Курс и сумму в монете считает клиент, но сервер их не берёт на веру:
+       * он проверяет, что курс положительный, и сохраняет обе величины в
+       * заявку. Отправлять перевод будет человек, глядя на эти числа, поэтому
+       * они должны быть теми же, что видел игрок в момент нажатия.
+       */
+      payload.cryptoCurrency = currency;
+      payload.cryptoNetwork = network;
+      payload.cryptoAddress = document.getElementById('withdrawAddress').value.trim();
+      payload.cryptoAmount = coinAmount(amount, currency) || '';
+      payload.cryptoRate = cryptoState.rates[currency] || 0;
     } else payload.cardNumber = document.getElementById('withdrawCard').value;
     const r = await api('/api/payout/create', payload);
     applyUser(r.user);
     document.getElementById('withdrawAmount').value = '';
     document.getElementById('withdrawPhone').value = '';
     document.getElementById('withdrawCard').value = '';
+    const addr = document.getElementById('withdrawAddress');
+    if (addr) addr.value = '';
     toast(`Заявка на ${money(amount)} создана`);
     sndBet();
     haptic('success');

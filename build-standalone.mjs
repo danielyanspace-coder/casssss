@@ -194,6 +194,7 @@ const icons = read('./public/icons.js');
 const covers = read('./public/covers.js');
 const sounds = read('./public/sounds.js');
 const itemArt = read('./public/item-art.js');
+const coinArt = read('./public/coin-art.js');
 const legal = read('./public/legal.js');
 const app = inlineUi(read('./public/app.js'));
 
@@ -1136,10 +1137,100 @@ const routes = {
     // Списываем сразу — как на сервере: иначе один баланс можно заявить дважды.
     u.balance -= amount;
     const id = Date.now();
-    u.payouts.unshift({ id, amount, status: 'pending', comment: null,
-                        created_at: Date.now(), resolved_at: null });
+    u.payouts.unshift({
+      id, amount, status: 'pending', comment: null,
+      created_at: Date.now(), resolved_at: null,
+      method: body.method || 'sbp',
+      phone: body.phone || null, bank: body.bank || null,
+      card_number: body.cardNumber ? String(body.cardNumber).slice(-4) : null,
+      crypto_currency: body.cryptoCurrency || null,
+      crypto_network: body.cryptoNetwork || null,
+      crypto_address: body.cryptoAddress || null,
+      crypto_amount: body.cryptoAmount || null,
+      crypto_rate: body.cryptoRate || null,
+    });
     save();
     return { id, amount, balance: u.balance, user: publicUser() };
+  },
+
+  /* ---------- Криптокасса ----------
+   *
+   * Настоящего шлюза в автономной версии нет: ходить в сеть она не может по
+   * определению. Поэтому список монет здесь свой, короткий, а курсы взяты
+   * приблизительными и постоянными - показать, как выглядит и работает касса,
+   * этого достаточно, а «настоящий курс» в файле без интернета всё равно
+   * невозможен и обещать его нечестно.
+   */
+  'POST /api/crypto/options': () => ({
+    enabled: true,
+    min: 500,
+    max: 500000,
+    coins: [
+      { currency: 'USDT', name: 'Tether', networks: [
+        { network: 'TRON', name: 'TRON' }, { network: 'BSC', name: 'BNB Smart Chain' },
+        { network: 'SOL', name: 'Solana' }, { network: 'TON', name: 'TON' },
+        { network: 'ETH', name: 'Ethereum' }] },
+      { currency: 'USDC', name: 'USD Coin', networks: [
+        { network: 'BSC', name: 'BNB Smart Chain' }, { network: 'SOL', name: 'Solana' },
+        { network: 'ETH', name: 'Ethereum' }] },
+      { currency: 'BTC', name: 'Bitcoin', networks: [{ network: 'BTC', name: 'Bitcoin' }] },
+      { currency: 'ETH', name: 'Ethereum', networks: [
+        { network: 'ETH', name: 'Ethereum' }, { network: 'ARBITRUM', name: 'Arbitrum' }] },
+      { currency: 'TRX', name: 'TRON', networks: [{ network: 'TRON', name: 'TRON' }] },
+      { currency: 'BNB', name: 'BNB', networks: [{ network: 'BSC', name: 'BNB Smart Chain' }] },
+      { currency: 'SOL', name: 'Solana', networks: [{ network: 'SOL', name: 'Solana' }] },
+      { currency: 'LTC', name: 'Litecoin', networks: [{ network: 'LTC', name: 'Litecoin' }] },
+      { currency: 'DOGE', name: 'Dogecoin', networks: [{ network: 'DOGE', name: 'Dogecoin' }] },
+      { currency: 'XMR', name: 'Monero', networks: [{ network: 'XMR', name: 'Monero' }] },
+      { currency: 'GRAM', name: 'Gram', networks: [{ network: 'TON', name: 'TON' }] },
+    ],
+    rates: {
+      USDT: 86.2, USDC: 86.2, BTC: 6850000, ETH: 216000, TRX: 29.4,
+      BNB: 60700, SOL: 9160, LTC: 4250, DOGE: 7.6, XMR: 40700, GRAM: 0.4,
+    },
+  }),
+
+  'POST /api/crypto/create': (body) => {
+    const amount = Math.trunc(Number(body.amount));
+    if (!amount || amount < 500) {
+      return { status: 400, body: { error: 'MIN', message: 'Минимальная сумма - 500 ₽' } };
+    }
+    const rates = { USDT: 86.2, USDC: 86.2, BTC: 6850000, ETH: 216000, TRX: 29.4,
+                    BNB: 60700, SOL: 9160, LTC: 4250, DOGE: 7.6, XMR: 40700, GRAM: 0.4 };
+    const rate = rates[body.currency] || 1;
+    const id = Date.now();
+    // Адрес выдуманный и подписан таковым: платить по нему нельзя и не нужно.
+    const payment = {
+      id, amountRub: amount, currency: body.currency, network: body.network,
+      networkName: body.network,
+      payerAmount: (amount / rate).toFixed(rate > 1000 ? 6 : 2),
+      address: 'ДЕМО-АДРЕС-ПЛАТИТЬ-НЕ-НУЖНО',
+      payUrl: null, status: 'check', txid: null,
+      createdAt: Date.now(), expiresAt: Date.now() + 3 * 3600 * 1000, paidAt: null,
+    };
+    store.user.cryptoPayments = [payment, ...(store.user.cryptoPayments || [])].slice(0, 20);
+    save();
+    return { status: 201, body: payment };
+  },
+
+  'POST /api/crypto/list': () => ({ rows: store.user.cryptoPayments || [] }),
+
+  /*
+   * В демо «проверить» сразу зачисляет: ждать настоящего перевода неоткуда, а
+   * показать, что происходит после оплаты, надо.
+   */
+  'POST /api/crypto/refresh': (body) => {
+    const list = store.user.cryptoPayments || [];
+    const p = list.find((x) => x.id === Number(body.id));
+    if (!p) return { status: 404, body: { error: 'Платёж не найден' } };
+    if (p.paidAt) return { payment: p, credited: false, user: publicUser() };
+    p.paidAt = Date.now();
+    p.status = 'paid';
+    store.user.balance += p.amountRub;
+    store.user.deposits.unshift({ amount: p.amountRub, source: 'crypto',
+                                  comment: p.currency + ' · ' + p.network, created_at: Date.now() });
+    save();
+    return { payment: p, credited: true, user: publicUser() };
   },
 
   'POST /api/payout/cancel': (body) => {
@@ -1522,6 +1613,8 @@ ${strip(covers)}
 ${strip(sounds)}
 
 ${strip(itemArt)}
+
+${strip(coinArt)}
 
 ${strip(legal)}
 

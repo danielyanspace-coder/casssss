@@ -14,9 +14,10 @@
     "test:ui": "node test/ui.mjs",
     "test:x2": "node test/x2.mjs",
     "test:payments": "node test/payments.mjs",
-    "test": "npm run verify && npm run test:ratelimit && npm run test:x2 && npm run test:payments && npm run test:api && npm run test:ui",
+    "test": "npm run verify && npm run test:ratelimit && npm run test:x2 && npm run test:crypto && npm run test:payments && npm run test:api && npm run test:ui",
     "test:ratelimit": "node test/ratelimit.mjs",
-    "backup": "node deploy/backup.mjs"
+    "backup": "node deploy/backup.mjs",
+    "test:crypto": "node test/crypto.mjs"
   },
   "engines": {
     "node": ">=18"

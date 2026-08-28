@@ -3671,3 +3671,121 @@ select.seed-input {
 }
 .deposit-methods,.bank-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0}.payment-method,.bank-grid button{padding:8px;border:1px solid #4b3a62;border-radius:12px;background:#fff;color:#191321;min-height:72px;display:flex;align-items:center;justify-content:center;gap:8px;overflow:hidden}.bank-grid button img{display:block;width:100%;height:54px;object-fit:contain}.bank-grid button.active{border-color:#ffd60a;box-shadow:0 0 0 2px #ffd60a}.payment-method{background:#181124;color:#fff}.payment-method.active{border-color:#ffd60a;box-shadow:0 0 0 1px #ffd60a}.any-bank-icon{font-size:28px;color:#6b4bb4;transform:rotate(-8deg)}.bank-grid [data-bank="any"] span:last-child{font-weight:700;line-height:1.15}.payment-method small{display:block;color:#8f829e}.payment-create .seed-input{width:100%;box-sizing:border-box;margin:8px 0}.payment-checkout{padding:18px;border:1px solid #ffd60a;border-radius:16px;background:linear-gradient(145deg,#201629,#15101d);text-align:center;margin:12px 0}.payment-timer{font-size:34px;font-weight:800;color:#ffd60a}.payment-requisite{display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid #392d45}.payment-requisite b{font-size:18px}.payment-status{padding:5px 9px;border-radius:99px;font-size:11px}.payment-status.PAID{background:#154b37;color:#61f1ac}.payment-status.PENDING{background:#5b4610;color:#ffd966}.payment-status.EXPIRED,.payment-status.MANUAL_REVIEW{background:#5b2028;color:#ff8b99}.payment-history{padding:12px;margin:8px 0;background:#191321;border-radius:12px}.support-message{padding:9px 11px;margin:6px 0;border-radius:10px;background:#2a2035}.support-message.USER{text-align:right;background:#44315b}.settings-grid{display:grid;gap:10px}.settings-grid label{display:grid;gap:4px;color:#ac9fba}.settings-grid input{padding:10px;border-radius:8px;border:1px solid #4b3a62;background:#17111f;color:#fff}
 .beeline-brand{width:min(280px,100%);margin:8px auto 14px;padding:8px 14px;background:#fff;border-radius:14px;box-sizing:border-box}.beeline-brand img{display:block;width:100%;height:64px;object-fit:contain}
+
+/* ============================================================
+   КРИПТОКАССА
+   ============================================================ */
+
+/* Сетка монет. Три в ряд на телефоне: четыре превращают название монеты в
+   обрубок, две оставляют половину экрана пустой. */
+.coin-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 14px;
+}
+@media (min-width: 480px) { .coin-grid { grid-template-columns: repeat(4, 1fr); } }
+
+.coin-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 11px 6px 9px;
+  border-radius: 14px;
+  border: 2px solid var(--line);
+  background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(0,0,0,0.18));
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.1s, box-shadow 0.2s;
+}
+.coin-card:active { transform: scale(0.97); }
+
+/* Выбранная монета подсвечивается своим цветом, а не общим акцентом: так
+   видно не только что выбрано, но и что именно. */
+.coin-card.active {
+  border-color: var(--coin);
+  box-shadow: 0 0 0 1px var(--coin), 0 6px 20px -8px var(--coin);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--coin) 18%, transparent), rgba(0,0,0,0.2));
+}
+
+.coin-mark { display: block; flex: none; }
+.coin-code { font-size: 12.5px; font-weight: 800; color: var(--text); letter-spacing: 0.4px; }
+.coin-name {
+  font-size: 9.5px; color: var(--muted); text-align: center; line-height: 1.15;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* В форме вывода сетка теснее: там под ней ещё три поля и кнопка. */
+.coin-grid.compact .coin-card { padding: 8px 4px 7px; gap: 3px; }
+.coin-grid.compact .coin-name { display: none; }
+
+.coin-note {
+  font-size: 11px; line-height: 1.4; color: var(--muted);
+  margin: 8px 0 4px;
+}
+
+/* Строка курса. Три уровня по важности: сумма крупно, курс мельче,
+   оговорка совсем мелко - её читают один раз и запоминают. */
+.rate-line { margin: 10px 0 14px; min-height: 20px; }
+.rate-amount {
+  display: flex; align-items: center; gap: 7px;
+  font-size: 17px; font-weight: 800; color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.rate-course { display: block; font-size: 12px; color: var(--muted); margin-top: 3px; }
+.rate-note { display: block; font-size: 10.5px; color: var(--muted); opacity: 0.75; margin-top: 3px; }
+
+.quick-row { display: flex; gap: 8px; margin: 10px 0; flex-wrap: wrap; }
+.quick-btn {
+  flex: 1 1 auto; padding: 9px 12px; border-radius: 11px;
+  border: 2px solid var(--line); background: rgba(255,255,255,0.03);
+  color: var(--text); font-size: 13px; font-weight: 700; cursor: pointer;
+}
+.quick-btn:active { transform: scale(0.97); }
+
+/* Счёт на оплату. Рамка красится цветом монеты - экран оплаты биткоином и
+   экран оплаты USDT не должны выглядеть одинаково. */
+.crypto-invoice {
+  border: 2px solid color-mix(in srgb, var(--coin) 55%, var(--line));
+  border-radius: 18px;
+  padding: 16px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--coin) 10%, transparent), rgba(0,0,0,0.25));
+  box-shadow: 0 10px 34px -18px var(--coin);
+}
+.invoice-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.invoice-sum {
+  font-size: 22px; font-weight: 900; color: var(--text);
+  font-variant-numeric: tabular-nums; line-height: 1.1;
+}
+.invoice-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+/* Адрес - кнопка во всю ширину: по нему нажимают, чтобы скопировать, и
+   промахнуться мимо мелкой иконки на телефоне слишком легко. */
+.invoice-address {
+  display: block; width: 100%; text-align: left;
+  padding: 11px 13px; margin-bottom: 12px;
+  border-radius: 12px; border: 2px dashed var(--line);
+  background: rgba(0,0,0,0.3); color: var(--text); cursor: pointer;
+}
+.invoice-address span {
+  display: block; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px; line-height: 1.45; word-break: break-all;
+}
+.invoice-address small { display: block; font-size: 10.5px; color: var(--muted); margin-top: 5px; }
+
+.invoice-warn {
+  font-size: 11.5px; line-height: 1.45; color: #ffd08a;
+  background: rgba(255, 170, 40, 0.1);
+  border-left: 3px solid #ffaa28;
+  padding: 9px 11px; border-radius: 0 10px 10px 0; margin-bottom: 14px;
+}
+.invoice-status { font-size: 12.5px; color: var(--muted); margin-top: 10px; text-align: center; }
+
+/* Адрес кошелька в списке заявок. Моноширинный и с переносом по символам:
+   администратор сверяет его посимвольно перед отправкой. */
+.payout-address {
+  display: block; margin-top: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px; line-height: 1.4; color: var(--muted); word-break: break-all;
+}
+.payout-rate { display: block; margin-top: 3px; font-size: 10.5px; color: var(--muted); opacity: 0.8; }

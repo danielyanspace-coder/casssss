@@ -549,6 +549,85 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
         adm.data.rows.some((r) => r.method === 'sbp' && r.phone === '+79001234567'));
 }
 
+/* ---------- Криптокасса ---------- */
+
+{
+  const opts = await post('/api/crypto/options');
+  check('криптокасса: настройки отдаются', opts.status === 200, `HTTP ${opts.status}`);
+
+  if (opts.data.enabled) {
+    const coins = opts.data.coins || [];
+    check('криптокасса: список монет не пустой', coins.length > 0, `монет ${coins.length}`);
+    check('криптокасса: у каждой монеты есть хотя бы одна сеть',
+          coins.every((c) => Array.isArray(c.networks) && c.networks.length > 0));
+    check('криптокасса: коды монет и сетей заглавными',
+          coins.every((c) => c.currency === c.currency.toUpperCase()
+            && c.networks.every((n) => n.network === n.network.toUpperCase())));
+
+    /*
+     * Курс нужен, чтобы показать игроку сумму. Он может отсутствовать у
+     * экзотической монеты, но у стейблкоина обязан быть - иначе оценка не
+     * покажется там, где ей место.
+     */
+    const rates = opts.data.rates || {};
+    check('криптокасса: курс USDT известен и правдоподобен',
+          rates.USDT > 10 && rates.USDT < 1000, String(rates.USDT));
+
+    check('криптокасса: чужая монета отвергается',
+          (await post('/api/crypto/create',
+            { amount: 1000, currency: 'НЕТТАКОЙ', network: 'TRON' })).status === 400);
+    check('криптокасса: чужая сеть отвергается',
+          (await post('/api/crypto/create',
+            { amount: 1000, currency: coins[0].currency, network: 'НЕТСЕТИ' })).status === 400);
+    check('криптокасса: сумма ниже минимума отвергается',
+          (await post('/api/crypto/create',
+            { amount: 1, currency: coins[0].currency, network: coins[0].networks[0].network })).status === 400);
+  } else {
+    check('криптокасса: без ключей отдаёт выключенное состояние',
+          opts.data.coins?.length === 0);
+  }
+
+  // Вебхук без подписи не должен зачислять ничего и никогда.
+  const forged = await post('/api/webhooks/heleket',
+    { order_id: 'нет-такого', status: 'paid', sign: 'f'.repeat(32) });
+  check('криптокасса: вебхук с чужой подписью отвергается', forged.status === 401,
+        `HTTP ${forged.status}`);
+}
+
+/* ---------- Вывод криптовалютой ---------- */
+
+{
+  const crypto = (extra = {}) => post('/api/payout/create', {
+    amount: 5000, method: 'crypto', cryptoCurrency: 'USDT', cryptoNetwork: 'TRON',
+    cryptoAddress: 'TLmZD36o3hZ4Bk5EaLAvMbF7TFpgLwyRzP',
+    cryptoAmount: '58.03', cryptoRate: 86.16, ...extra,
+  });
+
+  const made = await crypto();
+  check('вывод криптой: заявка создаётся', made.status === 200, `HTTP ${made.status}`);
+
+  const rows = (await post('/api/admin/payouts', { status: 'pending' })).data.rows;
+  const row = rows.find((r) => r.id === made.data.id);
+  check('вывод криптой: админка видит монету, сеть и адрес',
+        row?.crypto_currency === 'USDT' && row?.crypto_network === 'TRON'
+        && row?.crypto_address === 'TLmZD36o3hZ4Bk5EaLAvMbF7TFpgLwyRzP');
+  check('вывод криптой: сумма в монете и курс сохранены',
+        row?.crypto_amount === '58.03' && Number(row?.crypto_rate) === 86.16);
+
+  check('вывод криптой: кривой адрес отвергается понятной ошибкой',
+        (await crypto({ cryptoAddress: 'нет' })).data.error === 'BAD_ADDRESS');
+  check('вывод криптой: без курса отвергается',
+        (await crypto({ cryptoRate: 0 })).data.error === 'BAD_RATE');
+
+  // Тот же порядок состояний, что и у рублёвого вывода.
+  await post('/api/admin/payout/resolve', { id: made.data.id, status: 'processing' });
+  check('вывод криптой: заявку в работе игрок не отменяет',
+        (await post('/api/payout/cancel', { id: made.data.id })).status === 400);
+  check('вывод криптой: заявка доводится до выплаченной',
+        (await post('/api/admin/payout/resolve',
+          { id: made.data.id, status: 'paid' })).status === 200);
+}
+
 /* ---------- Фриспины и джекпот ---------- */
 {
   const withFs = config.cases.filter((c) =>
