@@ -1,0 +1,54 @@
+# Веб-сервер LuckyBox.
+#
+# Установка:
+#   sudo cp deploy/luckybox.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now luckybox
+#
+# Логи:  journalctl -u luckybox -f
+
+[Unit]
+Description=LuckyBox - веб-сервер мини-аппа
+# База лежит на диске, поэтому ждём смонтированную файловую систему и сеть.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=luckybox
+Group=luckybox
+WorkingDirectory=/srv/luckybox
+EnvironmentFile=/srv/luckybox/.env
+ExecStart=/usr/bin/node server/app.js
+
+# Падение приложения не должно останавливать приём платежей: поднимаем сразу.
+Restart=always
+RestartSec=3
+# Но если оно падает по кругу, systemd должен сдаться и позвать человека,
+# а не жечь процессор бесконечными перезапусками.
+StartLimitIntervalSec=120
+StartLimitBurst=8
+
+# Мягкая остановка: даём доиграть текущие запросы и закрыть базу.
+KillSignal=SIGTERM
+TimeoutStopSec=20
+
+# --- Ограничение прав ---
+# Приложению нужны только свой каталог и сеть. Всё остальное закрыто, чтобы
+# дыра в зависимости не превращалась в доступ ко всей машине.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=false
+# Единственное место, куда можно писать: база и загруженные файлы поддержки.
+ReadWritePaths=/srv/luckybox/data
+
+[Install]
+WantedBy=multi-user.target

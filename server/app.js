@@ -37,6 +37,7 @@ import {
   validateUpgrade,
 } from './games.js';
 import { computeRoll, generateClientSeed } from './fair.js';
+import { limits } from './ratelimit.js';
 import {
   BONUS_CONFIG,
   claimBonus,
@@ -126,6 +127,17 @@ syncAdmins(ADMIN_TG_IDS);
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
+
+/*
+ * За nginx все запросы приходят с адреса самого nginx. Без этой строки
+ * ограничитель частоты считал бы всех безымянных клиентов за одного и рубил
+ * бы вход целиком, а в логах стоял бы один и тот же 127.0.0.1.
+ *
+ * Число - сколько прокси перед приложением. Один nginx на том же сервере это
+ * 1. Если добавите Cloudflare или второй балансировщик, увеличьте: доверять
+ * всей цепочке (`true`) нельзя, заголовок подделывается кем угодно.
+ */
+app.set('trust proxy', Number(process.env.TRUST_PROXY_HOPS || 1));
 
 app.use(express.json({ limit: '8mb', verify: (req, res, buffer) => { req.rawBody = buffer.toString('utf8'); } }));
 app.use(express.static(join(__dirname, '..', 'public'), { maxAge: '1h' }));
@@ -251,7 +263,7 @@ app.get('/api/config', (req, res) => {
  * Лента открыта без авторизации: она видна и до входа в Telegram.
  * Наружу уходят только ник, кейс и предмет — ни ID, ни балансов.
  */
-app.get('/api/feed', (req, res) => {
+app.get('/api/feed', limits.read, (req, res) => {
   const limit = Math.min(Math.max(Number(req.query.limit) || 24, 1), 40);
   // Свои выпадения игрок должен видеть в ленте наравне с выдуманными, поэтому
   // порог тут только по сумме - тот же, ниже которого выпадение выглядит
@@ -285,7 +297,7 @@ app.post('/api/me', auth, (req, res) => {
 /** Сколько одинаковых кейсов можно открыть за раз. */
 const MAX_BATCH = 5;
 
-app.post('/api/open', auth, (req, res) => {
+app.post('/api/open', auth, limits.play, (req, res) => {
   const caseData = getCase(req.body?.caseId);
   if (!caseData) return res.status(404).json({ error: 'Кейс не найден' });
 
@@ -372,7 +384,7 @@ app.post('/api/open', auth, (req, res) => {
  * Цену считает сервер, клиент её только показывает: иначе подобранным запросом
  * можно было бы купить серию за свою цену.
  */
-app.post('/api/freespins/buy', auth, (req, res) => {
+app.post('/api/freespins/buy', auth, limits.play, (req, res) => {
   const caseData = getCase(req.body?.caseId);
   if (!caseData) return res.status(404).json({ error: 'Кейс не найден' });
 
@@ -427,7 +439,7 @@ app.post('/api/freespins/buy', auth, (req, res) => {
    РУЛЕТКА
    ============================================================ */
 
-app.post('/api/roulette', auth, (req, res) => {
+app.post('/api/roulette', auth, limits.play, (req, res) => {
   const bet = parseBet(req.body?.bet);
   const color = String(req.body?.color || '');
 
@@ -487,7 +499,7 @@ function labelOf(colorId) {
    КРАШ
    ============================================================ */
 
-app.post('/api/crash/start', auth, (req, res) => {
+app.post('/api/crash/start', auth, limits.play, (req, res) => {
   const bet = parseBet(req.body?.bet);
   if (!bet) return res.status(400).json({ error: 'Некорректная ставка' });
 
@@ -553,7 +565,7 @@ app.post('/api/crash/state', auth, (req, res) => {
   });
 });
 
-app.post('/api/crash/cashout', auth, (req, res) => {
+app.post('/api/crash/cashout', auth, limits.play, (req, res) => {
   const round = getCrashRound(Number(req.body?.roundId), req.player.id);
   if (!round) return res.status(404).json({ error: 'Раунд не найден' });
   if (round.status !== 'running') {
@@ -615,7 +627,7 @@ function promoCaseResolver(caseId) {
   return c ? { name: c.name, price: c.price, rtp: c.rtp } : null;
 }
 
-app.post('/api/promo/redeem', auth, (req, res) => {
+app.post('/api/promo/redeem', auth, limits.guess, (req, res) => {
   let result;
   try {
     result = redeemPromo(req.player.id, req.body?.code, promoCaseResolver);
@@ -648,7 +660,7 @@ app.post('/api/promo/state', auth, (req, res) => {
  * Партнёр опознаётся по Telegram ID своего аккаунта: отдельного входа нет,
  * он открывает то же приложение, что и игроки.
  */
-app.post('/api/partner/stats', auth, (req, res) => {
+app.post('/api/partner/stats', auth, limits.read, (req, res) => {
   const partner = getPartnerByTgId(req.player.tg_id);
   if (!partner) return res.status(403).json({ error: 'Вы не партнёр' });
 
@@ -719,11 +731,11 @@ app.post('/api/admin/partner/pay', auth, adminOnly, (req, res) => {
    ============================================================ */
 
 // Бонус по таймеру отключён — раздача единиц обесценивала ставку.
-app.post('/api/bonus', auth, (req, res) => {
+app.post('/api/bonus', auth, limits.play, (req, res) => {
   res.status(410).json({ error: 'disabled', message: 'Бонус больше не выдаётся' });
 });
 
-app.post('/api/history', auth, (req, res) => {
+app.post('/api/history', auth, limits.read, (req, res) => {
   const caseTitle = req.body?.caseTitle ? String(req.body.caseTitle).slice(0, 64) : null;
   const limit = Math.min(60, Math.max(1, Number(req.body?.limit) || 60));
   res.json({ history: getHistory(req.player.id, limit, caseTitle) });
@@ -733,7 +745,7 @@ app.post('/api/history', auth, (req, res) => {
    КАССА
    ============================================================ */
 
-app.post('/api/wallet', auth, (req, res) => {
+app.post('/api/wallet', auth, limits.read, (req, res) => {
   const pending = pendingPayoutTotal(req.player.id);
   res.json({
     balance: req.player.balance,
@@ -747,7 +759,7 @@ app.post('/api/wallet', auth, (req, res) => {
   });
 });
 
-app.post('/api/payout/create', auth, (req, res) => {
+app.post('/api/payout/create', auth, limits.cashier, (req, res) => {
   const amount = Math.trunc(Number(req.body?.amount));
   if (!Number.isFinite(amount) || amount <= 0) {
     return res.status(400).json({ error: 'Укажите сумму вывода' });
@@ -775,7 +787,7 @@ app.post('/api/payout/create', auth, (req, res) => {
   }
 });
 
-app.post('/api/payout/cancel', auth, (req, res) => {
+app.post('/api/payout/cancel', auth, limits.cashier, (req, res) => {
   try {
     const result = cancelPayout(req.player.id, Number(req.body?.id));
     res.json({ ...result, user: publicUser(getUserById(req.player.id)) });
@@ -790,7 +802,7 @@ app.post('/api/payout/cancel', auth, (req, res) => {
    РИСК-ИГРА
    ============================================================ */
 
-app.post('/api/gamble/pick', auth, (req, res) => {
+app.post('/api/gamble/pick', auth, limits.play, (req, res) => {
   const index = Math.trunc(Number(req.body?.index));
   if (!Number.isInteger(index) || index < 0 || index >= GAMBLE_CONFIG.cards) {
     return res.status(400).json({ error: 'Некорректный выбор карты' });
@@ -818,7 +830,7 @@ app.post('/api/gamble/pick', auth, (req, res) => {
   });
 });
 
-app.post('/api/gamble/skip', auth, (req, res) => {
+app.post('/api/gamble/skip', auth, limits.play, (req, res) => {
   clearGamble(req.player.id);
   res.json({ user: publicUser(getUserById(req.player.id)) });
 });
@@ -827,7 +839,7 @@ app.post('/api/gamble/skip', auth, (req, res) => {
    АПГРЕЙД
    ============================================================ */
 
-app.post('/api/upgrade', auth, (req, res) => {
+app.post('/api/upgrade', auth, limits.play, (req, res) => {
   const stake = parseBet(req.body?.stake);
   const multiplier = Number(req.body?.multiplier);
 
@@ -880,7 +892,7 @@ app.post('/api/free-case/state', auth, (req, res) => {
   res.json({ enabled: true, ...subscriptionConfig(), ...state });
 });
 
-app.post('/api/free-case/claim', auth, async (req, res) => {
+app.post('/api/free-case/claim', auth, limits.cashier, async (req, res) => {
   if (!subscriptionConfigured()) {
     return res.status(503).json({
       error: 'Бесплатный кейс ещё не настроен',
@@ -937,7 +949,7 @@ app.post('/api/fair/client-seed', auth, (req, res) => {
   res.json({ user: publicUser(getUserById(req.player.id)) });
 });
 
-app.post('/api/fair/rotate', auth, (req, res) => {
+app.post('/api/fair/rotate', auth, limits.guess, (req, res) => {
   const result = rotateServerSeed(req.player.id);
   res.json({ ...result, user: publicUser(getUserById(req.player.id)) });
 });
@@ -1058,11 +1070,11 @@ app.get('/api/payments/events', auth, (req, res) => {
   req.on('close', () => { clearInterval(keepalive); set.delete(res); if (!set.size) paymentStreams.delete(req.player.id); });
 });
 
-app.post('/api/payments/create', auth, (req, res) => {
+app.post('/api/payments/create', auth, limits.cashier, (req, res) => {
   try { res.status(201).json(createPayment(req.player.id, req.body?.amount, String(req.body?.bank || ''))); }
   catch (err) { res.status(400).json({ error: err.code || 'PAYMENT_ERROR', message: err.message }); }
 });
-app.post('/api/payments/list', auth, (req, res) => res.json({ rows: listPayments(req.player.id) }));
+app.post('/api/payments/list', auth, limits.read, (req, res) => res.json({ rows: listPayments(req.player.id) }));
 app.post('/api/payments/get', auth, (req, res) => {
   const row = getPayment(Number(req.body?.id), req.player.id);
   if (!row) return res.status(404).json({ error: 'Заявка не найдена' }); res.json(row);
@@ -1075,27 +1087,27 @@ function deviceAuth(req, res, next) {
     req.deviceId = req.get('X-Device-Id'); next();
   } catch (err) { res.status(err.status || 401).json({ error: err.message }); }
 }
-app.post('/api/webhooks/beeline', deviceAuth, (req, res) => {
+app.post('/api/webhooks/beeline', limits.webhook, deviceAuth, (req, res) => {
   try {
     const result = processBeelineSms({ amount: req.body?.amount, message: String(req.body?.message || ''), deviceId: req.deviceId });
     emitPayment(result.userId, 'payment.completed', result); res.json({ ok: true, ...result });
   } catch (err) { res.status(err.status || 400).json({ error: err.message }); }
 });
-app.post('/api/webhooks/beeline/heartbeat', deviceAuth, (req, res) => { heartbeat(req.deviceId); res.json({ ok: true, serverTime: Date.now() }); });
+app.post('/api/webhooks/beeline/heartbeat', limits.webhook, deviceAuth, (req, res) => { heartbeat(req.deviceId); res.json({ ok: true, serverTime: Date.now() }); });
 
 app.post('/api/support/open', auth, (req, res) => res.status(201).json(openDispute(req.player.id, Number(req.body?.paymentId))));
 app.post('/api/support/chat', auth, (req, res) => {
   const data = supportChat(Number(req.body?.chatId));
   if (!data.chat || data.chat.user_id !== req.player.id) return res.status(404).json({ error: 'Чат не найден' }); res.json(data);
 });
-app.post('/api/support/message', auth, (req, res) => {
+app.post('/api/support/message', auth, limits.cashier, (req, res) => {
   const data = supportChat(Number(req.body?.chatId));
   if (!data.chat || data.chat.user_id !== req.player.id) return res.status(404).json({ error: 'Чат не найден' });
   addSupportMessage(data.chat.id, 'USER', req.player.id, String(req.body?.text || '').slice(0, 2000),
     req.body?.attachmentUrl, String(req.body?.attachmentName || '').slice(0, 200));
   res.status(201).json(supportChat(data.chat.id));
 });
-app.post('/api/support/upload', auth, (req, res) => {
+app.post('/api/support/upload', auth, limits.cashier, (req, res) => {
   const mime=String(req.body?.mime||''), name=String(req.body?.name||'file').replace(/[^\p{L}\p{N}._-]/gu,'_').slice(0,100);
   const allowed={'image/jpeg':'jpg','image/png':'png','image/webp':'webp','application/pdf':'pdf'};
   if (!allowed[mime]) return res.status(400).json({error:'Разрешены JPG, PNG, WebP и PDF'});

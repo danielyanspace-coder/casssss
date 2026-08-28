@@ -7,14 +7,16 @@
   "scripts": {
     "start": "node server/app.js",
     "bot": "node server/bot.js",
-    "dev": "DEV_MODE=true node server/app.js",
+    "dev": "DEV_MODE=true RATE_LIMIT_PLAY=100000 RATE_LIMIT_READ=100000 RATE_LIMIT_CASHIER=100000 RATE_LIMIT_GUESS=100000 node server/app.js",
     "verify": "node server/verify.js",
     "demo": "node build-standalone.mjs",
     "test:api": "node test/api.mjs",
     "test:ui": "node test/ui.mjs",
     "test:x2": "node test/x2.mjs",
     "test:payments": "node test/payments.mjs",
-    "test": "npm run verify && npm run test:x2 && npm run test:payments && npm run test:api && npm run test:ui"
+    "test": "npm run verify && npm run test:ratelimit && npm run test:x2 && npm run test:payments && npm run test:api && npm run test:ui",
+    "test:ratelimit": "node test/ratelimit.mjs",
+    "backup": "node deploy/backup.mjs"
   },
   "engines": {
     "node": ">=18"
