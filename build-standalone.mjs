@@ -135,6 +135,16 @@ const coverDir = new URL('./public/assets/covers/', import.meta.url);
  */
 const DEMO_COVER_SIDE = 400;
 
+/**
+ * Собрать демо с открытой админкой: DEMO_ADMIN=1 npm run demo
+ *
+ * По умолчанию админки в демо нет - её отправляют заказчику посмотреть игру, и
+ * чужие вкладки с балансами игроков там лишние. Но саму админку тоже надо
+ * уметь показать, а объяснять человеку консольную команду в браузере - плохой
+ * способ. Отдельный флаг сборки решает это, не разводя два файла.
+ */
+const DEMO_ADMIN = process.env.DEMO_ADMIN === '1';
+
 const coverFiles = readdirSync(coverDir).filter((f) => f.endsWith('.webp'));
 
 const shrinkBrowser = await chromium.launch({
@@ -429,11 +439,15 @@ function load() {
           parsed.user.x2Perks = parsed.user.x2CaseId ? { [parsed.user.x2CaseId]: 1 } : {};
           delete parsed.user.x2CaseId;
         }
+        // Сборка с админкой открывает её и тем, у кого осталось сохранение от
+        // обычной: иначе человек открыл бы файл и не увидел того, ради чего его
+        // и собирали.
+        if (${DEMO_ADMIN}) parsed.showAdmin = true;
         return parsed;
       }
     }
   } catch { /* повреждённое хранилище просто игнорируем */ }
-  return { user: freshUser(), players: demoPlayers(), adminLog: [], showAdmin: false,
+  return { user: freshUser(), players: demoPlayers(), adminLog: [], showAdmin: ${DEMO_ADMIN},
            promos: [], partners: [], partnerPayouts: [], seq: 1 };
 }
 
@@ -1251,6 +1265,73 @@ const routes = {
     save();
     return { payment: p, credited: true, user: publicUser() };
   },
+
+  /* ---------- Админка: платежи, поддержка, настройки ----------
+   *
+   * В демо это витрина: настоящих платежей Beeline здесь нет и быть не может.
+   * Строки выдуманные, но их форма ровно та же, что отдаёт сервер, - иначе
+   * вкладка выглядела бы иначе, чем на рабочем сайте, и смотреть на неё не
+   * имело бы смысла.
+   */
+  'POST /api/admin/payments': () => ({
+    dashboard: { turnover: 184500, paid: 37, pending: 3, disputed: 1 },
+    rows: [
+      { id: 412, tg_id: '512440091', username: 'kirill_v', status: 'PAID',
+        original_amount: 5000, payable_amount: 5047, bank: 'sber',
+        created_at: Date.now() - 12 * 60000,
+        sms_message: 'Чек билайн 5047 руб' },
+      { id: 411, tg_id: '388120774', username: 'nastya.k', status: 'PENDING',
+        original_amount: 1500, payable_amount: 1523, bank: 'tbank',
+        created_at: Date.now() - 40 * 60000, sms_message: null },
+      { id: 409, tg_id: '901233812', username: 'demo_player', status: 'MANUAL_REVIEW',
+        original_amount: 3000, payable_amount: 3061, bank: 'any',
+        created_at: Date.now() - 3 * 3600000, sms_message: null },
+      { id: 404, tg_id: '774100285', username: 'arteml', status: 'EXPIRED',
+        original_amount: 800, payable_amount: 812, bank: 'ozon',
+        created_at: Date.now() - 26 * 3600000, sms_message: null },
+    ],
+  }),
+
+  'POST /api/admin/support': () => ({
+    rows: [
+      { id: 18, tg_id: '901233812', username: 'demo_player', payable_amount: 3061,
+        payment_status: 'MANUAL_REVIEW', unread_admin: 2 },
+      { id: 15, tg_id: '388120774', username: 'nastya.k', payable_amount: 1523,
+        payment_status: 'PENDING', unread_admin: 0 },
+    ],
+  }),
+
+  'POST /api/admin/support/chat': (body) => ({
+    chat: { id: Number(body.chatId) || 18 },
+    messages: [
+      { sender_type: 'user', text: 'Оплатил 3061 рубль, деньги не пришли',
+        created_at: Date.now() - 3 * 3600000 },
+      { sender_type: 'user', text: 'Прикладываю чек из приложения банка',
+        attachment_name: 'чек.jpg', created_at: Date.now() - 3 * 3600000 + 60000 },
+      { sender_type: 'admin', text: 'Проверяем, ответим в течение часа',
+        created_at: Date.now() - 2 * 3600000 },
+    ],
+  }),
+
+  'POST /api/admin/support/message': () => ({ ok: true }),
+
+  'POST /api/admin/payment-settings': (body) => {
+    if (body.save) { store.paymentSettings = { ...store.paymentSettings, ...body.values }; save(); }
+    return store.paymentSettings || {
+      beeline_phone: '+79990000000', beeline_completed_limit: '0',
+      payment_ttl_minutes: '10', payment_markup_min: '1', payment_markup_max: '99',
+      payment_min: '500', payment_max: '100000',
+    };
+  },
+
+  'POST /api/admin/payment-devices': () => ({
+    rows: [
+      { name: 'Телефон кассы', device_id: 'beeline-1', last_seen_at: Date.now() - 30000 },
+      { name: 'Запасной', device_id: 'beeline-2', last_seen_at: Date.now() - 4 * 3600000 },
+    ],
+  }),
+
+  'POST /api/admin/payment-device/register': () => ({ ok: true }),
 
   'POST /api/payout/cancel': (body) => {
     const u = store.user;

@@ -4660,12 +4660,12 @@ function load() {
         // Сборка с админкой открывает её и тем, у кого осталось сохранение от
         // обычной: иначе человек открыл бы файл и не увидел того, ради чего его
         // и собирали.
-        if (false) parsed.showAdmin = true;
+        if (true) parsed.showAdmin = true;
         return parsed;
       }
     }
   } catch { /* повреждённое хранилище просто игнорируем */ }
-  return { user: freshUser(), players: demoPlayers(), adminLog: [], showAdmin: false,
+  return { user: freshUser(), players: demoPlayers(), adminLog: [], showAdmin: true,
            promos: [], partners: [], partnerPayouts: [], seq: 1 };
 }
 
