@@ -665,6 +665,7 @@ async function openCaseAndVerify(caseId) {
         return r.left >= row.left - 1 && r.right <= row.right + 1;
       }),
       подпись: document.getElementById('caseStageHint').textContent.trim(),
+      высотаСцены: Math.round(stage.getBoundingClientRect().height),
     };
   });
 
@@ -672,6 +673,7 @@ async function openCaseAndVerify(caseId) {
   check('обряд: до нажатия на экране кейс, а не лента',
         idle.stageShown && idle.reelsHidden && idle.кейсов === 1);
   check('обряд: обложка на сцене загрузилась', idle.загрузились);
+  const высотаОдного = idle.высотаСцены;
 
   /*
    * Иксы должны быть видны до списания: раньше их смысл выяснялся уже после
@@ -684,6 +686,13 @@ async function openCaseAndVerify(caseId) {
     check(`обряд: ×${n} ставит на сцену ${n} кейсов`, st.кейсов === n, `их ${st.кейсов}`);
     check(`обряд: при ×${n} кейсы влезают в ряд`, st.влезли);
     check(`обряд: подпись показывает количество`, st.подпись.includes(`×${n}`), st.подпись);
+    /*
+     * Высота сцены не должна зависеть от числа кейсов: иначе при переборе
+     * иксов экран прыгает, и кнопка «Открыть» уезжает из-под пальца.
+     */
+    check(`обряд: при ×${n} высота сцены не изменилась`,
+          Math.abs(st.высотаСцены - высотаОдного) <= 2,
+          `${st.высотаСцены} против ${высотаОдного}`);
   }
 
   await page.click('#countRow .count-btn[data-count="1"]');
@@ -724,6 +733,37 @@ async function openCaseAndVerify(caseId) {
     const btn = document.getElementById('fsCollect');
     return (!!res && !res.hidden) || (!!fs && !fs.hidden && !!btn && !btn.hidden);
   }, null, { timeout: 120000 });
+
+  /*
+   * Обряд положен всем кейсам с вырезанной обложкой, а не одному выбранному.
+   * Проверяем на кейсах из разных полок и с разной формой обложки - и на
+   * единственном исключении, сезонном «Porsche»: его обложка нарисована
+   * широким баннером, трясти там нечего, и лента должна остаться прежней.
+   */
+  const обрядУ = async (id) => {
+    await ensureOpenerClosed();
+    await page.evaluate((caseId) => {
+      const card = [...document.querySelectorAll('.case-card, .featured-card')]
+        .find((c) => c.dataset.case === caseId);
+      card.scrollIntoView({ block: 'center' });
+      card.click();
+    }, id);
+    await page.waitForSelector('#doOpenBtn', { state: 'visible' });
+    await page.waitForTimeout(250);
+    return page.evaluate(() => ({
+      сцена: !document.getElementById('caseStage').hidden,
+      лента: !document.getElementById('reels').hidden,
+    }));
+  };
+
+  for (const id of ['warmup_100', 'rio_1500', 'depo_20000', 'westeros_1699']) {
+    const r = await обрядУ(id);
+    check(`обряд: включён у кейса ${id}`, r.сцена && !r.лента, JSON.stringify(r));
+  }
+
+  const porsche = await обрядУ('porsche_999');
+  check('обряд: у кейса без вырезанной обложки остаётся лента',
+        !porsche.сцена && porsche.лента, JSON.stringify(porsche));
 
   await ensureOpenerClosed();
 }

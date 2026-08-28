@@ -208,7 +208,7 @@ export const CATEGORIES = [
 const SPECS = [
   // ── Старт ───────────────────────────────────────────────
   ['dust_25', 'Пыль', 'Дешевле некуда', 'start', 24, 0.7, 60, 'soft', 'forge', [],
-    { art: 'dust', ritual: true }],
+    { art: 'dust' }],
   ['spark_50', 'Искра', 'С чего-то надо начинать', 'start', 49, 0.7, 90, 'soft', 'neon', [],
     { art: 'spark' }],
   ['copper_75', 'Медяк', 'Мелочь, а приятно', 'start', 74, 0.7, 90, 'soft', 'steampunk', [],
@@ -617,10 +617,6 @@ function buildCase(spec, builtById) {
     showcase: extra.showcase || null,
     availableFrom: extra.availableFrom ? Date.parse(extra.availableFrom) : null,
     art: extra.art || null,
-    // Обряд открытия: до нажатия на экране стоит сама обложка, лента
-    // появляется только когда кейс тряхнуло. Флаг здесь, а не в вёрстке,
-    // потому что включаться он будет по кейсу за кейсом.
-    ritual: extra.ritual === true,
     ev,
     cashEv,
     actualRtp: ev / price,
@@ -820,7 +816,6 @@ export function publicCase(c) {
     art: c.art,
     artAspect: ART[c.art]?.aspect || null,
     artGlow: ART[c.art]?.glow || null,
-    ritual: c.ritual,
     topValue: Math.max(...c.items.filter((i) => i.kind === 'item').map((i) => i.value)),
     items: c.items.map((it) => ({
       id: it.id,
