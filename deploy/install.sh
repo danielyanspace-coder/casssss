@@ -82,6 +82,15 @@ systemctl enable luckybox luckybox-bot luckybox-backup.timer
 
 echo "==> nginx"
 sed "s/ваш-домен\.ru/$DOMAIN/g" "$APP_DIR/deploy/nginx.conf" > /etc/nginx/sites-available/luckybox
+
+# Конфиг слушает и IPv4, и IPv6. Если на машине IPv6 выключен, nginx не просто
+# пропустит эти строки, а откажется стартовать: «socket() [::]:80 failed».
+# Проверяем и убираем их, иначе установка падает на ровном месте, а причина
+# выглядит как поломка nginx.
+if [ ! -f /proc/net/if_inet6 ]; then
+  echo "    IPv6 на машине нет - убираю строки listen [::]"
+  sed -i '/listen \[::\]/d' /etc/nginx/sites-available/luckybox
+fi
 ln -sf /etc/nginx/sites-available/luckybox /etc/nginx/sites-enabled/luckybox
 rm -f /etc/nginx/sites-enabled/default
 nginx -t
