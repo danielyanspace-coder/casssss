@@ -88,12 +88,18 @@ ls -la /srv/luckybox/data/backups
 не от потери сервера.** Настоящая копия - та, что уехала на другую машину.
 Настройте `RCLONE_REMOTE` в `.env`, и скрипт будет отправлять её туда.
 
+Копии сжимаются: база состоит из повторяющихся строк истории и жмётся
+примерно в семь раз. При живом потоке это решает - один раунд весит около
+230 байт, три сотни игроков за сутки дают четверть гигабайта, а копий мы
+держим четырнадцать.
+
 Восстановление:
 
 ```bash
 sudo systemctl stop luckybox luckybox-bot
-sudo -u luckybox cp /srv/luckybox/data/backups/app-….db /srv/luckybox/data/app.db
-sudo rm -f /srv/luckybox/data/app.db-wal /srv/luckybox/data/app.db-shm
+cd /srv/luckybox/data
+sudo -u luckybox gunzip -c backups/app-….db.gz > app.db
+sudo rm -f app.db-wal app.db-shm
 sudo systemctl start luckybox luckybox-bot
 ```
 

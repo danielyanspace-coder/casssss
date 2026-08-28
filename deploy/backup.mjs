@@ -13,6 +13,11 @@
  * хранить отдельно и знать, где он лежит, - скрипт об этом напоминает, но
  * положить его за вас не может.
  *
+ * ПОЧЕМУ КОПИИ СЖИМАЮТСЯ. База состоит из повторяющихся строк истории и
+ * жмётся примерно в семь раз. При живом потоке игроков это решает: один раунд
+ * весит около 230 байт, три сотни игроков за сутки дают четверть гигабайта, а
+ * копий мы держим четырнадцать. Без сжатия они съедают диск за пару месяцев.
+ *
  * КУДА. По умолчанию data/backups рядом с базой. Это защищает от испорченной
  * записи и ошибочного удаления, но НЕ от потери самого сервера. Настоящая
  * копия - та, что уехала на другую машину; см. RCLONE_REMOTE ниже.
@@ -21,9 +26,12 @@
  * По расписанию: deploy/luckybox-backup.service + .timer
  */
 import Database from 'better-sqlite3';
-import { mkdirSync, readdirSync, statSync, unlinkSync, existsSync } from 'node:fs';
+import { mkdirSync, readdirSync, statSync, unlinkSync, existsSync,
+         createReadStream, createWriteStream } from 'node:fs';
 import { join, dirname, basename } from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { createGzip } from 'node:zlib';
+import { pipeline } from 'node:stream/promises';
 
 const DB_PATH = process.env.DB_PATH || './data/app.db';
 const OUT_DIR = process.env.BACKUP_DIR || join(dirname(DB_PATH), 'backups');
@@ -74,22 +82,26 @@ if (integrity !== 'ok') {
   process.exit(1);
 }
 
-const size = (statSync(target).size / 1024 / 1024).toFixed(2);
-console.log(`Копия готова: ${target} (${size} МБ, целостность ok)`);
+const raw = statSync(target).size;
+
+// Сжимаем и убираем несжатый файл: держать оба смысла нет, а место копии
+// занимают всерьёз.
+const packed = target + '.gz';
+await pipeline(createReadStream(target), createGzip({ level: 9 }), createWriteStream(packed));
+unlinkSync(target);
+
+const size = statSync(packed).size;
+console.log(`Копия готова: ${packed} `
+  + `(${(size / 1024 / 1024).toFixed(2)} МБ, сжата в ${(raw / size).toFixed(1)} раза, целостность ok)`);
 
 // Ротация: держим последние KEEP штук.
 const old = readdirSync(OUT_DIR)
-  .filter((f) => /^app-.*\.db$/.test(f))
+  .filter((f) => /^app-.*\.db\.gz$/.test(f))
   .sort()
   .slice(0, -KEEP);
 
 for (const f of old) {
-  // Вместе с копией уносим её хвосты, если они всё же остались: осиротевший
-  // -wal рядом с удалённой базой - мусор, который потом никто не опознает.
-  for (const tail of ['', '-wal', '-shm']) {
-    const path = join(OUT_DIR, f + tail);
-    if (existsSync(path)) unlinkSync(path);
-  }
+  unlinkSync(join(OUT_DIR, f));
   console.log(`Удалена старая копия: ${f}`);
 }
 
@@ -97,8 +109,8 @@ for (const f of old) {
 // испорченную запись, но не пожар в дата-центре.
 if (REMOTE) {
   try {
-    execFileSync('rclone', ['copy', target, REMOTE], { stdio: 'inherit' });
-    console.log(`Отправлено в ${REMOTE}/${basename(target)}`);
+    execFileSync('rclone', ['copy', packed, REMOTE], { stdio: 'inherit' });
+    console.log(`Отправлено в ${REMOTE}/${basename(packed)}`);
   } catch (err) {
     console.error(`Не удалось отправить копию в ${REMOTE}: ${err.message}`);
     process.exit(1);
