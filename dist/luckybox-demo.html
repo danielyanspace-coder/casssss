@@ -3960,6 +3960,359 @@ select.seed-input {
 .funnel-sub { margin-top: 3px; font-size: 11.5px; color: var(--muted); }
 .funnel-drop { color: #ff6b6b; }
 
+/* ============================================================
+   КОМПЬЮТЕР
+   ============================================================
+
+   Всё, что ниже, живёт под медиазапросами и на телефоне не срабатывает.
+   Отдельного набора вёрстки для компьютера нет намеренно: две вёрстки
+   расходятся через месяц, и починенное в одной остаётся сломанным в другой.
+
+   Порог 1024px, а не 768: планшет в альбомной ориентации ближе к телефону,
+   боковая панель на нём съедает треть ширины.
+
+   Что здесь происходит по сути:
+   1. Навигация переезжает из меню-картинки в постоянную боковую панель.
+   2. Контент получает предел ширины и центрируется - строка в 1800 пикселей
+      нечитаема, а растянутые на весь монитор кейсы выглядят как ошибка.
+   3. Полки из двух кейсов в ряд становятся сеткой по 5-6.
+   4. Появляются состояния наведения, которых на телефоне не бывает.
+   ============================================================ */
+
+/* Ширина боковой панели: одно число, от которого пляшет весь сдвиг. */
+:root { --side-w: 244px; }
+
+.side-nav { display: none; }
+.top-deposit { display: none; }
+
+@media (min-width: 1024px) {
+
+  /* ---------- Боковая панель ---------- */
+
+  .side-nav {
+    position: fixed;
+    top: 0; left: 0; bottom: 0;
+    z-index: 40;
+    width: var(--side-w);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 20px 14px 18px;
+    background: rgba(16, 5, 30, 0.92);
+    backdrop-filter: blur(18px);
+    border-right: 1px solid var(--line);
+    overflow-y: auto;
+  }
+
+  .side-brand {
+    display: flex; align-items: center; gap: 10px;
+    padding: 6px 10px 18px;
+    margin-bottom: 6px;
+    border-bottom: 1px solid var(--line);
+  }
+  .side-brand-mark[data-ico] {
+    width: 34px; height: 34px; padding: 7px;
+    border-radius: 11px;
+    background: linear-gradient(135deg, var(--pink), var(--violet));
+    color: #fff;
+    flex: 0 0 auto;
+  }
+  .side-brand-text { font-size: 17px; font-weight: 900; letter-spacing: 0.5px; }
+  .side-brand-text span { color: var(--pink); }
+
+  .side-list { display: flex; flex-direction: column; gap: 4px; }
+
+  .side-item, .side-support {
+    display: flex; align-items: center; gap: 12px;
+    width: 100%;
+    padding: 12px 14px;
+    border: none;
+    border-radius: 13px;
+    background: transparent;
+    color: var(--muted);
+    font: inherit;
+    font-size: 15px;
+    font-weight: 700;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+  }
+  .side-ico[data-ico] { width: 20px; height: 20px; flex: 0 0 auto; }
+
+  .side-item:hover, .side-support:hover { background: var(--card); color: var(--text); }
+
+  /* Активный раздел с полосой слева: заливки одной было мало - на тёмном фоне
+     она читается как наведение, а не как «вы здесь». */
+  .side-item.active {
+    background: linear-gradient(90deg, rgba(255, 46, 138, 0.24), rgba(255, 46, 138, 0.04));
+    color: var(--text);
+    box-shadow: inset 3px 0 0 var(--pink);
+  }
+
+  .side-support {
+    margin-top: auto;
+    border: 1px solid var(--line);
+  }
+
+  /* ---------- Шапка и общий сдвиг ---------- */
+
+  body { padding-left: var(--side-w); }
+
+  .topbar {
+    padding: 14px 32px;
+    /* Бренд уже стоит в боковой панели: второй раз он не нужен. */
+    justify-content: flex-end;
+  }
+  .topbar .brand { display: none; }
+  .menu-btn { display: none; }
+
+  .top-right { gap: 12px; }
+  .top-deposit { display: inline-block; padding: 11px 22px; font-size: 15px; }
+  .balance-chip { padding: 10px 18px; }
+  .balance-value { font-size: 17px; }
+
+  /* Меню-картинка на компьютере не показывается никогда: её место заняла
+     боковая панель. Правило страхует от случайного вызова openMenu(). */
+  .menu-backdrop { display: none !important; }
+
+  main {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 26px 32px 60px;
+  }
+
+  /* Фоновые пятна на широком экране были маленькими кляксами в углах. */
+  .bg-glow-1 { width: 620px; height: 620px; top: -220px; left: 180px; }
+  .bg-glow-2 { width: 560px; height: 560px; top: 30%; right: -180px; }
+  .bg-glow-3 { width: 520px; height: 520px; bottom: -200px; left: 240px; }
+
+  /* ---------- Первый экран ---------- */
+
+  /* Постер вписан в скруглённую карточку, а не вылезает за края: на всю
+     ширину монитора он превращается в тонкую полосу. */
+  .hero {
+    margin: 0 0 22px;
+    max-height: 330px;
+    border-radius: 24px;
+    border: 1px solid var(--line);
+  }
+  .hero-img { height: 330px; object-position: center 28%; }
+  .hero-fade { height: 150px; }
+
+  /* Заголовок над пояснением, кнопка справа во всю высоту. Строкой в ряд
+     заголовок ломался посреди «+100% до 1 000 ₽», хотя место было. */
+  .welcome-offer {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: 'title go' 'sub go';
+    align-items: center;
+    gap: 3px 28px;
+    padding: 18px 24px;
+  }
+  .welcome-offer .wo-title { grid-area: title; font-size: 18px; }
+  .welcome-offer .wo-sub { grid-area: sub; margin: 0; max-width: 720px; }
+  .welcome-offer .wo-go { grid-area: go; margin: 0; padding: 12px 26px; }
+
+  /* ---------- Полки ---------- */
+
+  .shelf { padding: 40px 0; margin: -40px 0; }
+  .shelf-head { align-items: flex-start; text-align: left; margin-bottom: 16px; }
+  .shelf-title { font-size: 26px; }
+  .shelf-hint { font-size: 13px; }
+
+  .shelf-row { grid-template-columns: repeat(5, 1fr); gap: 16px; }
+  .shelf-row .case-cover { height: 150px; }
+  .shelf-row .case-name { font-size: 16px; min-height: 36px; }
+
+  /* Одинокий кейс в конце на широкой сетке уже не нужно центрировать:
+     в ряду их пять, и пустое место справа читается нормально. */
+  .shelf-row > .case-card:last-child:nth-child(odd) {
+    grid-column: auto;
+    justify-self: stretch;
+    width: 100%;
+  }
+
+  /* Ряд бонусных кейсов - та же сетка. */
+  #bonusList { grid-template-columns: repeat(5, 1fr); gap: 16px; }
+
+  /*
+   * Кейсы с вырезанным артом ставим в слот одной высоты.
+   *
+   * На телефоне высота слота идёт от пропорции самого рисунка (--art-ar), и
+   * при двух карточках в ряду разнобой не виден. При пяти в ряду названия и
+   * цены встают на пяти разных уровнях, и полка выглядит осыпавшейся.
+   * Фиксированная высота это чинит без потерь: арт внутри всё равно
+   * вписывается по contain и прижат к низу, то есть не обрезается.
+   */
+  .shelf-row .case-card.has-art .case-cover {
+    aspect-ratio: auto;
+    height: 208px;
+  }
+  .shelf-country .shelf-row .case-card.has-art .case-cover,
+  .shelf-got .shelf-row .case-card.has-art .case-cover { height: 224px; }
+
+  /* ---------- Витрина сезонного кейса ---------- */
+
+  /*
+   * На телефоне это карточка в столбик: обложка сверху, описание снизу. На
+   * широком экране столбик в 560 пикселей посреди пустой строки выглядит
+   * забытым, поэтому витрина разворачивается в баннер во всю ширину.
+   */
+  .featured-card {
+    max-width: none;
+    display: grid;
+    grid-template-columns: minmax(0, 46%) minmax(0, 1fr);
+    /* Области заданы явно: бейджи на телефоне идут отдельной полосой сверху и
+       в сетке заняли бы первую ячейку, вытолкнув описание на вторую строку.
+       Здесь они уходят из потока и ложатся поверх обложки. */
+    grid-template-areas: 'cover body';
+    align-items: stretch;
+  }
+  .featured-cover { grid-area: cover; height: 100%; min-height: 270px; }
+  .featured-body {
+    grid-area: body;
+    display: flex; flex-direction: column; justify-content: center;
+    padding: 28px 36px;
+    text-align: left;
+  }
+  .featured-name { font-size: 34px; }
+  .featured-sub { font-size: 15px; margin-top: 8px; }
+  .featured-foot { justify-content: flex-start; gap: 14px; margin-top: 18px; }
+  .featured-price { font-size: 30px; }
+  .featured-badges {
+    position: absolute;
+    top: 18px; left: 18px;
+    z-index: 2;
+    padding: 0;
+    justify-content: flex-start;
+  }
+
+  /*
+   * Кейс с присланным баннером - исключение: его макет сведён целиком, с
+   * клетчатым флагом слева и ящиком справа. Разрезать такую картинку на
+   * колонку нельзя, поэтому эта витрина остаётся в столбик, только шире.
+   * Пропорция задаёт высоту от ширины, а не наоборот: наоборот баннер вылезал
+   * за свою колонку и наезжал на описание.
+   */
+  .featured-card.own-art {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: 'cover' 'body';
+    max-width: 900px;
+    margin: 0 auto;
+  }
+  .featured-card.own-art .featured-cover {
+    height: auto;
+    min-height: 0;
+    aspect-ratio: 1881 / 836;
+  }
+  .featured-card.own-art .featured-body { text-align: center; padding: 22px 28px 26px; }
+  .featured-card.own-art .featured-foot { justify-content: center; }
+
+  /* ---------- Экран прокрута ---------- */
+
+  .opener-inner { max-width: 940px; }
+  .opener-scroll { padding: 28px 32px 60px; }
+
+  /* Сам кейс на широком экране крупнее: в колонке 940 пикселей рисунок высотой
+     в 196 тонет в пустоте вокруг. */
+  .case-stage { min-height: 200px; }
+  .case-stage-box { height: calc((300px - (var(--rows, 1) - 1) * 8px) / var(--rows, 1)); }
+
+  /* Состав кейса по четыре в ряд: по два он растягивался на пол-экрана,
+     и до конца списка приходилось листать втрое дольше нужного. */
+  .drops-grid { grid-template-columns: repeat(4, 1fr); }
+  .drops-grid > *:last-child:nth-child(odd) {
+    grid-column: auto;
+    justify-self: stretch;
+    width: 100%;
+  }
+
+  /* Выбор количества и автооткрытий в один ряд каждый - места хватает. */
+  .count-row, .auto-row { flex-wrap: nowrap; }
+
+  /* ---------- Игры и разделы в одну колонку ---------- */
+
+  /*
+   * Краш, рулетку, апгрейд и остальное растягивать на 1400 пикселей нельзя:
+   * колесо рулетки шириной с монитор смотрится нелепо, а поле ставки в
+   * полторы тысячи пикселей просто неудобно. Ограничиваем колонку и
+   * центрируем - ровно то, что делают все, у кого эти игры есть.
+   */
+  #view-crash, #view-roulette, #view-upgrade, #view-fair,
+  #view-bonuses, #view-partner {
+    max-width: 860px;
+    margin: 0 auto;
+  }
+
+  .game-head { text-align: center; }
+  .game-title { font-size: 40px; }
+
+  /* ---------- Касса в две колонки ---------- */
+
+  /*
+   * Слева баланс и кнопки, справа то, что открыто: пополнение или вывод.
+   * Формы вместе с историями лежат внутри этих панелей, поэтому колонку под
+   * них берём широкую, а баланс с кнопками остаётся узким и липким - он нужен
+   * перед глазами, пока заполняешь форму.
+   *
+   * .active обязателен: правило с идентификатором перебивает .view{display:none},
+   * и без него касса показывалась бы поверх любого другого раздела.
+   */
+  #view-wallet.active {
+    display: grid;
+    grid-template-columns: minmax(0, 340px) minmax(0, 1fr);
+    grid-template-areas:
+      'card  pane'
+      'acts  pane'
+      '.     pane';
+    gap: 18px 30px;
+    align-items: start;
+    max-width: 1240px;
+    margin: 0 auto;
+  }
+  #view-wallet > .wallet-card { grid-area: card; margin: 0; position: sticky; top: 90px; }
+  #view-wallet > .wallet-actions { grid-area: acts; margin: 0; }
+  #view-wallet > .wallet-pane { grid-area: pane; margin: 0; }
+
+  .bank-grid { grid-template-columns: repeat(3, 1fr); }
+  .coin-grid { grid-template-columns: repeat(6, 1fr); }
+
+  /* ---------- Админка ---------- */
+
+  /* Админка наоборот распахивается на всю ширину: там таблицы. */
+  #view-admin { max-width: none; }
+  .admin-kpis { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
+
+  /* ---------- Наведение ---------- */
+
+  /* Телефон состояний наведения не знает, и без них интерфейс на компьютере
+     кажется неживым: непонятно, что вообще нажимается. */
+  .case-card { transition: transform 0.16s, box-shadow 0.16s; }
+  .shelf-row .case-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 16px 34px -10px var(--cat-color);
+  }
+  .btn:hover:not(:disabled) { filter: brightness(1.08); }
+  .chip:hover, .tab:hover { filter: brightness(1.12); }
+  .feed-card:hover { filter: brightness(1.12); }
+}
+
+/* Совсем широкие мониторы: шестой кейс в ряду вместо воздуха по краям. */
+@media (min-width: 1600px) {
+  .shelf-row, #bonusList { grid-template-columns: repeat(6, 1fr); }
+  main { max-width: 1560px; }
+}
+
+/* Полоса прокрутки в цвет темы: белая системная на тёмном фоне бросается
+   в глаза сильнее самого интерфейса. */
+@media (min-width: 1024px) {
+  * { scrollbar-color: var(--line) transparent; scrollbar-width: thin; }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 6px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--violet); }
+}
+
 
 /* ---------- Только для автономной версии ---------- */
 
@@ -3976,6 +4329,11 @@ select.seed-input {
   <div class="bg-glow bg-glow-3"></div>
   <div class="money-rain" id="moneyRain"></div>
 
+  <!-- Боковое меню для компьютера. На телефоне спрятано целиком: там навигация
+       живёт в меню-картинке, и две навигации одновременно только мешали бы.
+       Содержимое собирается в app.js -> renderSideNav(). -->
+  <aside class="side-nav" id="sideNav"></aside>
+
   <header class="topbar">
     <div class="brand">
       <div class="brand-mark" data-ico="bolt"></div>
@@ -3985,6 +4343,9 @@ select.seed-input {
       </div>
     </div>
     <div class="top-right">
+      <!-- На компьютере рядом с балансом стоит явная кнопка пополнения: место
+           есть, а искать кассу в меню на широком экране незачем. -->
+      <button class="btn btn-primary top-deposit" id="topDeposit">Пополнить</button>
       <button class="balance-chip" id="balanceChip">
         <span class="balance-ico" data-ico="coin"></span>
         <span class="balance-value" id="balanceValue">-</span>
@@ -4268,11 +4629,11 @@ select.seed-input {
         <div class="payment-create" id="paymentCreate">
           <h2 class="section-title">Пополнение через мобильную связь</h2>
           <div class="bank-grid" id="bankGrid">
-            <button data-bank="sber"><img src="/assets/banks/sber.webp" alt="Сбер"></button>
-            <button data-bank="ozon"><img src="/assets/banks/ozon.webp" alt="Ozon"></button>
-            <button data-bank="alfa"><img src="/assets/banks/alfa.webp" alt="Альфа-Банк"></button>
-            <button data-bank="tbank"><img src="/assets/banks/tbank.webp" alt="Т-Банк"></button>
-            <button data-bank="vtb"><img src="/assets/banks/vtb.webp" alt="ВТБ"></button>
+            <button data-bank="sber"><img src="data:image/webp;base64,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" alt="Сбер"></button>
+            <button data-bank="ozon"><img src="data:image/webp;base64,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" alt="Ozon"></button>
+            <button data-bank="alfa"><img src="data:image/webp;base64,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" alt="Альфа-Банк"></button>
+            <button data-bank="tbank"><img src="data:image/webp;base64,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" alt="Т-Банк"></button>
+            <button data-bank="vtb"><img src="data:image/webp;base64,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" alt="ВТБ"></button>
             <button data-bank="any"><span class="any-bank-icon">▰</span><span>С карты любого банка</span></button>
           </div>
           <input class="seed-input" id="paymentAmount" type="number" inputmode="numeric" placeholder="Сумма, ₽">
@@ -5640,6 +6001,44 @@ const routes = {
     store.user.cryptoPayments = [payment, ...(store.user.cryptoPayments || [])].slice(0, 20);
     save();
     return { status: 201, body: payment };
+  },
+
+  /* ---------- Касса Beeline ---------- */
+
+  /*
+   * В автономной сборке настоящей кассы нет: заявка живёт в памяти браузера и
+   * никем не оплачивается. Заглушки нужны, чтобы экран кассы показывался
+   * целиком, а не выдавал ошибку на первом же запросе списка.
+   */
+  'POST /api/payments/create': (body) => {
+    const amount = Math.trunc(Number(body.amount));
+    if (!Number.isSafeInteger(amount) || amount < 500 || amount > 100000) {
+      return { status: 400, body: { error: 'BAD_AMOUNT', message: 'Сумма должна быть от 500 до 100 000 ₽' } };
+    }
+    store.user.payments = store.user.payments || [];
+    const now = Date.now();
+    const payment = {
+      id: (store.user.payments[0]?.id || 0) + 1,
+      original_amount: amount,
+      // Надбавка нужна, чтобы платёж можно было опознать по сумме.
+      payable_amount: amount + 1 + Math.floor(Math.random() * 98),
+      bank: body.bank || 'sber',
+      phone: '+7 999 000-00-00',
+      status: 'PENDING',
+      created_at: now,
+      expires_at: now + 10 * 60000,
+      paid_at: null,
+    };
+    store.user.payments.unshift(payment);
+    save();
+    return { status: 201, body: payment };
+  },
+
+  'POST /api/payments/list': () => ({ rows: store.user.payments || [] }),
+
+  'POST /api/payments/get': (body) => {
+    const row = (store.user.payments || []).find((p) => p.id === Number(body.id));
+    return row ? { payment: row } : { status: 404, body: { error: 'Заявка не найдена' } };
   },
 
   'POST /api/crypto/list': () => ({ rows: store.user.cryptoPayments || [] }),
@@ -8175,7 +8574,7 @@ function footerHtml() {
 
 
 const tg = window.Telegram?.WebApp;
-const BEELINE_LOGO_SRC = window.__BEELINE_SRC || '/assets/banks/beeline.webp';
+const BEELINE_LOGO_SRC = window.__BEELINE_SRC || 'data:image/webp;base64,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';
 
 const state = {
   config: null,
@@ -8186,6 +8585,7 @@ const state = {
   rouletteColor: 'red',
   crashHistory: [],
   rouletteHistory: [],
+  view: 'cases',
   admin: { tab: 'overview', users: [], query: '', funnelDays: 7 },
   paymentBank: 'sber', paymentTimer: null, payment: null,
   withdrawMethod: 'sbp',
@@ -8611,6 +9011,7 @@ function applyUser(user) {
   renderBalance();
   renderCases();
   renderMenu();
+  renderSideNav();
 }
 
 /* ============================================================
@@ -11493,8 +11894,22 @@ function switchView(name) {
   document.getElementById(`view-${name}`).classList.add('active');
   window.scrollTo({ top: 0 });
 
+  state.view = name;
+  markSideNav(name);
+
   if (name === 'fair') renderFair();
-  if (name === 'wallet') { loadWallet(); track('cashier_view'); }
+  if (name === 'wallet') {
+    loadWallet();
+    track('cashier_view');
+    // На компьютере касса стоит в две колонки, и правая - это открытая панель.
+    // Без неё половина экрана пустует, поэтому пополнение раскрыто сразу:
+    // за ним в кассу и приходят.
+    if (window.matchMedia('(min-width: 1024px)').matches) {
+      const deposit = document.getElementById('walletDepositPane');
+      const withdraw = document.getElementById('walletWithdrawPane');
+      if (deposit.hidden && withdraw.hidden) deposit.hidden = false;
+    }
+  }
   if (name === 'roulette') renderRouletteReel(2);
   if (name === 'admin') loadAdminOverview();
   if (name === 'cases') loadFreeCase();
@@ -11638,6 +12053,80 @@ function renderMenu() {
     });
 }
 
+/* ============================================================
+   БОКОВОЕ МЕНЮ ДЛЯ КОМПЬЮТЕРА
+   ============================================================ */
+
+/*
+ * На телефоне навигация - меню-картинка: шесть плиток, нарисованных на
+ * присланном макете. На широком экране она не работает: картинка либо
+ * растягивается на половину монитора, либо болтается посреди пустоты, и в
+ * обоих случаях выглядит как телефонное приложение, открытое не там.
+ *
+ * Поэтому для компьютера навигация своя - постоянная боковая панель. Разделы
+ * те же и в том же порядке, что на картинке: игрок, пришедший с телефона,
+ * находит их на привычных местах.
+ */
+const SIDE_NAV = [
+  { view: 'cases', ico: 'cases', title: 'Кейсы' },
+  { view: 'upgrade', ico: 'x2', title: 'Апгрейд' },
+  { view: 'crash', ico: 'crash', title: 'Краш' },
+  { view: 'roulette', ico: 'roulette', title: 'Рулетка' },
+  { view: 'bonuses', ico: 'gift', title: 'Бонусы' },
+  { view: 'wallet', ico: 'coin', title: 'Касса' },
+  { view: 'fair', ico: 'fair', title: 'Честность' },
+  { view: 'partner', ico: 'people', title: 'Партнёру', partnerOnly: true },
+  { view: 'admin', ico: 'admin', title: 'Админ', adminOnly: true },
+];
+
+function renderSideNav() {
+  const nav = document.getElementById('sideNav');
+  if (!nav) return;
+
+  const items = SIDE_NAV.filter((m) => (!m.adminOnly || state.user?.isAdmin)
+                                    && (!m.partnerOnly || state.user?.isPartner));
+
+  nav.innerHTML = `
+    <div class="side-brand">
+      <span class="side-brand-mark" data-ico="bolt"></span>
+      <span class="side-brand-text">LUCKY<span>BOX</span></span>
+    </div>
+    <nav class="side-list">
+      ${items.map((m) => `<button class="side-item" data-view="${m.view}">
+        <span class="side-ico" data-ico="${m.ico}"></span>
+        <span class="side-title">${m.title}</span>
+      </button>`).join('')}
+    </nav>
+    <button class="side-support" id="sideSupport">
+      <span class="side-ico" data-ico="telegram"></span>
+      <span class="side-title">Поддержка</span>
+    </button>
+  `;
+  mountIcons(nav);
+
+  nav.querySelectorAll('[data-view]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      // Тот же запрет, что в меню-картинке: уйти с недоигранного краша нельзя,
+      // иначе ставка останется висеть, а игрок решит, что её съели.
+      if (state.crash && !state.crash.finished && btn.dataset.view !== 'crash') {
+        toast('Сначала закончите раунд краша');
+        return;
+      }
+      switchView(btn.dataset.view);
+    });
+  });
+
+  nav.querySelector('#sideSupport').addEventListener('click', openSupport);
+  markSideNav();
+}
+
+/** Подсвечивает раздел, в котором игрок сейчас находится. */
+function markSideNav(name = state.view) {
+  document.querySelectorAll('#sideNav .side-item').forEach((b) => {
+    b.classList.toggle('active', b.dataset.view === name);
+  });
+}
+
 function openMenu() {
   renderMenu();
   document.getElementById('menuBackdrop').hidden = false;
@@ -11651,6 +12140,11 @@ function closeMenu() {
 document.getElementById('menuBtn').addEventListener('click', openMenu);
 document.getElementById('menuBackdrop').addEventListener('click', (e) => {
   if (e.target.id === 'menuBackdrop') closeMenu();
+});
+
+document.getElementById('topDeposit').addEventListener('click', () => {
+  haptic('light');
+  openCashier();
 });
 
 document.getElementById('balanceChip').addEventListener('click', () => {

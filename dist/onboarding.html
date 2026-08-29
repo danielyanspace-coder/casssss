@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LUCKYBOX · онбординг</title>
+<style>
+:root {
+  --bg: #0d0318; --bg-soft: #180a2e; --card: #22103f; --card-hi: #2f1657;
+  --line: #452474; --text: #fff2ff; --muted: #b9a0dc;
+  --pink: #ff2e8a; --magenta: #ff00c8; --violet: #a020ff;
+  --safe-bottom: 0px;
+}
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; background: var(--bg); color: var(--text); font-size: 17px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  min-height: 100vh;
+}
+.bg-glow { position: fixed; border-radius: 50%; filter: blur(100px); pointer-events: none; z-index: 0; }
+.g1 { width: 380px; height: 380px; background: var(--magenta); top: -140px; left: -110px; opacity: 0.42; }
+.g2 { width: 340px; height: 340px; background: var(--violet); top: 38%; right: -140px; opacity: 0.36; }
+.g3 { width: 320px; height: 320px; background: var(--pink); bottom: -120px; left: -80px; opacity: 0.3; }
+
+.page { position: relative; z-index: 2; max-width: 1180px; margin: 0 auto; padding: 34px 20px 60px; }
+.page h1 { font-size: 26px; font-weight: 900; margin: 0 0 6px; }
+.page .lead { color: var(--muted); font-size: 14.5px; margin: 0 0 26px; line-height: 1.5; }
+.page .lead b { color: var(--text); }
+
+.modes { display: flex; gap: 10px; margin-bottom: 26px; flex-wrap: wrap; }
+.mode {
+  border: 2px solid var(--line); background: transparent; color: var(--text);
+  font: inherit; font-size: 14px; font-weight: 800; padding: 11px 18px;
+  border-radius: 12px; cursor: pointer;
+}
+.mode.on { border-color: var(--pink); background: rgba(255, 46, 138, 0.16); }
+
+/* ---------- Карточка онбординга (стили из public/styles.css) ---------- */
+
+.onb-card {
+  width: 100%; max-width: 380px;
+  background: var(--bg-soft); border: 2px solid var(--pink); border-radius: 24px;
+  padding: 26px 22px calc(22px + var(--safe-bottom));
+  text-align: center; box-shadow: 0 18px 50px rgba(255, 46, 138, 0.28);
+}
+.onb-art { font-size: 44px; line-height: 1; margin-bottom: 14px; }
+.onb-title { font-size: 21px; font-weight: 900; }
+.onb-text { margin-top: 10px; font-size: 14px; line-height: 1.55; color: var(--muted); }
+.onb-text b { color: var(--text); }
+.onb-note {
+  display: block; margin-top: 12px; padding-top: 12px;
+  border-top: 1px solid var(--line); font-size: 13px; line-height: 1.5;
+}
+.onb-dots { display: flex; gap: 7px; justify-content: center; margin: 20px 0 18px; }
+.onb-dots i { width: 7px; height: 7px; border-radius: 50%; background: var(--line); transition: background 0.2s, width 0.2s; }
+.onb-dots i.on { width: 20px; border-radius: 4px; background: var(--pink); }
+.onb-actions { display: flex; gap: 10px; }
+.onb-actions .btn { flex: 1; padding: 14px; }
+
+.btn {
+  border: none; border-radius: 16px; padding: 15px 22px; font-size: 16px;
+  font-weight: 800; font-family: inherit; cursor: pointer;
+  transition: transform 0.15s, opacity 0.15s; background: var(--card-hi); color: var(--text);
+}
+.btn:active { transform: scale(0.96); }
+.btn-primary { background: linear-gradient(135deg, var(--pink), var(--violet)); color: #fff; box-shadow: 0 8px 26px rgba(255, 46, 138, 0.5); }
+.btn-outline { background: transparent; border: 2px solid var(--line); color: var(--text); }
+
+/* ---------- Показ ---------- */
+
+/* Живой режим: карточка на затемнении, как её видит игрок. */
+.live-stage {
+  display: flex; align-items: center; justify-content: center;
+  min-height: 620px; padding: 22px; border-radius: 26px;
+  background: rgba(6, 1, 12, 0.9); border: 1px solid var(--line);
+}
+
+/* Все три сразу: сравнить формулировки, не листая. */
+.all { display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: 22px; align-items: start; }
+.all .slot { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.all .cap { font-size: 12px; font-weight: 800; letter-spacing: 1px; color: var(--muted); text-transform: uppercase; }
+
+.notes { margin-top: 34px; border-top: 1px solid var(--line); padding-top: 22px; }
+.notes h2 { font-size: 16px; margin: 0 0 12px; }
+.notes ul { margin: 0; padding-left: 20px; color: var(--muted); font-size: 14px; line-height: 1.7; }
+.notes b { color: var(--text); }
+.notes code { background: var(--card); padding: 2px 6px; border-radius: 6px; font-size: 12.5px; color: var(--text); }
+</style>
+</head>
+<body>
+
+<div class="bg-glow g1"></div>
+<div class="bg-glow g2"></div>
+<div class="bg-glow g3"></div>
+
+<div class="page">
+  <h1>Онбординг LUCKYBOX</h1>
+  <p class="lead">
+    Три экрана, которые новый игрок видит один раз при первом заходе.
+    Порядок не случайный: сначала <b>почему нам можно верить</b>, и только
+    третьим экраном предложение. Наоборот было бы попрошайничеством.
+  </p>
+
+  <div class="modes">
+    <button class="mode on" data-mode="live">Как видит игрок</button>
+    <button class="mode" data-mode="all">Все три сразу</button>
+  </div>
+
+  <div id="stage"></div>
+
+  <div class="notes">
+    <h2>Что здесь важно</h2>
+    <ul>
+      <li><b>Номер лицензии не выдуман.</b> Он берётся из
+        <code>public/legal.js</code> → <code>LICENSE.number</code> и сейчас пуст,
+        поэтому строка выводится без номера и подхватит его сама, как только впишете.</li>
+      <li><b>Условия бонуса приходят с сервера</b>, а не зашиты в текст: процент,
+        потолок и минимум правят в <code>.env</code>, экран перерисуется сам.
+        При <code>FIRST_DEPOSIT_PCT=0</code> третий экран становится нейтральным «Готово».</li>
+      <li><b>Показывается один раз.</b> Отметка живёт в localStorage. Тому, у кого
+        уже есть сыгранные раунды или пополнения, экран не показывается вообще:
+        отметка могла потеряться вместе с данными браузера.</li>
+      <li><b>«Пропустить» доступно с первого экрана.</b> Запирать человека в
+        трёх слайдах нельзя, а на последнем кнопка меняется на «Позже».</li>
+      <li>Кнопка на третьем экране ведёт прямо в кассу, на вкладку пополнения.</li>
+    </ul>
+  </div>
+</div>
+
+<script>
+// Тексты и условия совпадают с public/app.js. Здесь они заданы напрямую,
+// потому что файл автономный: сервера, который отдаёт условия бонуса, нет.
+const LICENSE = { authority: 'Кюрасао', number: '' };
+const RULES = { pct: 100, max: 1000, min: 500, wager: 2 };
+
+const money = (v) => new Intl.NumberFormat('ru-RU').format(v) + ' ₽';
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => (
+  { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+function licenseLine() {
+  const num = String(LICENSE.number || '').trim();
+  return 'Проект работает по официальной лицензии <b>' + esc(LICENSE.authority) + '</b>'
+    + (num ? ' № ' + esc(num) : '')
+    + '. Она регулирует выплаты игрокам и служит гарантом честности игры: '
+    + 'условия, отдачу и порядок расчётов контролирует регулятор, а не мы сами.';
+}
+
+const STEPS = [
+  {
+    art: '\u{1F5DD}️',
+    title: 'Всё видно до открытия',
+    text: 'Содержимое каждого кейса и шанс каждого предмета показаны заранее. '
+      + 'Открыв кейс, вы не узнаете ничего, чего не могли увидеть до нажатия.',
+  },
+  {
+    art: '\u{1F510}',
+    title: 'Честность можно проверить',
+    text: 'Хеш серверного ключа публикуется <b>до</b> вашей игры. '
+      + 'После смены ключа любой прошедший ролл пересчитывается вручную '
+      + 'и должен сойтись до последнего знака. Раздел «Честность» в меню.',
+    extra: licenseLine,
+  },
+  { art: '\u{1F381}', title: '', text: '' },
+];
+
+/** Последний экран собирается на месте: условия бонуса приходят с сервера. */
+function stepContent(i) {
+  const step = STEPS[i];
+  const last = i === STEPS.length - 1;
+  if (!last) return { title: step.title, text: step.text };
+
+  if (RULES.pct > 0) {
+    const cap = RULES.max > 0 ? ' до ' + money(RULES.max) : '';
+    return {
+      title: 'Первое пополнение +' + RULES.pct + '%' + cap,
+      text: 'Бонус приходит сразу вместе с пополнением от ' + money(RULES.min) + '. '
+        + 'Вывести его можно после ставок на ' + RULES.wager + ' суммы бонуса. '
+        + 'Если у вас есть промокод, введите его в разделе «Бонусы».',
+    };
+  }
+  return {
+    title: 'Готово',
+    text: 'Пополните счёт в кассе и открывайте кейсы. '
+      + 'Промокод, если он есть, вводится в разделе «Бонусы».',
+  };
+}
+
+function cardHtml(i, { withActions = true } = {}) {
+  const step = STEPS[i];
+  const { title, text } = stepContent(i);
+  const last = i === STEPS.length - 1;
+  const next = last ? (RULES.pct > 0 ? 'Пополнить' : 'Начать') : 'Дальше';
+  const skip = last ? 'Позже' : 'Пропустить';
+
+  return '<div class="onb-card">'
+    + '<div class="onb-art">' + step.art + '</div>'
+    + '<div class="onb-title">' + esc(title) + '</div>'
+    + '<div class="onb-text">' + text
+      + (step.extra ? '<span class="onb-note">' + step.extra() + '</span>' : '')
+    + '</div>'
+    + '<div class="onb-dots">'
+      + STEPS.map((_, k) => '<i class="' + (k === i ? 'on' : '') + '"></i>').join('')
+    + '</div>'
+    + (withActions
+        ? '<div class="onb-actions">'
+          + '<button class="btn btn-outline" data-act="skip">' + skip + '</button>'
+          + '<button class="btn btn-primary" data-act="next">' + next + '</button>'
+        + '</div>'
+        : '')
+    + '</div>';
+}
+
+let mode = 'live';
+let step = 0;
+
+function render() {
+  const stage = document.getElementById('stage');
+
+  if (mode === 'all') {
+    stage.innerHTML = '<div class="all">' + STEPS.map((_, i) =>
+      '<div class="slot"><span class="cap">Экран ' + (i + 1) + '</span>'
+      + cardHtml(i, { withActions: true }) + '</div>').join('') + '</div>';
+    return;
+  }
+
+  stage.innerHTML = '<div class="live-stage">' + cardHtml(step) + '</div>';
+  stage.querySelector('[data-act="next"]').onclick = () => {
+    step = step < STEPS.length - 1 ? step + 1 : 0;
+    render();
+  };
+  stage.querySelector('[data-act="skip"]').onclick = () => { step = 0; render(); };
+}
+
+document.querySelectorAll('.mode').forEach((b) => {
+  b.onclick = () => {
+    mode = b.dataset.mode;
+    step = 0;
+    document.querySelectorAll('.mode').forEach((x) => x.classList.toggle('on', x === b));
+    render();
+  };
+});
+
+render();
+</script>
+</body>
+</html>

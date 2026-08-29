@@ -3952,3 +3952,356 @@ select.seed-input {
 .funnel-users { font-weight: 900; font-size: 15px; }
 .funnel-sub { margin-top: 3px; font-size: 11.5px; color: var(--muted); }
 .funnel-drop { color: #ff6b6b; }
+
+/* ============================================================
+   КОМПЬЮТЕР
+   ============================================================
+
+   Всё, что ниже, живёт под медиазапросами и на телефоне не срабатывает.
+   Отдельного набора вёрстки для компьютера нет намеренно: две вёрстки
+   расходятся через месяц, и починенное в одной остаётся сломанным в другой.
+
+   Порог 1024px, а не 768: планшет в альбомной ориентации ближе к телефону,
+   боковая панель на нём съедает треть ширины.
+
+   Что здесь происходит по сути:
+   1. Навигация переезжает из меню-картинки в постоянную боковую панель.
+   2. Контент получает предел ширины и центрируется - строка в 1800 пикселей
+      нечитаема, а растянутые на весь монитор кейсы выглядят как ошибка.
+   3. Полки из двух кейсов в ряд становятся сеткой по 5-6.
+   4. Появляются состояния наведения, которых на телефоне не бывает.
+   ============================================================ */
+
+/* Ширина боковой панели: одно число, от которого пляшет весь сдвиг. */
+:root { --side-w: 244px; }
+
+.side-nav { display: none; }
+.top-deposit { display: none; }
+
+@media (min-width: 1024px) {
+
+  /* ---------- Боковая панель ---------- */
+
+  .side-nav {
+    position: fixed;
+    top: 0; left: 0; bottom: 0;
+    z-index: 40;
+    width: var(--side-w);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 20px 14px 18px;
+    background: rgba(16, 5, 30, 0.92);
+    backdrop-filter: blur(18px);
+    border-right: 1px solid var(--line);
+    overflow-y: auto;
+  }
+
+  .side-brand {
+    display: flex; align-items: center; gap: 10px;
+    padding: 6px 10px 18px;
+    margin-bottom: 6px;
+    border-bottom: 1px solid var(--line);
+  }
+  .side-brand-mark[data-ico] {
+    width: 34px; height: 34px; padding: 7px;
+    border-radius: 11px;
+    background: linear-gradient(135deg, var(--pink), var(--violet));
+    color: #fff;
+    flex: 0 0 auto;
+  }
+  .side-brand-text { font-size: 17px; font-weight: 900; letter-spacing: 0.5px; }
+  .side-brand-text span { color: var(--pink); }
+
+  .side-list { display: flex; flex-direction: column; gap: 4px; }
+
+  .side-item, .side-support {
+    display: flex; align-items: center; gap: 12px;
+    width: 100%;
+    padding: 12px 14px;
+    border: none;
+    border-radius: 13px;
+    background: transparent;
+    color: var(--muted);
+    font: inherit;
+    font-size: 15px;
+    font-weight: 700;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+  }
+  .side-ico[data-ico] { width: 20px; height: 20px; flex: 0 0 auto; }
+
+  .side-item:hover, .side-support:hover { background: var(--card); color: var(--text); }
+
+  /* Активный раздел с полосой слева: заливки одной было мало - на тёмном фоне
+     она читается как наведение, а не как «вы здесь». */
+  .side-item.active {
+    background: linear-gradient(90deg, rgba(255, 46, 138, 0.24), rgba(255, 46, 138, 0.04));
+    color: var(--text);
+    box-shadow: inset 3px 0 0 var(--pink);
+  }
+
+  .side-support {
+    margin-top: auto;
+    border: 1px solid var(--line);
+  }
+
+  /* ---------- Шапка и общий сдвиг ---------- */
+
+  body { padding-left: var(--side-w); }
+
+  .topbar {
+    padding: 14px 32px;
+    /* Бренд уже стоит в боковой панели: второй раз он не нужен. */
+    justify-content: flex-end;
+  }
+  .topbar .brand { display: none; }
+  .menu-btn { display: none; }
+
+  .top-right { gap: 12px; }
+  .top-deposit { display: inline-block; padding: 11px 22px; font-size: 15px; }
+  .balance-chip { padding: 10px 18px; }
+  .balance-value { font-size: 17px; }
+
+  /* Меню-картинка на компьютере не показывается никогда: её место заняла
+     боковая панель. Правило страхует от случайного вызова openMenu(). */
+  .menu-backdrop { display: none !important; }
+
+  main {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 26px 32px 60px;
+  }
+
+  /* Фоновые пятна на широком экране были маленькими кляксами в углах. */
+  .bg-glow-1 { width: 620px; height: 620px; top: -220px; left: 180px; }
+  .bg-glow-2 { width: 560px; height: 560px; top: 30%; right: -180px; }
+  .bg-glow-3 { width: 520px; height: 520px; bottom: -200px; left: 240px; }
+
+  /* ---------- Первый экран ---------- */
+
+  /* Постер вписан в скруглённую карточку, а не вылезает за края: на всю
+     ширину монитора он превращается в тонкую полосу. */
+  .hero {
+    margin: 0 0 22px;
+    max-height: 330px;
+    border-radius: 24px;
+    border: 1px solid var(--line);
+  }
+  .hero-img { height: 330px; object-position: center 28%; }
+  .hero-fade { height: 150px; }
+
+  /* Заголовок над пояснением, кнопка справа во всю высоту. Строкой в ряд
+     заголовок ломался посреди «+100% до 1 000 ₽», хотя место было. */
+  .welcome-offer {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: 'title go' 'sub go';
+    align-items: center;
+    gap: 3px 28px;
+    padding: 18px 24px;
+  }
+  .welcome-offer .wo-title { grid-area: title; font-size: 18px; }
+  .welcome-offer .wo-sub { grid-area: sub; margin: 0; max-width: 720px; }
+  .welcome-offer .wo-go { grid-area: go; margin: 0; padding: 12px 26px; }
+
+  /* ---------- Полки ---------- */
+
+  .shelf { padding: 40px 0; margin: -40px 0; }
+  .shelf-head { align-items: flex-start; text-align: left; margin-bottom: 16px; }
+  .shelf-title { font-size: 26px; }
+  .shelf-hint { font-size: 13px; }
+
+  .shelf-row { grid-template-columns: repeat(5, 1fr); gap: 16px; }
+  .shelf-row .case-cover { height: 150px; }
+  .shelf-row .case-name { font-size: 16px; min-height: 36px; }
+
+  /* Одинокий кейс в конце на широкой сетке уже не нужно центрировать:
+     в ряду их пять, и пустое место справа читается нормально. */
+  .shelf-row > .case-card:last-child:nth-child(odd) {
+    grid-column: auto;
+    justify-self: stretch;
+    width: 100%;
+  }
+
+  /* Ряд бонусных кейсов - та же сетка. */
+  #bonusList { grid-template-columns: repeat(5, 1fr); gap: 16px; }
+
+  /*
+   * Кейсы с вырезанным артом ставим в слот одной высоты.
+   *
+   * На телефоне высота слота идёт от пропорции самого рисунка (--art-ar), и
+   * при двух карточках в ряду разнобой не виден. При пяти в ряду названия и
+   * цены встают на пяти разных уровнях, и полка выглядит осыпавшейся.
+   * Фиксированная высота это чинит без потерь: арт внутри всё равно
+   * вписывается по contain и прижат к низу, то есть не обрезается.
+   */
+  .shelf-row .case-card.has-art .case-cover {
+    aspect-ratio: auto;
+    height: 208px;
+  }
+  .shelf-country .shelf-row .case-card.has-art .case-cover,
+  .shelf-got .shelf-row .case-card.has-art .case-cover { height: 224px; }
+
+  /* ---------- Витрина сезонного кейса ---------- */
+
+  /*
+   * На телефоне это карточка в столбик: обложка сверху, описание снизу. На
+   * широком экране столбик в 560 пикселей посреди пустой строки выглядит
+   * забытым, поэтому витрина разворачивается в баннер во всю ширину.
+   */
+  .featured-card {
+    max-width: none;
+    display: grid;
+    grid-template-columns: minmax(0, 46%) minmax(0, 1fr);
+    /* Области заданы явно: бейджи на телефоне идут отдельной полосой сверху и
+       в сетке заняли бы первую ячейку, вытолкнув описание на вторую строку.
+       Здесь они уходят из потока и ложатся поверх обложки. */
+    grid-template-areas: 'cover body';
+    align-items: stretch;
+  }
+  .featured-cover { grid-area: cover; height: 100%; min-height: 270px; }
+  .featured-body {
+    grid-area: body;
+    display: flex; flex-direction: column; justify-content: center;
+    padding: 28px 36px;
+    text-align: left;
+  }
+  .featured-name { font-size: 34px; }
+  .featured-sub { font-size: 15px; margin-top: 8px; }
+  .featured-foot { justify-content: flex-start; gap: 14px; margin-top: 18px; }
+  .featured-price { font-size: 30px; }
+  .featured-badges {
+    position: absolute;
+    top: 18px; left: 18px;
+    z-index: 2;
+    padding: 0;
+    justify-content: flex-start;
+  }
+
+  /*
+   * Кейс с присланным баннером - исключение: его макет сведён целиком, с
+   * клетчатым флагом слева и ящиком справа. Разрезать такую картинку на
+   * колонку нельзя, поэтому эта витрина остаётся в столбик, только шире.
+   * Пропорция задаёт высоту от ширины, а не наоборот: наоборот баннер вылезал
+   * за свою колонку и наезжал на описание.
+   */
+  .featured-card.own-art {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: 'cover' 'body';
+    max-width: 900px;
+    margin: 0 auto;
+  }
+  .featured-card.own-art .featured-cover {
+    height: auto;
+    min-height: 0;
+    aspect-ratio: 1881 / 836;
+  }
+  .featured-card.own-art .featured-body { text-align: center; padding: 22px 28px 26px; }
+  .featured-card.own-art .featured-foot { justify-content: center; }
+
+  /* ---------- Экран прокрута ---------- */
+
+  .opener-inner { max-width: 940px; }
+  .opener-scroll { padding: 28px 32px 60px; }
+
+  /* Сам кейс на широком экране крупнее: в колонке 940 пикселей рисунок высотой
+     в 196 тонет в пустоте вокруг. */
+  .case-stage { min-height: 200px; }
+  .case-stage-box { height: calc((300px - (var(--rows, 1) - 1) * 8px) / var(--rows, 1)); }
+
+  /* Состав кейса по четыре в ряд: по два он растягивался на пол-экрана,
+     и до конца списка приходилось листать втрое дольше нужного. */
+  .drops-grid { grid-template-columns: repeat(4, 1fr); }
+  .drops-grid > *:last-child:nth-child(odd) {
+    grid-column: auto;
+    justify-self: stretch;
+    width: 100%;
+  }
+
+  /* Выбор количества и автооткрытий в один ряд каждый - места хватает. */
+  .count-row, .auto-row { flex-wrap: nowrap; }
+
+  /* ---------- Игры и разделы в одну колонку ---------- */
+
+  /*
+   * Краш, рулетку, апгрейд и остальное растягивать на 1400 пикселей нельзя:
+   * колесо рулетки шириной с монитор смотрится нелепо, а поле ставки в
+   * полторы тысячи пикселей просто неудобно. Ограничиваем колонку и
+   * центрируем - ровно то, что делают все, у кого эти игры есть.
+   */
+  #view-crash, #view-roulette, #view-upgrade, #view-fair,
+  #view-bonuses, #view-partner {
+    max-width: 860px;
+    margin: 0 auto;
+  }
+
+  .game-head { text-align: center; }
+  .game-title { font-size: 40px; }
+
+  /* ---------- Касса в две колонки ---------- */
+
+  /*
+   * Слева баланс и кнопки, справа то, что открыто: пополнение или вывод.
+   * Формы вместе с историями лежат внутри этих панелей, поэтому колонку под
+   * них берём широкую, а баланс с кнопками остаётся узким и липким - он нужен
+   * перед глазами, пока заполняешь форму.
+   *
+   * .active обязателен: правило с идентификатором перебивает .view{display:none},
+   * и без него касса показывалась бы поверх любого другого раздела.
+   */
+  #view-wallet.active {
+    display: grid;
+    grid-template-columns: minmax(0, 340px) minmax(0, 1fr);
+    grid-template-areas:
+      'card  pane'
+      'acts  pane'
+      '.     pane';
+    gap: 18px 30px;
+    align-items: start;
+    max-width: 1240px;
+    margin: 0 auto;
+  }
+  #view-wallet > .wallet-card { grid-area: card; margin: 0; position: sticky; top: 90px; }
+  #view-wallet > .wallet-actions { grid-area: acts; margin: 0; }
+  #view-wallet > .wallet-pane { grid-area: pane; margin: 0; }
+
+  .bank-grid { grid-template-columns: repeat(3, 1fr); }
+  .coin-grid { grid-template-columns: repeat(6, 1fr); }
+
+  /* ---------- Админка ---------- */
+
+  /* Админка наоборот распахивается на всю ширину: там таблицы. */
+  #view-admin { max-width: none; }
+  .admin-kpis { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
+
+  /* ---------- Наведение ---------- */
+
+  /* Телефон состояний наведения не знает, и без них интерфейс на компьютере
+     кажется неживым: непонятно, что вообще нажимается. */
+  .case-card { transition: transform 0.16s, box-shadow 0.16s; }
+  .shelf-row .case-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 16px 34px -10px var(--cat-color);
+  }
+  .btn:hover:not(:disabled) { filter: brightness(1.08); }
+  .chip:hover, .tab:hover { filter: brightness(1.12); }
+  .feed-card:hover { filter: brightness(1.12); }
+}
+
+/* Совсем широкие мониторы: шестой кейс в ряду вместо воздуха по краям. */
+@media (min-width: 1600px) {
+  .shelf-row, #bonusList { grid-template-columns: repeat(6, 1fr); }
+  main { max-width: 1560px; }
+}
+
+/* Полоса прокрутки в цвет темы: белая системная на тёмном фоне бросается
+   в глаза сильнее самого интерфейса. */
+@media (min-width: 1024px) {
+  * { scrollbar-color: var(--line) transparent; scrollbar-width: thin; }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 6px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--violet); }
+}

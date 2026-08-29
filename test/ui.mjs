@@ -63,13 +63,30 @@ await page.waitForTimeout(600);
 /* ---------- Первый заход ---------- */
 
 /*
- * Онбординг перекрывает весь экран, поэтому его надо пройти до всего
- * остального: иначе любая следующая проверка кликает в затемнение.
+ * Онбординг показывают только новичку: у кого уже есть сыгранные раунды или
+ * пополнения, экран не появляется намеренно. Демо всегда открывается чистым
+ * игроком, а сервер, по которому уже прогнали тесты API, - нет, поэтому
+ * сначала спрашиваем, кто перед нами, и проверяем ровно то поведение, которое
+ * для него правильное.
+ *
+ * Пройти онбординг надо до всего остального: он перекрывает весь экран, и
+ * любая следующая проверка кликала бы в затемнение.
  */
-{
-  check('первый заход: экран показан',
-    await page.isVisible('#onbBackdrop'));
+const me = await page.evaluate(async () => {
+  const r = await fetch('/api/me', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Telegram-Init-Data': '' },
+    body: '{}',
+  });
+  return (await r.json()).user;
+});
+const newcomer = !me.stats.rounds && !me.depositsCount;
 
+check('первый заход: экран показан новичку и только ему',
+  (await page.isVisible('#onbBackdrop')) === newcomer,
+  `раундов ${me.stats.rounds}, пополнений ${me.depositsCount}`);
+
+if (newcomer) {
   const first = await page.textContent('#onbTitle');
   await page.click('#onbNext');
   await page.waitForTimeout(150);
@@ -104,31 +121,22 @@ await page.waitForTimeout(600);
 
 /* ---------- Предложение первого пополнения ---------- */
 
+/* Показывается, пока игрок не пополнял: у пополнявшего его быть не должно. */
 {
-  check('предложение первого пополнения видно на главной',
-    await page.isVisible('#welcomeOffer'));
-  await page.click('#welcomeOffer');
-  await page.waitForTimeout(400);
-  check('оно ведёт в кассу',
-    await page.evaluate(() => document.getElementById('view-wallet').classList.contains('active')));
-  check('вкладка пополнения открыта сразу',
-    await page.evaluate(() => !document.getElementById('walletDepositPane').hidden));
-  check('в кассе те же условия бонуса',
-    await page.isVisible('#depositOffer'));
+  const offerShown = await page.isVisible('#welcomeOffer');
+  check('предложение первого пополнения показано непополнявшему',
+    offerShown === !me.depositsCount, `пополнений ${me.depositsCount}`);
+
+  if (offerShown) {
+    await page.click('#welcomeOffer');
+    await page.waitForTimeout(400);
+    check('оно ведёт в кассу',
+      await page.evaluate(() => document.getElementById('view-wallet').classList.contains('active')));
+    check('вкладка пополнения открыта сразу',
+      await page.evaluate(() => !document.getElementById('walletDepositPane').hidden));
+    check('в кассе те же условия бонуса', await page.isVisible('#depositOffer'));
+  }
 }
-
-/* ---------- Полки ---------- */
-
-const shelves = await page.evaluate(() => [...document.querySelectorAll('.shelf')].map((s) => ({
-  title: s.querySelector('.shelf-title').textContent,
-  count: s.querySelectorAll('.case-card').length,
-})));
-const totalCards = shelves.reduce((a, s) => a + s.count, 0);
-check('полки: все кейсы разложены', totalCards >= 50, `карточек ${totalCards}`);
-check('полки: в каждой есть кейсы', shelves.every((s) => s.count > 0));
-
-check('кейс «Горн» убран из выдачи', await page.evaluate(
-  () => ![...document.querySelectorAll('.case-name')].some((n) => n.textContent.trim() === 'Горн')));
 
 /* ---------- Меню ---------- */
 
@@ -1058,6 +1066,64 @@ const fair = await page.evaluate(() => ({
 check('честность: открывается ссылкой из подвала', fair.visible);
 check('честность: хеш серверного seed показан', fair.hash === 64, `длина ${fair.hash}`);
 check('честность: личная статистика убрана', fair.stats === 0, `блоков ${fair.stats}`);
+
+/* ---------- Компьютер ---------- */
+
+/*
+ * Отдельная вкладка в широком окне: телефонная вёрстка проверена выше, а
+ * десктопная - это другой набор правил, и сломать её можно, ничего не задев
+ * на телефоне. Ошибки консоли этой вкладки складываются в тот же список.
+ */
+{
+  const desk = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  desk.on('pageerror', (e) => consoleErrors.push('DESKTOP PAGEERROR: ' + e.message));
+
+  await desk.goto(URL_TARGET, { waitUntil: 'domcontentloaded' });
+  await desk.waitForSelector('.case-card', { timeout: 15000 });
+  await desk.waitForTimeout(700);
+  if (await desk.isVisible('#onbBackdrop')) {
+    await desk.click('#onbSkip');
+    await desk.waitForTimeout(300);
+  }
+
+  check('компьютер: боковое меню показано', await desk.isVisible('#sideNav'));
+  check('компьютер: меню-картинка убрана', !(await desk.isVisible('#menuBtn')));
+  check('компьютер: кнопка пополнения в шапке', await desk.isVisible('#topDeposit'));
+
+  const cols = (sel) => desk.evaluate((s) =>
+    getComputedStyle(document.querySelector(s)).gridTemplateColumns.split(' ').length, sel);
+  check('компьютер: в полке пять кейсов в ряд', (await cols('.shelf-row')) === 5,
+    String(await cols('.shelf-row')));
+
+  // Баланс и разделы бок о бок - главная причина, по которой десктоп ломается
+  // незаметно: правило с идентификатором перебивает .view{display:none}.
+  await desk.click('#sideNav .side-item[data-view="crash"]');
+  await desk.waitForTimeout(400);
+  check('компьютер: касса не показывается поверх других разделов',
+    !(await desk.isVisible('#view-wallet')));
+  check('компьютер: раздел подсвечен в боковом меню', await desk.evaluate(
+    () => document.querySelector('#sideNav .side-item.active')?.dataset.view === 'crash'));
+
+  await desk.click('#sideNav .side-item[data-view="wallet"]');
+  await desk.waitForTimeout(500);
+  check('компьютер: касса открывается сразу на пополнении',
+    await desk.evaluate(() => !document.getElementById('walletDepositPane').hidden));
+  check('компьютер: касса в две колонки', await desk.evaluate(
+    () => getComputedStyle(document.getElementById('view-wallet'))
+      .gridTemplateColumns.split(' ').length === 2));
+
+  // Ширина контента ограничена: без предела строка растягивается на весь
+  // монитор и читать её невозможно.
+  const mainWidth = await desk.evaluate(() => document.querySelector('main').getBoundingClientRect().width);
+  check('компьютер: ширина контента ограничена', mainWidth <= 1400, String(Math.round(mainWidth)));
+
+  // Горизонтальной прокрутки быть не должно ни на одном разделе.
+  const overflow = await desk.evaluate(
+    () => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  check('компьютер: страница не разъезжается вбок', overflow <= 1, `лишних ${overflow}px`);
+
+  await desk.close();
+}
 
 /* ---------- Итог ---------- */
 

@@ -34,6 +34,7 @@ const state = {
   rouletteColor: 'red',
   crashHistory: [],
   rouletteHistory: [],
+  view: 'cases',
   admin: { tab: 'overview', users: [], query: '', funnelDays: 7 },
   paymentBank: 'sber', paymentTimer: null, payment: null,
   withdrawMethod: 'sbp',
@@ -459,6 +460,7 @@ function applyUser(user) {
   renderBalance();
   renderCases();
   renderMenu();
+  renderSideNav();
 }
 
 /* ============================================================
@@ -3341,8 +3343,22 @@ function switchView(name) {
   document.getElementById(`view-${name}`).classList.add('active');
   window.scrollTo({ top: 0 });
 
+  state.view = name;
+  markSideNav(name);
+
   if (name === 'fair') renderFair();
-  if (name === 'wallet') { loadWallet(); track('cashier_view'); }
+  if (name === 'wallet') {
+    loadWallet();
+    track('cashier_view');
+    // На компьютере касса стоит в две колонки, и правая - это открытая панель.
+    // Без неё половина экрана пустует, поэтому пополнение раскрыто сразу:
+    // за ним в кассу и приходят.
+    if (window.matchMedia('(min-width: 1024px)').matches) {
+      const deposit = document.getElementById('walletDepositPane');
+      const withdraw = document.getElementById('walletWithdrawPane');
+      if (deposit.hidden && withdraw.hidden) deposit.hidden = false;
+    }
+  }
   if (name === 'roulette') renderRouletteReel(2);
   if (name === 'admin') loadAdminOverview();
   if (name === 'cases') loadFreeCase();
@@ -3486,6 +3502,80 @@ function renderMenu() {
     });
 }
 
+/* ============================================================
+   БОКОВОЕ МЕНЮ ДЛЯ КОМПЬЮТЕРА
+   ============================================================ */
+
+/*
+ * На телефоне навигация - меню-картинка: шесть плиток, нарисованных на
+ * присланном макете. На широком экране она не работает: картинка либо
+ * растягивается на половину монитора, либо болтается посреди пустоты, и в
+ * обоих случаях выглядит как телефонное приложение, открытое не там.
+ *
+ * Поэтому для компьютера навигация своя - постоянная боковая панель. Разделы
+ * те же и в том же порядке, что на картинке: игрок, пришедший с телефона,
+ * находит их на привычных местах.
+ */
+const SIDE_NAV = [
+  { view: 'cases', ico: 'cases', title: 'Кейсы' },
+  { view: 'upgrade', ico: 'x2', title: 'Апгрейд' },
+  { view: 'crash', ico: 'crash', title: 'Краш' },
+  { view: 'roulette', ico: 'roulette', title: 'Рулетка' },
+  { view: 'bonuses', ico: 'gift', title: 'Бонусы' },
+  { view: 'wallet', ico: 'coin', title: 'Касса' },
+  { view: 'fair', ico: 'fair', title: 'Честность' },
+  { view: 'partner', ico: 'people', title: 'Партнёру', partnerOnly: true },
+  { view: 'admin', ico: 'admin', title: 'Админ', adminOnly: true },
+];
+
+function renderSideNav() {
+  const nav = document.getElementById('sideNav');
+  if (!nav) return;
+
+  const items = SIDE_NAV.filter((m) => (!m.adminOnly || state.user?.isAdmin)
+                                    && (!m.partnerOnly || state.user?.isPartner));
+
+  nav.innerHTML = `
+    <div class="side-brand">
+      <span class="side-brand-mark" data-ico="bolt"></span>
+      <span class="side-brand-text">LUCKY<span>BOX</span></span>
+    </div>
+    <nav class="side-list">
+      ${items.map((m) => `<button class="side-item" data-view="${m.view}">
+        <span class="side-ico" data-ico="${m.ico}"></span>
+        <span class="side-title">${m.title}</span>
+      </button>`).join('')}
+    </nav>
+    <button class="side-support" id="sideSupport">
+      <span class="side-ico" data-ico="telegram"></span>
+      <span class="side-title">Поддержка</span>
+    </button>
+  `;
+  mountIcons(nav);
+
+  nav.querySelectorAll('[data-view]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      // Тот же запрет, что в меню-картинке: уйти с недоигранного краша нельзя,
+      // иначе ставка останется висеть, а игрок решит, что её съели.
+      if (state.crash && !state.crash.finished && btn.dataset.view !== 'crash') {
+        toast('Сначала закончите раунд краша');
+        return;
+      }
+      switchView(btn.dataset.view);
+    });
+  });
+
+  nav.querySelector('#sideSupport').addEventListener('click', openSupport);
+  markSideNav();
+}
+
+/** Подсвечивает раздел, в котором игрок сейчас находится. */
+function markSideNav(name = state.view) {
+  document.querySelectorAll('#sideNav .side-item').forEach((b) => {
+    b.classList.toggle('active', b.dataset.view === name);
+  });
+}
+
 function openMenu() {
   renderMenu();
   document.getElementById('menuBackdrop').hidden = false;
@@ -3499,6 +3589,11 @@ function closeMenu() {
 document.getElementById('menuBtn').addEventListener('click', openMenu);
 document.getElementById('menuBackdrop').addEventListener('click', (e) => {
   if (e.target.id === 'menuBackdrop') closeMenu();
+});
+
+document.getElementById('topDeposit').addEventListener('click', () => {
+  haptic('light');
+  openCashier();
 });
 
 document.getElementById('balanceChip').addEventListener('click', () => {

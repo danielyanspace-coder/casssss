@@ -14,6 +14,11 @@
   <div class="bg-glow bg-glow-3"></div>
   <div class="money-rain" id="moneyRain"></div>
 
+  <!-- Боковое меню для компьютера. На телефоне спрятано целиком: там навигация
+       живёт в меню-картинке, и две навигации одновременно только мешали бы.
+       Содержимое собирается в app.js -> renderSideNav(). -->
+  <aside class="side-nav" id="sideNav"></aside>
+
   <header class="topbar">
     <div class="brand">
       <div class="brand-mark" data-ico="bolt"></div>
@@ -23,6 +28,9 @@
       </div>
     </div>
     <div class="top-right">
+      <!-- На компьютере рядом с балансом стоит явная кнопка пополнения: место
+           есть, а искать кассу в меню на широком экране незачем. -->
+      <button class="btn btn-primary top-deposit" id="topDeposit">Пополнить</button>
       <button class="balance-chip" id="balanceChip">
         <span class="balance-ico" data-ico="coin"></span>
         <span class="balance-value" id="balanceValue">-</span>

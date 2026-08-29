@@ -197,8 +197,24 @@ const uiArt = Object.fromEntries(
 const sbpBanks = 'data:application/json;base64,'
   + readFileSync(new URL('./public/sbp-banks.json', import.meta.url)).toString('base64');
 
+/*
+ * Логотипы банков в кассе лежат отдельными файлами и запрашиваются по пути.
+ * Без них экран пополнения в автономной сборке показывал шесть битых картинок,
+ * то есть ровно в том месте, ради которого демо и смотрят.
+ */
+const bankDir = new URL('./public/assets/banks/', import.meta.url);
+const bankArt = Object.fromEntries(
+  readdirSync(bankDir)
+    .filter((f) => f.endsWith('.webp'))
+    .map((f) => [
+      `assets/banks/${f}`,
+      'data:image/webp;base64,' + readFileSync(new URL(f, bankDir)).toString('base64'),
+    ])
+);
+
 const inlineUi = (src) => src
   .replace(/\/?assets\/ui\/[\w-]+\.webp/g, (m) => uiArt[m.replace(/^\//, '')] || m)
+  .replace(/\/?assets\/banks\/[\w-]+\.webp/g, (m) => bankArt[m.replace(/^\//, '')] || m)
   .replace(/'\/sbp-banks\.json'/g, `'${sbpBanks}'`);
 
 const css = read('./public/styles.css');
@@ -1254,6 +1270,44 @@ const routes = {
     store.user.cryptoPayments = [payment, ...(store.user.cryptoPayments || [])].slice(0, 20);
     save();
     return { status: 201, body: payment };
+  },
+
+  /* ---------- Касса Beeline ---------- */
+
+  /*
+   * В автономной сборке настоящей кассы нет: заявка живёт в памяти браузера и
+   * никем не оплачивается. Заглушки нужны, чтобы экран кассы показывался
+   * целиком, а не выдавал ошибку на первом же запросе списка.
+   */
+  'POST /api/payments/create': (body) => {
+    const amount = Math.trunc(Number(body.amount));
+    if (!Number.isSafeInteger(amount) || amount < 500 || amount > 100000) {
+      return { status: 400, body: { error: 'BAD_AMOUNT', message: 'Сумма должна быть от 500 до 100 000 ₽' } };
+    }
+    store.user.payments = store.user.payments || [];
+    const now = Date.now();
+    const payment = {
+      id: (store.user.payments[0]?.id || 0) + 1,
+      original_amount: amount,
+      // Надбавка нужна, чтобы платёж можно было опознать по сумме.
+      payable_amount: amount + 1 + Math.floor(Math.random() * 98),
+      bank: body.bank || 'sber',
+      phone: '+7 999 000-00-00',
+      status: 'PENDING',
+      created_at: now,
+      expires_at: now + 10 * 60000,
+      paid_at: null,
+    };
+    store.user.payments.unshift(payment);
+    save();
+    return { status: 201, body: payment };
+  },
+
+  'POST /api/payments/list': () => ({ rows: store.user.payments || [] }),
+
+  'POST /api/payments/get': (body) => {
+    const row = (store.user.payments || []).find((p) => p.id === Number(body.id));
+    return row ? { payment: row } : { status: 404, body: { error: 'Заявка не найдена' } };
   },
 
   'POST /api/crypto/list': () => ({ rows: store.user.cryptoPayments || [] }),
