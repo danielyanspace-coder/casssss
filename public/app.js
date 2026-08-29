@@ -15,7 +15,7 @@ import {
 import { caseCover, porschePhotoSrc, caseArtSrc } from './covers.js';
 import { itemArt } from './item-art.js';
 import { coinMark, coinColor } from './coin-art.js';
-import { COMPANY, DOCS, footerHtml } from './legal.js';
+import { COMPANY, LICENSE, DOCS, footerHtml } from './legal.js';
 import {
   sndTick, sndSpinStart, sndLand, sndReveal,
   sndBigWin, sndCollect, sndLose, sndFlip, sndBet, sndCrash, sndClimb,
@@ -4744,9 +4744,13 @@ const ONBOARDING = [
   {
     art: '🔐',
     title: 'Честность можно проверить',
+    // Второй экран - про доверие целиком: техническая проверка и надзор.
+    // Строку про лицензию собирает licenseLine(): номер подставляется из
+    // legal.js, и пока его не вписали, текст обходится без него.
     text: 'Хеш серверного ключа публикуется <b>до</b> вашей игры. ' +
       'После смены ключа любой прошедший ролл пересчитывается вручную ' +
       'и должен сойтись до последнего знака. Раздел «Честность» в меню.',
+    extra: licenseLine,
   },
   {
     art: '🎁',
@@ -4754,6 +4758,21 @@ const ONBOARDING = [
     text: '',
   },
 ];
+
+/**
+ * Строка про игорную лицензию.
+ *
+ * Орган надзора назван всегда, номер - только если он вписан в legal.js.
+ * Выдуманный номер тут недопустим: его проверяют по реестру регулятора, и
+ * несовпадение стоит дороже, чем отсутствие строки.
+ */
+function licenseLine() {
+  const num = String(LICENSE.number || '').trim();
+  return `Проект работает по официальной лицензии <b>${esc(LICENSE.authority)}</b>` +
+    (num ? ` № ${esc(num)}` : '') +
+    '. Она регулирует выплаты игрокам и служит гарантом честности игры: ' +
+    'условия, отдачу и порядок расчётов контролирует регулятор, а не мы сами.';
+}
 
 let onbStep = 0;
 
@@ -4793,7 +4812,8 @@ function renderOnboarding() {
 
   document.getElementById('onbArt').textContent = step.art;
   document.getElementById('onbTitle').textContent = title;
-  document.getElementById('onbText').innerHTML = text;
+  document.getElementById('onbText').innerHTML = text
+    + (step.extra ? `<span class="onb-note">${step.extra()}</span>` : '');
   document.getElementById('onbDots').innerHTML =
     ONBOARDING.map((_, i) => `<i class="${i === onbStep ? 'on' : ''}"></i>`).join('');
   document.getElementById('onbNext').textContent = last

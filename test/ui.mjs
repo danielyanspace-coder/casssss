@@ -78,6 +78,15 @@ await page.waitForTimeout(600);
   check('первый заход: точка отмечает шаг',
     await page.evaluate(() => [...document.querySelectorAll('#onbDots i')][1]?.classList.contains('on')));
 
+  check('первый заход: на экране честности назван регулятор',
+    /лицензии\s+Кюрасао/i.test(await page.textContent('#onbText')));
+  check('первый заход: сказано, что лицензия регулирует выплаты',
+    /регулирует выплаты/i.test(await page.textContent('#onbText')));
+  // Номер лицензии не заполнен, и выдуманного тут быть не должно: пока в
+  // legal.js пусто, строка обязана обходиться без номера.
+  check('первый заход: номер лицензии не выдуман',
+    !/№\s*\S/.test(await page.textContent('#onbText')));
+
   await page.click('#onbNext');
   await page.waitForTimeout(150);
   check('первый заход: последний экран про первое пополнение',

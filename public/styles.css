@@ -3905,6 +3905,17 @@ select.seed-input {
 .onb-text { margin-top: 10px; font-size: 14px; line-height: 1.55; color: var(--muted); }
 .onb-text b { color: var(--text); }
 
+/* Отдельным абзацем и чуть тише основного текста: это уточнение, а не
+   заголовок экрана. */
+.onb-note {
+  display: block;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 .onb-dots { display: flex; gap: 7px; justify-content: center; margin: 20px 0 18px; }
 .onb-dots i {
   width: 7px; height: 7px; border-radius: 50%;
