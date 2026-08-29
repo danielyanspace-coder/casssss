@@ -67,6 +67,11 @@
 
       <div class="perk-bar" id="perkBar" hidden></div>
 
+      <!-- Предложение первого пополнения. Показывается, пока игрок не пополнял:
+           стартового баланса у него нет, и без этого блока первый экран
+           заканчивается ничем. -->
+      <button class="welcome-offer" id="welcomeOffer" hidden></button>
+
       <!-- Появляется, только когда канал и кейс заданы в настройках. -->
       <button class="free-case" id="freeCase" hidden>
         <span class="free-case-ico" data-ico="gift"></span>
@@ -296,6 +301,7 @@
       </div>
 
       <div class="wallet-pane" id="walletDepositPane" hidden>
+        <div class="deposit-offer" id="depositOffer" hidden></div>
         <div class="deposit-methods">
           <button class="payment-method active" data-payment-method="card">Банковской картой</button>
           <button class="payment-method" data-payment-method="crypto">Криптовалюта</button>
@@ -421,6 +427,7 @@
     <section class="view" id="view-admin">
       <div class="admin-tabs">
         <button class="tab active" data-admin-tab="overview">Сводка</button>
+        <button class="tab" data-admin-tab="funnel">Воронка</button>
         <button class="tab" data-admin-tab="users">Игроки</button>
         <button class="tab" data-admin-tab="payouts">Выплаты</button>
         <button class="tab" data-admin-tab="payments">Платежи</button>
@@ -450,6 +457,15 @@
           <button class="tab" data-payout-status="all">Все</button>
         </div>
         <div id="payoutAdminList"></div>
+      </div>
+
+      <div class="admin-pane" id="admin-funnel">
+        <div class="admin-tabs" id="funnelPeriod">
+          <button class="tab" data-funnel-days="1">Сутки</button>
+          <button class="tab active" data-funnel-days="7">Неделя</button>
+          <button class="tab" data-funnel-days="30">Месяц</button>
+        </div>
+        <div id="funnelBody"></div>
       </div>
 
       <div class="admin-pane" id="admin-promos"></div>
@@ -599,6 +615,21 @@
       <div class="confirm-actions">
         <button class="btn btn-outline" id="buyCancel">Отмена</button>
         <button class="btn btn-primary" id="buyConfirm">Купить</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Первый заход: три экрана, объясняющие правила и первый шаг.
+       Показывается один раз, отметка живёт в localStorage. -->
+  <div class="onb-backdrop" id="onbBackdrop" hidden>
+    <div class="onb-card">
+      <div class="onb-art" id="onbArt" aria-hidden="true"></div>
+      <div class="onb-title" id="onbTitle"></div>
+      <div class="onb-text" id="onbText"></div>
+      <div class="onb-dots" id="onbDots"></div>
+      <div class="onb-actions">
+        <button class="btn btn-outline" id="onbSkip">Пропустить</button>
+        <button class="btn btn-primary" id="onbNext">Дальше</button>
       </div>
     </div>
   </div>

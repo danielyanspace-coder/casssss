@@ -60,6 +60,54 @@ await page.goto(URL_TARGET, { waitUntil: 'domcontentloaded' });
 await page.waitForSelector('.case-card', { timeout: 15000 });
 await page.waitForTimeout(600);
 
+/* ---------- Первый заход ---------- */
+
+/*
+ * Онбординг перекрывает весь экран, поэтому его надо пройти до всего
+ * остального: иначе любая следующая проверка кликает в затемнение.
+ */
+{
+  check('первый заход: экран показан',
+    await page.isVisible('#onbBackdrop'));
+
+  const first = await page.textContent('#onbTitle');
+  await page.click('#onbNext');
+  await page.waitForTimeout(150);
+  check('первый заход: «Дальше» листает',
+    (await page.textContent('#onbTitle')) !== first);
+  check('первый заход: точка отмечает шаг',
+    await page.evaluate(() => [...document.querySelectorAll('#onbDots i')][1]?.classList.contains('on')));
+
+  await page.click('#onbNext');
+  await page.waitForTimeout(150);
+  check('первый заход: последний экран про первое пополнение',
+    /первое пополнение/i.test(await page.textContent('#onbTitle')));
+
+  await page.click('#onbSkip');
+  await page.waitForTimeout(250);
+  check('первый заход: закрывается кнопкой', !(await page.isVisible('#onbBackdrop')));
+
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('.case-card', { timeout: 15000 });
+  await page.waitForTimeout(600);
+  check('первый заход: второй раз не показывается', !(await page.isVisible('#onbBackdrop')));
+}
+
+/* ---------- Предложение первого пополнения ---------- */
+
+{
+  check('предложение первого пополнения видно на главной',
+    await page.isVisible('#welcomeOffer'));
+  await page.click('#welcomeOffer');
+  await page.waitForTimeout(400);
+  check('оно ведёт в кассу',
+    await page.evaluate(() => document.getElementById('view-wallet').classList.contains('active')));
+  check('вкладка пополнения открыта сразу',
+    await page.evaluate(() => !document.getElementById('walletDepositPane').hidden));
+  check('в кассе те же условия бонуса',
+    await page.isVisible('#depositOffer'));
+}
+
 /* ---------- Полки ---------- */
 
 const shelves = await page.evaluate(() => [...document.querySelectorAll('.shelf')].map((s) => ({
@@ -778,7 +826,12 @@ let tooClose = 0;
 for (const id of cases) {
   const r = await openCaseAndVerify(id);
   if (!r.under) { noTile++; continue; }
-  if (r.under.name !== r.resultName || r.under.value !== r.resultValue) {
+  // Фриспины денежной ценности не имеют: на плитке в этом месте пусто, а в
+  // карточке результата стоит прочерк. Это одно и то же «денег нет», и
+  // расхождением считать его нельзя - иначе проверка падает раз в несколько
+  // прогонов, когда под маркер попадают именно фриспины.
+  const noMoney = (v) => (v === '-' || v === '' ? '' : v);
+  if (r.under.name !== r.resultName || noMoney(r.under.value) !== noMoney(r.resultValue)) {
     mismatch++;
     failures.push(`лента ≠ результат (${id}): под маркером «${r.under.name} ${r.under.value}», ` +
                   `в результате «${r.resultName} ${r.resultValue}»`);

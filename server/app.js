@@ -95,6 +95,8 @@ import {
   savePendingSpins,
   getPendingSpins,
   clearPendingSpins,
+  trackEvent, funnelStats, eventTotals, CLIENT_EVENTS,
+  firstDepositRules,
 } from './db.js';
 import { resolveUser } from './auth.js';
 import {
@@ -183,6 +185,8 @@ function publicUser(user) {
     vouchers: getVouchers(user.id),
     // Долг по обороту закрывает вывод, поэтому игрок должен его видеть.
     wagerRequired: user.wager_required || 0,
+    // По нему клиент решает, показывать ли предложение первого пополнения.
+    depositsCount: user.deposits_count || 0,
     isPartner: Boolean(getPartnerByTgId(user.tg_id)),
     stats: {
       rounds: user.total_rounds,
@@ -253,6 +257,9 @@ app.get('/api/config', (req, res) => {
     maxBatch: MAX_BATCH,
     freeSpinPacks: FREESPIN_PACKS,
     minPayout: MIN_PAYOUT,
+    // Условия приветственного бонуса нужны клиенту, чтобы показать их в кассе
+    // до пополнения, а не после.
+    firstDeposit: firstDepositRules(),
   });
 });
 
@@ -289,6 +296,22 @@ app.get('/api/feed', limits.read, (req, res) => {
 
 app.post('/api/me', auth, (req, res) => {
   res.json({ user: publicUser(req.player) });
+});
+
+/**
+ * События, которые может отправить только клиент: заход в кассу, упор в
+ * нехватку средств, пройденный онбординг. Сервер о них не знает - они
+ * происходят целиком в интерфейсе.
+ *
+ * Имя проверяется по белому списку CLIENT_EVENTS, а свойства не принимаются
+ * вовсе: иначе в таблицу можно было бы насыпать что угодно и любого размера.
+ * Ограничитель тот же, что у чтения: событие дешевле любого запроса к базе.
+ */
+app.post('/api/track', auth, limits.read, (req, res) => {
+  const name = String(req.body?.name || '');
+  if (!CLIENT_EVENTS.has(name)) return res.status(400).json({ error: 'Неизвестное событие' });
+  trackEvent(req.player.id, name);
+  res.json({ ok: true });
 });
 
 /* ============================================================
@@ -367,6 +390,8 @@ app.post('/api/open', auth, limits.play, (req, res) => {
   const freeSpinsTotal = (o) =>
     o.granted.find((g) => g.type === 'freespins')?.total || 0;
 
+  trackEvent(user.id, 'case_open', { caseId: caseData.id, count, price: caseData.price });
+
   res.json({
     count,
     opened,
@@ -425,6 +450,7 @@ app.post('/api/freespins/buy', auth, limits.play, (req, res) => {
   // Серию запоминаем до того, как игрок её досмотрит: закроет кейс на середине
   // - при следующем заходе она доиграется, а не пропадёт.
   savePendingSpins(user.id, caseData.id, grant);
+  trackEvent(user.id, 'freespins_bought', { caseId: caseData.id, count: result.count, cost: result.cost });
 
   res.json({
     // Форма ответа повторяет выдачу фриспинов из кейса: клиент проигрывает их
@@ -639,6 +665,7 @@ app.post('/api/promo/redeem', auth, limits.guess, (req, res) => {
     throw err;
   }
 
+  trackEvent(req.player.id, 'promo_redeemed', { type: result?.type });
   res.json({ result, user: publicUser(getUserById(req.player.id)) });
 });
 
@@ -782,6 +809,7 @@ app.post('/api/payout/create', auth, limits.cashier, (req, res) => {
       cryptoAmount: req.body?.cryptoAmount,
       cryptoRate: req.body?.cryptoRate,
     });
+    trackEvent(req.player.id, 'payout_created', { amount, method: req.body?.method });
     res.json({ ...result, user: publicUser(getUserById(req.player.id)) });
   } catch (err) {
     // Ожидаемые отказы: игроку показывается сообщение, а не «что-то пошло не
@@ -971,6 +999,17 @@ app.post('/api/fair/rotate', auth, limits.guess, (req, res) => {
 
 app.post('/api/admin/overview', auth, adminOnly, (req, res) => {
   res.json({ ...adminOverview(), recent: adminRecentRounds(30) });
+});
+
+/**
+ * Воронка: сколько игроков дошло до каждого шага.
+ *
+ * Период ограничен сверху: запрос за всё время прочитал бы таблицу событий
+ * целиком, а она растёт быстрее всех остальных.
+ */
+app.post('/api/admin/funnel', auth, adminOnly, (req, res) => {
+  const days = Math.min(90, Math.max(1, Math.trunc(Number(req.body?.days) || 7)));
+  res.json({ funnel: funnelStats(days), events: eventTotals(days) });
 });
 
 app.post('/api/admin/users', auth, adminOnly, (req, res) => {

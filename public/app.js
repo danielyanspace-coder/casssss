@@ -34,7 +34,7 @@ const state = {
   rouletteColor: 'red',
   crashHistory: [],
   rouletteHistory: [],
-  admin: { tab: 'overview', users: [], query: '' },
+  admin: { tab: 'overview', users: [], query: '', funnelDays: 7 },
   paymentBank: 'sber', paymentTimer: null, payment: null,
   withdrawMethod: 'sbp',
 };
@@ -108,10 +108,64 @@ function tierColor(tier) {
 let toastTimer;
 function toast(message) {
   const el = document.getElementById('toast');
+  el.classList.remove('toast-action');
   el.textContent = message;
   el.hidden = false;
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => { el.hidden = true; }, 2800);
+}
+
+// Тост с кнопкой живёт дольше обычного: по нему нужно принять решение, а не
+// просто прочитать. 2.8 секунды на это мало.
+const ACTION_TOAST_MS = 6000;
+
+/** Тост, из которого можно сразу что-то сделать. */
+function toastAction(message, label, onClick) {
+  const el = document.getElementById('toast');
+  el.classList.add('toast-action');
+  el.innerHTML = `<span></span><button class="btn btn-primary toast-btn"></button>`;
+  el.querySelector('span').textContent = message;
+  const btn = el.querySelector('button');
+  btn.textContent = label;
+  btn.onclick = () => { el.hidden = true; onClick(); };
+  el.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.hidden = true; }, ACTION_TOAST_MS);
+}
+
+/**
+ * Упор в нехватку средств.
+ *
+ * Раньше здесь был обычный тост, и на этом всё заканчивалось: игрок узнавал,
+ * что денег нет, и оставался на том же экране. Касса лежит в меню, за двумя
+ * нажатиями, и до неё доходили единицы. Теперь путь туда - одна кнопка.
+ */
+function needMoney(need) {
+  haptic('error');
+  track('no_funds');
+  toastAction(`Не хватает ${money(need)}`, 'Пополнить', () => {
+    track('no_funds_to_cashier');
+    openCashier();
+  });
+}
+
+/**
+ * Отправка события аналитики. Намеренно без await и без обработки ошибок:
+ * счётчик не имеет права задержать нажатие или сломать экран, ради которого
+ * его и вызывают.
+ */
+function track(name) {
+  try { api('/api/track', { name }).catch(() => {}); } catch { /* не мешаем игре */ }
+}
+
+/** Касса с сразу открытой вкладкой пополнения. */
+function openCashier() {
+  switchView('wallet');
+  const pane = document.getElementById('walletDepositPane');
+  if (pane) {
+    document.getElementById('walletWithdrawPane').hidden = true;
+    pane.hidden = false;
+  }
 }
 
 function haptic(type = 'light') {
@@ -339,6 +393,37 @@ function renderBalance() {
   setTimeout(() => chip.classList.remove('bump'), 260);
 
   renderPerkBar();
+  renderWelcomeOffer();
+}
+
+/**
+ * Предложение первого пополнения на первом экране.
+ *
+ * Показывается, пока игрок ни разу не пополнял. Стартового баланса больше нет,
+ * и без этого блока новый игрок открывает приложение, видит нули и не понимает,
+ * с чего начать: кассу надо ещё найти в меню.
+ *
+ * Условия берём с сервера, а не пишем в клиенте: процент меняют чаще, чем код.
+ */
+function renderWelcomeOffer() {
+  const el = document.getElementById('welcomeOffer');
+  if (!el) return;
+
+  const rules = state.config?.firstDeposit;
+  const shown = rules && rules.pct > 0
+    && state.user && !state.user.depositsCount;
+
+  el.hidden = !shown;
+  if (!shown) return;
+
+  const cap = rules.max > 0 ? ` до ${money(rules.max)}` : '';
+  el.innerHTML = `
+    <div class="wo-title">Первое пополнение +${rules.pct}%${cap}</div>
+    <div class="wo-sub">Бонус начисляется сразу. Отыграть его нужно
+      ${rules.wager}-кратной суммой ставок, минимальное пополнение ${money(rules.min)}.</div>
+    <span class="wo-go">Пополнить</span>
+  `;
+  el.onclick = () => { haptic('light'); openCashier(); };
 }
 
 /** Плашка с активными плюшками: ×2 и накопленные подарочные кейсы. */
@@ -1134,8 +1219,7 @@ async function startOpening(caseId, count = 1) {
   const freeCount = (state.user.vouchers || []).find((v) => v.case_id === c.id)?.count || 0;
   const need = Math.max(0, count - freeCount) * c.price;
   if (need > state.user.balance) {
-    toast(`Не хватает ${money(need - state.user.balance)}`);
-    haptic('error');
+    needMoney(need - state.user.balance);
     return;
   }
 
@@ -1575,8 +1659,7 @@ async function runAutoOpen(caseId, times) {
     // прокрут. Список ваучеров обновляется ответом сервера на каждом шаге.
     const freeLeft = (state.user.vouchers || []).find((v) => v.case_id === c.id)?.count || 0;
     if (!freeLeft && c.price > state.user.balance) {
-      toast(`Не хватает ${money(c.price - state.user.balance)}`);
-      haptic('error');
+      needMoney(c.price - state.user.balance);
       break;
     }
 
@@ -2242,8 +2325,7 @@ async function startCrash() {
   const bet = betValue('crashBet');
   if (!bet) { toast('Укажите ставку'); return; }
   if (bet > state.user.balance) {
-    toast(`Не хватает ${money(bet - state.user.balance)}`);
-    haptic('error');
+    needMoney(bet - state.user.balance);
     return;
   }
 
@@ -2439,8 +2521,7 @@ async function spinRoulette() {
   const bet = betValue('rouletteBet');
   if (!bet) { toast('Укажите ставку'); return; }
   if (bet > state.user.balance) {
-    toast(`Не хватает ${money(bet - state.user.balance)}`);
-    haptic('error');
+    needMoney(bet - state.user.balance);
     return;
   }
 
@@ -2797,6 +2878,7 @@ document.querySelectorAll('[data-admin-tab]').forEach((btn) => {
     document.querySelectorAll('.admin-pane').forEach((p) => p.classList.remove('active'));
     btn.classList.add('active');
     document.getElementById(`admin-${state.admin.tab}`).classList.add('active');
+    if (state.admin.tab === 'funnel') loadAdminFunnel();
     if (state.admin.tab === 'users') loadAdminUsers();
     if (state.admin.tab === 'payouts') loadAdminPayouts();
     if (state.admin.tab === 'payments') loadAdminPayments();
@@ -2805,6 +2887,85 @@ document.querySelectorAll('[data-admin-tab]').forEach((btn) => {
     if (state.admin.tab === 'partners') loadAdminPartners();
     if (state.admin.tab === 'payment-settings') loadAdminPaymentSettings();
     haptic('light');
+  });
+});
+
+/* ---------- Админка: воронка ---------- */
+
+/*
+ * Воронка по когорте: игроки, зарегистрированные за период, и то, докуда
+ * каждый дошёл. Считает сервер, здесь только рисование.
+ *
+ * Показываем обе доли сразу - от когорты и от предыдущего шага. От когорты
+ * видно, сколько людей теряется вообще; от предыдущего - на каком именно шаге
+ * они уходят. По одной доле из двух вывод получается неверный.
+ */
+async function loadAdminFunnel() {
+  const box = document.getElementById('funnelBody');
+  box.innerHTML = '<div class="empty">Считаем...</div>';
+
+  let d;
+  try { d = await api('/api/admin/funnel', { days: state.admin.funnelDays || 7 }); }
+  catch (err) { box.innerHTML = `<div class="empty">${esc(err.message)}</div>`; return; }
+
+  const f = d.funnel;
+  if (!f.cohort) {
+    box.innerHTML = '<div class="empty">За этот период новых игроков не было</div>';
+    return;
+  }
+
+  const steps = f.steps.map((s, i) => {
+    const width = Math.max(1, Math.round(s.ofCohort * 100));
+    const lost = i > 0 ? f.steps[i - 1].users - s.users : 0;
+    return `<div class="funnel-step">
+      <div class="funnel-bar" style="width:${width}%"></div>
+      <div class="funnel-head">
+        <span class="funnel-title">${esc(s.title)}</span>
+        <span class="funnel-users">${fmt(s.users)}</span>
+      </div>
+      <div class="funnel-sub">
+        ${pct(s.ofCohort)} от всех${i > 0 ? ` · ${pct(s.ofPrev)} от предыдущего` : ''}
+        ${lost > 0 ? `<span class="funnel-drop"> · потеряно ${fmt(lost)}</span>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+
+  const events = d.events.map((e) => `<tr>
+      <td>${esc(e.name)}</td>
+      <td class="num">${fmt(e.total)}</td>
+      <td class="num">${fmt(e.users)}</td>
+    </tr>`).join('');
+
+  box.innerHTML = `
+    <div class="admin-kpis">
+      <div class="kpi"><div class="kpi-label">Новых игроков</div>
+        <div class="kpi-value">${fmt(f.cohort)}</div></div>
+      <div class="kpi"><div class="kpi-label">Пополнений</div>
+        <div class="kpi-value">${fmt(f.deposits)}</div></div>
+      <div class="kpi"><div class="kpi-label">Внесено</div>
+        <div class="kpi-value">${fmt(f.deposited)}</div></div>
+      <div class="kpi"><div class="kpi-label">На игрока</div>
+        <div class="kpi-value">${fmt(Math.round(f.arpu))}</div>
+        <div class="kpi-sub">внесено / новых игроков</div></div>
+    </div>
+
+    <h2 class="section-title">Шаги</h2>
+    ${steps}
+
+    <h2 class="section-title">Все события за период</h2>
+    <table class="admin-table">
+      <thead><tr><th>Событие</th><th class="num">Всего</th><th class="num">Игроков</th></tr></thead>
+      <tbody>${events || '<tr><td colspan="3">Пока пусто</td></tr>'}</tbody>
+    </table>
+  `;
+}
+
+document.querySelectorAll('[data-funnel-days]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    state.admin.funnelDays = Number(btn.dataset.funnelDays);
+    document.querySelectorAll('[data-funnel-days]').forEach((b) => b.classList.remove('active'));
+    btn.classList.add('active');
+    loadAdminFunnel();
   });
 });
 
@@ -3181,7 +3342,7 @@ function switchView(name) {
   window.scrollTo({ top: 0 });
 
   if (name === 'fair') renderFair();
-  if (name === 'wallet') loadWallet();
+  if (name === 'wallet') { loadWallet(); track('cashier_view'); }
   if (name === 'roulette') renderRouletteReel(2);
   if (name === 'admin') loadAdminOverview();
   if (name === 'cases') loadFreeCase();
@@ -3360,7 +3521,27 @@ const STATUS_LABEL = {
 const SOURCE_LABEL = {
   start: 'Стартовый баланс',
   admin: 'Начисление администратором',
+  beeline: 'Пополнение',
+  crypto: 'Пополнение криптовалютой',
+  promo: 'Бонус по промокоду',
+  welcome: 'Бонус за первое пополнение',
 };
+
+/** То же предложение, что на первом экране, но внутри кассы. */
+function renderDepositOffer() {
+  const el = document.getElementById('depositOffer');
+  if (!el) return;
+
+  const rules = state.config?.firstDeposit;
+  const shown = rules && rules.pct > 0 && state.user && !state.user.depositsCount;
+  el.hidden = !shown;
+  if (!shown) return;
+
+  const cap = rules.max > 0 ? ` (не больше ${money(rules.max)})` : '';
+  el.innerHTML = `<b>Первое пополнение +${rules.pct}%${cap}.</b>
+    Бонус придёт вместе с самим пополнением от ${money(rules.min)}.
+    Вывести его можно после ставок на ${rules.wager} суммы бонуса.`;
+}
 
 async function loadWallet() {
   let w;
@@ -3368,6 +3549,7 @@ async function loadWallet() {
   catch (err) { toast(err.message); return; }
 
   state.wallet = w;
+  renderDepositOffer();
 
   document.getElementById('walletBalance').textContent = money(w.balance);
   document.getElementById('walletRows').innerHTML = `
@@ -3384,6 +3566,16 @@ async function loadWallet() {
         <b class="plus">+${money(d.amount)}</b>
       </div>`).join('')
     : '<div class="empty">Пополнений пока не было</div>';
+
+  // Пустой баланс - тупик ровно так же, как «не хватает» в кейсе: смотреть
+  // в кассе не на что, и уйти из неё некуда. Кнопка открывает пополнение.
+  if (!w.balance && !w.deposits.length) {
+    document.getElementById('depositList').innerHTML =
+      `<div class="empty">Пополнений пока не было<br>
+        <button class="btn btn-primary" id="emptyDeposit" style="margin-top:12px">Пополнить</button>
+      </div>`;
+    document.getElementById('emptyDeposit').onclick = () => { haptic('light'); openCashier(); };
+  }
 
   renderPayoutList(w.payouts);
   loadPayments();
@@ -4428,7 +4620,7 @@ document.getElementById('upgradeBtn').addEventListener('click', async () => {
   const min = state.config?.upgrade?.minStake ?? 10;
 
   if (!stake || stake < min) return toast(`Минимальная ставка - ${min}`);
-  if (stake > (state.user?.balance ?? 0)) return toast('Не хватает средств');
+  if (stake > (state.user?.balance ?? 0)) return needMoney(stake - (state.user?.balance ?? 0));
 
   state.busy = true;
   btn.disabled = true;
@@ -4525,6 +4717,123 @@ document.getElementById('docBackdrop').addEventListener('click', (e) => {
 });
 
 /* ============================================================
+   ПЕРВЫЙ ЗАХОД
+   ============================================================ */
+
+/*
+ * Три экрана, которые новый игрок видит один раз.
+ *
+ * Раньше первого захода не было вовсе: игрок открывал приложение, получал
+ * тысячу условных единиц и разбирался сам. Тысячи больше нет, и без объяснения
+ * первый экран выглядит как касса, которая просит денег ни за что. Поэтому
+ * порядок здесь именно такой: сначала почему нам можно верить, и только третьим
+ * экраном - предложение.
+ *
+ * Отметка о просмотре живёт в localStorage, а не в базе: это настройка
+ * устройства, а не игрока, и терять её при чистке браузера не жалко.
+ */
+const ONBOARDING_KEY = 'lb-onboarded-v1';
+
+const ONBOARDING = [
+  {
+    art: '🗝️',
+    title: 'Всё видно до открытия',
+    text: 'Содержимое каждого кейса и шанс каждого предмета показаны заранее. ' +
+      'Открыв кейс, вы не узнаете ничего, чего не могли увидеть до нажатия.',
+  },
+  {
+    art: '🔐',
+    title: 'Честность можно проверить',
+    text: 'Хеш серверного ключа публикуется <b>до</b> вашей игры. ' +
+      'После смены ключа любой прошедший ролл пересчитывается вручную ' +
+      'и должен сойтись до последнего знака. Раздел «Честность» в меню.',
+  },
+  {
+    art: '🎁',
+    title: '',
+    text: '',
+  },
+];
+
+let onbStep = 0;
+
+function onboardingSeen() {
+  try { return localStorage.getItem(ONBOARDING_KEY) === '1'; }
+  catch { return true; }
+}
+
+function closeOnboarding(done) {
+  try { localStorage.setItem(ONBOARDING_KEY, '1'); } catch { /* приватный режим */ }
+  document.getElementById('onbBackdrop').hidden = true;
+  if (done) track('onboarding_done');
+}
+
+function renderOnboarding() {
+  const step = ONBOARDING[onbStep];
+  const rules = state.config?.firstDeposit;
+  const last = onbStep === ONBOARDING.length - 1;
+
+  // Последний экран собирается на месте: условия бонуса приходят с сервера,
+  // и зашивать проценты в текст значило бы врать после первой же их правки.
+  let title = step.title;
+  let text = step.text;
+  if (last) {
+    if (rules?.pct > 0) {
+      const cap = rules.max > 0 ? ` до ${money(rules.max)}` : '';
+      title = `Первое пополнение +${rules.pct}%${cap}`;
+      text = `Бонус приходит сразу вместе с пополнением от ${money(rules.min)}. ` +
+        `Вывести его можно после ставок на ${rules.wager} суммы бонуса. ` +
+        'Если у вас есть промокод, введите его в разделе «Бонусы».';
+    } else {
+      title = 'Готово';
+      text = 'Пополните счёт в кассе и открывайте кейсы. ' +
+        'Промокод, если он есть, вводится в разделе «Бонусы».';
+    }
+  }
+
+  document.getElementById('onbArt').textContent = step.art;
+  document.getElementById('onbTitle').textContent = title;
+  document.getElementById('onbText').innerHTML = text;
+  document.getElementById('onbDots').innerHTML =
+    ONBOARDING.map((_, i) => `<i class="${i === onbStep ? 'on' : ''}"></i>`).join('');
+  document.getElementById('onbNext').textContent = last
+    ? (rules?.pct > 0 ? 'Пополнить' : 'Начать')
+    : 'Дальше';
+  document.getElementById('onbSkip').textContent = last ? 'Позже' : 'Пропустить';
+}
+
+function startOnboarding() {
+  if (onboardingSeen()) return;
+  // Тому, кто уже играл, объяснять нечего: отметка могла потеряться вместе с
+  // хранилищем браузера, а показывать вводный экран ветерану неловко.
+  if (state.user?.stats?.rounds > 0 || state.user?.depositsCount > 0) {
+    closeOnboarding(false);
+    return;
+  }
+
+  onbStep = 0;
+  renderOnboarding();
+  document.getElementById('onbBackdrop').hidden = false;
+}
+
+document.getElementById('onbSkip').addEventListener('click', () => {
+  haptic('light');
+  closeOnboarding(false);
+});
+
+document.getElementById('onbNext').addEventListener('click', () => {
+  haptic('light');
+  if (onbStep < ONBOARDING.length - 1) {
+    onbStep++;
+    renderOnboarding();
+    return;
+  }
+  closeOnboarding(true);
+  if (state.config?.firstDeposit?.pct > 0) openCashier();
+});
+
+
+/* ============================================================
    НАВИГАЦИЯ И СТАРТ
    ============================================================ */
 
@@ -4571,6 +4880,7 @@ async function init() {
     startFeed();
     startPaymentEvents();
     loadFreeCase();
+    startOnboarding();
   } catch (err) {
     document.getElementById('app').innerHTML =
       `<div class="empty">Не удалось загрузить приложение.<br>${esc(err.message)}</div>`;

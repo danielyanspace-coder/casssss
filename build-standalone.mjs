@@ -61,6 +61,9 @@ const config = {
   maxBatch: 5,
   freeSpinPacks: FREESPIN_PACKS,
   minPayout: 1000,
+  // Условия те же, что по умолчанию на сервере: демо показывает предложение
+  // первого пополнения ровно таким, каким его увидит живой игрок.
+  firstDeposit: { pct: 100, max: 1000, min: 500, wager: 2 },
 };
 
 /**
@@ -471,6 +474,9 @@ function publicUser() {
     vouchers: Object.entries(u.vouchers).filter(([, n]) => n > 0)
       .map(([case_id, count]) => ({ case_id, count })),
     wagerRequired: u.wagerRequired || 0,
+    // Ноль намеренно: демо-игрок сразу видит предложение первого пополнения,
+    // ради которого его и показывают заказчику.
+    depositsCount: u.depositsCount || 0,
     // В демо партнёр - это сам игрок, если его завели в админке под id 1.
     isPartner: (store.partners || []).some((p) => p.tg_id === '1'),
     stats: {
@@ -661,6 +667,10 @@ const routes = {
   'GET /api/config': () => CONFIG,
 
   'POST /api/me': () => ({ user: publicUser() }),
+
+  // Аналитика в автономной сборке никуда не уходит: сервера нет, а ронять
+  // интерфейс из-за счётчика нельзя.
+  'POST /api/track': () => ({ ok: true }),
 
   'POST /api/open': (body) => {
     const table = DRAW_BY_ID.get(body.caseId);
@@ -1487,6 +1497,36 @@ const routes = {
       topWins: me.rounds.slice().sort((a, b) => b.payout - a.payout).slice(0, 10)
         .map((r) => ({ ...r, username: me.username, user_id: me.id })),
       recent: me.rounds.slice(0, 30).map((r) => ({ ...r, username: me.username, user_id: me.id })),
+    };
+  },
+
+  /*
+   * Воронка в демо выдумана: настоящих событий здесь нет и быть не может.
+   * Доли взяты правдоподобные, чтобы экран было видно целиком, а не пустым.
+   */
+  'POST /api/admin/funnel': (body) => {
+    const days = Math.min(90, Math.max(1, Math.trunc(Number(body.days) || 7)));
+    const cohort = 40 * days;
+    const shares = [1, 0.62, 0.34, 0.21, 0.14, 0.05];
+    const titles = ['Открыл приложение', 'Открыл кейс', 'Зашёл в кассу',
+                    'Создал заявку', 'Пополнил', 'Заказал вывод'];
+    const names = ['signup', 'case_open', 'cashier_view',
+                   'deposit_created', 'deposit_paid', 'payout_created'];
+
+    let prev = cohort;
+    const steps = shares.map((share, i) => {
+      const users = Math.round(cohort * share);
+      const row = { name: names[i], title: titles[i], users,
+                    ofCohort: users / cohort, ofPrev: prev ? users / prev : 0 };
+      prev = users;
+      return row;
+    });
+
+    const deposited = Math.round(cohort * 0.14) * 2400;
+    return {
+      funnel: { days, cohort, steps, deposits: Math.round(cohort * 0.17),
+                deposited, arpu: deposited / cohort },
+      events: steps.map((s) => ({ name: s.name, total: s.users * 2, users: s.users })),
     };
   },
 

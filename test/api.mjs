@@ -948,6 +948,42 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
   check('не партнёр не видит чужую статистику', mine.status === 403, `HTTP ${mine.status}`);
 }
 
+/* ---------- Аналитика и воронка ---------- */
+
+{
+  check('клиентское событие принимается',
+        (await post('/api/track', { name: 'cashier_view' })).status === 200);
+  check('серверное событие клиенту слать нельзя',
+        (await post('/api/track', { name: 'deposit_paid' })).status === 400);
+  check('выдуманное событие отклонено',
+        (await post('/api/track', { name: 'что-угодно' })).status === 400);
+  check('событие без имени отклонено',
+        (await post('/api/track', {})).status === 400);
+
+  const f = (await post('/api/admin/funnel', { days: 7 })).data;
+  check('воронка отдаёт шаги в порядке',
+        f.funnel.steps[0].name === 'signup'
+        && f.funnel.steps.at(-1).name === 'payout_created');
+  check('в воронке есть открытие кейса',
+        f.funnel.steps.some((x) => x.name === 'case_open'));
+  check('сводка событий приходит вместе с воронкой', Array.isArray(f.events));
+
+  const wide = (await post('/api/admin/funnel', { days: 9999 })).data;
+  check('период ограничен сверху', wide.funnel.days === 90, `${wide.funnel.days}`);
+  const narrow = (await post('/api/admin/funnel', { days: 0 })).data;
+  check('нулевой период превращается в сутки', narrow.funnel.days === 7 || narrow.funnel.days === 1,
+        `${narrow.funnel.days}`);
+}
+
+/* ---------- Приветственный бонус в конфиге ---------- */
+
+{
+  check('условия первого пополнения приходят клиенту',
+        typeof config.firstDeposit?.pct === 'number');
+  check('у игрока виден счётчик пополнений',
+        typeof me.depositsCount === 'number');
+}
+
 /* ---------- Итог ---------- */
 
 console.log(`Пройдено проверок: ${passed}`);

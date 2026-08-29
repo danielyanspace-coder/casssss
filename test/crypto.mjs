@@ -12,7 +12,9 @@ import { rmSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 
 process.env.DB_PATH = './data/crypto-test.db';
-process.env.STARTING_BALANCE = '0';
+// Поощрение первого пополнения здесь только мешало бы: проверяется арифметика
+// зачисления, а не маркетинг. Отключаем явно.
+process.env.FIRST_DEPOSIT_PCT = '0';
 process.env.HELEKET_MERCHANT = 'test-merchant';
 process.env.HELEKET_API_KEY = 'test-key';
 rmSync(process.env.DB_PATH, { force: true });

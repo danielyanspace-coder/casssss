@@ -9,7 +9,9 @@
 import { rmSync } from 'node:fs';
 
 process.env.DB_PATH = './data/wager-test.db';
-process.env.STARTING_BALANCE = '0';
+// Поощрение первого пополнения здесь только мешало бы: проверяется арифметика
+// зачисления, а не маркетинг. Отключаем явно.
+process.env.FIRST_DEPOSIT_PCT = '0';
 for (const t of ['', '-wal', '-shm']) rmSync(process.env.DB_PATH + t, { force: true });
 
 const {

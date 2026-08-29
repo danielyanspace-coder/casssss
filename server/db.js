@@ -237,6 +237,34 @@ db.exec(`
     created_at INTEGER NOT NULL
   );
 
+  -- Собственная аналитика. Внешних счётчиков в мини-аппе нет и быть не может:
+  -- Telegram открывает приложение во встроенном браузере, где сторонние скрипты
+  -- половине игроков не загрузятся, а платить деньгами за то, что уже лежит в
+  -- своей же базе, незачем. Событие - это только имя, игрок и момент; всё
+  -- остальное (сумма, кейс, причина) кладётся в props отдельной строкой JSON,
+  -- чтобы добавление нового события не требовало миграции.
+  CREATE TABLE IF NOT EXISTS analytics_events (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER REFERENCES users(id),
+    name       TEXT    NOT NULL,
+    props      TEXT,
+    created_at INTEGER NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_events_name ON analytics_events(name, created_at);
+  CREATE INDEX IF NOT EXISTS idx_events_user ON analytics_events(user_id, id DESC);
+
+  -- Что бот уже написал игроку. Нужна ровно для одного: не написать второй раз.
+  -- Ключ - игрок и повод, а не время: напоминание про один и тот же
+  -- недосмотренный набор фриспинов не должно приходить каждый час.
+  CREATE TABLE IF NOT EXISTS bot_notices (
+    user_id  INTEGER NOT NULL REFERENCES users(id),
+    kind     TEXT    NOT NULL,
+    tag      TEXT    NOT NULL DEFAULT '',
+    sent_at  INTEGER NOT NULL,
+    PRIMARY KEY (user_id, kind, tag)
+  );
+
   -- Журнал действий администратора: любое изменение баланса извне видно.
   CREATE TABLE IF NOT EXISTS admin_log (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -370,7 +398,19 @@ ensureColumn('users', 'deposits_count', 'INTEGER NOT NULL DEFAULT 0');
 // К какому партнёру привязан игрок. Ставится один раз, первым промокодом.
 ensureColumn('users', 'partner_id', 'INTEGER');
 
-const STARTING_BALANCE = Number(process.env.STARTING_BALANCE || 1000);
+// Стартового баланса нет намеренно. Раньше новый игрок получал 1000 условных
+// единиц, и этого хватало, чтобы поставить их один раз и подать заявку на вывод,
+// не внеся ни рубля: отыгранное считается по ставкам, а откуда взялись деньги,
+// правило вывода не различает. Регистрация одноразовых Telegram-аккаунтов стоит
+// дешевле такой выплаты, поэтому подарок убран целиком, а не уменьшен.
+// Новому игроку теперь дают не деньги, а поощрение за первое пополнение.
+//
+// Исключение ровно одно: DEV_MODE. В нём подпись Telegram не проверяется и все
+// запросы считаются запросами одного тестового игрока - ему нужен баланс,
+// иначе автотесты не сделают ни одной ставки. Переменной окружения для этого
+// нет намеренно: включить подарок на рабочем сервере можно только вместе с
+// выключенной авторизацией, а это уже не про баланс.
+const DEV_START_BALANCE = process.env.DEV_MODE === 'true' ? 1_000_000 : 0;
 
 const insertUser = db.prepare(`
   INSERT INTO users (tg_id, username, first_name, balance, server_seed,
@@ -400,7 +440,7 @@ export function getOrCreateUser(tgUser) {
     tg_id: tgId,
     username: tgUser.username || null,
     first_name: tgUser.first_name || null,
-    balance: STARTING_BALANCE,
+    balance: DEV_START_BALANCE,
     server_seed: serverSeed,
     server_seed_hash: hashSeed(serverSeed),
     client_seed: generateClientSeed(),
@@ -408,11 +448,7 @@ export function getOrCreateUser(tgUser) {
   });
 
   const created = selectUser.get(tgId);
-  if (STARTING_BALANCE > 0) {
-    db.prepare(`INSERT INTO deposits (user_id, amount, source, comment, created_at)
-                VALUES (?, ?, 'start', 'Стартовый баланс', ?)`)
-      .run(created.id, STARTING_BALANCE, Date.now());
-  }
+  trackEvent(created.id, 'signup');
   return created;
 }
 
@@ -1142,11 +1178,77 @@ export function consumeWager(userId, bet) {
 }
 
 /** Пополнение отыгрывать надо: доступное к выводу от него не растёт. */
-export function registerDeposit(userId, amount) {
-  // Ничего не делает намеренно: пополнение просто не увеличивает отыгранное.
-  // Функция есть, чтобы место, где это решается, было видно из платёжных
-  // модулей, а не подразумевалось их молчанием.
-  void userId; void amount;
+/**
+ * Условия поощрения за первое пополнение.
+ *
+ * Читается из окружения при каждом вызове, а не один раз при загрузке: правило
+ * маркетинговое, его меняют чаще, чем код, и перезапуск ради процента - лишний
+ * повод уронить приём платежей.
+ */
+export function firstDepositRules() {
+  return {
+    // Процент к первому пополнению. 0 выключает поощрение целиком.
+    pct: Number(process.env.FIRST_DEPOSIT_PCT ?? 100),
+    // Потолок бонуса в рублях: процент без потолка - это подарок тому, кто
+    // внесёт миллион и сразу закажет вывод.
+    max: Number(process.env.FIRST_DEPOSIT_MAX ?? 1000),
+    // Меньше этой суммы поощрения нет: иначе пополнение на рубль давало бы бонус.
+    min: Number(process.env.FIRST_DEPOSIT_MIN ?? 500),
+    // Во сколько раз бонус надо отыграть ставками. Бонусные деньги не
+    // увеличивают отыгранное (см. withdrawable), так что вывести их, не сыграв,
+    // нельзя в любом случае; множитель задаёт, сколько надо сыграть, чтобы
+    // погас долг по обороту.
+    wager: Number(process.env.FIRST_DEPOSIT_WAGER ?? 2),
+  };
+}
+
+/** Сколько дадим сверх этого пополнения, если оно первое. Ноль - не дадим. */
+export function firstDepositBonus(amount, rules = firstDepositRules()) {
+  if (!(rules.pct > 0) || !(amount >= rules.min)) return 0;
+  const raw = Math.floor((amount * rules.pct) / 100);
+  return rules.max > 0 ? Math.min(raw, rules.max) : raw;
+}
+
+/**
+ * Всё, что должно произойти после зачисления пополнения, кроме самого
+ * зачисления: строку в deposits и прибавку к балансу пишет тот, кто принял
+ * деньги (он один знает комментарий и идентификатор платежа), а общие для всех
+ * шлюзов последствия собраны здесь.
+ *
+ * Отыгранное (wager_progress) пополнение НЕ увеличивает - в этом и смысл
+ * правила: вывести можно только то, что прошло через ставки.
+ *
+ * Вызывать внутри транзакции того, кто зачисляет: бонус и счётчик пополнений
+ * не должны пережить откат зачисления.
+ */
+export function registerDeposit(userId, amount, source = 'gateway') {
+  const before = getUserById(userId);
+  if (!before) return { bonus: 0 };
+
+  db.prepare('UPDATE users SET deposits_count = deposits_count + 1 WHERE id = ?').run(userId);
+  trackEvent(userId, 'deposit_paid', { amount, source });
+
+  // Обещанный промокодом процент важнее приветственного: игрок его специально
+  // активировал. Складывать их нельзя - это один и тот же слот «процент к
+  // пополнению», и вместе они дают отдачу выше 100%.
+  const promoBonus = applyDepositBonus(userId, amount);
+  if (promoBonus > 0) return { bonus: promoBonus, kind: 'promo' };
+
+  if (before.deposits_count > 0) return { bonus: 0 };
+
+  const rules = firstDepositRules();
+  const bonus = firstDepositBonus(amount, rules);
+  if (bonus <= 0) return { bonus: 0 };
+
+  db.prepare('UPDATE users SET balance = balance + ?, bonus_granted = bonus_granted + ? WHERE id = ?')
+    .run(bonus, bonus, userId);
+  addWager(userId, bonus, rules.wager);
+  db.prepare(`INSERT INTO deposits (user_id, amount, source, comment, created_at)
+              VALUES (?, ?, 'welcome', ?, ?)`)
+    .run(userId, bonus, `Бонус за первое пополнение +${rules.pct}%`, Date.now());
+  trackEvent(userId, 'deposit_first_bonus', { amount, bonus });
+
+  return { bonus, kind: 'first' };
 }
 
 /**
@@ -1157,6 +1259,183 @@ export function registerDeposit(userId, amount) {
  */
 export function withdrawable(user) {
   return Math.max(0, Math.min(user.balance, user.wager_progress));
+}
+
+/* ============================================================
+   АНАЛИТИКА
+   ============================================================ */
+
+/**
+ * Разрешённые события. Список закрытый намеренно: часть событий шлёт клиент,
+ * а клиенту верить нельзя - без белого списка в таблицу насыпали бы что угодно
+ * и она перестала бы быть пригодной для отчётов.
+ *
+ * Порядок здесь не случайный: воронка ниже читает его сверху вниз.
+ */
+export const FUNNEL_STEPS = [
+  { name: 'signup', title: 'Открыл приложение' },
+  { name: 'case_open', title: 'Открыл кейс' },
+  { name: 'cashier_view', title: 'Зашёл в кассу' },
+  { name: 'deposit_created', title: 'Создал заявку' },
+  { name: 'deposit_paid', title: 'Пополнил' },
+  { name: 'payout_created', title: 'Заказал вывод' },
+];
+
+/** События, которые вправе прислать клиент. Всё остальное пишет только сервер. */
+export const CLIENT_EVENTS = new Set([
+  'cashier_view', 'no_funds', 'no_funds_to_cashier', 'promo_view', 'onboarding_done',
+]);
+
+const ALL_EVENTS = new Set([
+  ...FUNNEL_STEPS.map((s) => s.name),
+  ...CLIENT_EVENTS,
+  'deposit_first_bonus', 'promo_redeemed', 'freespins_bought', 'bot_reminder',
+]);
+
+const insertEvent = db.prepare(
+  'INSERT INTO analytics_events (user_id, name, props, created_at) VALUES (?, ?, ?, ?)'
+);
+
+/**
+ * Записывает событие. Никогда не бросает исключение: аналитика не имеет права
+ * уронить игру или платёж, ради которых её и вызывают.
+ */
+export function trackEvent(userId, name, props) {
+  if (!ALL_EVENTS.has(name)) return false;
+  try {
+    insertEvent.run(userId || null, name, props ? JSON.stringify(props) : null, Date.now());
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Воронка по когорте: берём игроков, зарегистрированных за период, и смотрим,
+ * до какого шага каждый дошёл.
+ *
+ * Считаем именно по когорте, а не по событиям за период. Иначе на шаге
+ * «пополнил» оказались бы вчерашние игроки, пополнившие сегодня, и доля
+ * получилась бы выше настоящей - отчёт, который врёт в приятную сторону,
+ * хуже отсутствующего.
+ */
+export function funnelStats(days = 7) {
+  const from = Date.now() - Math.max(1, days) * 86400000;
+  const cohort = db.prepare('SELECT COUNT(*) n FROM users WHERE created_at >= ?').get(from).n;
+
+  const step = db.prepare(`
+    SELECT COUNT(DISTINCT e.user_id) n
+      FROM analytics_events e
+      JOIN users u ON u.id = e.user_id
+     WHERE e.name = ? AND u.created_at >= ?
+  `);
+
+  let prev = cohort;
+  const steps = FUNNEL_STEPS.map((s, i) => {
+    // Первый шаг - сама когорта: событие signup пишется при создании игрока,
+    // но у игроков, заведённых до появления аналитики, его нет.
+    const users = i === 0 ? cohort : step.get(s.name, from).n;
+    const row = {
+      name: s.name,
+      title: s.title,
+      users,
+      ofCohort: cohort ? users / cohort : 0,
+      ofPrev: prev ? users / prev : 0,
+    };
+    prev = users;
+    return row;
+  });
+
+  const money = db.prepare(`
+    SELECT COALESCE(SUM(d.amount), 0) deposited, COUNT(*) count
+      FROM deposits d JOIN users u ON u.id = d.user_id
+     WHERE u.created_at >= ? AND d.source IN ('beeline', 'crypto', 'admin')
+  `).get(from);
+
+  return {
+    days,
+    from,
+    cohort,
+    steps,
+    deposited: money.deposited,
+    deposits: money.count,
+    arpu: cohort ? money.deposited / cohort : 0,
+  };
+}
+
+/** Сырые счётчики событий за период - для строки «прочее» под воронкой. */
+export function eventTotals(days = 7) {
+  const from = Date.now() - Math.max(1, days) * 86400000;
+  return db.prepare(`
+    SELECT name, COUNT(*) total, COUNT(DISTINCT user_id) users
+      FROM analytics_events WHERE created_at >= ?
+     GROUP BY name ORDER BY total DESC
+  `).all(from);
+}
+
+/* ============================================================
+   НАПОМИНАНИЯ БОТА
+   ============================================================ */
+
+/**
+ * Кого нужно позвать обратно и по какому поводу.
+ *
+ * Общее правило для всех поводов: пишем один раз на повод. Ключ повторности -
+ * пара «повод + метка»: для фриспинов метка это момент покупки серии, для
+ * бесплатного кейса - момент, с которого он снова доступен. Так следующая
+ * серия или следующие сутки дадут новое напоминание, а одно и то же - нет.
+ *
+ * Молчащих аккаунтов не трогаем: писать тому, кто не заходил месяц, значит
+ * собирать жалобы на спам и блокировки бота, а вернуть его сообщением про
+ * недокрученные фриспины всё равно не выйдет.
+ */
+const REMIND_SILENCE_MS = 30 * 86400000;
+
+/** Незавершённая серия фриспинов, о которой ещё не напоминали. */
+export function pendingSpinReminders(minAgeMs, limit = 50) {
+  const now = Date.now();
+  return db.prepare(`
+    SELECT u.id, u.tg_id, u.first_name, u.username, s.case_id, s.created_at
+      FROM pending_spins s
+      JOIN users u ON u.id = s.user_id
+     WHERE s.created_at <= ?
+       AND u.is_blocked = 0
+       AND u.created_at >= ?
+       AND NOT EXISTS (SELECT 1 FROM bot_notices n
+                        WHERE n.user_id = u.id AND n.kind = 'freespins'
+                          AND n.tag = CAST(s.created_at AS TEXT))
+     ORDER BY s.created_at LIMIT ?
+  `).all(now - minAgeMs, now - REMIND_SILENCE_MS, limit);
+}
+
+/**
+ * Кому снова доступен бесплатный кейс.
+ *
+ * Игроки, ни разу его не забиравшие, тоже попадают сюда: free_case_at у них
+ * ноль, то есть кейс доступен с самого начала. Метка «0» гарантирует, что
+ * такое приглашение уйдёт ровно однажды.
+ */
+export function freeCaseReminders(cooldownMs, limit = 50) {
+  const now = Date.now();
+  return db.prepare(`
+    SELECT id, tg_id, first_name, username, free_case_at
+      FROM users
+     WHERE is_blocked = 0
+       AND created_at >= ?
+       AND (free_case_at = 0 OR free_case_at + ? <= ?)
+       AND NOT EXISTS (SELECT 1 FROM bot_notices n
+                        WHERE n.user_id = users.id AND n.kind = 'free_case'
+                          AND n.tag = CAST(CASE WHEN free_case_at = 0 THEN 0
+                                                ELSE free_case_at + ? END AS TEXT))
+     ORDER BY free_case_at LIMIT ?
+  `).all(now - REMIND_SILENCE_MS, cooldownMs, now, cooldownMs, limit);
+}
+
+/** Отмечает отправленное напоминание. Повторный вызов ничего не меняет. */
+export function markNoticeSent(userId, kind, tag) {
+  db.prepare(`INSERT OR IGNORE INTO bot_notices (user_id, kind, tag, sent_at)
+              VALUES (?, ?, ?, ?)`).run(userId, kind, String(tag), Date.now());
+  trackEvent(userId, 'bot_reminder', { kind });
 }
 
 /* ============================================================
@@ -1490,22 +1769,18 @@ export const adminAdjustBalance = db.transaction((adminId, targetId, amount, not
     db.prepare(`INSERT INTO deposits (user_id, amount, source, comment, created_at)
                 VALUES (?, ?, 'admin', ?, ?)`)
       .run(targetId, applied, note || 'Начисление администратором', Date.now());
-    db.prepare('UPDATE users SET deposits_count = deposits_count + 1 WHERE id = ?')
-      .run(targetId);
-    applyDepositBonus(targetId, applied);
+    registerDeposit(targetId, applied, 'admin');
   }
 
   return { balance: getUserById(targetId).balance, applied };
 });
 
 /**
- * Применяет обещанный процент к пополнению.
+ * Применяет обещанный промокодом процент к пополнению.
  *
- * Начисления руками администратора - единственный вид пополнения, который
- * сейчас есть в проекте (платёжного шлюза нет). Когда касса появится, вызов
- * надо будет добавить и туда, а логика останется прежней.
- *
- * Бонус одноразовый: сработал - запись убирается.
+ * Вызывается только из registerDeposit, то есть одинаково для всех шлюзов:
+ * Beeline, криптокассы и начисления руками. Бонус одноразовый - сработал,
+ * запись убирается.
  */
 function applyDepositBonus(userId, depositAmount) {
   const pending = db.prepare('SELECT * FROM pending_deposit_bonus WHERE user_id = ?').get(userId);

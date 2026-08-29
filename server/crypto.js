@@ -32,7 +32,7 @@
  */
 
 import { createHash, timingSafeEqual } from 'node:crypto';
-import { db, getUserById, registerDeposit } from './db.js';
+import { db, getUserById, registerDeposit, trackEvent } from './db.js';
 
 /*
  * Зачисления обоих способов оплаты идут в один журнал balance_transactions, а
@@ -455,6 +455,7 @@ export async function createDeposit(userId, amountRub, currency, network, rubRat
     id
   );
 
+  trackEvent(userId, 'deposit_created', { amount, method: 'crypto', currency: coin.currency });
   return publicPayment(db.prepare('SELECT * FROM crypto_payments WHERE id=?').get(id));
 }
 
@@ -506,12 +507,15 @@ export const applyWebhook = db.transaction((payload) => {
   db.prepare('UPDATE crypto_payments SET paid_at=?, credited_rub=? WHERE id=?')
     .run(now, credited, row.id);
 
-  // Пополнение обязано быть отыграно ставками, прежде чем его можно вывести.
-  registerDeposit(row.user_id, credited);
+  // Общие для всех шлюзов последствия: счётчик пополнений, промо-процент и
+  // бонус за первое пополнение. Отыгранное пополнение не увеличивает - в этом
+  // и смысл правила вывода.
+  const { bonus } = registerDeposit(row.user_id, credited, 'crypto');
 
   return {
     credited: true,
     status,
+    bonus,
     paymentId: row.id,
     userId: row.user_id,
     amount: credited,
