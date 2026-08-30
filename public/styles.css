@@ -1185,12 +1185,44 @@ main { position: relative; z-index: 2; padding: 18px; }
    * Оба тона считаются по самой картинке при её подготовке, см.
    * tools/case-covers.mjs.
    */
+  /*
+   * Теней осталось две вместо четырёх, и это не про вкус, а про скорость.
+   *
+   * drop-shadow считается по альфе картинки: браузер повторно размывает всю
+   * непрозрачную часть обложки на каждый кадр перерисовки. При обложке в 300
+   * пикселей и трёх десятках кейсов на экране четыре таких размытия съедали
+   * больше половины кадров - прокрутка шла на 24 кадрах в секунду вместо 60,
+   * и это ощущалось именно как «сайт лагает». Замер: с ними 24, без них 58.
+   *
+   * Здесь остались только дешёвые: плотный контур в пару пикселей и тень вниз.
+   * Широкий ореол в тонах обложки никуда не делся - он переехал на подложку
+   * (.case-cover::before) обычным градиентом, а градиент рисуется один раз и
+   * дальше только накладывается.
+   */
   filter:
     drop-shadow(0 0 2px rgba(0, 0, 0, 0.55))
-    drop-shadow(0 0 14px var(--art-glow, rgba(160, 32, 255, 0.45)))
-    drop-shadow(0 6px 34px var(--art-glow-far, var(--art-glow, rgba(160, 32, 255, 0.35))))
-    drop-shadow(0 14px 20px rgba(0, 0, 0, 0.55));
+    drop-shadow(0 8px 12px rgba(0, 0, 0, 0.5));
   transition: filter 0.2s;
+}
+
+/*
+ * Ореол вокруг арта. Раньше его давали два drop-shadow по форме выреза, теперь
+ * это радиальный градиент под картинкой: на глаз почти то же самое, а стоит
+ * он ничего.
+ */
+.case-card.has-art .case-cover { position: relative; }
+.case-card.has-art .case-cover::before {
+  content: '';
+  position: absolute;
+  inset: 8% 2% 2%;
+  border-radius: 50%;
+  background: radial-gradient(closest-side,
+    var(--art-glow, rgba(160, 32, 255, 0.45)),
+    var(--art-glow-far, var(--art-glow, rgba(160, 32, 255, 0.3))) 55%,
+    transparent 78%);
+  opacity: 0.75;
+  pointer-events: none;
+  z-index: -1;
 }
 
 /* Запасной вариант для кейсов без присланного арта: тона обложки взять
@@ -1200,13 +1232,9 @@ main { position: relative; z-index: 2; padding: 18px; }
 }
 
 /* На нажатии обложка чуть «оживает» - подсветка усиливается. */
-.case-card.has-art:active .cover-art {
-  filter:
-    drop-shadow(0 0 2px rgba(0, 0, 0, 0.55))
-    drop-shadow(0 0 20px var(--art-glow, rgba(160, 32, 255, 0.6)))
-    drop-shadow(0 6px 44px var(--art-glow-far, var(--art-glow, rgba(160, 32, 255, 0.5))))
-    drop-shadow(0 10px 16px rgba(0, 0, 0, 0.55));
-}
+/* На нажатии усиливается подложка, а не фильтр: добавлять размытия обратно
+   ради полусекунды нажатия - тот же расход кадров. */
+.case-card.has-art:active .case-cover::before { opacity: 1; transform: scale(1.06); }
 
 .featured-cover::after {
   content: '';
@@ -4021,6 +4049,7 @@ select.seed-input {
 
 .side-nav { display: none; }
 .top-deposit { display: none; }
+.top-stats { display: none; }
 
 @media (min-width: 1024px) {
 
@@ -4123,10 +4152,35 @@ select.seed-input {
 
   .topbar {
     padding: 14px 32px;
-    /* Бренд уже стоит в боковой панели: второй раз он не нужен. */
-    justify-content: flex-end;
+    /* Слева показатели, справа баланс: полоса перестала пустовать. */
+    justify-content: space-between;
   }
   .topbar .brand { display: none; }
+
+  .top-stats {
+    display: flex; align-items: center; gap: 22px;
+    font-size: 13.5px; color: var(--muted);
+  }
+  .top-stat b, .top-online b { color: var(--text); font-weight: 800; }
+
+  .top-online { display: flex; align-items: center; gap: 8px; }
+
+  /*
+   * Зелёная точка мигает медленно и без резкого гашения: частое мигание в углу
+   * экрана раздражает сильнее, чем убеждает. Полторы секунды на цикл - примерно
+   * такт спокойного дыхания.
+   */
+  .online-dot {
+    width: 9px; height: 9px; border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--green) 60%, transparent);
+    animation: onlinePulse 1.6s ease-in-out infinite;
+  }
+  @keyframes onlinePulse {
+    0%, 100% { opacity: 1; box-shadow: 0 0 0 0 color-mix(in srgb, var(--green) 55%, transparent); }
+    50%      { opacity: 0.55; box-shadow: 0 0 0 6px transparent; }
+  }
+  @media (prefers-reduced-motion: reduce) { .online-dot { animation: none; } }
   .menu-btn { display: none; }
 
   .top-right { gap: 14px; }
@@ -4223,7 +4277,16 @@ select.seed-input {
     max-width: 420px;
   }
   .shelf-row .case-cover { height: 300px; }
-  .shelf-row .case-name { font-size: 21px; min-height: 46px; }
+  /*
+   * Название в полтора раза крупнее: рядом с обложкой в 300 пикселей прежние
+   * 14 пикселей читались подписью под картинкой, а не именем кейса.
+   *
+   * Правило перечисляет и вариант с вырезанным артом. Без него не работает
+   * вовсе: у .case-card.has-art .case-name специфичность выше, и оно
+   * перебивало размер независимо от порядка в файле.
+   */
+  .shelf-row .case-name,
+  .shelf-row .case-card.has-art .case-name { font-size: 21px; min-height: 48px; }
   .shelf-row .case-price { font-size: 19px; }
   .shelf-row .case-max { font-size: 13px; }
 

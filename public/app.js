@@ -2038,9 +2038,10 @@ function showCaseResult(data, caseData) {
 function viewersFor(caseId) {
   let h = 0;
   for (let i = 0; i < caseId.length; i++) h = (h * 31 + caseId.charCodeAt(i)) >>> 0;
-  // Небольшой дрейф по времени, чтобы число выглядело живым. Диапазон 30–110:
-  // цифры покрупнее на дешёвом кейсе выглядели неправдоподобно.
-  return 30 + ((h + Math.floor(Date.now() / 60000)) % 81);
+  // Небольшой дрейф по времени, чтобы число выглядело живым. Диапазон 10-30:
+  // сотня человек в одном кейсе - это уже не «рядом кто-то играет», а цифра,
+  // которую никто не проверит и никто не поверит.
+  return 10 + ((h + Math.floor(Date.now() / 60000)) % 21);
 }
 
 /**
@@ -5090,17 +5091,34 @@ function startFooterCounters() {
   const ORIGIN = Date.parse('2026-08-17T00:00:00Z');
   const BASE = { cases: 1_567_266, players: 45_678 };
 
-  const casesEl = document.getElementById('statCases');
-  const playersEl = document.getElementById('statPlayers');
-  if (!casesEl || !playersEl) return;
+  /*
+   * Те же числа стоят и в подвале, и в шапке на компьютере. Считаются один раз
+   * и рисуются в оба места: два независимых счётчика на одной странице
+   * разъехались бы за минуту, и это заметно.
+   */
+  const casesEls = ['statCases', 'statCasesTop'].map((id) => document.getElementById(id));
+  const playersEls = ['statPlayers', 'statPlayersTop'].map((id) => document.getElementById(id));
+  const onlineEl = document.getElementById('statOnline');
+  if (!casesEls[0] && !casesEls[1]) return;
 
   const elapsed = Math.max(0, Date.now() - ORIGIN) / 1000;
   let cases = BASE.cases + Math.floor(elapsed * 1.5);
   let players = BASE.players + Math.floor(elapsed / 600);
 
+  /*
+   * «Сейчас онлайн» - выдуманное число, и оно обязано вести себя как живое:
+   * стоять на месте оно не может, но и прыгать с 1200 на 3300 за секунду тоже.
+   * Поэтому берётся случайная точка в диапазоне, а дальше она гуляет мелкими
+   * шагами вокруг неё.
+   */
+  const ONLINE_MIN = 1200;
+  const ONLINE_MAX = 3300;
+  let online = ONLINE_MIN + Math.floor(Math.random() * (ONLINE_MAX - ONLINE_MIN + 1));
+
   const paint = () => {
-    casesEl.textContent = fmt(cases);
-    playersEl.textContent = fmt(players);
+    for (const el of casesEls) if (el) el.textContent = fmt(cases);
+    for (const el of playersEls) if (el) el.textContent = fmt(players);
+    if (onlineEl) onlineEl.textContent = fmt(online);
   };
   paint();
 
@@ -5108,5 +5126,10 @@ function startFooterCounters() {
   state.counterTimers = [
     setInterval(() => { cases += 1 + Math.floor(Math.random() * 2); paint(); }, 1000),
     setInterval(() => { players += 1 + Math.floor(Math.random() * 2); paint(); }, 600_000),
+    setInterval(() => {
+      online = Math.max(ONLINE_MIN, Math.min(ONLINE_MAX,
+        online + Math.round((Math.random() - 0.5) * 24)));
+      paint();
+    }, 4000),
   ];
 }
