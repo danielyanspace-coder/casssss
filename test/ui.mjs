@@ -1090,13 +1090,15 @@ check('честность: личная статистика убрана', fair
   check('компьютер: меню-картинка убрана', !(await desk.isVisible('#menuBtn')));
   check('компьютер: кнопка пополнения в шапке', await desk.isVisible('#topDeposit'));
 
-  const cols = (sel) => desk.evaluate((s) =>
-    getComputedStyle(document.querySelector(s)).gridTemplateColumns.split(' ').length, sel);
-  check('компьютер: в полке три кейса в ряд', (await cols('.shelf-row')) === 3,
-    String(await cols('.shelf-row')));
+  // Считаем по разметке, а не по CSS-свойству: полка выкладывается flex-ом,
+  // и число колонок из стилей уже не прочитать.
+  const perRow = await desk.evaluate(() => {
+    const cards = [...document.querySelector('.shelf-row').children];
+    const top = Math.round(cards[0].getBoundingClientRect().top / 10);
+    return cards.filter((c) => Math.round(c.getBoundingClientRect().top / 10) === top).length;
+  });
+  check('компьютер: в полке три кейса в ряд', perRow === 3, String(perRow));
 
-  // Сетка центрируется, а не липнет влево: иначе неполный последний ряд
-  // выглядит оборванным.
   check('компьютер: полка выровнена по центру', await desk.evaluate(() =>
     getComputedStyle(document.querySelector('.shelf-row')).justifyContent === 'center'));
   check('компьютер: заголовок полки по центру', await desk.evaluate(() =>
@@ -1106,6 +1108,46 @@ check('честность: личная статистика убрана', fair
   const coverH = await desk.evaluate(() =>
     document.querySelector('.shelf-row .case-cover').getBoundingClientRect().height);
   check('компьютер: обложка крупная', coverH >= 280, `${Math.round(coverH)}px`);
+
+  // Неполный последний ряд обязан стоять по центру, а не липнуть влево.
+  check('компьютер: остаток полки выровнен по центру', await desk.evaluate(() => {
+    for (const shelf of document.querySelectorAll('.shelf')) {
+      const cards = [...shelf.querySelectorAll('.case-card')];
+      const rows = new Map();
+      for (const c of cards) {
+        const r = c.getBoundingClientRect();
+        const key = Math.round(r.top / 10);
+        if (!rows.has(key)) rows.set(key, []);
+        rows.get(key).push(r);
+      }
+      const list = [...rows.values()];
+      if (list.length < 2) continue;
+      const last = list.at(-1);
+      if (last.length === list[0].length) continue;
+      const centre = (row) => (row[0].left + row.at(-1).right) / 2;
+      if (Math.abs(centre(last) - centre(list[0])) > 2) return false;
+    }
+    return true;
+  }));
+
+  // Раздел «Честность» живёт в подвале, второго входа в меню быть не должно.
+  check('компьютер: «Честности» в меню нет', await desk.evaluate(
+    () => !document.querySelector('#sideNav [data-view="fair"]')));
+
+  // Экран кейса - часть страницы, а не слой поверх неё: шапка, меню и подвал
+  // обязаны остаться на месте.
+  await desk.evaluate(() => document.querySelector('.case-card').click());
+  await desk.waitForTimeout(1200);
+  check('компьютер: на экране кейса видно боковое меню', await desk.isVisible('#sideNav'));
+  check('компьютер: на экране кейса видна шапка с балансом', await desk.isVisible('#balanceChip'));
+  check('компьютер: на экране кейса есть подвал', await desk.isVisible('#siteFooter'));
+  check('компьютер: остальные разделы на экране кейса скрыты', await desk.evaluate(
+    () => [...document.querySelectorAll('main > .view')].every((v) => !v.offsetParent)));
+  // Закрываем через сам обработчик: тут проверяется вёрстка страницы, а не
+  // попадание указателя, а браузерная прокрутка «к кнопке» заводит её под
+  // липкую шапку и ломает клик на ровном месте.
+  await desk.evaluate(() => document.getElementById('closeOpenerTop').click());
+  await desk.waitForTimeout(500);
 
   // Боковое меню собрано по мотивам мобильного: у разделов с картинки стоят
   // вырезанные из неё же рисунки.

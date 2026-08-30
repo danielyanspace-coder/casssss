@@ -917,6 +917,8 @@ function openCase(caseId) {
   document.getElementById('casePanel').hidden = false;
 
   document.getElementById('opener').hidden = false;
+  document.body.classList.add('case-open');
+  window.scrollTo({ top: 0 });
   document.querySelector('.opener-scroll').scrollTop = 0;
   updateOpenerBalance();
   loadCaseHistory(c.name);
@@ -1268,6 +1270,8 @@ async function startOpening(caseId, count = 1) {
   document.getElementById('fsCollect').hidden = true;
   document.getElementById('casePanel').hidden = true;
   opener.hidden = false;
+  document.body.classList.add('case-open');
+  window.scrollTo({ top: 0 });
   document.querySelector('.opener-scroll').scrollTop = 0;
   loadCaseHistory(c.name);
 
@@ -1637,6 +1641,8 @@ async function runAutoOpen(caseId, times) {
   document.getElementById('fsCollect').hidden = true;
   document.getElementById('casePanel').hidden = true;
   document.getElementById('opener').hidden = false;
+  document.body.classList.add('case-open');
+  window.scrollTo({ top: 0 });
   panel.hidden = false;
   logEl.innerHTML = '';
   totalEl.textContent = money(0);
@@ -2084,6 +2090,7 @@ async function loadCaseHistory(caseTitle) {
 
 function closeOpener() {
   document.getElementById('opener').hidden = true;
+  document.body.classList.remove('case-open');
   document.getElementById('gamble').hidden = true;
 }
 
@@ -3534,7 +3541,8 @@ const SIDE_NAV = [
   { view: 'roulette', ico: 'roulette', title: 'Рулетка', sub: 'Красное и чёрное' },
   { view: 'wallet', ico: 'coin', title: 'Касса', sub: 'Пополнить и вывести' },
   { view: 'bonuses', ico: 'gift', title: 'Бонусы', sub: 'Получить награды' },
-  { view: 'fair', ico: 'fair', title: 'Честность' },
+  // «Честности» здесь нет намеренно: ссылка на неё стоит в подвале, и второй
+  // вход в тот же раздел только удлиняет меню.
   { view: 'partner', ico: 'people', title: 'Партнёру', partnerOnly: true },
   { view: 'admin', ico: 'admin', title: 'Админ', adminOnly: true },
 ];

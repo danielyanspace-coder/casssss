@@ -172,6 +172,19 @@ body {
 
 main { position: relative; z-index: 2; padding: 18px; }
 
+/*
+ * Экран кейса лежит внутри <main>, а у <main> свой z-index - то есть свой
+ * слой. Внутри этого слоя экран кейса не может подняться выше липкой шапки,
+ * которая лежит слоем выше: на телефоне шапка накрывала кнопку возврата.
+ * Поэтому на время открытого кейса поднимается сам <main>.
+ *
+ * На компьютере наоборот: там кейс - обычная часть страницы, и шапка обязана
+ * оставаться сверху, поэтому правило ограничено телефоном.
+ */
+@media (max-width: 1023px) {
+  body.case-open main { z-index: 40; }
+}
+
 .view { display: none; animation: fade 0.28s ease; }
 .view.active { display: block; }
 @keyframes fade { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
@@ -3245,17 +3258,30 @@ select.seed-input {
   width: calc(50% - 5px);
 }
 
+/*
+ * Плитка содержимого залита цветом своей редкости.
+ *
+ * Раньше цвет был только в рамке и в цене, а сама плитка у всех одинаково
+ * тёмная - список из двадцати одинаковых прямоугольников, по которому не
+ * видно, где дорогое, а где нет. Теперь редкость читается заливкой: сверху
+ * плотнее, книзу сходит на нет.
+ *
+ * Заливка приглушённая (треть цвета), а свечения нет вовсе: двадцать светящихся
+ * плиток разом - это витрина ларька, а не список предметов.
+ */
 .drop-card {
   display: flex; flex-direction: column; align-items: center; gap: 6px;
   padding: 14px 10px;
   border-radius: 16px;
   text-align: center;
-  background: linear-gradient(165deg, rgba(255, 255, 255, 0.05), rgba(10, 2, 18, 0.6));
-  border: 1.5px solid var(--tier-color);
-  box-shadow: inset 0 0 22px -14px var(--tier-color);
+  background: linear-gradient(160deg,
+    color-mix(in srgb, var(--tier-color) 34%, transparent),
+    color-mix(in srgb, var(--tier-color) 9%, transparent) 58%,
+    rgba(10, 2, 18, 0.5));
+  border: 1px solid color-mix(in srgb, var(--tier-color) 42%, transparent);
 }
 .drop-card.is-showcase { border-style: dashed; }
-.drop-ico { width: 34px; height: 34px; filter: drop-shadow(0 0 10px -6px var(--tier-color)); }
+.drop-ico { width: 34px; height: 34px; }
 .drop-ico svg { width: 100%; height: 100%; }
 .drop-name { font-size: 12.5px; font-weight: 700; line-height: 1.25; }
 .drop-value { font-size: 15px; font-weight: 900; color: var(--tier-color); }
@@ -4182,16 +4208,26 @@ select.seed-input {
   /*
    * Три кейса в ряд вместо пяти: обложки нарисованы крупными (582 пикселя по
    * длинной стороне), и на пяти колонках они показывались вчетверо мельче
-   * своего размера. Три колонки дают около 460 пикселей на карточку - в
-   * пределах исходника, то есть без мыла.
+   * своего размера.
    *
-   * Сетка не растягивается на всю ширину, а центрируется: так неполный
-   * последний ряд стоит посередине, а не липнет влево.
+   * Здесь flex, а не сетка, и это принципиально. Сетка ставит карточки по
+   * колонкам, поэтому неполный последний ряд всегда липнет влево: четвёртый
+   * кейс встаёт в первую колонку и висит у края. Выровнять по центру именно
+   * ОСТАТОК сетка не умеет вообще. Flex переносит строки и центрирует каждую
+   * отдельно, включая последнюю, - ровно то, что нужно.
    */
   .shelf-row {
-    grid-template-columns: repeat(3, minmax(0, 420px));
+    display: flex;
+    flex-wrap: wrap;
     justify-content: center;
-    gap: 4px 6px;
+    align-items: flex-start;
+    /* Вплотную, но не касаясь: у вырезанного арта есть собственные прозрачные
+       поля, и щель в пару пикселей здесь читается как воздух. */
+    gap: 2px;
+  }
+  .shelf-row > .case-card {
+    flex: 0 0 min(420px, calc((100% - 4px) / 3));
+    max-width: 420px;
   }
   .shelf-row .case-cover { height: 300px; }
   .shelf-row .case-name { font-size: 21px; min-height: 46px; }
@@ -4208,9 +4244,15 @@ select.seed-input {
 
   /* Ряд бонусных кейсов - та же сетка. */
   #bonusList {
-    grid-template-columns: repeat(3, minmax(0, 420px));
+    display: flex;
+    flex-wrap: wrap;
     justify-content: center;
-    gap: 4px 6px;
+    align-items: flex-start;
+    gap: 2px;
+  }
+  #bonusList > .case-card {
+    flex: 0 0 min(420px, calc((100% - 4px) / 3));
+    max-width: 420px;
   }
 
   /*
@@ -4286,15 +4328,59 @@ select.seed-input {
   .featured-card.own-art .featured-body { text-align: center; padding: 22px 28px 26px; }
   .featured-card.own-art .featured-foot { justify-content: center; }
 
-  /* ---------- Экран прокрута ---------- */
+  /* ---------- Экран кейса ---------- */
 
+  /*
+   * На компьютере кейс перестаёт быть слоем во весь экран и становится обычной
+   * частью страницы: сверху шапка с балансом, слева меню, снизу подвал. Слой во
+   * весь экран оставлял вокруг кейса пустое поле, и приложение выглядело
+   * оборванным именно там, где игрок проводит больше всего времени.
+   */
+  .opener {
+    position: static;
+    inset: auto;
+    height: auto;
+    overflow: visible;
+    background: transparent;
+  }
+  .opener-theme { position: absolute; inset: 0; }
+  .opener-scroll { position: relative; overflow: visible; height: auto; padding: 0; }
   .opener-inner { max-width: 940px; }
-  .opener-scroll { padding: 28px 32px 60px; }
+
+  /* Пока открыт кейс, остальные разделы прячем: иначе они окажутся над ним на
+     той же странице. */
+  body.case-open main > .view { display: none !important; }
+
+  /* Свой заголовок кейса дублировал бы шапку страницы - она теперь на месте.
+     Остаётся только кнопка возврата. */
+  body.case-open .opener-top .brand { display: none; }
+  .opener-top { justify-content: flex-end; }
+
+  /* Шапка страницы липкая и лежит поверх содержимого. Без этого запаса любая
+     прокрутка «к элементу» - браузерная, по якорю, с клавиатуры - заводит
+     верх кейса вместе с кнопкой возврата под неё. */
+  .opener { scroll-margin-top: 96px; }
+  .opener-close { position: relative; z-index: 1; }
 
   /* Сам кейс на широком экране крупнее: в колонке 940 пикселей рисунок высотой
      в 196 тонет в пустоте вокруг. */
   .case-stage { min-height: 200px; }
   .case-stage-box { height: calc((300px - (var(--rows, 1) - 1) * 8px) / var(--rows, 1)); }
+
+  /*
+   * Блок покупки фриспинов на компьютере ужат.
+   *
+   * Он собран вокруг присланной картинки-заголовка, а она растягивается по
+   * ширине контейнера. На телефоне это половина экрана, на мониторе - баннер
+   * во всю колонку, который перекрикивает сам кейс. Ограничиваем ширину
+   * картинки и поджимаем поля: блок остаётся заметным, но перестаёт быть
+   * главным на странице.
+   */
+  .fsbuy { margin-top: 16px; padding: 10px 14px 12px; border-radius: 16px; }
+  .fsbuy-title-art { max-width: 260px; margin: 0 auto 8px; }
+  .fsbuy-row { gap: 8px; max-width: 520px; margin: 0 auto; }
+  .fsbuy-btn { padding: 8px 5px 9px; border-radius: 12px; }
+  .fsbuy-btn.is-popular { margin-bottom: 8px; }
 
   /* Состав кейса по четыре в ряд: по два он растягивался на пол-экрана,
      и до конца списка приходилось листать втрое дольше нужного. */
@@ -4376,9 +4462,10 @@ select.seed-input {
 }
 
 /* Совсем широкие мониторы: шестой кейс в ряду вместо воздуха по краям. */
-/* Очень широкий монитор: четвёртая колонка, но кейс не мельче. */
+/* Очень широкий монитор: четвёртый кейс в ряду, но не мельче. */
 @media (min-width: 1800px) {
-  .shelf-row, #bonusList { grid-template-columns: repeat(4, minmax(0, 420px)); }
+  .shelf-row > .case-card,
+  #bonusList > .case-card { flex-basis: min(420px, calc((100% - 6px) / 4)); }
   main { max-width: 1780px; }
 }
 
@@ -4889,23 +4976,14 @@ select.seed-input {
       <div class="admin-detail" id="adminDetail" hidden></div>
     </section>
 
-  </main>
 
-  <footer class="site-footer" id="siteFooter"></footer>
-
-  <!-- Читалка правовых документов -->
-  <div class="doc-backdrop" id="docBackdrop" hidden>
-    <div class="doc-sheet">
-      <div class="doc-head">
-        <h2 class="doc-title" id="docTitle"></h2>
-        <button class="opener-close" id="docClose" data-ico="back"></button>
-      </div>
-      <div class="doc-body" id="docBody"></div>
-    </div>
-  </div>
-
-  <!-- Экран открытия кейса -->
-  <div class="opener" id="opener" hidden>
+    <!-- Экран кейса.
+         Лежит внутри <main> намеренно. На телефоне это слой во весь экран
+         (position: fixed), и место в разметке ему безразлично. На компьютере
+         он становится обычной частью страницы, чтобы вокруг остались шапка,
+         боковое меню и подвал: страница кейса без них выглядела пустым полем.
+         Снаружи <main> так сделать нельзя - подвал стоит после него. -->
+    <div class="opener" id="opener" hidden>
     <!-- Тематический фон кейса: сюда уезжает его же обложка. -->
     <div class="opener-theme" id="openerTheme" aria-hidden="true"></div>
     <div class="opener-scroll">
@@ -5015,6 +5093,22 @@ select.seed-input {
       </div>
     </div>
   </div>
+  </main>
+
+  <footer class="site-footer" id="siteFooter"></footer>
+
+  <!-- Читалка правовых документов -->
+  <div class="doc-backdrop" id="docBackdrop" hidden>
+    <div class="doc-sheet">
+      <div class="doc-head">
+        <h2 class="doc-title" id="docTitle"></h2>
+        <button class="opener-close" id="docClose" data-ico="back"></button>
+      </div>
+      <div class="doc-body" id="docBody"></div>
+    </div>
+  </div>
+
+  <!-- Экран открытия кейса -->
 
   <!-- Подтверждение покупки фриспинов -->
   <div class="confirm-backdrop" id="buyBackdrop" hidden>
@@ -9559,6 +9653,8 @@ function openCase(caseId) {
   document.getElementById('casePanel').hidden = false;
 
   document.getElementById('opener').hidden = false;
+  document.body.classList.add('case-open');
+  window.scrollTo({ top: 0 });
   document.querySelector('.opener-scroll').scrollTop = 0;
   updateOpenerBalance();
   loadCaseHistory(c.name);
@@ -9910,6 +10006,8 @@ async function startOpening(caseId, count = 1) {
   document.getElementById('fsCollect').hidden = true;
   document.getElementById('casePanel').hidden = true;
   opener.hidden = false;
+  document.body.classList.add('case-open');
+  window.scrollTo({ top: 0 });
   document.querySelector('.opener-scroll').scrollTop = 0;
   loadCaseHistory(c.name);
 
@@ -10279,6 +10377,8 @@ async function runAutoOpen(caseId, times) {
   document.getElementById('fsCollect').hidden = true;
   document.getElementById('casePanel').hidden = true;
   document.getElementById('opener').hidden = false;
+  document.body.classList.add('case-open');
+  window.scrollTo({ top: 0 });
   panel.hidden = false;
   logEl.innerHTML = '';
   totalEl.textContent = money(0);
@@ -10726,6 +10826,7 @@ async function loadCaseHistory(caseTitle) {
 
 function closeOpener() {
   document.getElementById('opener').hidden = true;
+  document.body.classList.remove('case-open');
   document.getElementById('gamble').hidden = true;
 }
 
@@ -12176,7 +12277,8 @@ const SIDE_NAV = [
   { view: 'roulette', ico: 'roulette', title: 'Рулетка', sub: 'Красное и чёрное' },
   { view: 'wallet', ico: 'coin', title: 'Касса', sub: 'Пополнить и вывести' },
   { view: 'bonuses', ico: 'gift', title: 'Бонусы', sub: 'Получить награды' },
-  { view: 'fair', ico: 'fair', title: 'Честность' },
+  // «Честности» здесь нет намеренно: ссылка на неё стоит в подвале, и второй
+  // вход в тот же раздел только удлиняет меню.
   { view: 'partner', ico: 'people', title: 'Партнёру', partnerOnly: true },
   { view: 'admin', ico: 'admin', title: 'Админ', adminOnly: true },
 ];

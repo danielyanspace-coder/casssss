@@ -486,23 +486,14 @@
       <div class="admin-detail" id="adminDetail" hidden></div>
     </section>
 
-  </main>
 
-  <footer class="site-footer" id="siteFooter"></footer>
-
-  <!-- Читалка правовых документов -->
-  <div class="doc-backdrop" id="docBackdrop" hidden>
-    <div class="doc-sheet">
-      <div class="doc-head">
-        <h2 class="doc-title" id="docTitle"></h2>
-        <button class="opener-close" id="docClose" data-ico="back"></button>
-      </div>
-      <div class="doc-body" id="docBody"></div>
-    </div>
-  </div>
-
-  <!-- Экран открытия кейса -->
-  <div class="opener" id="opener" hidden>
+    <!-- Экран кейса.
+         Лежит внутри <main> намеренно. На телефоне это слой во весь экран
+         (position: fixed), и место в разметке ему безразлично. На компьютере
+         он становится обычной частью страницы, чтобы вокруг остались шапка,
+         боковое меню и подвал: страница кейса без них выглядела пустым полем.
+         Снаружи <main> так сделать нельзя - подвал стоит после него. -->
+    <div class="opener" id="opener" hidden>
     <!-- Тематический фон кейса: сюда уезжает его же обложка. -->
     <div class="opener-theme" id="openerTheme" aria-hidden="true"></div>
     <div class="opener-scroll">
@@ -612,6 +603,22 @@
       </div>
     </div>
   </div>
+  </main>
+
+  <footer class="site-footer" id="siteFooter"></footer>
+
+  <!-- Читалка правовых документов -->
+  <div class="doc-backdrop" id="docBackdrop" hidden>
+    <div class="doc-sheet">
+      <div class="doc-head">
+        <h2 class="doc-title" id="docTitle"></h2>
+        <button class="opener-close" id="docClose" data-ico="back"></button>
+      </div>
+      <div class="doc-body" id="docBody"></div>
+    </div>
+  </div>
+
+  <!-- Экран открытия кейса -->
 
   <!-- Подтверждение покупки фриспинов -->
   <div class="confirm-backdrop" id="buyBackdrop" hidden>
