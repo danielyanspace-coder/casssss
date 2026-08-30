@@ -2796,6 +2796,14 @@ async function openAdminUser(userId) {
       <input class="seed-input" id="adjAmount" type="number" inputmode="numeric" placeholder="сумма">
       <input class="seed-input" id="adjNote" placeholder="комментарий" maxlength="200">
     </div>
+    <label class="adj-mode">
+      <input type="checkbox" id="adjCorrection">
+      <span>Корректировка: деньги придут без отыгрыша</span>
+    </label>
+    <p class="adj-hint">Обычное начисление считается пополнением, и его надо
+      прокрутить через ставки, прежде чем откроется вывод. Для возврата после
+      сбоя или компенсации ставьте галочку - иначе поддержка своими руками
+      запрёт игроку вывод.</p>
     <div class="admin-actions">
       <button class="btn btn-primary" id="adjPlus"><span data-ico="plus"></span> Начислить</button>
       <button class="btn btn-outline" id="adjMinus"><span data-ico="minus"></span> Списать</button>
@@ -2839,6 +2847,7 @@ async function openAdminUser(userId) {
       await api('/api/admin/balance', {
         userId, amount: sign * raw,
         note: document.getElementById('adjNote').value,
+        asDeposit: !document.getElementById('adjCorrection').checked,
       });
       toast(sign > 0 ? `Начислено ${fmt(raw)}` : `Списано ${fmt(raw)}`);
       haptic('success');
@@ -3516,17 +3525,51 @@ function renderMenu() {
  * те же и в том же порядке, что на картинке: игрок, пришедший с телефона,
  * находит их на привычных местах.
  */
+/* Подписи те же, что нарисованы на картинке меню: игрок, пришедший с телефона,
+   читает на компьютере ровно то, к чему привык. */
 const SIDE_NAV = [
-  { view: 'cases', ico: 'cases', title: 'Кейсы' },
-  { view: 'upgrade', ico: 'x2', title: 'Апгрейд' },
-  { view: 'crash', ico: 'crash', title: 'Краш' },
-  { view: 'roulette', ico: 'roulette', title: 'Рулетка' },
-  { view: 'bonuses', ico: 'gift', title: 'Бонусы' },
-  { view: 'wallet', ico: 'coin', title: 'Касса' },
+  { view: 'cases', ico: 'cases', title: 'Кейсы', sub: 'Открыть и крутить' },
+  { view: 'upgrade', ico: 'x2', title: 'Апгрейд', sub: 'Поднять ставку' },
+  { view: 'crash', ico: 'crash', title: 'Краш', sub: 'Успеть забрать' },
+  { view: 'roulette', ico: 'roulette', title: 'Рулетка', sub: 'Красное и чёрное' },
+  { view: 'wallet', ico: 'coin', title: 'Касса', sub: 'Пополнить и вывести' },
+  { view: 'bonuses', ico: 'gift', title: 'Бонусы', sub: 'Получить награды' },
   { view: 'fair', ico: 'fair', title: 'Честность' },
   { view: 'partner', ico: 'people', title: 'Партнёру', partnerOnly: true },
   { view: 'admin', ico: 'admin', title: 'Админ', adminOnly: true },
 ];
+
+/*
+ * Значки для бокового меню вырезаются из той же картинки, что и мобильное меню.
+ *
+ * Просили «взять дизайн мобильного меню и адаптировать»: буквально взять
+ * плитку целиком нельзя - в неё вшита подпись, и в колонке шириной с палец она
+ * превратилась бы в нечитаемую полоску. Поэтому из плитки берётся только
+ * рисунок, а подпись набирается текстом в том же строе, что на картинке.
+ *
+ * Рамка рисунка внутри плитки: по горизонтали 18% отступа с каждой стороны,
+ * по вертикали от 6% до 62% высоты. Числа сняты с самой картинки.
+ */
+const MENU_ART_INSET = { x: 0.18, top: 0.06, height: 0.56 };
+
+function menuArtStyle(view) {
+  const hit = MENU_HITS.find((h) => h.view === view);
+  if (!hit) return '';
+
+  const left = hit.left + hit.width * MENU_ART_INSET.x;
+  const width = hit.width * (1 - MENU_ART_INSET.x * 2);
+  const top = hit.top + hit.height * MENU_ART_INSET.top;
+  const height = hit.height * MENU_ART_INSET.height;
+
+  // Проценты в background-position считаются от разницы размеров, а не от
+  // самой картинки: отсюда деление на (100 - размер выреза).
+  const posX = width >= 100 ? 0 : (left / (100 - width)) * 100;
+  const posY = height >= 100 ? 0 : (top / (100 - height)) * 100;
+
+  return `background-image:url(/assets/menu.webp);` +
+    `background-size:${(100 / width) * 100}% ${(100 / height) * 100}%;` +
+    `background-position:${posX.toFixed(3)}% ${posY.toFixed(3)}%`;
+}
 
 function renderSideNav() {
   const nav = document.getElementById('sideNav');
@@ -3535,20 +3578,33 @@ function renderSideNav() {
   const items = SIDE_NAV.filter((m) => (!m.adminOnly || state.user?.isAdmin)
                                     && (!m.partnerOnly || state.user?.isPartner));
 
+  const icon = (m) => {
+    const art = menuArtStyle(m.view);
+    // У разделов, которых на картинке нет (честность, партнёр, админ),
+    // остаётся собственная иконка - дорисовывать их в чужой макет нельзя.
+    return art
+      ? `<span class="side-art" style="${art}"></span>`
+      : `<span class="side-ico" data-ico="${m.ico}"></span>`;
+  };
+
   nav.innerHTML = `
     <div class="side-brand">
       <span class="side-brand-mark" data-ico="bolt"></span>
       <span class="side-brand-text">LUCKY<span>BOX</span></span>
     </div>
     <nav class="side-list">
-      ${items.map((m) => `<button class="side-item" data-view="${m.view}">
-        <span class="side-ico" data-ico="${m.ico}"></span>
-        <span class="side-title">${m.title}</span>
+      ${items.map((m) => `<button class="side-item ${menuArtStyle(m.view) ? 'has-art' : ''}"
+          data-view="${m.view}">
+        ${icon(m)}
+        <span class="side-text">
+          <span class="side-title">${m.title}</span>
+          ${m.sub ? `<span class="side-sub">${m.sub}</span>` : ''}
+        </span>
       </button>`).join('')}
     </nav>
     <button class="side-support" id="sideSupport">
       <span class="side-ico" data-ico="telegram"></span>
-      <span class="side-title">Поддержка</span>
+      <span class="side-text"><span class="side-title">Поддержка</span></span>
     </button>
   `;
   mountIcons(nav);
@@ -3676,16 +3732,16 @@ async function loadWallet() {
   loadPayments();
 
   /*
-   * Игроку важно не только сколько доступно, но и почему меньше баланса.
-   * Молчаливое «доступно 200» при балансе 1000 читается как ошибка, поэтому
-   * недостающее объясняется прямо здесь, а не в правилах.
+   * Игроку важно не только сколько доступно, но и почему ноль. Молчаливое
+   * «доступно 0» при полном балансе читается как поломка, поэтому условие
+   * названо прямо здесь, с конкретным числом, а не спрятано в правилах.
    */
-  const locked = Math.max(0, w.balance - w.available);
   document.getElementById('withdrawHint').innerHTML =
     `Доступно <b>${money(w.available)}</b> · минимум ${money(w.minPayout)}`
-    + (locked > 0
-      ? `<span class="withdraw-locked">Ещё ${money(locked)} откроется по мере игры:
-           вывести можно не больше, чем поставлено.</span>`
+    + (w.depositDebt > 0
+      ? `<span class="withdraw-locked">Пополнение нужно прокрутить через ставки:
+           осталось поставить ${money(w.depositDebt)}. После этого выводится
+           весь баланс, включая выигрыш.</span>`
       : '');
 }
 

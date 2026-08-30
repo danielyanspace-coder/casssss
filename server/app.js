@@ -779,11 +779,14 @@ app.post('/api/wallet', auth, limits.read, (req, res) => {
     balance: req.player.balance,
     pending,
     /*
-     * Доступное к выводу - меньшее из баланса и отыгранного ставками. Заявка
-     * списывает сумму сразу, поэтому ожидающие показываются отдельной строкой
-     * и в этом числе уже не участвуют.
+     * Доступное к выводу: весь баланс, если пополнение прокручено ставками, и
+     * ноль, пока не прокручено. Заявка списывает сумму сразу, поэтому
+     * ожидающие показываются отдельной строкой и здесь уже не участвуют.
      */
     available: withdrawable(req.player),
+    // Сколько ещё надо поставить, чтобы открылся вывод. Игрок должен видеть
+    // расстояние до цели, а не только слово «нельзя».
+    depositDebt: req.player.deposit_debt || 0,
     wagerProgress: req.player.wager_progress,
     minPayout: MIN_PAYOUT,
     deposits: getDeposits(req.player.id),
@@ -816,7 +819,7 @@ app.post('/api/payout/create', auth, limits.cashier, (req, res) => {
     // так». WAGER - невыполненный отыгрыш бонуса, остальные - проверки
     // реквизитов платёжного модуля.
     if ([
-      'MIN', 'INSUFFICIENT_FUNDS', 'WAGER',
+      'MIN', 'INSUFFICIENT_FUNDS', 'WAGER', 'WAGER_PROGRESS',
       'BAD_PHONE', 'BAD_BANK', 'BAD_CARD', 'BAD_METHOD', 'PAYOUT_KEY_MISSING',
       'BAD_CURRENCY', 'BAD_NETWORK', 'BAD_ADDRESS', 'BAD_RATE',
     ].includes(err.code)) {
@@ -1037,8 +1040,11 @@ app.post('/api/admin/balance', auth, adminOnly, (req, res) => {
   }
 
   try {
+    // asDeposit=false - это корректировка: деньги доходят без долга по обороту.
+    // По умолчанию начисление считается пополнением и требует отыгрыша.
     const result = adminAdjustBalance(
-      req.player.id, targetId, amount, String(req.body?.note || '').slice(0, 200)
+      req.player.id, targetId, amount, String(req.body?.note || '').slice(0, 200),
+      { asDeposit: req.body?.asDeposit !== false }
     );
     res.json(result);
   } catch (err) {

@@ -1092,8 +1092,27 @@ check('честность: личная статистика убрана', fair
 
   const cols = (sel) => desk.evaluate((s) =>
     getComputedStyle(document.querySelector(s)).gridTemplateColumns.split(' ').length, sel);
-  check('компьютер: в полке пять кейсов в ряд', (await cols('.shelf-row')) === 5,
+  check('компьютер: в полке три кейса в ряд', (await cols('.shelf-row')) === 3,
     String(await cols('.shelf-row')));
+
+  // Сетка центрируется, а не липнет влево: иначе неполный последний ряд
+  // выглядит оборванным.
+  check('компьютер: полка выровнена по центру', await desk.evaluate(() =>
+    getComputedStyle(document.querySelector('.shelf-row')).justifyContent === 'center'));
+  check('компьютер: заголовок полки по центру', await desk.evaluate(() =>
+    getComputedStyle(document.querySelector('.shelf-head')).textAlign === 'center'));
+
+  // Обложка вдвое крупнее прежней - ради этого и уменьшено число колонок.
+  const coverH = await desk.evaluate(() =>
+    document.querySelector('.shelf-row .case-cover').getBoundingClientRect().height);
+  check('компьютер: обложка крупная', coverH >= 280, `${Math.round(coverH)}px`);
+
+  // Боковое меню собрано по мотивам мобильного: у разделов с картинки стоят
+  // вырезанные из неё же рисунки.
+  check('компьютер: в боковом меню рисунки из меню-картинки',
+    await desk.evaluate(() => document.querySelectorAll('#sideNav .side-art').length >= 6));
+  check('компьютер: у разделов есть подписи как на картинке',
+    await desk.evaluate(() => document.querySelectorAll('#sideNav .side-sub').length >= 6));
 
   // Баланс и разделы бок о бок - главная причина, по которой десктоп ломается
   // незаметно: правило с идентификатором перебивает .view{display:none}.

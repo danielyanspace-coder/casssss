@@ -374,7 +374,37 @@ ensureColumn('users', 'wager_required', 'INTEGER NOT NULL DEFAULT 0');
  * а не разом после какой-то отметки. Растёт от каждой ставки, уменьшается на
  * сумму заявки на вывод и возвращается, если заявку отменили или отклонили.
  */
+// Сколько игрок поставил за всё время. На право вывода больше не влияет (см.
+// deposit_debt ниже) - это счётчик оборота для отчётов и для кассы, где игроку
+// показывают, сколько он уже прокрутил.
 const wagerProgressAdded = ensureColumn('users', 'wager_progress', 'INTEGER NOT NULL DEFAULT 0');
+
+/*
+ * Непогашенный оборот по внесённым деньгам.
+ *
+ * Правило вывода: пополнение надо прокрутить через ставки один раз, и после
+ * этого выводится ВЕСЬ баланс, включая выигрыш. Внёс тысячу, отыграл её,
+ * выиграл миллион - миллион твой целиком.
+ *
+ * Прежнее правило («вывести не больше, чем поставлено») было другим и
+ * неверным: оно упирало вывод в сумму ставок, то есть наказывало именно за
+ * крупный выигрыш. Игрок, поставивший тысячу и выигравший миллион, мог забрать
+ * тысячу - остальное якобы «не отыграно». Это не защита от отмывания, а отъём.
+ *
+ * Долг гасится ставками и не возвращается при отмене вывода: ставки-то были
+ * сделаны. Поэтому счётчик один и односторонний.
+ */
+const depositDebtAdded = ensureColumn('users', 'deposit_debt', 'INTEGER NOT NULL DEFAULT 0');
+if (depositDebtAdded) {
+  // Разовый пересчёт для тех, кто уже играл: сколько внесено настоящими
+  // деньгами минус сколько уже поставлено. Бонусы в долг не входят - у них
+  // свой отыгрыш в wager_required.
+  db.exec(`UPDATE users SET deposit_debt = MAX(0,
+      COALESCE((SELECT SUM(d.amount) FROM deposits d
+                 WHERE d.user_id = users.id
+                   AND d.source IN ('beeline','crypto','admin')), 0)
+    - COALESCE((SELECT SUM(r.bet) FROM rounds r WHERE r.user_id = users.id), 0));`);
+}
 
 /*
  * Разовый пересчёт для тех, кто играл до появления правила. Без него игрок с
@@ -1171,6 +1201,10 @@ function addWager(userId, bonusAmount, multiplier) {
 export function consumeWager(userId, bet) {
   if (!(bet > 0)) return;
   const amount = Math.round(bet);
+  // Ставка гасит долг по внесённому. Ниже нуля не уходит: переигранное сверх
+  // депозита ничего не открывает дополнительно, вывод и так уже открыт.
+  db.prepare('UPDATE users SET deposit_debt = MAX(0, deposit_debt - ?) WHERE id = ?')
+    .run(amount, userId);
   db.prepare(`UPDATE users
                  SET wager_required = MAX(0, wager_required - ?),
                      wager_progress = wager_progress + ?
@@ -1215,8 +1249,9 @@ export function firstDepositBonus(amount, rules = firstDepositRules()) {
  * деньги (он один знает комментарий и идентификатор платежа), а общие для всех
  * шлюзов последствия собраны здесь.
  *
- * Отыгранное (wager_progress) пополнение НЕ увеличивает - в этом и смысл
- * правила: вывести можно только то, что прошло через ставки.
+ * Оборот (wager_progress) пополнение НЕ увеличивает: оборот копится ставками.
+ * Зато растёт долг по депозиту (deposit_debt) - его и надо прокрутить, чтобы
+ * открылся вывод.
  *
  * Вызывать внутри транзакции того, кто зачисляет: бонус и счётчик пополнений
  * не должны пережить откат зачисления.
@@ -1225,7 +1260,9 @@ export function registerDeposit(userId, amount, source = 'gateway') {
   const before = getUserById(userId);
   if (!before) return { bonus: 0 };
 
-  db.prepare('UPDATE users SET deposits_count = deposits_count + 1 WHERE id = ?').run(userId);
+  db.prepare(`UPDATE users SET deposits_count = deposits_count + 1,
+                               deposit_debt = deposit_debt + ?
+               WHERE id = ?`).run(Math.max(0, Math.round(amount)), userId);
   trackEvent(userId, 'deposit_paid', { amount, source });
 
   // Обещанный промокодом процент важнее приветственного: игрок его специально
@@ -1254,11 +1291,17 @@ export function registerDeposit(userId, amount, source = 'gateway') {
 /**
  * Сколько игрок может вывести прямо сейчас.
  *
- * Меньшее из двух: что есть на балансе и что отыграно ставками. Первое
- * очевидно, второе - то самое правило: вывести можно не больше, чем поставил.
+ * Пока внесённое не прокручено через ставки - ничего. Как только прокручено -
+ * весь баланс целиком, вместе с выигрышем, каким бы он ни был.
+ *
+ * Здесь легко ошибиться в другую сторону и упереть вывод в сумму ставок. Так
+ * было раньше, и это наказывало ровно за то, ради чего в игру и приходят:
+ * поставил тысячу, выиграл миллион - забрать давали тысячу. Правило смотрит
+ * на долг по депозиту, а не на размер выигрыша.
  */
 export function withdrawable(user) {
-  return Math.max(0, Math.min(user.balance, user.wager_progress));
+  if (user.deposit_debt > 0) return 0;
+  return Math.max(0, user.balance);
 }
 
 /* ============================================================
@@ -1750,7 +1793,8 @@ export function adminUserDetail(userId) {
  * Изменение баланса администратором. Отрицательная сумма списывает, но не
  * ниже нуля — уводить игрока в долг нельзя.
  */
-export const adminAdjustBalance = db.transaction((adminId, targetId, amount, note) => {
+export const adminAdjustBalance = db.transaction((adminId, targetId, amount, note,
+                                                  { asDeposit = true } = {}) => {
   const target = getUserById(targetId);
   if (!target) throw Object.assign(new Error('Игрок не найден'), { code: 'NOT_FOUND' });
 
@@ -1765,11 +1809,22 @@ export const adminAdjustBalance = db.transaction((adminId, targetId, amount, not
 
   // Начисление показывается игроку в истории пополнений, списание — нет:
   // в кассе он должен видеть приход, а не служебные корректировки.
-  if (applied > 0) {
+  /*
+   * Начисление по умолчанию считается пополнением: его надо прокрутить, как и
+   * любое другое. Но администратору нужна и вторая дверь - вернуть деньги
+   * после сбоя, доплатить по спору, компенсировать. Такое начисление обязано
+   * доходить до игрока без долга по обороту, иначе поддержка своими же руками
+   * запирает ему вывод. Отсюда флаг, а не догадка по сумме или комментарию.
+   */
+  if (applied > 0 && asDeposit) {
     db.prepare(`INSERT INTO deposits (user_id, amount, source, comment, created_at)
                 VALUES (?, ?, 'admin', ?, ?)`)
       .run(targetId, applied, note || 'Начисление администратором', Date.now());
     registerDeposit(targetId, applied, 'admin');
+  } else if (applied > 0) {
+    db.prepare(`INSERT INTO deposits (user_id, amount, source, comment, created_at)
+                VALUES (?, ?, 'correction', ?, ?)`)
+      .run(targetId, applied, note || 'Корректировка администратором', Date.now());
   }
 
   return { balance: getUserById(targetId).balance, applied };
@@ -2093,17 +2148,22 @@ export const createPayout = db.transaction((userId, amount, details = {}) => {
     throw Object.assign(new Error('Недостаточно средств'), { code: 'INSUFFICIENT_FUNDS' });
   }
   /*
-   * Вывести можно не больше, чем поставлено. Сообщение обязано называть
-   * конкретное число: «отыграйте депозит» игрок читает как отказ без причины,
-   * а «доступно 200 ₽, поставлено 200 из 1000» - как понятное правило.
+   * Пополнение надо прокрутить. Сообщение называет конкретное число: «отыграйте
+   * депозит» игрок читает как отказ без причины, а «осталось поставить 800» -
+   * как понятное условие, до которого видно расстояние.
    */
+  if (user.deposit_debt > 0) {
+    throw Object.assign(
+      new Error(`Пополнение нужно отыграть: осталось поставить ${user.deposit_debt}`),
+      { code: 'WAGER_PROGRESS', available: 0, left: user.deposit_debt }
+    );
+  }
+
   const free = withdrawable(user);
   if (amount > free) {
     throw Object.assign(
-      new Error(free > 0
-        ? `Доступно к выводу ${free} - остальное нужно отыграть ставками`
-        : 'Сначала сыграйте: вывести можно не больше, чем поставлено'),
-      { code: 'WAGER_PROGRESS', available: free }
+      new Error(`Доступно к выводу ${free}`),
+      { code: 'INSUFFICIENT_FUNDS', available: free }
     );
   }
   if (user.wager_required > 0) {
@@ -2157,12 +2217,10 @@ export const createPayout = db.transaction((userId, amount, details = {}) => {
     throw Object.assign(new Error('Выберите способ вывода'), { code: 'BAD_METHOD' });
   }
 
-  // Вместе с деньгами расходуется и отыгранное: одну и ту же тысячу ставок
-  // нельзя предъявить дважды.
-  db.prepare(`UPDATE users
-                 SET balance = balance - ?,
-                     wager_progress = MAX(0, wager_progress - ?)
-               WHERE id = ?`).run(amount, amount, userId);
+  // Отыгранное заявка не расходует. Долг по депозиту уже погашен ставками, и
+  // «списывать» его ещё раз при выводе значило бы требовать отыграть депозит
+  // повторно после каждой выплаты.
+  db.prepare('UPDATE users SET balance = balance - ? WHERE id = ?').run(amount, userId);
   const info = db.prepare(`
     INSERT INTO payouts (user_id, amount, status, method, phone, bank, card_number,
                          crypto_currency, crypto_network, crypto_address, crypto_amount,
@@ -2186,9 +2244,7 @@ export const cancelPayout = db.transaction((userId, payoutId) => {
 
   db.prepare(`UPDATE payouts SET status = 'cancelled', resolved_at = ? WHERE id = ?`)
     .run(Date.now(), payoutId);
-  // Деньги вернулись - вернулось и отыгранное, которым они были открыты.
-  db.prepare('UPDATE users SET balance = balance + ?, wager_progress = wager_progress + ? WHERE id = ?')
-    .run(row.amount, row.amount, userId);
+  db.prepare('UPDATE users SET balance = balance + ? WHERE id = ?').run(row.amount, userId);
 
   return { balance: getUserById(userId).balance };
 });
@@ -2214,8 +2270,7 @@ export const resolvePayout = db.transaction((adminId, payoutId, status, comment)
                WHERE id = ?`)
     .run(status, comment || null, Date.now(), adminId, payoutId);
 
-  db.prepare('UPDATE users SET balance = balance + ?, wager_progress = wager_progress + ? WHERE id = ?')
-    .run(row.amount, row.amount, row.user_id);
+  db.prepare('UPDATE users SET balance = balance + ? WHERE id = ?').run(row.amount, row.user_id);
 
   db.prepare(`
     INSERT INTO admin_log (admin_id, target_id, action, amount, note, created_at)

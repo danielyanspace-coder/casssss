@@ -38,7 +38,7 @@ console.log(`Кейсов: ${config.cases.length}, игрок #${me.id}, адм�
 
 /* ---------- Пополняем баланс для тестов ---------- */
 
-await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'тестовый прогон' });
+await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'тестовый прогон', asDeposit: false });
 
 /* ---------- 1. Кейсы: арифметика баланса ---------- */
 
@@ -85,7 +85,7 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
   const after = (await post('/api/me')).data.user;
   check('нехватка средств: баланс не ушёл в минус', after.balance >= 0, `баланс ${after.balance}`);
 
-  await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'возврат' });
+  await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'возврат', asDeposit: false });
 }
 
 /* ---------- 3. Несуществующий кейс ---------- */
@@ -345,7 +345,7 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
 /* ---------- 9b. Пачка открытий ---------- */
 
 {
-  await post('/api/admin/balance', { userId: me.id, amount: 5_000_000, note: 'пачка' });
+  await post('/api/admin/balance', { userId: me.id, amount: 5_000_000, note: 'пачка', asDeposit: false });
   const c = config.cases.find((x) => x.id === 'neon_500');
   const before = (await post('/api/me')).data.user;
 
@@ -439,7 +439,7 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
   check('админка: список игроков отдаётся', users.status === 200 && Array.isArray(users.data.rows));
 
   const before = (await post('/api/me')).data.user.balance;
-  await post('/api/admin/balance', { userId: me.id, amount: 1234, note: 'проверка' });
+  await post('/api/admin/balance', { userId: me.id, amount: 1234, note: 'проверка', asDeposit: false });
   const after = (await post('/api/me')).data.user.balance;
   check('админка: начисление меняет баланс ровно на сумму', after === before + 1234,
         `${after} vs ${before + 1234}`);
@@ -447,7 +447,7 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
   await post('/api/admin/balance', { userId: me.id, amount: -(after + 999999), note: 'проверка' });
   const floor = (await post('/api/me')).data.user.balance;
   check('админка: списание не уводит баланс ниже нуля', floor === 0, `баланс ${floor}`);
-  await post('/api/admin/balance', { userId: me.id, amount: 100000, note: 'возврат' });
+  await post('/api/admin/balance', { userId: me.id, amount: 100000, note: 'возврат', asDeposit: false });
 
   const zero = await post('/api/admin/balance', { userId: me.id, amount: 0 });
   check('админка: нулевая сумма отклонена', zero.status === 400);
@@ -460,7 +460,32 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
 
 {
   await post('/api/admin/balance', { userId: me.id, amount: 200_000, note: 'касса' });
+
+  /*
+   * Начисление администратора - это пополнение, и по правилу вывода его надо
+   * прокрутить через ставки. Проверяем само правило, а потом отыгрываем долг,
+   * чтобы дальше можно было проверять заявки.
+   */
+  const owing = (await post('/api/wallet')).data;
+  check('пополнение закрывает вывод, пока не прокручено',
+        owing.depositDebt > 0 && owing.available === 0,
+        `долг ${owing.depositDebt}, доступно ${owing.available}`);
+  check('заявка при непрокрученном пополнении отклонена',
+        (await post('/api/payout/create',
+          { amount: 5000, method: 'sbp', phone: '79001234567', bank: 'Сбербанк' })).status === 400);
+
+  // Гасим долг ставками: крутим рулетку, пока не отыграем внесённое.
+  for (let i = 0; i < 80; i++) {
+    const w = (await post('/api/wallet')).data;
+    if (!w.depositDebt) break;
+    const bet = Math.max(1, Math.min(w.depositDebt, w.balance, 10_000_000));
+    await post('/api/roulette', { bet, color: 'red' });
+  }
+
   const start = (await post('/api/wallet')).data;
+  check('после отыгрыша долга вывод открыт полностью',
+        start.depositDebt === 0 && start.available === start.balance,
+        `долг ${start.depositDebt}, доступно ${start.available} при ${start.balance}`);
 
   check('касса отдаёт баланс и истории',
         start.balance > 0 && Array.isArray(start.deposits) && Array.isArray(start.payouts));
@@ -559,8 +584,11 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
   const w = (await post('/api/wallet')).data;
   check('касса: доступное не больше баланса', w.available <= w.balance,
         `${w.available} из ${w.balance}`);
-  check('касса: доступное не больше отыгранного', w.available <= w.wagerProgress,
-        `${w.available} при отыгранных ${w.wagerProgress}`);
+  // Правило вывода: пока пополнение не прокручено ставками - ноль, после -
+  // весь баланс. Промежуточных значений быть не должно.
+  check('касса: вывод открыт только полностью или никак',
+        w.depositDebt > 0 ? w.available === 0 : w.available === w.balance,
+        `доступно ${w.available} при балансе ${w.balance} и долге ${w.depositDebt}`);
 
   const opts = await post('/api/crypto/options');
   check('криптокасса: настройки отдаются', opts.status === 200, `HTTP ${opts.status}`);
@@ -664,7 +692,7 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
   const setBalance = async (target) => {
     const now = (await post('/api/me')).data.user.balance;
     if (now !== target) {
-      await post('/api/admin/balance', { userId: me.id, amount: target - now, note: 'фриспины' });
+      await post('/api/admin/balance', { userId: me.id, amount: target - now, note: 'фриспины', asDeposit: false });
     }
   };
   await setBalance(20_000_000);
@@ -750,7 +778,7 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
 /* ---------- Покупка фриспинов ---------- */
 
 {
-  await post('/api/admin/balance', { userId: me.id, amount: 5_000_000, note: 'фриспины' });
+  await post('/api/admin/balance', { userId: me.id, amount: 5_000_000, note: 'фриспины', asDeposit: false });
   const c = config.cases.find((x) => x.id === 'warmup_100');
 
   check('конфиг отдаёт пачки фриспинов',

@@ -212,7 +212,16 @@ const bankArt = Object.fromEntries(
     ])
 );
 
+/*
+ * Картинка меню нужна не только тегу <img>, но и стилям: из неё вырезаются
+ * значки бокового меню на компьютере. Поэтому путь заменяется везде, где он
+ * встречается, а не только в разметке - иначе в автономной сборке боковое
+ * меню оставалось без рисунков.
+ */
+const menuSrc = 'data:image/webp;base64,' + menuData;
+
 const inlineUi = (src) => src
+  .replace(/\/?assets\/menu\.webp/g, menuSrc)
   .replace(/\/?assets\/ui\/[\w-]+\.webp/g, (m) => uiArt[m.replace(/^\//, '')] || m)
   .replace(/\/?assets\/banks\/[\w-]+\.webp/g, (m) => bankArt[m.replace(/^\//, '')] || m)
   .replace(/'\/sbp-banks\.json'/g, `'${sbpBanks}'`);
@@ -233,7 +242,6 @@ const body = html
   .replace(/<\/body>[\s\S]*$/, '')
   .replace(/<script[^>]*telegram[^>]*><\/script>/g, '')
   .replace(/<script[^>]*src="\/app\.js"[^>]*><\/script>/g, '')
-  .replace('src="/assets/menu.webp"', `src="data:image/webp;base64,${menuData}"`)
   .replace(/<picture>[\s\S]*?<\/picture>/,
     () => `<img src="data:image/webp;base64,${heroData}" alt="Лучший проект Las Vegas 2026" class="hero-img">`);
 
