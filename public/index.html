@@ -19,18 +19,6 @@
        Содержимое собирается в app.js -> renderSideNav(). -->
   <aside class="side-nav" id="sideNav"></aside>
 
-  <!-- Лента выигрышей стоит выше шапки: это первое, что видит вошедший, и
-       она же единственное живое место экрана. Поэтому она вынесена из
-       раздела «Кейсы» наружу и видна во всех разделах.
-
-       Липкой не сделана намеренно: прокрутил - ушла, и экран отдан игре. -->
-  <div class="feed" id="feed" hidden>
-    <div class="feed-head">
-      <span class="feed-title">Последние выигрыши</span>
-    </div>
-    <div class="feed-track" id="feedTrack"></div>
-  </div>
-
   <header class="topbar">
     <div class="brand">
       <div class="brand-mark" data-ico="bolt"></div>
@@ -104,6 +92,14 @@
             <img src="/assets/ui/hero-4.webp" alt="Дарим перелёт на частном джете" class="hero-img" loading="lazy">
           </div>
           <div class="hero-dots" id="heroDots"></div>
+        </div>
+
+        <!-- Лента выигрышей. Обычные исходы сюда не попадают. -->
+        <div class="feed" id="feed" hidden>
+          <div class="feed-head">
+            <span class="feed-title">Последние выигрыши</span>
+          </div>
+          <div class="feed-track" id="feedTrack"></div>
         </div>
 
         <!-- Пара выровнена по верху и по низу: ширины делятся между картинками

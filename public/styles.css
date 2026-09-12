@@ -113,7 +113,7 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 10px 16px;
+  padding: calc(10px + var(--safe-top)) 16px 10px;
   background: rgba(13, 3, 24, 0.86);
   backdrop-filter: blur(16px);
   border-bottom: 1px solid var(--line);
@@ -1006,19 +1006,33 @@ main { position: relative; z-index: 2; padding: 18px; }
  * вылезет за свою колонку. На сезонном баннере это уже ломалось.
  */
 :root {
-  --hero-ratio: 2;          /* hero-1..4.webp, 1600x800 */
-  --promo-wide-ratio: 2.5;  /* promo-wide.webp, 1600x640 */
-  --promo-square-ratio: 1;  /* promo-square.webp, 900x900 */
-  --banner-gap: 8px;
+  --hero-ratio: 2;            /* hero-1..4.webp, 1600x800 */
+  --promo-wide-ratio: 3.285;  /* promo-wide.webp, 1600x487 */
+  --promo-square-ratio: 1.017;/* promo-square.webp, 900x885 */
+  /* Пара стоит почти вплотную: промежуток виден, но не разрывает связку. */
+  --banner-gap: 4px;
 }
 
-/* Баннеры идут во всю ширину экрана телефона, поэтому выходят за поля main. */
-.banner-stack { margin: -18px -18px 18px; }
+/* Баннеры больше не выходят за поля main: главный баннер выделен рамкой, а
+   рамку у самого края экрана не видно. Сверху свой отступ - баннер не должен
+   лежать вплотную к шапке. */
+.banner-stack { margin: 14px 0 18px; }
 
+/*
+ * Рамка со всех сторон. Толщина в две точки, а не в одну: одноточечная на
+ * экране с двойной плотностью превращается в еле заметный волосок, и весь
+ * смысл выделения теряется.
+ *
+ * Внутренняя тень поверх картинки нужна из-за скруглённых углов: без неё край
+ * фотографии лежит впритык к рамке и на светлых баннерах выглядит обрезанным.
+ */
 .hero {
   position: relative;
   aspect-ratio: var(--hero-ratio);
   overflow: hidden;
+  border: 2px solid var(--line);
+  border-radius: 18px;
+  background: var(--bg-soft);
 }
 
 /*
@@ -1080,7 +1094,6 @@ main { position: relative; z-index: 2; padding: 18px; }
   display: flex;
   align-items: flex-start;
   gap: var(--banner-gap);
-  padding: var(--banner-gap) 18px 0;
 }
 /* min-width: 0 обязателен. У картинки минимальная ширина по умолчанию равна
    её собственной, то есть 900 и 1600 пикселей: без этой строки обе отказались
@@ -3493,11 +3506,7 @@ select.seed-input {
   --feed-w: 74px;
   --feed-gap: 3px;
   position: relative;
-  /* Лента стоит выше шапки, то есть в самом верху страницы, и вырезку под
-     чёлку теперь держит она, а не шапка. Поля по бокам свои: она лежит уже не
-     внутри main и его отступов не наследует. */
-  margin: calc(var(--safe-top) + 8px) 12px 8px;
-  z-index: 3;
+  margin: 12px 0;
   padding: 7px 0 8px;
   border: 1px solid rgba(150, 70, 235, 0.3);
   border-radius: 13px;
@@ -4325,27 +4334,15 @@ select.seed-input {
     width: min(100%, var(--banner-max),
                max(var(--banner-min),
                    calc((100vh - var(--banner-vh-reserve)) * var(--hero-ratio))));
-    margin: 0 auto 24px;
+    margin: 6px auto 24px;
   }
 
-  .hero { border-radius: 24px; border: 1px solid var(--line); }
+  .hero { border-radius: 24px; border-width: 3px; }
   .hero-dots { bottom: 14px; }
   .hero-dot { width: 9px; height: 9px; }
   .hero-dot.on { width: 26px; border-radius: 5px; }
 
-  /* Поля тут уже не нужны: ширину держит сам .banner-stack. */
-  .promo-pair { padding: var(--banner-gap) 0 0; }
   .promo-pair img { border-radius: 16px; }
-
-  /* Лента встаёт в ту же колонку, что и содержимое: предел ширины у main
-     1520 px при полях 34 px, значит её панель ровно на 68 px уже. Ширина
-     задана и процентом, и пределом, потому что одного мало: процент держит
-     поля на узком окне, предел - центровку на широком мониторе. */
-  .feed {
-    width: calc(100% - 68px);
-    max-width: calc(1520px - 68px);
-    margin: 14px auto 0;
-  }
 
   /* Заголовок над пояснением, кнопка справа во всю высоту. Строкой в ряд
      заголовок ломался посреди «+100% до 1 000 ₽», хотя место было. */
