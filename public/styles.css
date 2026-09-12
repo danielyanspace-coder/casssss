@@ -113,7 +113,7 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: calc(10px + var(--safe-top)) 16px 10px;
+  padding: 10px 16px;
   background: rgba(13, 3, 24, 0.86);
   backdrop-filter: blur(16px);
   border-bottom: 1px solid var(--line);
@@ -141,23 +141,27 @@ body {
 .brand-name span { color: var(--pink); }
 .brand-sub { font-size: 10.5px; color: var(--muted); letter-spacing: 1.6px; margin-top: 3px; }
 
-/* Баланс поджат: рядом с ним теперь кнопка меню, и прежний размер выдавливал
-   логотип за край, стоило балансу вырасти до семизначного. */
+/* Баланс - это показание, а не призыв к действию. Рамка, розовая заливка и
+   монетка делали из него третью кнопку в шапке, и глаз цеплялся за цифру
+   каждый раз, когда она менялась. Поэтому здесь нет ни подложки, ни границы,
+   ни значка: обычный белый текст обычной жирности.
+
+   Кнопкой элемент остался: нажатие ведёт в кассу, и отнимать этот путь у тех,
+   кто к нему привык, незачем. Видимой кнопкой он быть перестал. */
 .balance-chip {
-  display: flex; align-items: center; gap: 5px;
-  padding: 6px 11px;
-  border-radius: 999px;
-  background: linear-gradient(135deg, rgba(255, 46, 138, 0.3), rgba(160, 32, 255, 0.28));
-  border: 1px solid var(--pink);
-  box-shadow: 0 0 14px rgba(255, 46, 138, 0.12);
+  display: flex; align-items: center;
+  padding: 6px 2px;
+  border: none;
+  background: none;
+  box-shadow: none;
+  color: var(--text);
   transition: transform 0.25s;
   min-width: 0;
 }
 .balance-chip.bump { transform: scale(1.12); }
-.balance-ico { width: 16px; height: 16px; flex: 0 0 auto; }
-.balance-ico svg { width: 100%; height: 100%; }
 .balance-value {
-  font-size: 13px; font-weight: 900; font-variant-numeric: tabular-nums;
+  font-size: 15px; font-weight: 500; font-variant-numeric: tabular-nums;
+  color: #fff;
   white-space: nowrap;
 }
 
@@ -992,34 +996,108 @@ main { position: relative; z-index: 2; padding: 18px; }
    ШАПКА-ПОСТЕР
    ============================================================ */
 
+/*
+ * НАСТОЯЩИЕ ПРОПОРЦИИ ФАЙЛОВ. Все размеры баннеров считаются от них, и это
+ * единственное место, где числа заданы руками. Поменяли картинку - поменяйте
+ * число здесь, и вся вёрстка сойдётся сама.
+ *
+ * ПОЧЕМУ ВЫСОТА НЕ ЗАДАНА НИГДЕ. Высоту даёт aspect-ratio от ширины. Если
+ * задать ещё и высоту, aspect-ratio начнёт считать ШИРИНУ от неё, и баннер
+ * вылезет за свою колонку. На сезонном баннере это уже ломалось.
+ */
+:root {
+  --hero-ratio: 2;          /* hero-1..4.webp, 1600x800 */
+  --promo-wide-ratio: 2.5;  /* promo-wide.webp, 1600x640 */
+  --promo-square-ratio: 1;  /* promo-square.webp, 900x900 */
+  --banner-gap: 8px;
+}
+
+/* Баннеры идут во всю ширину экрана телефона, поэтому выходят за поля main. */
+.banner-stack { margin: -18px -18px 18px; }
+
 .hero {
   position: relative;
-  margin: -18px -18px 18px;
+  aspect-ratio: var(--hero-ratio);
   overflow: hidden;
-  /* Постер вертикальный: показываем верх с заголовком и маской,
-     иначе он занял бы почти весь экран. */
-  max-height: 360px;
 }
+
+/*
+ * Слайды лежат стопкой и переключаются прозрачностью. Ушедший слайд не
+ * прячется display: none, а становится прозрачным: display нельзя анимировать,
+ * и переход получился бы рывком.
+ *
+ * Прозрачный слайд перехватывал бы нажатия, поэтому у неактивных выключены
+ * события указателя.
+ */
+.hero-slides { position: absolute; inset: 0; }
 
 .hero-img {
+  position: absolute;
+  inset: 0;
   display: block;
   width: 100%;
-  height: 360px;
-  object-fit: cover;
-  object-position: center top;
-}
-
-.hero-fade {
-  position: absolute;
-  inset: auto 0 0 0;
-  height: 130px;
-  background: linear-gradient(180deg, transparent, var(--bg) 88%);
+  height: 100%;
+  /* contain, а не cover: на баннерах есть надписи у самого края кадра, и
+     обрезка съедала бы слово. Картинка видна целиком. */
+  object-fit: contain;
+  opacity: 0;
   pointer-events: none;
+  transition: opacity 0.7s ease;
 }
+.hero-img.active { opacity: 1; pointer-events: auto; }
 
-@media (max-width: 400px) {
-  .hero, .hero-img { max-height: 300px; height: 300px; }
+/* Точки переключения. Лежат на самом баннере снизу по центру. */
+.hero-dots {
+  position: absolute;
+  left: 0; right: 0; bottom: 9px;
+  display: flex; justify-content: center; gap: 6px;
+  z-index: 2;
 }
+.hero-dot {
+  width: 7px; height: 7px;
+  padding: 0; border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.38);
+  cursor: pointer;
+  transition: width 0.25s, background 0.25s;
+}
+.hero-dot.on { width: 20px; border-radius: 4px; background: #fff; }
+
+/*
+ * ПАРА БАННЕРОВ ПОД ГЛАВНЫМ: широкий слева, квадратный справа.
+ *
+ * Верх и низ у них обязаны совпадать. Добиться этого подбором пикселей нельзя:
+ * ширина экрана разная у всех. Поэтому ширины заданы не числами, а долями
+ * свободного места, равными пропорциям самих картинок.
+ *
+ * Почему это работает. flex-basis у обеих нулевой, значит вся ширина строки за
+ * вычетом промежутка делится между ними строго в отношении flex-grow. Ставим
+ * flex-grow равным пропорции картинки - и получаем w1/w2 = 2.5/1, то есть
+ * ровно то отношение, при котором обе картинки дают одинаковую высоту.
+ * Промежуток при этом вычитается ДО деления, поэтому он высоту не сдвигает.
+ */
+.promo-pair {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--banner-gap);
+  padding: var(--banner-gap) 18px 0;
+}
+/* min-width: 0 обязателен. У картинки минимальная ширина по умолчанию равна
+   её собственной, то есть 900 и 1600 пикселей: без этой строки обе отказались
+   бы сжиматься и вылезли бы за экран. */
+.promo-pair img {
+  display: block;
+  width: 100%; height: auto; min-width: 0;
+  border-radius: 12px;
+}
+/*
+ * Записано отдельными свойствами, а не сокращением flex. Сокращение с var()
+ * внутри браузер разбирает уже после подстановки, и если разбор не удался,
+ * свойство молча сбрасывается целиком - пара разъезжается, а в отладчике
+ * ничего не подсвечено. Отдельные свойства такой ловушки не имеют.
+ */
+.promo-wide { flex-grow: var(--promo-wide-ratio); flex-shrink: 1; flex-basis: 0%; }
+.promo-square { flex-grow: var(--promo-square-ratio); flex-shrink: 1; flex-basis: 0%; }
 
 /* ============================================================
    СОБСТВЕННЫЕ ИКОНКИ
@@ -2798,7 +2876,7 @@ select.seed-input {
 .topbar { gap: 8px; }
 .brand { min-width: 0; flex: 0 1 auto; }
 .brand-text { min-width: 0; }
-.balance-chip { padding: 7px 12px; flex: 0 0 auto; }
+.balance-chip { padding: 7px 4px; flex: 0 0 auto; }
 .balance-value { font-size: 15px; white-space: nowrap; }
 
 @media (max-width: 400px) {
@@ -3415,7 +3493,11 @@ select.seed-input {
   --feed-w: 74px;
   --feed-gap: 3px;
   position: relative;
-  margin: 0 0 12px;
+  /* Лента стоит выше шапки, то есть в самом верху страницы, и вырезку под
+     чёлку теперь держит она, а не шапка. Поля по бокам свои: она лежит уже не
+     внутри main и его отступов не наследует. */
+  margin: calc(var(--safe-top) + 8px) 12px 8px;
+  z-index: 3;
   padding: 7px 0 8px;
   border: 1px solid rgba(150, 70, 235, 0.3);
   border-radius: 13px;
@@ -4216,16 +4298,54 @@ select.seed-input {
 
   /* ---------- Первый экран ---------- */
 
-  /* Постер вписан в скруглённую карточку, а не вылезает за края: на всю
-     ширину монитора он превращается в тонкую полосу. */
-  .hero {
-    margin: 0 0 22px;
-    max-height: 330px;
-    border-radius: 24px;
-    border: 1px solid var(--line);
+  /*
+   * ШИРИНА БАННЕРОВ НА КОМПЬЮТЕРЕ ОГРАНИЧЕНА ДВАЖДЫ, И ОБА РАЗА НЕ ПРОСТО ТАК.
+   *
+   * Баннер показывается целиком, без обрезки, значит его высота жёстко
+   * привязана к ширине: при пропорции 2:1 растянутый на 1450 px баннер даёт
+   * 725 px высоты и занимает экран ноутбука один, без остатка. Поэтому:
+   *
+   *   1. --banner-max держит разумный предел по ширине;
+   *   2. вторая граница считается от высоты окна: ширина не больше, чем
+   *      (высота окна минус запас) x пропорция. Запас - это шапка, лента над
+   *      ней и та часть пары баннеров, которая обязана попасть на первый
+   *      экран. Так баннер остаётся крупным на большом мониторе и сам
+   *      ужимается на низком окне, вместо того чтобы выдавить собой всё
+   *      остальное.
+   *
+   * --banner-min не даёт второй границе ужать баннер до марки. На окне
+   * высотой 720 px она сама по себе выдавала 520 px ширины: баннер терялся
+   * посреди пустой колонки, и весь смысл большой рекламной картинки пропадал.
+   * Ниже этой планки баннер просто уходит под сгиб, и это меньшее зло.
+   */
+  .banner-stack {
+    --banner-max: 1180px;
+    --banner-min: 680px;
+    --banner-vh-reserve: 460px;
+    width: min(100%, var(--banner-max),
+               max(var(--banner-min),
+                   calc((100vh - var(--banner-vh-reserve)) * var(--hero-ratio))));
+    margin: 0 auto 24px;
   }
-  .hero-img { height: 330px; object-position: center 28%; }
-  .hero-fade { height: 150px; }
+
+  .hero { border-radius: 24px; border: 1px solid var(--line); }
+  .hero-dots { bottom: 14px; }
+  .hero-dot { width: 9px; height: 9px; }
+  .hero-dot.on { width: 26px; border-radius: 5px; }
+
+  /* Поля тут уже не нужны: ширину держит сам .banner-stack. */
+  .promo-pair { padding: var(--banner-gap) 0 0; }
+  .promo-pair img { border-radius: 16px; }
+
+  /* Лента встаёт в ту же колонку, что и содержимое: предел ширины у main
+     1520 px при полях 34 px, значит её панель ровно на 68 px уже. Ширина
+     задана и процентом, и пределом, потому что одного мало: процент держит
+     поля на узком окне, предел - центровку на широком мониторе. */
+  .feed {
+    width: calc(100% - 68px);
+    max-width: calc(1520px - 68px);
+    margin: 14px auto 0;
+  }
 
   /* Заголовок над пояснением, кнопка справа во всю высоту. Строкой в ряд
      заголовок ломался посреди «+100% до 1 000 ₽», хотя место было. */

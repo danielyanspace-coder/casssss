@@ -5029,6 +5029,9 @@ async function init() {
   mountIcons();
   buildMoneyRain();
   buildFooter();
+  // Баннеры лежат в разметке и от сервера не зависят: крутим их сразу, не
+  // дожидаясь конфига. Иначе первые секунды на экране висит неподвижный кадр.
+  runHeroSlider();
 
 
   try {
@@ -5069,6 +5072,72 @@ async function init() {
 
 init();
 
+
+/* ============================================================
+   ГЛАВНЫЙ БАННЕР
+   ============================================================ */
+
+/**
+ * Слайд-шоу главного баннера.
+ *
+ * ПОЧЕМУ ПЕРЕКЛЮЧЕНИЕ ПРОЗРАЧНОСТЬЮ, А НЕ СДВИГОМ. Сдвиг требует полосы
+ * шириной в четыре экрана, а такая полоса на телефоне ловит горизонтальный
+ * свайп и конфликтует с прокруткой страницы. Стопка с прозрачностью этой беды
+ * не имеет вовсе.
+ *
+ * ПОЧЕМУ ТАЙМЕР ОСТАНАВЛИВАЕТСЯ НА СКРЫТОЙ ВКЛАДКЕ. Иначе свёрнутое
+ * приложение продолжает перекрашивать баннер: работа впустую, а на телефоне
+ * ещё и расход батареи. Вернувшись, игрок увидит тот же кадр, на котором ушёл.
+ */
+function runHeroSlider() {
+  const hero = document.getElementById('hero');
+  const dotsBox = document.getElementById('heroDots');
+  if (!hero || !dotsBox) return;
+
+  const slides = [...hero.querySelectorAll('.hero-img')];
+  if (slides.length < 2) return;
+
+  // Шесть секунд: за меньшее время надпись на баннере прочитать не успеваешь,
+  // за большее баннер перестаёт читаться как сменяющийся.
+  const SLIDE_MS = 6000;
+
+  let at = 0;
+  let timer = null;
+
+  dotsBox.innerHTML = slides
+    .map((_, i) => `<button class="hero-dot${i === 0 ? ' on' : ''}" type="button"
+      aria-label="Баннер ${i + 1}"></button>`)
+    .join('');
+  const dots = [...dotsBox.children];
+
+  const show = (next) => {
+    at = (next + slides.length) % slides.length;
+    slides.forEach((el, i) => el.classList.toggle('active', i === at));
+    dots.forEach((el, i) => el.classList.toggle('on', i === at));
+  };
+
+  const start = () => {
+    if (timer === null) timer = setInterval(() => show(at + 1), SLIDE_MS);
+  };
+  const stop = () => { clearInterval(timer); timer = null; };
+
+  dots.forEach((dot, i) => {
+    dot.addEventListener('click', () => {
+      // Отсчёт начинается заново: иначе выбранный вручную кадр мог смениться
+      // через полсекунды, и нажатие выглядело бы сломанным.
+      stop();
+      show(i);
+      start();
+      haptic('light');
+    });
+  });
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) stop(); else start();
+  });
+
+  start();
+}
 
 /* ============================================================
    СЧЁТЧИКИ В ПОДВАЛЕ

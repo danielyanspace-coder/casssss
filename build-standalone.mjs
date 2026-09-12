@@ -117,7 +117,6 @@ const drawTables = CASES.map((c) => ({
 
 /* ---------- Исходники клиента ---------- */
 
-const heroData = readFileSync(new URL('./public/assets/hero.webp', import.meta.url)).toString('base64');
 const porscheData = readFileSync(new URL('./public/assets/porsche.webp', import.meta.url)).toString('base64');
 const bannerData = readFileSync(new URL('./public/assets/porsche-banner.webp', import.meta.url)).toString('base64');
 // Присланные обложки уезжают в файл все разом: с диска относительных путей
@@ -241,9 +240,9 @@ const body = html
   .replace(/^[\s\S]*?<body>/, '')
   .replace(/<\/body>[\s\S]*$/, '')
   .replace(/<script[^>]*telegram[^>]*><\/script>/g, '')
-  .replace(/<script[^>]*src="\/app\.js"[^>]*><\/script>/g, '')
-  .replace(/<picture>[\s\S]*?<\/picture>/,
-    () => `<img src="data:image/webp;base64,${heroData}" alt="Лучший проект Las Vegas 2026" class="hero-img">`);
+  .replace(/<script[^>]*src="\/app\.js"[^>]*><\/script>/g, '');
+// Баннеров первого экрана здесь нет намеренно: они лежат в assets/ui/ и
+// уезжают внутрь файла общим правилом inlineUi, как баннеры полок.
 
 // Модульный синтаксис снимаем: файл открывают с диска, а браузеры не грузят
 // ES-модули по file:// — всё склеивается в один обычный скрипт.

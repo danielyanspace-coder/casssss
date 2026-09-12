@@ -19,6 +19,18 @@
        Содержимое собирается в app.js -> renderSideNav(). -->
   <aside class="side-nav" id="sideNav"></aside>
 
+  <!-- Лента выигрышей стоит выше шапки: это первое, что видит вошедший, и
+       она же единственное живое место экрана. Поэтому она вынесена из
+       раздела «Кейсы» наружу и видна во всех разделах.
+
+       Липкой не сделана намеренно: прокрутил - ушла, и экран отдан игре. -->
+  <div class="feed" id="feed" hidden>
+    <div class="feed-head">
+      <span class="feed-title">Последние выигрыши</span>
+    </div>
+    <div class="feed-track" id="feedTrack"></div>
+  </div>
+
   <header class="topbar">
     <div class="brand">
       <div class="brand-mark" data-ico="bolt"></div>
@@ -43,8 +55,9 @@
       <!-- На компьютере рядом с балансом стоит явная кнопка пополнения: место
            есть, а искать кассу в меню на широком экране незачем. -->
       <button class="btn btn-primary top-deposit" id="topDeposit">Пополнить</button>
+      <!-- Баланс намеренно без рамки, подложки и значка: это показание, а не
+           кнопка «купить». Нажатие всё так же ведёт в кассу. -->
       <button class="balance-chip" id="balanceChip">
-        <span class="balance-ico" data-ico="coin"></span>
         <span class="balance-value" id="balanceValue">-</span>
       </button>
       <button class="menu-btn" id="menuBtn" aria-label="Меню" data-ico="grid"></button>
@@ -69,20 +82,38 @@
     <!-- ══════════ КЕЙСЫ ══════════ -->
     <section class="view active" id="view-cases">
 
-      <div class="hero">
-        <picture>
-          <source srcset="/assets/hero.webp" type="image/webp">
-          <img src="/assets/hero.jpg" alt="Лучший проект Las Vegas 2026" class="hero-img">
-        </picture>
-        <div class="hero-fade"></div>
-      </div>
+      <!-- ══════════ БАННЕРЫ ПЕРВОГО ЭКРАНА ══════════
 
-      <!-- Лента выигрышей. Обычные исходы сюда не попадают. -->
-      <div class="feed" id="feed" hidden>
-        <div class="feed-head">
-          <span class="feed-title">Последние выигрыши</span>
+           Главный баннер - слайд-шоу из четырёх присланных картинок, под ним
+           пара: широкий слева, квадратный справа.
+
+           Все баннеры показываются ЦЕЛИКОМ, без обрезки и без увеличения: на
+           них есть надписи, прижатые к краям кадра, и любой object-fit: cover
+           съел бы слово. Поэтому высоту задаёт aspect-ratio по настоящим
+           пропорциям файла, а не число в пикселях.
+
+           Слайды лежат друг на друге и переключаются прозрачностью: сдвигом
+           пришлось бы держать полосу шириной в четыре экрана, и она бы ловила
+           горизонтальную прокрутку пальцем. Крутит их runHeroSlider(). -->
+      <div class="banner-stack">
+        <div class="hero" id="hero">
+          <div class="hero-slides">
+            <img src="/assets/ui/hero-1.webp" alt="Lucky Energy" class="hero-img active">
+            <img src="/assets/ui/hero-2.webp" alt="Официальные спонсоры Формула-1" class="hero-img" loading="lazy">
+            <img src="/assets/ui/hero-3.webp" alt="Партнёры международной федерации тенниса" class="hero-img" loading="lazy">
+            <img src="/assets/ui/hero-4.webp" alt="Дарим перелёт на частном джете" class="hero-img" loading="lazy">
+          </div>
+          <div class="hero-dots" id="heroDots"></div>
         </div>
-        <div class="feed-track" id="feedTrack"></div>
+
+        <!-- Пара выровнена по верху и по низу: ширины делятся между картинками
+             в том же отношении, что и их пропорции, поэтому высота у обеих
+             выходит одинаковой сама собой, на любой ширине экрана.
+             Подробности в styles.css -> .promo-pair. -->
+        <div class="promo-pair">
+          <img src="/assets/ui/promo-wide.webp" alt="Free money: разыгрываем Rolls-Royce Wraith" class="promo-wide">
+          <img src="/assets/ui/promo-square.webp" alt="Бонусы LUCKYBOX" class="promo-square">
+        </div>
       </div>
 
       <div class="perk-bar" id="perkBar" hidden></div>
