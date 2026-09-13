@@ -9,7 +9,13 @@ import Database from 'better-sqlite3';
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
-import { generateClientSeed, generateServerSeed, hashSeed } from './fair.js';
+import { generateClientSeed, generateServerSeed, hashSeed, computeRoll } from './fair.js';
+import {
+  FORTUNE_SEGMENTS, pickSegment, pickAmount,
+  PERCENT_MIN, PERCENT_MAX, PERCENT_STEP,
+  VOUCHER_MIN, VOUCHER_MAX, VOUCHER_STEP,
+  CASH_PRIZE, GIFT_CASE_MAX_PRICE, SPINS_PER_CYCLE, SPIN_COOLDOWN_MS, MIN_DEPOSIT,
+} from './fortune.js';
 
 const DB_PATH = resolve(process.env.DB_PATH || './data/app.db');
 mkdirSync(dirname(DB_PATH), { recursive: true });
@@ -118,6 +124,20 @@ db.exec(`
     PRIMARY KEY (user_id, case_id)
   );
 
+  -- Журнал колеса фортуны. Нужен не для показа, а чтобы стоимость акции
+  -- можно было посчитать по факту: что выпало, кому и на какую сумму.
+  CREATE TABLE IF NOT EXISTS fortune_wins (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL REFERENCES users(id),
+    segment    INTEGER NOT NULL,
+    kind       TEXT    NOT NULL,
+    amount     INTEGER NOT NULL DEFAULT 0,
+    case_id    TEXT,
+    nonce      INTEGER NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_fortune_user ON fortune_wins(user_id, id DESC);
+
   -- Заявки на вывод. Сумма списывается сразу при создании, поэтому статус
   -- pending означает «деньги уже сняты и ждут решения администратора».
   CREATE TABLE IF NOT EXISTS payouts (
@@ -187,9 +207,11 @@ db.exec(`
 
   -- Обещанный процент к пополнению. Ждёт здесь, пока игрок не пополнит счёт:
   -- платёжного шлюза ещё нет, и применить его прямо сейчас не к чему.
+  -- Обещанный процент к следующему пополнению. Источников у него два:
+  -- промокод и колесо фортуны, поэтому promo_id может быть пустым.
   CREATE TABLE IF NOT EXISTS pending_deposit_bonus (
     user_id          INTEGER PRIMARY KEY REFERENCES users(id),
-    promo_id         INTEGER NOT NULL REFERENCES promocodes(id),
+    promo_id         INTEGER REFERENCES promocodes(id),
     pct              INTEGER NOT NULL,
     max_bonus        INTEGER NOT NULL DEFAULT 0,
     min_deposit      INTEGER NOT NULL DEFAULT 0,
@@ -363,6 +385,47 @@ ensureColumn('payouts', 'crypto_rate', 'REAL');
 
 // Отыгрыш бонусов: сколько ещё надо поставить, прежде чем выводить средства.
 ensureColumn('users', 'wager_required', 'INTEGER NOT NULL DEFAULT 0');
+
+/*
+ * Колесо фортуны. Прокруты даёт пополнение, тратятся они по одному в сутки.
+ *
+ * Счётчик лежит у игрока, а не отдельной таблицей состояния: одно число,
+ * которое уменьшается, невозможно рассинхронизировать с таблицей прокрутов,
+ * а транзакция начисления и так уже трогает строку игрока.
+ */
+/*
+ * До появления колеса фортуны обещанный процент приходил только от промокода,
+ * и promo_id был обязательным. Приз колеса промокодом не является, поэтому
+ * колонка стала необязательной. Снять NOT NULL в SQLite можно только
+ * пересборкой таблицы, поэтому она здесь и делается - один раз, на старых
+ * базах.
+ */
+{
+  const cols = db.prepare("PRAGMA table_info(pending_deposit_bonus)").all();
+  const promo = cols.find((c) => c.name === 'promo_id');
+  if (promo && promo.notnull) {
+    db.exec(`
+      CREATE TABLE pending_deposit_bonus_new (
+        user_id          INTEGER PRIMARY KEY REFERENCES users(id),
+        promo_id         INTEGER REFERENCES promocodes(id),
+        pct              INTEGER NOT NULL,
+        max_bonus        INTEGER NOT NULL DEFAULT 0,
+        min_deposit      INTEGER NOT NULL DEFAULT 0,
+        wager_multiplier REAL    NOT NULL DEFAULT 0,
+        created_at       INTEGER NOT NULL
+      );
+      INSERT INTO pending_deposit_bonus_new
+        SELECT user_id, promo_id, pct, max_bonus, min_deposit, wager_multiplier, created_at
+          FROM pending_deposit_bonus;
+      DROP TABLE pending_deposit_bonus;
+      ALTER TABLE pending_deposit_bonus_new RENAME TO pending_deposit_bonus;
+    `);
+  }
+}
+
+ensureColumn('users', 'fortune_spins', 'INTEGER NOT NULL DEFAULT 0');
+ensureColumn('users', 'fortune_last_spin', 'INTEGER NOT NULL DEFAULT 0');
+ensureColumn('users', 'fortune_cycles', 'INTEGER NOT NULL DEFAULT 0');
 
 /*
  * Отыгранный оборот: сколько из внесённого игрок уже прокрутил ставками.
@@ -772,10 +835,34 @@ export function getX2Perks(userId) {
     .all(userId);
 }
 
+/*
+ * Удвоитель с колеса фортуны хранится в той же таблице под ключом ANY_CASE.
+ *
+ * Он работает в любом кейсе, и это осознанное отступление от правила выше.
+ * Правило защищает МАТЕМАТИКУ КЕЙСА: удвоитель, выпавший в кейсе за 24, имеет
+ * ценность, посчитанную от выплаты этого кейса, и перенос его в кейс за
+ * 100 000 ломает сходимость отдачи. Удвоитель с колеса в отдачу кейсов не
+ * входит вообще - он подарок за пополнение, и его стоимость лежит в бюджете
+ * акции, а не в кейсе.
+ *
+ * Но стоимость эта не ограничена сверху: применённый к дорогому кейсу, он
+ * может стоить кассе миллионы. Поэтому есть потолок доплаты FORTUNE_X2_CAP.
+ * Ноль означает «без потолка» - так и просили, но ставить ноль на рабочем
+ * сервере стоит с открытыми глазами.
+ */
+const ANY_CASE = '*';
+
+const fortuneX2Cap = () => Math.max(0, Math.round(Number(process.env.FORTUNE_X2_CAP) || 0));
+
 function x2Count(userId, caseId) {
   const row = db.prepare('SELECT count FROM x2_perks WHERE user_id = ? AND case_id = ?')
     .get(userId, caseId);
   return row?.count || 0;
+}
+
+/** Есть ли чем удвоить этот кейс: свой удвоитель или универсальный с колеса. */
+function x2Available(userId, caseId) {
+  return x2Count(userId, caseId) > 0 || x2Count(userId, ANY_CASE) > 0;
 }
 
 function addX2(userId, caseId, delta = 1) {
@@ -785,10 +872,166 @@ function addX2(userId, caseId, delta = 1) {
   `).run(userId, caseId, delta);
 }
 
+/**
+ * Тратит один удвоитель. Свой, привязанный к кейсу, уходит первым: он больше
+ * ни на что не годится, а универсальный с колеса игрок может приберечь.
+ */
 function spendX2(userId, caseId) {
+  const key = x2Count(userId, caseId) > 0 ? caseId : ANY_CASE;
   db.prepare('UPDATE x2_perks SET count = count - 1 WHERE user_id = ? AND case_id = ? AND count > 0')
-    .run(userId, caseId);
+    .run(userId, key);
 }
+
+/* ---------- Колесо фортуны ---------- */
+
+/**
+ * Что игрок видит, открыв колесо.
+ *
+ * Ничего не меняет: чистое чтение, звать можно сколько угодно. Само право на
+ * прокрут проверяется заново внутри транзакции - между показом экрана и
+ * нажатием кнопки проходит время, и за это время сутки могут не истечь, а
+ * прокруты кончиться.
+ */
+export function fortuneState(userId) {
+  const user = getUserById(userId);
+  if (!user) return null;
+
+  const now = Date.now();
+  const readyAt = user.fortune_last_spin > 0 ? user.fortune_last_spin + SPIN_COOLDOWN_MS : 0;
+  const cooling = readyAt > now;
+
+  return {
+    /*
+     * Шаг «зарегистрируйтесь» выполнен самим фактом существования игрока: в
+     * мини-приложении вход происходит подписью Telegram, отдельной регистрации
+     * нет. Шаг оставлен, потому что он есть в макете заказчика, и он честно
+     * покажет невыполненным того, у кого авторизация не прошла: до этой
+     * функции такой запрос просто не доходит, и клиент рисует шаг красным.
+     */
+    registered: true,
+    deposited: user.deposits_count > 0,
+    minDeposit: MIN_DEPOSIT,
+    spinsLeft: user.fortune_spins,
+    spinsPerCycle: SPINS_PER_CYCLE,
+    canSpin: user.fortune_spins > 0 && !cooling,
+    readyAt: cooling ? readyAt : 0,
+    cycles: user.fortune_cycles,
+  };
+}
+
+/** Журнал выигрышей игрока на колесе: показывается на самой странице. */
+export function fortuneHistory(userId, limit = 8) {
+  return db.prepare(`
+    SELECT segment, kind, amount, case_id, created_at
+      FROM fortune_wins WHERE user_id = ? ORDER BY id DESC LIMIT ?
+  `).all(userId, limit);
+}
+
+/**
+ * Один прокрут колеса.
+ *
+ * Транзакция целиком: проверка права, списание прокрута, начисление приза и
+ * запись в журнал происходят вместе или не происходят вовсе. Два запроса
+ * подряд иначе успели бы оба прочитать «прокрут есть» и выдать два приза.
+ *
+ * Ролл берётся тем же provably fair механизмом, что и кейсы: игрок может
+ * пересчитать его после смены ключа и убедиться, что колесо не подкручено.
+ * Номинал приза берёт следующий nonce - подряд идущие роллы одного ключа
+ * независимы, и отдельный источник случайности заводить незачем.
+ *
+ * casePool приходит снаружи: справочник кейсов живёт в server/cases.js, и
+ * импортировать его сюда означало бы закольцевать модули.
+ */
+export const playFortuneSpin = db.transaction((userId, casePool = []) => {
+  const user = getUserById(userId);
+  if (!user) throw Object.assign(new Error('Игрок не найден'), { code: 'NOT_FOUND' });
+
+  if (user.fortune_spins <= 0) {
+    throw Object.assign(new Error('Прокруты кончились'), { code: 'FORTUNE_EMPTY' });
+  }
+  const readyAt = user.fortune_last_spin + SPIN_COOLDOWN_MS;
+  if (user.fortune_last_spin > 0 && readyAt > Date.now()) {
+    throw Object.assign(new Error('Следующий прокрут через сутки'),
+      { code: 'FORTUNE_COOLDOWN', readyAt });
+  }
+
+  const nonce = bumpNonce(userId);
+  const roll = computeRoll(user.server_seed, user.client_seed, nonce);
+  const segment = pickSegment(roll);
+
+  const amountNonce = bumpNonce(userId);
+  const amountRoll = computeRoll(user.server_seed, user.client_seed, amountNonce);
+
+  const wager = firstDepositRules().wager;
+  const prize = { kind: segment.type, segment: segment.index, amount: 0, caseId: null };
+
+  if (segment.type === 'percent') {
+    prize.amount = pickAmount(amountRoll, PERCENT_MIN, PERCENT_MAX, PERCENT_STEP);
+    /*
+     * Процент ложится в тот же слот, что и промокод: это один и тот же
+     * «процент к пополнению», и складывать их нельзя - вдвоём они дают отдачу
+     * выше сотни. Свежий приз вытесняет прошлое обещание, и это честнее, чем
+     * молча его проигнорировать.
+     */
+    db.prepare('DELETE FROM pending_deposit_bonus WHERE user_id = ?').run(userId);
+    db.prepare(`
+      INSERT INTO pending_deposit_bonus
+        (user_id, promo_id, pct, max_bonus, min_deposit, wager_multiplier, created_at)
+      VALUES (?, NULL, ?, 0, ?, ?, ?)
+    `).run(userId, prize.amount, MIN_DEPOSIT, wager, Date.now());
+  }
+
+  if (segment.type === 'x2') {
+    addX2(userId, ANY_CASE, 1);
+  }
+
+  if (segment.type === 'case') {
+    const pool = casePool.filter((c) => c.price <= GIFT_CASE_MAX_PRICE);
+    if (pool.length) {
+      const pick = pool[Math.min(pool.length - 1, Math.floor(amountRoll * pool.length))];
+      prize.caseId = pick.id;
+      prize.amount = pick.price;
+      addVoucher(userId, pick.id, 1);
+    } else {
+      // Недорогих кейсов в справочнике не осталось. Отдаём деньгами, чтобы
+      // игрок не ушёл с пустыми руками из-за чужой правки справочника.
+      prize.kind = 'voucher';
+    }
+  }
+
+  if (prize.kind === 'voucher' && prize.amount === 0) {
+    prize.amount = pickAmount(amountRoll, VOUCHER_MIN, VOUCHER_MAX, VOUCHER_STEP);
+  }
+  if (prize.kind === 'cash') prize.amount = CASH_PRIZE;
+
+  /*
+   * Ваучер и деньги приходят бонусными, с отыгрышем.
+   *
+   * Без отыгрыша они выводятся сразу: внёс 500, отыграл их, забрал 2000
+   * подарком - и акция превращается в раздачу денег на одноразовые аккаунты.
+   * Множитель тот же, что у приветственного бонуса: два разных правила
+   * отыгрыша в одном проекте игрок прочитать не сможет.
+   */
+  if (prize.kind === 'voucher' || prize.kind === 'cash') {
+    db.prepare('UPDATE users SET balance = balance + ?, bonus_granted = bonus_granted + ? WHERE id = ?')
+      .run(prize.amount, prize.amount, userId);
+    addWager(userId, prize.amount, wager);
+    db.prepare(`INSERT INTO deposits (user_id, amount, source, comment, created_at)
+                VALUES (?, ?, 'fortune', ?, ?)`)
+      .run(userId, prize.amount, 'Колесо фортуны', Date.now());
+  }
+
+  db.prepare(`UPDATE users SET fortune_spins = fortune_spins - 1, fortune_last_spin = ?
+               WHERE id = ?`).run(Date.now(), userId);
+
+  db.prepare(`INSERT INTO fortune_wins (user_id, segment, kind, amount, case_id, nonce, created_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?)`)
+    .run(userId, prize.segment, prize.kind, prize.amount, prize.caseId, nonce, Date.now());
+
+  trackEvent(userId, 'fortune_spin', { kind: prize.kind, amount: prize.amount });
+
+  return { prize, nonce, roll, wager };
+});
 
 /* ---------- Бесплатный кейс за подписку ---------- */
 
@@ -948,8 +1191,13 @@ export const playCaseRound = db.transaction((userId, caseData, resolve, resolveF
    * Иначе выигранный удвоитель сгорал бы на первом же прокруте, который
    * выдал фриспины, и игрок терял бы его, ничего не получив.
    */
-  const x2Active = item.value > 0 && x2Count(userId, caseData.id) > 0;
-  const payout = x2Active ? item.value * 2 : item.value;
+  const x2Active = item.value > 0 && x2Available(userId, caseData.id);
+  // Потолок ограничивает ДОПЛАТУ, а не выигрыш: сам предмет игрок получает
+  // целиком в любом случае, урезается только та часть, которую добавил
+  // удвоитель. Ноль в настройке означает «без потолка».
+  const cap = fortuneX2Cap();
+  const extra = x2Active ? (cap > 0 ? Math.min(item.value, cap) : item.value) : 0;
+  const payout = item.value + extra;
   if (x2Active) spendX2(userId, caseData.id);
 
   const granted = [];
@@ -1265,6 +1513,21 @@ export function registerDeposit(userId, amount, source = 'gateway') {
                WHERE id = ?`).run(Math.max(0, Math.round(amount)), userId);
   trackEvent(userId, 'deposit_paid', { amount, source });
 
+  /*
+   * Прокруты колеса фортуны выдаются здесь же, а не отдельной ручкой: это
+   * единственное место, через которое проходит зачисленное пополнение, и
+   * пришивать к нему вторую дверь означало бы однажды забыть её вызвать.
+   *
+   * Новый цикл открывается, только когда прошлый израсходован. Иначе игрок,
+   * пополняющий по 500 пять раз подряд, копил бы прокруты пачкой и крутил бы
+   * их все в один день - а обещано «раз в сутки».
+   */
+  if (amount >= MIN_DEPOSIT && before.fortune_spins <= 0) {
+    db.prepare(`UPDATE users SET fortune_spins = ?, fortune_cycles = fortune_cycles + 1
+                 WHERE id = ?`).run(SPINS_PER_CYCLE, userId);
+    trackEvent(userId, 'fortune_unlocked', { amount });
+  }
+
   // Обещанный промокодом процент важнее приветственного: игрок его специально
   // активировал. Складывать их нельзя - это один и тот же слот «процент к
   // пополнению», и вместе они дают отдачу выше 100%.
@@ -1333,6 +1596,7 @@ const ALL_EVENTS = new Set([
   ...FUNNEL_STEPS.map((s) => s.name),
   ...CLIENT_EVENTS,
   'deposit_first_bonus', 'promo_redeemed', 'freespins_bought', 'bot_reminder',
+  'fortune_unlocked', 'fortune_spin',
 ]);
 
 const insertEvent = db.prepare(

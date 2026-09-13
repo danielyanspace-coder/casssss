@@ -10,7 +10,8 @@ import {
   iconCases, iconCrash, iconRoulette, iconHistory, iconFair, iconAdmin,
   iconCoin, iconX2, iconGift, iconBolt, iconSearch, iconPlus, iconMinus,
   iconBlock, iconBack, iconTier, iconStar, iconRouletteMark,
-  iconGrid, iconKey, iconPeople, iconMail, iconTelegram,
+  iconGrid, iconKey, iconPeople, iconMail, iconTelegram,,
+  markF1, markITF, markGambling, markWorldGame,
 } from './icons.js';
 import { caseCover, porschePhotoSrc, caseArtSrc } from './covers.js';
 import { itemArt } from './item-art.js';
@@ -38,6 +39,16 @@ const state = {
   admin: { tab: 'overview', users: [], query: '', funnelDays: 7 },
   paymentBank: 'sber', paymentTimer: null, payment: null,
   withdrawMethod: 'sbp',
+  /*
+   * Колесо фортуны. Лежит здесь, а не отдельной константой внизу файла:
+   * init() вызывается раньше, чем выполнится конец файла, и объявленная там
+   * константа попала бы в мёртвую зону и уронила бы страницу.
+   *
+   * angle копится и никогда не уменьшается. Если каждый раз доворачивать «на
+   * ближайший подходящий угол», второй прокрут иногда пошёл бы назад, а
+   * колесо, дающее задний ход, читается как поломка.
+   */
+  fortune: { data: null, angle: 0, busy: false },
 };
 
 const ICONS = {
@@ -47,6 +58,7 @@ const ICONS = {
   search: iconSearch, plus: iconPlus, minus: iconMinus,
   block: iconBlock, back: iconBack, grid: iconGrid,
   key: iconKey, people: iconPeople, mail: iconMail, telegram: iconTelegram,
+  markF1, markITF, markGambling, markWorldGame,
 };
 
 /** Расставляет иконки во все элементы с data-ico. */
@@ -394,37 +406,6 @@ function renderBalance() {
   setTimeout(() => chip.classList.remove('bump'), 260);
 
   renderPerkBar();
-  renderWelcomeOffer();
-}
-
-/**
- * Предложение первого пополнения на первом экране.
- *
- * Показывается, пока игрок ни разу не пополнял. Стартового баланса больше нет,
- * и без этого блока новый игрок открывает приложение, видит нули и не понимает,
- * с чего начать: кассу надо ещё найти в меню.
- *
- * Условия берём с сервера, а не пишем в клиенте: процент меняют чаще, чем код.
- */
-function renderWelcomeOffer() {
-  const el = document.getElementById('welcomeOffer');
-  if (!el) return;
-
-  const rules = state.config?.firstDeposit;
-  const shown = rules && rules.pct > 0
-    && state.user && !state.user.depositsCount;
-
-  el.hidden = !shown;
-  if (!shown) return;
-
-  const cap = rules.max > 0 ? ` до ${money(rules.max)}` : '';
-  el.innerHTML = `
-    <div class="wo-title">Первое пополнение +${rules.pct}%${cap}</div>
-    <div class="wo-sub">Бонус начисляется сразу. Отыграть его нужно
-      ${rules.wager}-кратной суммой ставок, минимальное пополнение ${money(rules.min)}.</div>
-    <span class="wo-go">Пополнить</span>
-  `;
-  el.onclick = () => { haptic('light'); openCashier(); };
 }
 
 /** Плашка с активными плюшками: ×2 и накопленные подарочные кейсы. */
@@ -435,9 +416,13 @@ function renderPerkBar() {
   // Удвоители копятся по кейсам: у одного игрока их может быть несколько и на
   // разные кейсы. Показываем каждый кейс отдельной плашкой со счётчиком.
   for (const p of state.user.x2Perks || []) {
-    const c = state.config.cases.find((x) => x.id === p.case_id);
+    // Удвоитель с колеса фортуны не привязан к кейсу и лежит под ключом «*».
+    // Подписывать его названием кейса нельзя: он работает в любом.
+    const where = p.case_id === '*'
+      ? 'в любом кейсе'
+      : `на «${esc(state.config.cases.find((x) => x.id === p.case_id)?.name || '-')}»`;
     chips.push(`<span class="perk-chip"><span data-ico="x2"></span>
-      ×2 на «${esc(c?.name || '-')}»${p.count > 1 ? ` · ${p.count}` : ''}</span>`);
+      ×2 ${where}${p.count > 1 ? ` · ${p.count}` : ''}</span>`);
   }
 
   // Выигранных кейсов здесь нет намеренно: их место в «Бонусах». Полоса над
@@ -1273,7 +1258,16 @@ async function startOpening(caseId, count = 1) {
   document.body.classList.add('case-open');
   window.scrollTo({ top: 0 });
   document.querySelector('.opener-scroll').scrollTop = 0;
-  loadCaseHistory(c.name);
+
+  /*
+   * Историю здесь НЕ обновляем.
+   *
+   * Сервер записал раунд в тот же миг, когда его посчитал, а лента едет ещё
+   * несколько секунд. Обновив список сейчас, мы показали бы игроку его
+   * собственный выигрыш до того, как он его увидел на ленте, - прокрут
+   * превращался бы в формальность. История обновляется там, где результат
+   * уже показан: в showResult, showBatchResult и по концу автооткрытия.
+   */
 
   // Списание видно с первой секунды прокрута, а не задним числом.
   previewBalance(state.user.balance - data.totalSpent);
@@ -3380,6 +3374,7 @@ function switchView(name) {
   if (name === 'admin') loadAdminOverview();
   if (name === 'cases') loadFreeCase();
   if (name === 'bonuses') { renderBonuses(); loadPromoState(); }
+  if (name === 'fortune') loadFortune();
   if (name === 'partner') loadPartner();
   if (name === 'upgrade') {
     renderUpgradeTicks();
@@ -3597,10 +3592,9 @@ function renderSideNav() {
   };
 
   nav.innerHTML = `
-    <div class="side-brand">
-      <span class="side-brand-mark" data-ico="bolt"></span>
-      <span class="side-brand-text">LUCKY<span>BOX</span></span>
-    </div>
+    <button class="side-brand" data-view="cases" aria-label="На главную">
+      <img src="/assets/ui/logo.webp" alt="LUCKYBOX" class="side-brand-logo">
+    </button>
     <nav class="side-list">
       ${items.map((m) => `<button class="side-item ${menuArtStyle(m.view) ? 'has-art' : ''}"
           data-view="${m.view}">
@@ -5032,6 +5026,7 @@ async function init() {
   // Баннеры лежат в разметке и от сервера не зависят: крутим их сразу, не
   // дожидаясь конфига. Иначе первые секунды на экране висит неподвижный кадр.
   runHeroSlider();
+  wireFortune();
 
 
   try {
@@ -5072,6 +5067,300 @@ async function init() {
 
 init();
 
+
+/* ============================================================
+   КОЛЕСО ФОРТУНЫ
+   ============================================================ */
+
+/** Середина сектора в градусах: ноль - указатель на трёх часах, дальше по часовой. */
+function fortuneSegmentCenter(index) {
+  const { startDeg, segmentDeg } = state.fortune.data.wheel;
+  return startDeg + segmentDeg * index + segmentDeg / 2;
+}
+
+async function loadFortune() {
+  const stage = document.getElementById('fortuneStage');
+  const intro = document.getElementById('fortuneIntro');
+
+  try {
+    state.fortune.data = await api('/api/fortune/state');
+  } catch {
+    // Колесо необязательно: страница просто останется на витрине.
+    return;
+  }
+
+  renderFortuneStatus();
+  renderFortuneLog();
+
+  // На витрину возвращаемся только при первом заходе: игрока, уже нажавшего
+  // «Продолжить», выкидывать назад после каждого обновления состояния нельзя.
+  if (!stage.hidden) return;
+  intro.hidden = false;
+}
+
+/** Подпись под колесом: сколько прокрутов и когда следующий. */
+function renderFortuneStatus() {
+  const el = document.getElementById('fortuneStatus');
+  const d = state.fortune.data;
+  if (!el || !d) return;
+
+  const spinBtn = document.getElementById('fortuneSpin');
+  /*
+   * Кнопка выключается ТОЛЬКО на время самого прокрута.
+   *
+   * Когда прокрутов нет, она обязана остаться нажимаемой: именно нажатие
+   * открывает окно с шагами, где написано, что делать дальше. Выключенная
+   * кнопка вместо этого просто молчала бы, и игрок не узнал бы, как получить
+   * ещё прокруты. Недоступность показывает класс, а не атрибут.
+   */
+  spinBtn.disabled = state.fortune.busy;
+  spinBtn.classList.toggle('locked', !d.canSpin);
+
+  if (d.spinsLeft <= 0) {
+    el.innerHTML = '<span class="fortune-status-main">Прокруты кончились</span>'
+      + `<span class="fortune-status-sub">Пополните счёт от ${money(d.minDeposit)}, `
+      + `чтобы получить ещё ${d.spinsPerCycle}</span>`;
+    return;
+  }
+  if (!d.canSpin && d.readyAt) {
+    el.innerHTML = '<span class="fortune-status-main">Следующий прокрут через '
+      + esc(untilText(d.readyAt)) + '</span>'
+      + `<span class="fortune-status-sub">Осталось прокрутов: ${d.spinsLeft}</span>`;
+    return;
+  }
+  el.innerHTML = '<span class="fortune-status-main">Прокрут доступен</span>'
+    + `<span class="fortune-status-sub">Осталось: ${d.spinsLeft} из ${d.spinsPerCycle}, `
+    + 'по одному в сутки</span>';
+}
+
+/** «через 7 ч 20 мин» - без секунд: они всё равно не тикают на этом экране. */
+function untilText(ts) {
+  const left = Math.max(0, ts - Date.now());
+  const h = Math.floor(left / 3600000);
+  const m = Math.floor((left % 3600000) / 60000);
+  if (h > 0) return `${h} ч ${m} мин`;
+  return `${Math.max(1, m)} мин`;
+}
+
+function renderFortuneLog() {
+  const el = document.getElementById('fortuneLog');
+  const rows = state.fortune.data?.history || [];
+  if (!el) return;
+
+  if (!rows.length) {
+    el.innerHTML = '';
+    return;
+  }
+  el.innerHTML = '<h3 class="fortune-log-head">Ваши призы</h3>'
+    + rows.map((r) => `<div class="fortune-log-row">
+        <span class="fortune-log-kind">${esc(fortunePrizeTitle(r))}</span>
+        <span class="fortune-log-date">${new Date(r.created_at).toLocaleDateString('ru-RU')}</span>
+      </div>`).join('');
+}
+
+/** Короткое название приза одной строкой: и для журнала, и для окна выигрыша. */
+function fortunePrizeTitle(prize) {
+  if (prize.kind === 'percent') return `+${prize.amount}% к пополнению`;
+  if (prize.kind === 'x2') return 'Удвоитель ×2';
+  if (prize.kind === 'case') {
+    const id = prize.caseId || prize.case_id;
+    const c = state.config?.cases.find((x) => x.id === id);
+    return c ? `Кейс «${c.name}» в подарок` : 'Кейс в подарок';
+  }
+  if (prize.kind === 'voucher') return `Ваучер ${money(prize.amount)}`;
+  if (prize.kind === 'cash') return `${money(prize.amount)} на счёт`;
+  return 'Приз';
+}
+
+/**
+ * Окно «Выполните 2 шага».
+ *
+ * Показывается, когда крутить нельзя по существу: не пополнял или цикл
+ * израсходован. Простое ожидание суток сюда не относится - там всё ясно из
+ * подписи под колесом, и окно было бы лишним хлопком по рукам.
+ */
+function showFortuneSteps() {
+  const d = state.fortune.data;
+  if (!d) return;
+
+  const s1 = document.getElementById('fortuneStep1');
+  const s2 = document.getElementById('fortuneStep2');
+
+  // Первый шаг: вход в мини-приложение и есть регистрация. Красным он
+  // загорится у того, у кого авторизация не прошла и игрока попросту нет.
+  setFortuneStep(s1, d.registered, 'Выполнено', 'Не выполнено');
+
+  const cycleDone = d.deposited && d.spinsLeft <= 0;
+  document.getElementById('fortuneStep2Name').innerHTML =
+    `Пополнить счёт на сумму от <b>${money(d.minDeposit)}</b>`;
+  document.getElementById('fortuneStep2Note').textContent = cycleDone
+    ? `Прокруты этого цикла закончились. Новое пополнение от ${money(d.minDeposit)} `
+      + `откроет ещё ${d.spinsPerCycle}.`
+    : `Внесите депозит от ${money(d.minDeposit)} и крутите Колесо фортуны `
+      + `1 раз в сутки в течение ${d.spinsPerCycle} дней.`;
+  setFortuneStep(s2, d.spinsLeft > 0, 'Выполнено', 'Не выполнено');
+
+  document.getElementById('fortuneStepsGo').textContent =
+    d.spinsLeft > 0 ? 'К колесу' : 'Пополнить счёт';
+
+  document.getElementById('fortuneStepsBackdrop').hidden = false;
+}
+
+function setFortuneStep(el, done, okText, badText) {
+  el.classList.toggle('done', done);
+  el.classList.toggle('todo', !done);
+  el.querySelector('.fortune-step-flag').textContent = done ? okText : badText;
+  el.querySelector('.fortune-step-mark').textContent = done ? '✓' : el.dataset.no || '2';
+}
+
+/** Прокрут: сервер решает приз, колесо лишь доезжает до нужного сектора. */
+async function spinFortune() {
+  if (state.fortune.busy || !state.fortune.data) return;
+  if (!state.fortune.data.canSpin) {
+    // Сутки ещё не прошли - это не повод для окна с шагами.
+    if (state.fortune.data.spinsLeft > 0) { toast('Следующий прокрут через ' + untilText(state.fortune.data.readyAt)); return; }
+    showFortuneSteps();
+    return;
+  }
+
+  // Объявлены внутри по той же причине, что и состояние выше: конец файла к
+  // моменту первого вызова может быть ещё не выполнен.
+  const TURNS = 6;
+  const SPIN_MS = 5200;
+
+  state.fortune.busy = true;
+  renderFortuneStatus();
+  haptic('medium');
+
+  let res;
+  try {
+    res = await api('/api/fortune/spin');
+  } catch (err) {
+    state.fortune.busy = false;
+    renderFortuneStatus();
+    toast(err.message);
+    return;
+  }
+
+  const wheel = document.getElementById('fortuneWheel');
+  const center = fortuneSegmentCenter(res.prize.segment);
+
+  /*
+   * Небольшой разброс внутри сектора. Колесо, всегда замирающее ровно по
+   * середине сектора, выглядит подстроенным - а оно как раз честное, просто
+   * приз решён заранее.
+   */
+  const half = state.fortune.data.wheel.segmentDeg / 2;
+  const jitter = (Math.random() * 2 - 1) * (half - 6);
+
+  // Указатель стоит на нуле, значит нужный сектор должен приехать в ноль.
+  const target = ((-center - jitter) % 360 + 360) % 360;
+  const cur = ((state.fortune.angle % 360) + 360) % 360;
+  state.fortune.angle += ((target - cur) % 360 + 360) % 360 + 360 * TURNS;
+
+  wheel.style.transition = `transform ${SPIN_MS}ms cubic-bezier(0.16, 0.84, 0.24, 1)`;
+  wheel.style.transform = `rotate(${state.fortune.angle}deg)`;
+  sndSpinStart();
+
+  await sleep(SPIN_MS + 120);
+
+  applyUser(res.user);
+  state.fortune.data = { ...state.fortune.data, ...res.state };
+  state.fortune.busy = false;
+  renderFortuneStatus();
+
+  showFortuneWin(res.prize);
+  loadFortune();
+}
+
+/** Окно выигрыша: крупно что выпало и одна строка о том, что с этим делать. */
+function showFortuneWin(prize) {
+  const wager = state.config?.firstDeposit?.wager || 2;
+  const art = {
+    percent: '<span class="fortune-win-sign">%</span>',
+    x2: '<span class="fortune-win-sign">×2</span>',
+    case: '<span class="fortune-win-ico" data-ico="gift"></span>',
+    voucher: '<span class="fortune-win-ico" data-ico="gift"></span>',
+    cash: '<span class="fortune-win-ico" data-ico="coin"></span>',
+  }[prize.kind] || '';
+
+  const value = {
+    percent: `+${prize.amount}%`,
+    x2: '×2',
+    case: prize.caseName ? `«${esc(prize.caseName)}»` : 'Кейс',
+    voucher: money(prize.amount),
+    cash: money(prize.amount),
+  }[prize.kind] || '';
+
+  const note = {
+    percent: `Придёт вместе со следующим пополнением от ${money(state.fortune.data.minDeposit)}.`,
+    x2: 'Следующий денежный выигрыш в любом кейсе удвоится.',
+    case: 'Лежит в разделе «Бонусы», открывается бесплатно.',
+    voucher: `Уже на балансе. Отыграть: ${money(prize.amount * wager)} ставками.`,
+    cash: `Уже на балансе. Отыграть: ${money(prize.amount * wager)} ставками.`,
+  }[prize.kind] || '';
+
+  const kind = {
+    percent: 'Процент к пополнению',
+    x2: 'Удвоитель',
+    case: 'Кейс в подарок',
+    voucher: 'Ваучер',
+    cash: 'Деньги на счёт',
+  }[prize.kind] || 'Приз';
+
+  const box = document.getElementById('fortuneWinBackdrop');
+  document.getElementById('fortuneWinArt').innerHTML = art;
+  document.getElementById('fortuneWinKind').textContent = kind;
+  document.getElementById('fortuneWinValue').innerHTML = value;
+  document.getElementById('fortuneWinNote').textContent = note;
+  box.dataset.kind = prize.kind;
+  mountIcons(box);
+  box.hidden = false;
+
+  // Деньги и кейс празднуем громче процента: иначе каждый прокрут выглядит
+  // одинаково, и редкий приз теряется среди частых.
+  if (prize.kind === 'cash' || prize.kind === 'voucher') { sndBigWin(); celebrate('bigwin'); }
+  else sndReveal('rare');
+  haptic('medium');
+}
+
+function wireFortune() {
+  document.getElementById('fortuneGo')?.addEventListener('click', () => {
+    haptic('light');
+    document.getElementById('fortuneIntro').hidden = true;
+    document.getElementById('fortuneStage').hidden = false;
+    // Окно с шагами показывается здесь, а не при входе на страницу: сначала
+    // игрок должен увидеть, ради чего его о чём-то просят.
+    if (state.fortune.data && !state.fortune.data.canSpin && state.fortune.data.spinsLeft <= 0) showFortuneSteps();
+  });
+
+  document.getElementById('fortuneSpin')?.addEventListener('click', spinFortune);
+
+  document.getElementById('fortuneStepsClose')?.addEventListener('click', () => {
+    document.getElementById('fortuneStepsBackdrop').hidden = true;
+  });
+  document.getElementById('fortuneStepsGo')?.addEventListener('click', () => {
+    document.getElementById('fortuneStepsBackdrop').hidden = true;
+    if (!state.fortune.data || state.fortune.data.spinsLeft <= 0) openCashier();
+  });
+  document.getElementById('fortuneWinClose')?.addEventListener('click', () => {
+    document.getElementById('fortuneWinBackdrop').hidden = true;
+    haptic('light');
+  });
+
+  document.getElementById('promoFortune')?.addEventListener('click', () => {
+    haptic('light');
+    switchView('fortune');
+  });
+  document.getElementById('promoBonuses')?.addEventListener('click', () => {
+    haptic('light');
+    switchView('bonuses');
+  });
+  document.getElementById('brandHome')?.addEventListener('click', () => {
+    haptic('light');
+    switchView('cases');
+  });
+}
 
 /* ============================================================
    ГЛАВНЫЙ БАННЕР

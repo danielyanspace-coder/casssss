@@ -119,23 +119,109 @@ if (newcomer) {
   check('первый заход: второй раз не показывается', !(await page.isVisible('#onbBackdrop')));
 }
 
-/* ---------- Предложение первого пополнения ---------- */
+/* ---------- Баннеры первого экрана ---------- */
 
-/* Показывается, пока игрок не пополнял: у пополнявшего его быть не должно. */
+/*
+ * Блока «первое пополнение +N%» на первом экране больше нет: он спорил с
+ * присланными баннерами и был снят по просьбе заказчика. Условия бонуса
+ * никуда не делись - они остались в кассе, там же и проверяются.
+ *
+ * Вместо него на первом экране два баннера-кнопки: широкий ведёт на страницу
+ * Lucky Fortune, квадратный - в «Бонусы».
+ */
 {
-  const offerShown = await page.isVisible('#welcomeOffer');
-  check('предложение первого пополнения показано непополнявшему',
-    offerShown === !me.depositsCount, `пополнений ${me.depositsCount}`);
+  check('блока первого пополнения на первом экране нет',
+    await page.evaluate(() => !document.querySelector('.welcome-offer')));
 
-  if (offerShown) {
-    await page.click('#welcomeOffer');
-    await page.waitForTimeout(400);
-    check('оно ведёт в кассу',
-      await page.evaluate(() => document.getElementById('view-wallet').classList.contains('active')));
-    check('вкладка пополнения открыта сразу',
-      await page.evaluate(() => !document.getElementById('walletDepositPane').hidden));
-    check('в кассе те же условия бонуса', await page.isVisible('#depositOffer'));
-  }
+  check('широкий баннер - кнопка', await page.isVisible('#promoFortune'));
+  check('квадратный баннер - кнопка', await page.isVisible('#promoBonuses'));
+
+  await page.click('#promoBonuses');
+  await page.waitForTimeout(400);
+  check('квадратный баннер ведёт в «Бонусы»',
+    await page.evaluate(() => document.getElementById('view-bonuses').classList.contains('active')));
+
+  await page.click('#brandHome');
+  await page.waitForTimeout(400);
+  check('логотип возвращает на главную',
+    await page.evaluate(() => document.getElementById('view-cases').classList.contains('active')));
+}
+
+/* ---------- Lucky Fortune ---------- */
+
+/*
+ * Отдельная страница за широким баннером: сначала витрина с присланной
+ * карточкой, после «Продолжить» - само колесо.
+ */
+{
+  await page.click('#promoFortune');
+  await page.waitForTimeout(500);
+  check('баннер открывает Lucky Fortune',
+    await page.evaluate(() => document.getElementById('view-fortune').classList.contains('active')));
+  check('сначала показана витрина', await page.isVisible('#fortuneIntro'));
+  check('колесо пока скрыто', !(await page.isVisible('#fortuneStage')));
+
+  await page.click('#fortuneGo');
+  await page.waitForTimeout(400);
+  check('«Продолжить» открывает колесо', await page.isVisible('#fortuneStage'));
+  check('витрина спрятана', !(await page.isVisible('#fortuneIntro')));
+  check('шапка на странице колеса на месте', await page.isVisible('#balanceChip'));
+  check('подвал на странице колеса на месте', await page.isVisible('#siteFooter'));
+  check('знаки партнёров в подвале',
+    await page.evaluate(() => document.querySelectorAll('.footer-mark svg').length) === 4,
+    String(await page.evaluate(() => document.querySelectorAll('.footer-mark svg').length)));
+
+  const angleBefore = await page.evaluate(() =>
+    document.getElementById('fortuneWheel').style.transform);
+  await page.click('#fortuneSpin');
+  await page.waitForTimeout(6200);
+
+  check('колесо провернулось', await page.evaluate(() =>
+    document.getElementById('fortuneWheel').style.transform) !== angleBefore);
+  check('окно выигрыша показано', await page.isVisible('#fortuneWinBackdrop'));
+  check('в окне названа суть приза',
+    (await page.textContent('#fortuneWinKind')).trim().length > 0);
+  check('в окне сказано, что с призом делать',
+    (await page.textContent('#fortuneWinNote')).trim().length > 0);
+
+  /*
+   * САМАЯ ВАЖНАЯ ПРОВЕРКА НА ЭТОЙ СТРАНИЦЕ.
+   *
+   * Колесо обязано остановиться ровно на том секторе, который соответствует
+   * показанному призу. Разъехаться тут легко: сектор решает сервер, а угол
+   * считает клиент, и одна ошибка в знаке превращает честное колесо в
+   * обман - игрок видит, что стрелка стоит на деньгах, а получает процент.
+   *
+   * Считается арифметикой, а не глазами: по повороту находим, что оказалось
+   * под указателем на нуле градусов, и сверяем тип этого сектора с тем, что
+   * написано в окне выигрыша. Порядок секторов снят с присланной картинки и
+   * продублирован в server/fortune.js.
+   */
+  const SEG_TYPES = ['case', 'case', 'case', 'case', 'x2', 'percent', 'cash', 'voucher', 'voucher'];
+  const KIND_TITLES = {
+    case: 'Кейс в подарок', x2: 'Удвоитель', percent: 'Процент к пополнению',
+    cash: 'Деньги на счёт', voucher: 'Ваучер',
+  };
+  const deg = await page.evaluate(() => parseFloat(
+    (document.getElementById('fortuneWheel').style.transform.match(/-?[\d.]+/) || [0])[0]) || 0);
+
+  const START = -7, SIZE = 40;
+  // Сектор, чья середина приехала к указателю: угол сектора плюс поворот
+  // должен дать ноль по кругу.
+  const under = ((-deg % 360) + 360) % 360;
+  const landed = Math.floor((((under - START) % 360) + 360) % 360 / SIZE);
+  const shownKind = (await page.textContent('#fortuneWinKind')).trim();
+
+  check('колесо встало на сектор показанного приза',
+    KIND_TITLES[SEG_TYPES[landed]] === shownKind,
+    `под указателем сектор ${landed} (${SEG_TYPES[landed]}), а показано «${shownKind}»`);
+
+  await page.click('#fortuneWinClose');
+  await page.waitForTimeout(300);
+  check('окно выигрыша закрывается', !(await page.isVisible('#fortuneWinBackdrop')));
+
+  await page.click('#brandHome');
+  await page.waitForTimeout(400);
 }
 
 /* ---------- Меню ---------- */

@@ -21,8 +21,33 @@ import {
   CRASH_CONFIG, ROULETTE_CONFIG, ROULETTE_WHEEL, GAMBLE_CONFIG, UPGRADE_CONFIG,
 } from './server/games.js';
 import { FEED_MIN_MULTIPLIER, FEED_MIN_VALUE, FEED_BIG_SHARE } from './server/feed.js';
+import {
+  FORTUNE_SEGMENTS, SEGMENT_DEG, SEGMENTS_START_DEG,
+  PERCENT_MIN, PERCENT_MAX, VOUCHER_MIN, VOUCHER_MAX,
+  CASH_PRIZE, GIFT_CASE_MAX_PRICE, SPINS_PER_CYCLE, MIN_DEPOSIT,
+} from './server/fortune.js';
 
 const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
+
+/*
+ * Описание колеса для заглушки. Берётся из того же модуля, что и на сервере:
+ * два списка секторов рано или поздно разъедутся, и демо начнёт
+ * останавливаться не на том, что показало окно выигрыша.
+ */
+const fortuneConfig = {
+  segments: FORTUNE_SEGMENTS.map((s) => ({
+    index: s.index, type: s.type, label: s.label, weight: s.weight,
+  })),
+  segmentDeg: SEGMENT_DEG,
+  startDeg: SEGMENTS_START_DEG,
+  spinsPerCycle: SPINS_PER_CYCLE,
+  minDeposit: MIN_DEPOSIT,
+  prizes: {
+    percentMin: PERCENT_MIN, percentMax: PERCENT_MAX,
+    voucherMin: VOUCHER_MIN, voucherMax: VOUCHER_MAX,
+    cash: CASH_PRIZE, giftCaseMaxPrice: GIFT_CASE_MAX_PRICE,
+  },
+};
 
 /* ---------- Конфиг игры ---------- */
 
@@ -262,6 +287,7 @@ const shim = `
 const DRAW = ${JSON.stringify(drawTables)};
 const CONFIG = ${JSON.stringify(config)};
 const DRAW_BY_ID = new Map(DRAW.map((c) => [c.id, c]));
+const FORTUNE = ${JSON.stringify(fortuneConfig)};
 
 /* Витрина выпадений: пулы и ники. Ленту наполняет Math.random, а не
    provably fair, — ни один результат отсюда не влияет на баланс.
@@ -413,6 +439,9 @@ function freshUser() {
     clientSeed: randHex(8), nonce: 0,
     prevServerSeed: null, prevServerHash: null,
     x2Perks: {}, vouchers: {}, gambleStake: 0,
+    // Прокруты колеса в демо выдаются сразу: ждать пополнения заказчику,
+    // который открыл файл посмотреть, нечего.
+    fortune: { spins: FORTUNE.spinsPerCycle, cycles: 1, history: [] },
     deposits: [{ amount: 5_000_000, source: 'start', comment: 'Стартовый баланс',
                  created_at: Date.now() }],
     payouts: [],
@@ -461,6 +490,9 @@ function load() {
       const parsed = JSON.parse(raw);
       if (parsed && parsed.user) {
         // Сохранение могло остаться от версии с одним удвоителем на игрока.
+        if (!parsed.user.fortune) {
+          parsed.user.fortune = { spins: FORTUNE.spinsPerCycle, cycles: 1, history: [] };
+        }
         if (!parsed.user.x2Perks) {
           parsed.user.x2Perks = parsed.user.x2CaseId ? { [parsed.user.x2CaseId]: 1 } : {};
           delete parsed.user.x2CaseId;
@@ -621,9 +653,13 @@ function openOnce(table) {
 
     // Удвоитель тратится только на денежный выигрыш: у фриспинов, подарка и
     // самого удвоителя value = 0, и он на них не расходуется.
-    const x2Active = item.value > 0 && (u.x2Perks[table.id] || 0) > 0;
+    // Удвоитель с колеса фортуны лежит под ключом «*» и работает в любом
+    // кейсе. Свой, привязанный к кейсу, тратится первым.
+    const ownX2 = (u.x2Perks[table.id] || 0) > 0;
+    const anyX2 = (u.x2Perks['*'] || 0) > 0;
+    const x2Active = item.value > 0 && (ownX2 || anyX2);
     const payout = x2Active ? item.value * 2 : item.value;
-    if (x2Active) u.x2Perks[table.id]--;
+    if (x2Active) { const key = ownX2 ? table.id : '*'; u.x2Perks[key]--; }
 
     const granted = [];
     let freeSpinsPayout = 0;
@@ -1098,6 +1134,106 @@ const routes = {
       minMultiplier: CONFIG.feed.minMultiplier,
       minValue: CONFIG.feed.minValue,
       bigShare: FEED_BIG_SHARE,
+    };
+  },
+
+  /*
+   * КОЛЕСО ФОРТУНЫ В ДЕМО.
+   *
+   * Правила те же, что на сервере, но два послабления, иначе показать колесо
+   * заказчику нельзя: прокруты выдаются сразу, без пополнения, и суточная
+   * пауза не соблюдается. Цикл из пяти прокрутов при этом настоящий, и по его
+   * исчерпании вылезает то же окно с шагами, что и в проекте.
+   */
+  'POST /api/fortune/state': () => {
+    const f = store.user.fortune;
+    return {
+      registered: true,
+      deposited: true,
+      minDeposit: FORTUNE.minDeposit,
+      spinsLeft: f.spins,
+      spinsPerCycle: FORTUNE.spinsPerCycle,
+      canSpin: f.spins > 0,
+      readyAt: 0,
+      cycles: f.cycles,
+      history: f.history,
+      wheel: {
+        segments: FORTUNE.segments,
+        segmentDeg: FORTUNE.segmentDeg,
+        startDeg: FORTUNE.startDeg,
+      },
+      prizes: FORTUNE.prizes,
+    };
+  },
+
+  'POST /api/fortune/spin': () => {
+    const u = store.user;
+    if (u.fortune.spins <= 0) {
+      return { status: 400, body: { error: 'FORTUNE_EMPTY', message: 'Прокруты кончились' } };
+    }
+
+    u.nonce++;
+    const roll = computeRoll(u.serverSeed, u.clientSeed, u.nonce);
+    u.nonce++;
+    const amountRoll = computeRoll(u.serverSeed, u.clientSeed, u.nonce);
+
+    let acc = 0;
+    let seg = FORTUNE.segments[FORTUNE.segments.length - 1];
+    for (const s of FORTUNE.segments) {
+      acc += s.weight / 100;
+      if (roll < acc) { seg = s; break; }
+    }
+
+    const span = (min, max, step) => {
+      const steps = Math.floor((max - min) / step) + 1;
+      return min + Math.min(steps - 1, Math.floor(amountRoll * steps)) * step;
+    };
+
+    const prize = { kind: seg.type, segment: seg.index, amount: 0, caseId: null, caseName: null };
+    const P = FORTUNE.prizes;
+
+    if (prize.kind === 'percent') prize.amount = span(P.percentMin, P.percentMax, 10);
+    if (prize.kind === 'voucher') {
+      prize.amount = span(P.voucherMin, P.voucherMax, 100);
+      u.balance += prize.amount;
+      u.wagerRequired = (u.wagerRequired || 0) + prize.amount * 2;
+    }
+    if (prize.kind === 'cash') {
+      prize.amount = P.cash;
+      u.balance += prize.amount;
+      u.wagerRequired = (u.wagerRequired || 0) + prize.amount * 2;
+    }
+    if (prize.kind === 'x2') {
+      u.x2Perks['*'] = (u.x2Perks['*'] || 0) + 1;
+    }
+    if (prize.kind === 'case') {
+      const pool = DRAW.filter((c) => c.price <= P.giftCaseMaxPrice);
+      const pick = pool[Math.min(pool.length - 1, Math.floor(amountRoll * pool.length))];
+      if (pick) {
+        prize.caseId = pick.id;
+        prize.caseName = pick.name;
+        prize.amount = pick.price;
+        u.vouchers[pick.id] = (u.vouchers[pick.id] || 0) + 1;
+      }
+    }
+
+    u.fortune.spins--;
+    u.fortune.history.unshift({
+      segment: prize.segment, kind: prize.kind, amount: prize.amount,
+      case_id: prize.caseId, created_at: Date.now(),
+    });
+    u.fortune.history = u.fortune.history.slice(0, 8);
+    save();
+
+    return {
+      prize,
+      user: publicUser(),
+      state: {
+        registered: true, deposited: true, minDeposit: FORTUNE.minDeposit,
+        spinsLeft: u.fortune.spins, spinsPerCycle: FORTUNE.spinsPerCycle,
+        canSpin: u.fortune.spins > 0, readyAt: 0, cycles: u.fortune.cycles,
+        history: u.fortune.history,
+      },
     };
   },
 

@@ -20,13 +20,12 @@
   <aside class="side-nav" id="sideNav"></aside>
 
   <header class="topbar">
-    <div class="brand">
-      <div class="brand-mark" data-ico="bolt"></div>
-      <div class="brand-text">
-        <div class="brand-name">LUCKY<span>BOX</span></div>
-        <div class="brand-sub">кейсы и игры</div>
-      </div>
-    </div>
+    <!-- Логотип - кнопка: нажатие возвращает на главную. Раньше он был
+         нарисован разметкой, теперь это присланная картинка, и подпись
+         «кейсы и игры» нарисована прямо на ней. -->
+    <button class="brand" id="brandHome" aria-label="На главную">
+      <img src="/assets/ui/logo.webp" alt="LUCKYBOX" class="brand-logo">
+    </button>
     <!-- Показатели в шапке. Видны только на компьютере: на телефоне место
          занято балансом и кнопкой меню, а здесь слева пустовала половина
          полосы. Числа те же, что в подвале, - считает их startFooterCounters. -->
@@ -107,17 +106,16 @@
              выходит одинаковой сама собой, на любой ширине экрана.
              Подробности в styles.css -> .promo-pair. -->
         <div class="promo-pair">
-          <img src="/assets/ui/promo-wide.webp" alt="Free money: разыгрываем Rolls-Royce Wraith" class="promo-wide">
-          <img src="/assets/ui/promo-square.webp" alt="Бонусы LUCKYBOX" class="promo-square">
+          <button class="promo-wide" id="promoFortune" aria-label="Lucky Fortune">
+            <img src="/assets/ui/promo-wide.webp" alt="Free money: разыгрываем Rolls-Royce Wraith">
+          </button>
+          <button class="promo-square" id="promoBonuses" aria-label="Бонусы">
+            <img src="/assets/ui/promo-square.webp" alt="Бонусы LUCKYBOX">
+          </button>
         </div>
       </div>
 
       <div class="perk-bar" id="perkBar" hidden></div>
-
-      <!-- Предложение первого пополнения. Показывается, пока игрок не пополнял:
-           стартового баланса у него нет, и без этого блока первый экран
-           заканчивается ничем. -->
-      <button class="welcome-offer" id="welcomeOffer" hidden></button>
 
       <!-- Появляется, только когда канал и кейс заданы в настройках. -->
       <button class="free-case" id="freeCase" hidden>
@@ -436,6 +434,50 @@
     </section>
 
     <!-- ══════════ БОНУСЫ ══════════ -->
+    <!-- ══════════ LUCKY FORTUNE ══════════
+
+         Отдельная страница за баннером «Free money». Шапка, боковая панель и
+         подвал у неё общие с остальными разделами: они лежат вне main и
+         рисуются сами.
+
+         Два состояния на одной странице: витрина с присланной карточкой и
+         само колесо. Витрина - это картинка целиком, а кнопка «Продолжить»
+         нарисована на ней же, поэтому поверх неё лежит прозрачная кнопка,
+         выставленная по долям картинки. -->
+    <section class="view" id="view-fortune">
+      <div class="fortune-page">
+
+        <!-- Витрина -->
+        <div class="fortune-intro" id="fortuneIntro">
+          <div class="fortune-card">
+            <img src="/assets/ui/fortune-card.webp" alt="Lucky Fortune" class="fortune-card-img">
+            <button class="fortune-card-go" id="fortuneGo">Продолжить</button>
+          </div>
+        </div>
+
+        <!-- Колесо -->
+        <div class="fortune-stage" id="fortuneStage" hidden>
+          <div class="fortune-head">
+            <h1 class="fortune-title">LUCKY <span>FORTUNE</span></h1>
+            <p class="fortune-sub">Забирайте крутые бонусы каждый день</p>
+          </div>
+
+          <div class="fortune-wheel-box">
+            <img src="/assets/ui/fortune-wheel.webp" alt="" class="fortune-wheel" id="fortuneWheel">
+            <!-- Указатель нарисован здесь, а не вырезан из картинки: вырезанный
+                 крутился бы вместе с колесом и никуда бы не показывал. -->
+            <span class="fortune-pin" aria-hidden="true"></span>
+            <button class="fortune-hub" id="fortuneSpin" aria-label="Крутить">
+              <img src="/assets/ui/fortune-hub.webp" alt="">
+            </button>
+          </div>
+
+          <div class="fortune-status" id="fortuneStatus"></div>
+          <div class="fortune-log" id="fortuneLog"></div>
+        </div>
+      </div>
+    </section>
+
     <section class="view" id="view-bonuses">
       <div class="game-head">
         <h1 class="game-title">БОНУСЫ</h1>
@@ -700,6 +742,61 @@
       <div class="confirm-actions">
         <button class="btn btn-outline" id="feedSheetClose">Закрыть</button>
         <button class="btn btn-primary" id="feedSheetOpen">Открыть</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ ОКНО «ВЫПОЛНИТЕ 2 ШАГА» ══════════
+
+       Показывается, когда крутить нельзя: не пополнял, или цикл из пяти
+       прокрутов израсходован. Состояния шагов живые, поэтому панель собрана
+       разметкой, а из присланной картинки взята только верхняя иллюстрация -
+       нарисованный на ней крестик стёрт, своя кнопка закрытия стоит поверх. -->
+  <div class="confirm-backdrop fortune-steps-backdrop" id="fortuneStepsBackdrop" hidden>
+    <div class="fortune-steps">
+      <button class="fortune-steps-close" id="fortuneStepsClose" aria-label="Закрыть">×</button>
+      <img src="/assets/ui/fortune-steps.webp" alt="" class="fortune-steps-art">
+
+      <div class="fortune-steps-panel">
+        <h2 class="fortune-steps-title">Выполните <b>2 шага</b></h2>
+        <p class="fortune-steps-lead">и крутите Колесо фортуны</p>
+
+        <div class="fortune-step" id="fortuneStep1" data-no="1">
+          <span class="fortune-step-mark">1</span>
+          <span class="fortune-step-body">
+            <span class="fortune-step-no">ШАГ 1</span>
+            <span class="fortune-step-name">Зарегистрироваться</span>
+          </span>
+          <span class="fortune-step-flag"></span>
+        </div>
+
+        <!-- Пояснение вынесено из текстового столбца отдельной строкой сетки:
+             внутри столбца оно делило ширину с отметкой «Выполнено», и
+             название переносилось по слову. -->
+        <div class="fortune-step" id="fortuneStep2" data-no="2">
+          <span class="fortune-step-mark">2</span>
+          <span class="fortune-step-body">
+            <span class="fortune-step-no">ШАГ 2</span>
+            <span class="fortune-step-name" id="fortuneStep2Name"></span>
+          </span>
+          <span class="fortune-step-flag"></span>
+          <span class="fortune-step-note" id="fortuneStep2Note"></span>
+        </div>
+
+        <button class="btn btn-primary fortune-steps-go" id="fortuneStepsGo"></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Окно выигрыша на колесе. -->
+  <div class="confirm-backdrop fortune-win-backdrop" id="fortuneWinBackdrop" hidden>
+    <div class="confirm-sheet fortune-win">
+      <div class="fortune-win-art" id="fortuneWinArt"></div>
+      <div class="fortune-win-kind" id="fortuneWinKind"></div>
+      <div class="fortune-win-value" id="fortuneWinValue"></div>
+      <div class="fortune-win-note" id="fortuneWinNote"></div>
+      <div class="confirm-actions">
+        <button class="btn btn-primary" id="fortuneWinClose">Забрать</button>
       </div>
     </div>
   </div>

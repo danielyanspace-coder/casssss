@@ -618,6 +618,15 @@ export function footerHtml() {
       </a>
     </div>
 
+    <!-- Знаки партнёров. Это собственные стилизованные марки, а не
+         официальные эмблемы правообладателей - см. комментарий в icons.js. -->
+    <div class="footer-marks">
+      <span class="footer-mark" data-ico="markF1" title="Formula 1"></span>
+      <span class="footer-mark" data-ico="markITF" title="International Tennis Federation"></span>
+      <span class="footer-mark" data-ico="markGambling" title="Ответственная игра"></span>
+      <span class="footer-mark" data-ico="markWorldGame" title="World Game"></span>
+    </div>
+
     <div class="footer-age">18+</div>
 
     <div class="footer-entities">

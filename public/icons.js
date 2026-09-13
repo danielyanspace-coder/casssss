@@ -231,3 +231,69 @@ export function iconTelegram(color = '#00f0ff') {
     <path d="M8.2 14.6 17.6 8l-6.9 7.1-.4 3.4" fill="none" stroke="#0d0316" stroke-width="1"
       opacity="0.35" stroke-linejoin="round"/>`);
 }
+
+/* ============================================================
+   ЗНАКИ ПАРТНЁРОВ В ПОДВАЛЕ
+   ============================================================
+
+   Это СОБСТВЕННЫЕ стилизованные знаки, а не официальные логотипы
+   правообладателей. Рисовать здесь настоящие эмблемы Формулы-1 и ITF нельзя:
+   это зарегистрированные товарные знаки, и ставить их на сайт без договора
+   означает заявлять партнёрство, которого нет. Поэтому знаки нарисованы как
+   сдержанные буквенные марки одного набора - они читаются как ряд партнёров и
+   не выдают себя за чужую эмблему.
+
+   Все четыре красятся через currentColor: в подвале они приглушённые. */
+
+/*
+ * Все четыре знака нарисованы в одной коробке 76x24: разная ширина заставляла
+ * бы подгонять каждый отдельным правилом в стилях, а так они выстраиваются
+ * ряд в ряд сами.
+ */
+
+/** Стилизованная марка Формулы-1: наклонные полосы и «F1». */
+export function markF1() {
+  return svg(`<g transform="skewX(-14)">
+      <rect x="10" y="6.4" width="19" height="3.4" rx="1.2" fill="currentColor"/>
+      <rect x="7" y="11.4" width="16" height="3.4" rx="1.2" fill="currentColor" opacity="0.72"/>
+      <rect x="4" y="16.4" width="13" height="3.4" rx="1.2" fill="currentColor" opacity="0.45"/>
+    </g>
+    <text x="52" y="18" font-family="Arial Black, Arial, sans-serif" font-size="15"
+      font-weight="900" font-style="italic" fill="currentColor"
+      text-anchor="middle">F1</text>`, '0 0 76 24');
+}
+
+/** Марка теннисной федерации: мяч со швом и буквы ITF. */
+export function markITF() {
+  return svg(`<circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="1.8"/>
+    <path d="M5.2 6.6A9 9 0 0 1 5.2 17.4" fill="none" stroke="currentColor"
+      stroke-width="1.5" opacity="0.8"/>
+    <path d="M18.8 6.6a9 9 0 0 0 0 10.8" fill="none" stroke="currentColor"
+      stroke-width="1.5" opacity="0.8"/>
+    <text x="50" y="17.4" font-family="Arial, sans-serif" font-size="14" font-weight="800"
+      letter-spacing="1" fill="currentColor" text-anchor="middle">ITF</text>`, '0 0 76 24');
+}
+
+/** Ответственная игра: восемнадцать в круге и подпись. */
+export function markGambling() {
+  return svg(`<circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="1.8"/>
+    <text x="12" y="16" font-family="Arial, sans-serif" font-size="9.5" font-weight="800"
+      fill="currentColor" text-anchor="middle">18</text>
+    <text x="49" y="11" font-family="Arial, sans-serif" font-size="7.6" font-weight="700"
+      letter-spacing="0.9" fill="currentColor" text-anchor="middle">GAMBLING</text>
+    <text x="49" y="19.4" font-family="Arial, sans-serif" font-size="6.6" font-weight="500"
+      letter-spacing="1.6" fill="currentColor" text-anchor="middle" opacity="0.82">AWARE</text>`,
+  '0 0 76 24');
+}
+
+/** Знак «World Game»: шар с меридианами и подпись. */
+export function markWorldGame() {
+  return svg(`<circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="1.8"/>
+    <path d="M4 12h16" fill="none" stroke="currentColor" stroke-width="1.3" opacity="0.8"/>
+    <path d="M12 4c2.6 2.6 2.6 13.4 0 16M12 4c-2.6 2.6-2.6 13.4 0 16"
+      fill="none" stroke="currentColor" stroke-width="1.3" opacity="0.8"/>
+    <text x="49" y="11" font-family="Arial, sans-serif" font-size="7.8" font-weight="700"
+      letter-spacing="1.2" fill="currentColor" text-anchor="middle">WORLD</text>
+    <text x="49" y="19.6" font-family="Arial, sans-serif" font-size="7.8" font-weight="700"
+      letter-spacing="1.2" fill="currentColor" text-anchor="middle">GAME</text>`, '0 0 76 24');
+}

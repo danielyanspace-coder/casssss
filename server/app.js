@@ -37,6 +37,10 @@ import {
   validateUpgrade,
 } from './games.js';
 import { computeRoll, generateClientSeed } from './fair.js';
+import {
+  FORTUNE_SEGMENTS, SEGMENT_DEG, SEGMENTS_START_DEG, validateFortune,
+  GIFT_CASE_MAX_PRICE, PERCENT_MIN, PERCENT_MAX, VOUCHER_MIN, VOUCHER_MAX, CASH_PRIZE,
+} from './fortune.js';
 import { limits } from './ratelimit.js';
 import * as crypto from './crypto.js';
 import {
@@ -55,6 +59,7 @@ import {
   setClientSeed,
   startCrashRound,
   getVouchers, getX2Perks,
+  fortuneState, fortuneHistory, playFortuneSpin,
   syncAdmins,
   adminOverview,
   adminUsers,
@@ -121,6 +126,7 @@ const caseReport = validateCases();
 const gameReport = validateGames();
 const gambleReport = validateGamble();
 const upgradeReport = validateUpgrade();
+validateFortune();
 
 // Администраторы задаются Telegram ID через настройки — не через базу,
 // чтобы права нельзя было получить, дописав себе строку в таблицу.
@@ -927,6 +933,61 @@ app.post('/api/upgrade', auth, limits.play, (req, res) => {
 /* ============================================================
    БЕСПЛАТНЫЙ КЕЙС ЗА ПОДПИСКУ
    ============================================================ */
+
+/* ============================================================
+   КОЛЕСО ФОРТУНЫ
+   ============================================================ */
+
+/**
+ * Состояние колеса: шаги, остаток прокрутов, когда следующий.
+ *
+ * Описание секторов отдаётся вместе с состоянием, а не лежит в клиенте:
+ * иначе при правке весов пришлось бы помнить про два места, и колесо
+ * останавливалось бы не на том, что показало окно выигрыша.
+ */
+app.post('/api/fortune/state', auth, limits.read, (req, res) => {
+  res.json({
+    ...fortuneState(req.player.id),
+    history: fortuneHistory(req.player.id),
+    wheel: {
+      segments: FORTUNE_SEGMENTS.map((s) => ({ index: s.index, type: s.type, label: s.label })),
+      segmentDeg: SEGMENT_DEG,
+      startDeg: SEGMENTS_START_DEG,
+    },
+    prizes: {
+      percentMin: PERCENT_MIN, percentMax: PERCENT_MAX,
+      voucherMin: VOUCHER_MIN, voucherMax: VOUCHER_MAX,
+      cash: CASH_PRIZE, giftCaseMaxPrice: GIFT_CASE_MAX_PRICE,
+    },
+  });
+});
+
+/**
+ * Прокрут. Ограничитель тот же, что у кассы: денежная ручка, и дёргать её
+ * вплотную незачем - всё равно раз в сутки.
+ */
+app.post('/api/fortune/spin', auth, limits.cashier, (req, res) => {
+  let result;
+  try {
+    result = playFortuneSpin(req.player.id, CASES);
+  } catch (err) {
+    if (err.code === 'FORTUNE_EMPTY' || err.code === 'FORTUNE_COOLDOWN') {
+      return res.status(400).json({ error: err.code, message: err.message, readyAt: err.readyAt });
+    }
+    throw err;
+  }
+
+  const c = result.prize.caseId ? getCase(result.prize.caseId) : null;
+  res.json({
+    prize: {
+      ...result.prize,
+      caseName: c?.name || null,
+      casePrice: c?.price || 0,
+    },
+    user: publicUser(getUserById(req.player.id)),
+    state: fortuneState(req.player.id),
+  });
+});
 
 app.post('/api/free-case/state', auth, (req, res) => {
   if (!subscriptionConfigured()) return res.json({ enabled: false });
