@@ -31,10 +31,9 @@ export const LICENSE = {
 export const COMPANY = {
   brand: 'LUCKYBOX',
   email: 'support-luckybox@gmail.com',
-  // ЗАПОЛНИТЬ: адрес канала. Пока ведёт на заглушку - см. NEDOSTATOK.md.
-  telegram: 'https://t.me/',
+  telegram: 'https://t.me/luckybox_off',
   // Чат поддержки. Он же стоит за кнопкой «Поддержка» в меню.
-  support: 'https://t.me/luckybox_support',
+  support: 'https://t.me/luckyboxsupport',
   entities: [
     {
       name: 'LUCKYBOX INTERACTIVE N.V.',
@@ -606,18 +605,6 @@ export function footerHtml() {
       </div>
     </div>
 
-    <div class="footer-tg-row">
-      <a class="footer-tg" id="footerTelegram" href="${COMPANY.telegram}" target="_blank"
-         rel="noopener noreferrer">
-        <span class="footer-tg-ico" data-ico="telegram"></span>
-        <span>Наш канал в Telegram</span>
-      </a>
-      <a class="footer-tg" href="${COMPANY.support}" target="_blank" rel="noopener noreferrer">
-        <span class="footer-tg-ico" data-ico="telegram"></span>
-        <span>Поддержка</span>
-      </a>
-    </div>
-
     <!-- Знаки партнёров. Это собственные стилизованные марки, а не
          официальные эмблемы правообладателей - см. комментарий в icons.js. -->
     <div class="footer-marks">
@@ -627,8 +614,6 @@ export function footerHtml() {
       <span class="footer-mark" data-ico="markWorldGame" title="World Game"></span>
     </div>
 
-    <div class="footer-age">18+</div>
-
     <div class="footer-entities">
       ${COMPANY.entities.map((e) =>
         `<p class="footer-entity"><b>${e.name}</b> - ${e.lines.join(', ')}</p>`).join('')}
@@ -637,5 +622,27 @@ export function footerHtml() {
     <a class="footer-mail" href="mailto:${COMPANY.email}">
       <span class="footer-mail-ico" data-ico="mail"></span>${COMPANY.email}
     </a>
+
+    <!-- Два присланных баннера в самом низу. Кнопки на них нарисованы, поэтому
+         кликабельна вся карточка целиком: вешать настоящую кнопку поверх
+         нарисованной здесь незачем - вся карточка и есть кнопка, а подсветка
+         нарисованной показывает, куда именно ведёт нажатие. -->
+    <div class="footer-promos">
+      <a class="footer-promo" href="${COMPANY.support}" target="_blank" rel="noopener noreferrer">
+        <img src="/assets/ui/footer-support.webp" alt="Обратиться в поддержку">
+        <span class="footer-promo-hit support" aria-hidden="true"></span>
+      </a>
+      <a class="footer-promo" href="${COMPANY.telegram}" target="_blank" rel="noopener noreferrer">
+        <img src="/assets/ui/footer-channel.webp" alt="Подписаться на канал">
+        <span class="footer-promo-hit channel" aria-hidden="true"></span>
+      </a>
+    </div>
+
+    <!-- Самая нижняя строка. Намеренно тихая: копирайт слева, возрастное
+         ограничение справа и чуть крупнее - его читают, а не украшают. -->
+    <div class="footer-bottom">
+      <span class="footer-copy">© ${new Date().getFullYear()} ${COMPANY.brand}</span>
+      <span class="footer-age-mark">18+</span>
+    </div>
   `;
 }

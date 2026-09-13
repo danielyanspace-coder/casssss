@@ -160,6 +160,9 @@ body {
   color: #fff;
   white-space: nowrap;
 }
+/* Знак рубля тяжелее самой суммы: цифры набраны обычным начертанием, и без
+   этого рубль терялся хвостиком в конце строки. */
+.balance-value .rub { font-weight: 900; }
 
 /* ---------- Общее ---------- */
 
@@ -979,7 +982,7 @@ main { position: relative; z-index: 2; padding: 18px; }
 
 /* Уважаем системную настройку «меньше движения» */
 @media (prefers-reduced-motion: reduce) {
-  .case-box, .case-orbit, .case-orbit span, .money-drop, .brand-mark { animation: none; }
+  .case-box, .case-orbit, .case-orbit span, .money-drop { animation: none; }
   .case-card::after { display: none; }
 }
 
@@ -1135,7 +1138,6 @@ main { position: relative; z-index: 2; padding: 18px; }
 [data-ico] { display: inline-block; line-height: 0; }
 
 .balance-ico[data-ico] { width: 18px; height: 18px; }
-.brand-mark[data-ico] { padding: 8px; }
 .crash-rocket[data-ico] { width: 30px; height: 30px; }
 .history-ico[data-ico] { width: 26px; height: 26px; }
 .tier-ico { width: 100%; height: 100%; }
@@ -1647,21 +1649,33 @@ select.seed-input {
   white-space: nowrap; padding-bottom: 2px;
 }
 
-/* Сетка вместо карусели: на телефоне два кейса в ряд. Горизонтальная
-   прокрутка прятала половину полки — до дальних кейсов никто не долистывал. */
+/*
+ * ПОЛКА - FLEX, А НЕ СЕТКА, И ЭТО ЕДИНСТВЕННОЕ, ЧТО ЗДЕСЬ РАБОТАЕТ.
+ *
+ * Карусели нет намеренно: горизонтальная прокрутка прятала половину полки, и
+ * до дальних кейсов никто не долистывал.
+ *
+ * А сетку пришлось заменить на flex, потому что центрировать ОСТАТОК сетка не
+ * умеет вообще. Полка из десяти кейсов по четыре в ряд заканчивается двумя, и
+ * сетка прижимает их к левому краю: справа зияет дыра в половину ширины. Flex
+ * переносит строки и центрирует каждую отдельно, включая последнюю.
+ *
+ * Число кейсов в ряду задаётся не колонками, а долей ширины: два на телефоне,
+ * четыре от 620 точек (сюда попадает и телефон, повёрнутый горизонтально), три
+ * крупных на компьютере - см. конец файла.
+ */
 .shelf-row {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: flex-start;
   gap: 4px 10px;
 }
 
-/* Одинокий кейс в конце встаёт посередине, а не жмётся к левому краю.
-   Ширину оставляем колоночную: растянутый во всю строку кейс читался бы как
-   витрина, которой он не является. */
-.shelf-row > .case-card:last-child:nth-child(odd) {
-  grid-column: 1 / -1;
-  justify-self: center;
-  width: calc(50% - 5px);
+/* Два в ряд: из ширины вычитается один промежуток. */
+.shelf-row > .case-card {
+  flex: 0 0 calc((100% - 10px) / 2);
+  max-width: calc((100% - 10px) / 2);
 }
 
 /* ---------- Компактная карточка ---------- */
@@ -1725,8 +1739,12 @@ select.seed-input {
 .shelf-row .cover-badge { font-size: 8px; padding: 2px 6px; border-width: 1px; }
 .shelf-row .cover-top { font-size: 9px; bottom: 5px; left: 9px; }
 
+/* Планшет и телефон, повёрнутый горизонтально: четыре в ряд, три промежутка. */
 @media (min-width: 620px) {
-  .shelf-row { grid-template-columns: repeat(4, 1fr); }
+  .shelf-row > .case-card {
+    flex-basis: calc((100% - 30px) / 4);
+    max-width: calc((100% - 30px) / 4);
+  }
   .shelf-row .case-cover { height: 120px; }
 }
 
@@ -1748,7 +1766,11 @@ select.seed-input {
   display: flex; align-items: center; justify-content: space-between;
   gap: 12px; margin-bottom: 20px;
 }
-.opener-top .brand-sub { letter-spacing: 0; text-transform: none; }
+/* Логотип и строка со зрителями под ним. Логотип не растягивается: у него
+   свои прозрачные поля, и растянутый он перевешивал бы кнопку возврата. */
+.opener-brand { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.opener-logo { display: block; height: 30px; width: auto; }
+.opener-viewers { font-size: 11px; color: var(--muted); }
 
 .opener-close {
   width: 44px; height: 44px;
@@ -2902,14 +2924,11 @@ select.seed-input {
 /* Шапка на узком экране: бренд ужимается, чтобы баланс влезал целиком. */
 .topbar { gap: 8px; }
 .brand { min-width: 0; flex: 0 1 auto; }
-.brand-text { min-width: 0; }
 .balance-chip { padding: 7px 4px; flex: 0 0 auto; }
 .balance-value { font-size: 15px; white-space: nowrap; }
 
 @media (max-width: 400px) {
-  .brand-mark { width: 34px; height: 34px; padding: 7px; }
-  .brand-name { font-size: 15px; }
-  .brand-sub { font-size: 9px; letter-spacing: 0.8px; }
+  .opener-logo { height: 26px; }
   .balance-value { font-size: 13.5px; }
   .balance-ico[data-ico] { width: 16px; height: 16px; }
 }
@@ -3487,14 +3506,66 @@ select.seed-input {
 .footer-mark svg { width: 100%; height: 100%; display: block; }
 .footer-mark:hover { color: rgba(230, 220, 250, 0.9); }
 
-.footer-age {
-  display: inline-block;
-  font-size: 11px; font-weight: 900;
-  color: var(--muted);
-  border: 1.5px solid var(--line);
+/*
+ * БАННЕРЫ ПОДДЕРЖКИ И КАНАЛА В САМОМ НИЗУ.
+ *
+ * Кликабельна вся карточка, а не только нарисованная на ней кнопка: попадать
+ * пальцем в прямоугольник шириной в палец на картинке высотой в три
+ * сантиметра неудобно, а промах по такой ссылке читается как «не работает».
+ * Подсветка над нарисованной кнопкой показывает, куда ведёт нажатие.
+ *
+ * Координаты подсветки заданы долями картинки, а не пикселями: пиксели
+ * разъехались бы на первом же экране другой ширины. Числа сняты с файлов.
+ */
+.footer-promos {
+  display: flex; flex-direction: column; gap: 10px;
+  max-width: 560px;
+  margin: 20px auto 18px;
+}
+.footer-promo {
+  position: relative;
+  display: block;
+  border-radius: 16px;
+  overflow: hidden;
+  transition: transform 0.15s;
+}
+.footer-promo:active { transform: scale(0.985); }
+.footer-promo img { display: block; width: 100%; height: auto; }
+
+.footer-promo-hit {
+  position: absolute;
   border-radius: 999px;
-  padding: 3px 10px;
-  margin-bottom: 14px;
+  pointer-events: none;
+  opacity: 0;
+  background: rgba(255, 255, 255, 0.16);
+  transition: opacity 0.15s;
+}
+.footer-promo:hover .footer-promo-hit,
+.footer-promo:active .footer-promo-hit { opacity: 1; }
+
+/* «Обратиться в поддержку»: кнопка во всю ширину в нижней трети. */
+.footer-promo-hit.support { left: 2%; right: 2%; top: 65%; bottom: 8%; }
+/* «Подписаться»: кнопка справа. */
+.footer-promo-hit.channel { left: 61%; right: 6%; top: 62%; bottom: 10%; }
+
+/*
+ * Нижняя строка. Копирайт слева, возраст справа - и оба приглушены: это
+ * служебная подпись, а не часть оформления. Возрастная отметка крупнее
+ * копирайта намеренно, её обязаны заметить.
+ */
+.footer-bottom {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px;
+  max-width: 760px;
+  margin: 18px auto 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.footer-copy { font-size: 11px; color: rgba(185, 160, 220, 0.6); }
+.footer-age-mark {
+  font-size: 14px; font-weight: 900;
+  color: rgba(185, 160, 220, 0.75);
+  letter-spacing: 0.5px;
 }
 
 /* Реквизиты — строкой во всю ширину, а не узким столбиком. */
@@ -3522,6 +3593,69 @@ select.seed-input {
 /* ============================================================
    LUCKY FORTUNE
    ============================================================ */
+
+/* ---------- Витрина розыгрышей ---------- */
+
+.fm-hub { display: flex; flex-direction: column; gap: 10px; }
+
+/*
+ * Карточка ивента: картинка слева, текст справа. Картинка обрезается по
+ * центру - здесь она только метка, а не баннер, и её надписи всё равно не
+ * прочитать в полоске шириной в сто точек.
+ */
+.fm-card {
+  display: grid;
+  grid-template-columns: 104px minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+  padding: 0 16px 0 0;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: linear-gradient(110deg, rgba(255, 255, 255, 0.05), transparent 60%),
+              var(--bg-soft);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  transition: transform 0.15s, border-color 0.15s;
+}
+.fm-card:active { transform: scale(0.985); }
+.fm-card-art {
+  display: block;
+  width: 104px; height: 104px;
+  object-fit: cover;
+}
+.fm-card-body { display: block; min-width: 0; padding: 14px 0; }
+.fm-card-tag {
+  display: inline-block;
+  margin-bottom: 6px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--muted);
+}
+.fm-card-title { display: block; font-size: 16px; font-weight: 800; }
+.fm-card-sub { display: block; margin-top: 3px; font-size: 12.5px; color: var(--muted); }
+
+/* Ивент, который ещё не запущен: приглушён, но виден - иначе о нём не узнают. */
+.fm-card.soon { opacity: 0.62; }
+.fm-card.soon .fm-card-tag { border-color: rgba(255, 214, 10, 0.5); color: var(--gold); }
+
+.fm-back {
+  display: inline-flex; align-items: center; gap: 8px;
+  margin-bottom: 14px;
+  padding: 9px 15px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: none;
+  color: var(--muted);
+  font: inherit; font-size: 13px;
+  cursor: pointer;
+}
+.fm-back::before { content: '‹'; font-size: 17px; line-height: 1; }
+.fm-back:active { transform: scale(0.96); }
 
 .fortune-page { max-width: 560px; margin: 0 auto; }
 
@@ -3802,7 +3936,9 @@ select.seed-input {
    Ширина карточки вынесена в переменную: её же использует анимация въезда, а
    два разных числа рано или поздно разъезжаются. */
 .feed {
-  --feed-w: 158px;
+  /* Ширина карточки больше не фиксированная - см. .feed-card. Здесь остался
+     только нижний предел и промежуток. */
+  --feed-min: 158px;
   --feed-gap: 6px;
   position: relative;
   margin: 12px 0;
@@ -3813,10 +3949,27 @@ select.seed-input {
   overflow: hidden;
 }
 
+/* Строка заголовка: точка, надпись и тонкая линия, уходящая вправо. Линия
+   во всю ширину делила панель пополам; отрезок, идущий от надписи и
+   растворяющийся, читается подписью к ленте, а не разделителем. */
 .feed-head {
-  margin: 0 10px 7px;
-  padding-bottom: 6px;
-  border-bottom: 1px solid rgba(160, 32, 255, 0.2);
+  display: flex; align-items: center; gap: 9px;
+  margin: 0 12px 8px;
+  padding-bottom: 7px;
+}
+.feed-head::after {
+  content: '';
+  flex: 1 1 auto;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(160, 32, 255, 0.45), transparent);
+}
+/* Точка тем же цветом, что и «игроков онлайн» в шапке: одно и то же
+   обозначение живого, а не два разных. */
+.feed-live {
+  width: 6px; height: 6px; flex: 0 0 auto;
+  border-radius: 50%;
+  background: #24c78a;
+  box-shadow: 0 0 0 3px rgba(36, 199, 138, 0.16);
 }
 
 /* Заголовок набран моноширинным с широкой разрядкой - так подписывают табло,
@@ -3861,13 +4014,19 @@ select.seed-input {
 .feed-card {
   position: relative;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  /* auto, а не 1fr: карточка обязана подстроиться под содержимое. При
+     фиксированной ширине крупные суммы не помещались и обрезались
+     многоточием - «3 620 00...», - а ради этих сумм ленту и смотрят. */
+  grid-template-columns: auto auto;
   grid-template-rows: auto auto;
   align-items: center;
   column-gap: 9px;
   flex: 0 0 auto;
-  width: var(--feed-w);
-  max-width: var(--feed-w);
+  width: auto;
+  min-width: var(--feed-min);
+  /* Верхний предел нужен только анимации въезда: она разводит соседей,
+     упираясь в max-width, а собственная ширина карточки всегда меньше. */
+  max-width: 420px;
   margin-right: var(--feed-gap);
   padding: 9px 11px 10px;
   border-radius: 13px;
@@ -3896,7 +4055,7 @@ select.seed-input {
     opacity: 0; transform: scale(0.8);
   }
   to {
-    max-width: var(--feed-w); margin-right: var(--feed-gap);
+    max-width: 420px; margin-right: var(--feed-gap);
     padding-left: 11px; padding-right: 11px;
     opacity: 1; transform: none;
   }
@@ -3914,18 +4073,19 @@ select.seed-input {
 /* Высота подписи задана жёстко на две строки.
    Иначе длинное название переносится, карточка вырастает, и сумма уезжает
    вбок к остаткам названия вместо того чтобы стоять под ним. */
-/* Одна строка с многоточием, а не две с обрезкой: название второстепенно,
-   а вот сумму под ним рвать нельзя, и на две строки места не остаётся. */
+/* Многоточие остаётся только у НАЗВАНИЯ: оно второстепенно, и длинное имя
+   предмета не должно растягивать карточку через весь экран. */
 .feed-name {
   grid-column: 2;
   display: block;
+  max-width: 180px;
   overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
   font-size: 11px; font-weight: 600; line-height: 1.2;
   color: rgba(255, 255, 255, 0.72);
 }
 
-/* Сумма не сжимается и не обрезается никогда: ради неё ленту и смотрят.
-   Место под неё берётся у названия выше, которое уходит в многоточие. */
+/* Сумма не сжимается и не обрезается НИКОГДА: ни overflow, ни многоточия
+   здесь нет намеренно. Карточка шире - пусть будет шире. */
 .feed-value {
   grid-column: 2;
   display: block;
@@ -3933,7 +4093,7 @@ select.seed-input {
   font-size: 15px; font-weight: 900;
   font-variant-numeric: tabular-nums;
   color: var(--tier-color, var(--text));
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Карточка выигрыша из ленты: что выпало и в каком кейсе. */
@@ -4641,7 +4801,8 @@ select.seed-input {
 
   /* На компьютере карточек в ряд помещается много, и мелкие там особенно
      заметны. Плитка шире, сумма крупнее. */
-  .feed { --feed-w: 190px; --feed-gap: 8px; }
+  .feed { --feed-min: 190px; --feed-gap: 8px; }
+  .feed-name { max-width: 230px; }
   .feed-title { font-size: 13px; }
   .feed-card { padding: 11px 13px 12px; }
   .feed-art { width: 44px; height: 44px; }
@@ -4652,6 +4813,26 @@ select.seed-input {
   /* ---------- Lucky Fortune ---------- */
 
   .fortune-page { max-width: 720px; }
+
+  /* Витрина розыгрышей на широком экране идёт в два столбца. */
+  .fm-hub {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: 14px;
+  }
+  .fm-card { grid-template-columns: 124px minmax(0, 1fr); }
+  .fm-card-art { width: 124px; height: 124px; }
+  .fm-card-title { font-size: 18px; }
+  .fm-card-sub { font-size: 13.5px; }
+
+  /* В строку - и по одной линии сверху и снизу. Доли ширины равны пропорциям
+     самих картинок, поэтому высота у обеих выходит одинаковой сама собой:
+     тот же приём, что у пары баннеров на первом экране. Числа печатает
+     tools/banners.mjs. */
+  .footer-promos { max-width: 860px; flex-direction: row; }
+  .footer-promo { flex-shrink: 1; flex-basis: 0%; min-width: 0; }
+  .footer-promo:nth-child(1) { flex-grow: 2.893; }  /* footer-support.webp, 1400x484 */
+  .footer-promo:nth-child(2) { flex-grow: 3.846; }  /* footer-channel.webp, 1400x364 */
   .fortune-title { font-size: 38px; }
   .fortune-sub { font-size: 16px; }
   .fortune-wheel-box { width: min(100%, 480px); }
@@ -4698,6 +4879,8 @@ select.seed-input {
     flex: 0 0 min(420px, calc((100% - 4px) / 3));
     max-width: 420px;
   }
+  /* Правило выше задаёт базис; max-width из мобильной части перебивается
+     здесь же, иначе карточка осталась бы шириной в половину полки. */
   .shelf-row .case-cover { height: 300px; }
   /*
    * Название в полтора раза крупнее: рядом с обложкой в 300 пикселей прежние
@@ -4711,14 +4894,6 @@ select.seed-input {
   .shelf-row .case-card.has-art .case-name { font-size: 21px; min-height: 48px; }
   .shelf-row .case-price { font-size: 19px; }
   .shelf-row .case-max { font-size: 13px; }
-
-  /* Одинокий кейс в конце центрируется правилом сетки выше, отдельная
-     подпорка для него больше не нужна. */
-  .shelf-row > .case-card:last-child:nth-child(odd) {
-    grid-column: auto;
-    justify-self: stretch;
-    width: 100%;
-  }
 
   /* Ряд бонусных кейсов - та же сетка. */
   #bonusList {
@@ -4831,7 +5006,7 @@ select.seed-input {
 
   /* Свой заголовок кейса дублировал бы шапку страницы - она теперь на месте.
      Остаётся только кнопка возврата. */
-  body.case-open .opener-top .brand { display: none; }
+  body.case-open .opener-top .opener-brand { display: none; }
   .opener-top { justify-content: flex-end; }
 
   /* Шапка страницы липкая и лежит поверх содержимого. Без этого запаса любая

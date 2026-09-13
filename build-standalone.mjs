@@ -24,7 +24,7 @@ import { FEED_MIN_MULTIPLIER, FEED_MIN_VALUE, FEED_BIG_SHARE } from './server/fe
 import {
   FORTUNE_SEGMENTS, SEGMENT_DEG, SEGMENTS_START_DEG,
   PERCENT_MIN, PERCENT_MAX, VOUCHER_MIN, VOUCHER_MAX,
-  CASH_PRIZE, GIFT_CASE_MAX_PRICE, SPINS_PER_CYCLE, MIN_DEPOSIT,
+  CASH_PRIZE, GIFT_CASE_MAX_PRICE, SPINS_PER_CYCLE, MIN_DEPOSIT, SPIN_COOLDOWN_MS,
 } from './server/fortune.js';
 
 const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
@@ -257,7 +257,9 @@ const covers = read('./public/covers.js');
 const sounds = read('./public/sounds.js');
 const itemArt = read('./public/item-art.js');
 const coinArt = read('./public/coin-art.js');
-const legal = read('./public/legal.js');
+// legal.js тоже проходит через inlineUi: в подвале лежат картинки по путям
+// assets/ui/, и без этого в автономной сборке они оказывались битыми.
+const legal = inlineUi(read('./public/legal.js'));
 const app = inlineUi(read('./public/app.js'));
 
 // Тело страницы без внешних подключений — всё уедет внутрь файла.
@@ -288,6 +290,7 @@ const DRAW = ${JSON.stringify(drawTables)};
 const CONFIG = ${JSON.stringify(config)};
 const DRAW_BY_ID = new Map(DRAW.map((c) => [c.id, c]));
 const FORTUNE = ${JSON.stringify(fortuneConfig)};
+const FORTUNE_COOLDOWN_MS = ${SPIN_COOLDOWN_MS};
 
 /* Витрина выпадений: пулы и ники. Ленту наполняет Math.random, а не
    provably fair, — ни один результат отсюда не влияет на баланс.
@@ -441,7 +444,7 @@ function freshUser() {
     x2Perks: {}, vouchers: {}, gambleStake: 0,
     // Прокруты колеса в демо выдаются сразу: ждать пополнения заказчику,
     // который открыл файл посмотреть, нечего.
-    fortune: { spins: FORTUNE.spinsPerCycle, cycles: 1, history: [] },
+    fortune: { spins: FORTUNE.spinsPerCycle, cycles: 1, lastSpin: 0, history: [] },
     deposits: [{ amount: 5_000_000, source: 'start', comment: 'Стартовый баланс',
                  created_at: Date.now() }],
     payouts: [],
@@ -491,8 +494,9 @@ function load() {
       if (parsed && parsed.user) {
         // Сохранение могло остаться от версии с одним удвоителем на игрока.
         if (!parsed.user.fortune) {
-          parsed.user.fortune = { spins: FORTUNE.spinsPerCycle, cycles: 1, history: [] };
+          parsed.user.fortune = { spins: FORTUNE.spinsPerCycle, cycles: 1, lastSpin: 0, history: [] };
         }
+        if (parsed.user.fortune.lastSpin === undefined) parsed.user.fortune.lastSpin = 0;
         if (!parsed.user.x2Perks) {
           parsed.user.x2Perks = parsed.user.x2CaseId ? { [parsed.user.x2CaseId]: 1 } : {};
           delete parsed.user.x2CaseId;
@@ -1147,14 +1151,15 @@ const routes = {
    */
   'POST /api/fortune/state': () => {
     const f = store.user.fortune;
+    const readyAt = f.lastSpin ? f.lastSpin + FORTUNE_COOLDOWN_MS : 0;
     return {
       registered: true,
       deposited: true,
       minDeposit: FORTUNE.minDeposit,
       spinsLeft: f.spins,
       spinsPerCycle: FORTUNE.spinsPerCycle,
-      canSpin: f.spins > 0,
-      readyAt: 0,
+      canSpin: f.spins > 0 && readyAt <= Date.now(),
+      readyAt: readyAt > Date.now() ? readyAt : 0,
       cycles: f.cycles,
       history: f.history,
       wheel: {
@@ -1170,6 +1175,14 @@ const routes = {
     const u = store.user;
     if (u.fortune.spins <= 0) {
       return { status: 400, body: { error: 'FORTUNE_EMPTY', message: 'Прокруты кончились' } };
+    }
+    // Сутки между прокрутами соблюдаются и в демо: без этой проверки все пять
+    // прокручивались подряд за минуту, и правило «раз в сутки» выглядело
+    // ненастоящим.
+    const readyAt = u.fortune.lastSpin ? u.fortune.lastSpin + FORTUNE_COOLDOWN_MS : 0;
+    if (readyAt > Date.now()) {
+      return { status: 400, body: { error: 'FORTUNE_COOLDOWN',
+        message: 'Следующий прокрут через сутки', readyAt } };
     }
 
     u.nonce++;
@@ -1218,6 +1231,7 @@ const routes = {
     }
 
     u.fortune.spins--;
+    u.fortune.lastSpin = Date.now();
     u.fortune.history.unshift({
       segment: prize.segment, kind: prize.kind, amount: prize.amount,
       case_id: prize.caseId, created_at: Date.now(),
@@ -1231,8 +1245,8 @@ const routes = {
       state: {
         registered: true, deposited: true, minDeposit: FORTUNE.minDeposit,
         spinsLeft: u.fortune.spins, spinsPerCycle: FORTUNE.spinsPerCycle,
-        canSpin: u.fortune.spins > 0, readyAt: 0, cycles: u.fortune.cycles,
-        history: u.fortune.history,
+        canSpin: false, readyAt: u.fortune.lastSpin + FORTUNE_COOLDOWN_MS,
+        cycles: u.fortune.cycles, history: u.fortune.history,
       },
     };
   },

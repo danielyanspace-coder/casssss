@@ -113,6 +113,13 @@ const JOBS = [
     side: 300, crop: { cx: WHEEL.cx, cy: WHEEL.cy, r: WHEEL.hubR } },
   { src: 'DDDA9C65-FC0A-4337-810C-CFD9149B8E76.png', out: 'fortune-steps.webp',
     side: 1000, crop: STEPS, erase: STEPS_ERASE },
+
+  // Два баннера в самом низу подвала: поддержка и канал. Кнопки на них
+  // нарисованы, поверх каждой лежит прозрачная настоящая - см. .footer-promo.
+  { src: '15B0F685-0C59-4649-B93D-0FD6E1BD3DF4.png', out: 'footer-support.webp',
+    side: 1400, crop: 'padding' },
+  { src: 'B6CC3BDB-260A-4AEE-9FAC-D6FC965C06AF.png', out: 'footer-channel.webp',
+    side: 1400, crop: 'padding' },
 ];
 
 mkdirSync(OUT, { recursive: true });

@@ -147,18 +147,29 @@ if (newcomer) {
     await page.evaluate(() => document.getElementById('view-cases').classList.contains('active')));
 }
 
-/* ---------- Lucky Fortune ---------- */
+/* ---------- Free Money ---------- */
 
 /*
- * Отдельная страница за широким баннером: сначала витрина с присланной
- * карточкой, после «Продолжить» - само колесо.
+ * Раздел за широким баннером - витрина розыгрышей, а не одна игра. Колесо
+ * фортуны на ней только один из ивентов, поэтому заход в раздел ВСЕГДА
+ * возвращает к списку: игрок, ушедший с середины колеса, иначе перестаёт
+ * видеть остальные розыгрыши.
  */
 {
   await page.click('#promoFortune');
   await page.waitForTimeout(500);
-  check('баннер открывает Lucky Fortune',
-    await page.evaluate(() => document.getElementById('view-fortune').classList.contains('active')));
-  check('сначала показана витрина', await page.isVisible('#fortuneIntro'));
+  check('баннер открывает Free Money',
+    await page.evaluate(() => document.getElementById('view-freemoney').classList.contains('active')));
+  check('у раздела есть заголовок',
+    /free\s*money/i.test(await page.textContent('#view-freemoney .game-title')));
+  check('показан список розыгрышей', await page.isVisible('#fmHub'));
+  check('розыгрышей больше одного',
+    await page.evaluate(() => document.querySelectorAll('.fm-card').length) > 1);
+  check('колесо само по себе не открыто', !(await page.isVisible('#fmFortune')));
+
+  await page.click('.fm-card[data-event="fortune"]');
+  await page.waitForTimeout(400);
+  check('ивент открывается с витрины', await page.isVisible('#fortuneIntro'));
   check('колесо пока скрыто', !(await page.isVisible('#fortuneStage')));
 
   await page.click('#fortuneGo');
@@ -219,6 +230,26 @@ if (newcomer) {
   await page.click('#fortuneWinClose');
   await page.waitForTimeout(300);
   check('окно выигрыша закрывается', !(await page.isVisible('#fortuneWinBackdrop')));
+
+  /*
+   * Сутки между прокрутами. Проверяется тем, что второе нажатие не открывает
+   * окно выигрыша: без этой проверки все пять прокрутов уходили подряд за
+   * минуту, и правило «раз в сутки» существовало только на словах.
+   */
+  await page.click('#fortuneSpin');
+  await page.waitForTimeout(900);
+  check('второй прокрут подряд не проходит',
+    !(await page.isVisible('#fortuneWinBackdrop')));
+  check('сказано, когда будет следующий',
+    /через/i.test(await page.textContent('#fortuneStatus')));
+
+  // Выход и повторный заход возвращают к списку, а не к открытому колесу.
+  await page.click('#brandHome');
+  await page.waitForTimeout(400);
+  await page.click('#promoFortune');
+  await page.waitForTimeout(500);
+  check('повторный заход возвращает к списку', await page.isVisible('#fmHub'));
+  check('открытый в прошлый раз ивент закрыт', !(await page.isVisible('#fmFortune')));
 
   await page.click('#brandHome');
   await page.waitForTimeout(400);
@@ -310,8 +341,8 @@ async function goto(view) {
   });
   await page.click('#menuSupport');
   await page.waitForTimeout(300);
-  check('меню: «Поддержка» ведёт в чат @luckybox_support',
-        await page.evaluate(() => window.__supportUrl) === 'https://t.me/luckybox_support',
+  check('меню: «Поддержка» ведёт в чат @luckyboxsupport',
+        await page.evaluate(() => window.__supportUrl) === 'https://t.me/luckyboxsupport',
         String(await page.evaluate(() => window.__supportUrl)));
   check('меню: «Поддержка» закрывает меню',
         await page.evaluate(() => document.getElementById('menuBackdrop').hidden));
@@ -349,8 +380,8 @@ async function goto(view) {
   const feed = await snapshot();
 
   check('лента: показана', feed.visible);
-  check('лента: заголовок «Последние выигрыши»',
-        feed.title === 'Последние выигрыши', feed.title);
+  check('лента: заголовок «Выигрывают сейчас»',
+        feed.title === 'Выигрывают сейчас', feed.title);
   check('лента: карточки заполнены', feed.count > 0, `карточек ${feed.count}`);
   check('лента: у каждой карточки есть рисунок', feed.drawn === feed.count,
         `${feed.drawn} из ${feed.count}`);

@@ -96,7 +96,8 @@
         <!-- Лента выигрышей. Обычные исходы сюда не попадают. -->
         <div class="feed" id="feed" hidden>
           <div class="feed-head">
-            <span class="feed-title">Последние выигрыши</span>
+            <span class="feed-live" aria-hidden="true"></span>
+            <span class="feed-title">Выигрывают сейчас</span>
           </div>
           <div class="feed-track" id="feedTrack"></div>
         </div>
@@ -434,46 +435,58 @@
     </section>
 
     <!-- ══════════ БОНУСЫ ══════════ -->
-    <!-- ══════════ LUCKY FORTUNE ══════════
+    <!-- ══════════ FREE MONEY ══════════
 
-         Отдельная страница за баннером «Free money». Шапка, боковая панель и
-         подвал у неё общие с остальными разделами: они лежат вне main и
-         рисуются сами.
+         Раздел за широким баннером на первом экране. Это не одна игра, а
+         витрина розыгрышей: колесо фортуны - только один из них.
 
-         Два состояния на одной странице: витрина с присланной карточкой и
-         само колесо. Витрина - это картинка целиком, а кнопка «Продолжить»
-         нарисована на ней же, поэтому поверх неё лежит прозрачная кнопка,
-         выставленная по долям картинки. -->
-    <section class="view" id="view-fortune">
-      <div class="fortune-page">
+         Устроено двумя состояниями внутри одного раздела: список ивентов и
+         открытый ивент. Заход в раздел ВСЕГДА возвращает к списку, даже если
+         в прошлый раз игрок ушёл с середины колеса: раздел - это витрина, а
+         не сохранённая игра. Делает это switchView -> openFreeMoney(). -->
+    <section class="view" id="view-freemoney">
 
-        <!-- Витрина -->
-        <div class="fortune-intro" id="fortuneIntro">
-          <div class="fortune-card">
-            <img src="/assets/ui/fortune-card.webp" alt="Lucky Fortune" class="fortune-card-img">
-            <button class="fortune-card-go" id="fortuneGo">Продолжить</button>
-          </div>
-        </div>
+      <div class="game-head">
+        <h1 class="game-title">FREE MONEY</h1>
+        <p class="game-sub">Розыгрыши и подарки. Участие ничего не стоит.</p>
+      </div>
 
-        <!-- Колесо -->
-        <div class="fortune-stage" id="fortuneStage" hidden>
-          <div class="fortune-head">
-            <h1 class="fortune-title">LUCKY <span>FORTUNE</span></h1>
-            <p class="fortune-sub">Забирайте крутые бонусы каждый день</p>
-          </div>
+      <div class="fm-hub" id="fmHub"></div>
 
-          <div class="fortune-wheel-box">
-            <img src="/assets/ui/fortune-wheel.webp" alt="" class="fortune-wheel" id="fortuneWheel">
-            <!-- Указатель нарисован здесь, а не вырезан из картинки: вырезанный
-                 крутился бы вместе с колесом и никуда бы не показывал. -->
-            <span class="fortune-pin" aria-hidden="true"></span>
-            <button class="fortune-hub" id="fortuneSpin" aria-label="Крутить">
-              <img src="/assets/ui/fortune-hub.webp" alt="">
-            </button>
+      <!-- ---------- Ивент: Lucky Fortune ---------- -->
+      <div class="fm-event" id="fmFortune" hidden>
+        <button class="fm-back" id="fmBack">К списку розыгрышей</button>
+
+        <div class="fortune-page">
+
+          <!-- Витрина -->
+          <div class="fortune-intro" id="fortuneIntro">
+            <div class="fortune-card">
+              <img src="/assets/ui/fortune-card.webp" alt="Lucky Fortune" class="fortune-card-img">
+              <button class="fortune-card-go" id="fortuneGo">Продолжить</button>
+            </div>
           </div>
 
-          <div class="fortune-status" id="fortuneStatus"></div>
-          <div class="fortune-log" id="fortuneLog"></div>
+          <!-- Колесо -->
+          <div class="fortune-stage" id="fortuneStage" hidden>
+            <div class="fortune-head">
+              <h2 class="fortune-title">LUCKY <span>FORTUNE</span></h2>
+              <p class="fortune-sub">Забирайте крутые бонусы каждый день</p>
+            </div>
+
+            <div class="fortune-wheel-box">
+              <img src="/assets/ui/fortune-wheel.webp" alt="" class="fortune-wheel" id="fortuneWheel">
+              <!-- Указатель нарисован здесь, а не вырезан из картинки: вырезанный
+                   крутился бы вместе с колесом и никуда бы не показывал. -->
+              <span class="fortune-pin" aria-hidden="true"></span>
+              <button class="fortune-hub" id="fortuneSpin" aria-label="Крутить">
+                <img src="/assets/ui/fortune-hub.webp" alt="">
+              </button>
+            </div>
+
+            <div class="fortune-status" id="fortuneStatus"></div>
+            <div class="fortune-log" id="fortuneLog"></div>
+          </div>
         </div>
       </div>
     </section>
@@ -581,12 +594,11 @@
       <div class="opener-inner">
 
         <div class="opener-top">
-          <div class="brand">
-            <div class="brand-mark" data-ico="bolt"></div>
-            <div class="brand-text">
-              <div class="brand-name">LUCKY<span>BOX</span></div>
-              <div class="brand-sub" id="openerViewers"></div>
-            </div>
+          <!-- Логотип проекта вместо прежней молнии: молния была случайным
+               значком, а логотип здесь и есть подпись экрана. -->
+          <div class="opener-brand">
+            <img src="/assets/ui/logo.webp" alt="LUCKYBOX" class="opener-logo">
+            <div class="opener-viewers" id="openerViewers"></div>
           </div>
           <button class="opener-close" id="closeOpenerTop" data-ico="back"></button>
         </div>

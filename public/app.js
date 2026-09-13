@@ -399,9 +399,12 @@ function celebrateWin(multiplier, value) {
    БАЛАНС, ПЛЮШКИ, СТАТИСТИКА
    ============================================================ */
 
+/** Сумма с отдельно выделенным знаком рубля: он набран жирнее цифр. */
+const moneyRich = (n) => `${fmt(n)} <span class="rub">₽</span>`;
+
 function renderBalance() {
   const chip = document.getElementById('balanceChip');
-  document.getElementById('balanceValue').textContent = money(state.user.balance);
+  document.getElementById('balanceValue').innerHTML = moneyRich(state.user.balance);
   chip.classList.add('bump');
   setTimeout(() => chip.classList.remove('bump'), 260);
 
@@ -3374,7 +3377,7 @@ function switchView(name) {
   if (name === 'admin') loadAdminOverview();
   if (name === 'cases') loadFreeCase();
   if (name === 'bonuses') { renderBonuses(); loadPromoState(); }
-  if (name === 'fortune') loadFortune();
+  if (name === 'freemoney') openFreeMoney();
   if (name === 'partner') loadPartner();
   if (name === 'upgrade') {
     renderUpgradeTicks();
@@ -5079,23 +5082,14 @@ function fortuneSegmentCenter(index) {
 }
 
 async function loadFortune() {
-  const stage = document.getElementById('fortuneStage');
-  const intro = document.getElementById('fortuneIntro');
-
   try {
     state.fortune.data = await api('/api/fortune/state');
   } catch {
-    // Колесо необязательно: страница просто останется на витрине.
+    // Колесо необязательно: ивент просто останется на витрине.
     return;
   }
-
   renderFortuneStatus();
   renderFortuneLog();
-
-  // На витрину возвращаемся только при первом заходе: игрока, уже нажавшего
-  // «Продолжить», выкидывать назад после каждого обновления состояния нельзя.
-  if (!stage.hidden) return;
-  intro.hidden = false;
 }
 
 /** Подпись под колесом: сколько прокрутов и когда следующий. */
@@ -5324,7 +5318,115 @@ function showFortuneWin(prize) {
   haptic('medium');
 }
 
+/**
+ * Витрина розыгрышей.
+ *
+ * ПОЧЕМУ ЗАХОД В РАЗДЕЛ ВСЕГДА ВОЗВРАЩАЕТ К СПИСКУ. Free Money - это витрина,
+ * а колесо - один из ивентов на ней. Если оставлять открытым тот ивент, на
+ * котором игрок ушёл, он перестаёт видеть остальные и решает, что раздел
+ * состоит из одного колеса.
+ */
+/*
+ * Путь к картинке хранится целиком, вместе с ведущим слешем: автономная
+ * сборка заменяет строку «/assets/ui/...» на сам файл, и слеш, приклеенный
+ * снаружи в шаблоне, превратил бы адрес в «/data:image/...».
+ */
+const FREE_MONEY_EVENTS = [
+  {
+    id: 'fortune',
+    title: 'Колесо фортуны',
+    sub: 'Крутите раз в сутки пять дней подряд',
+    art: '/assets/ui/fortune-card.webp',
+    tag: 'Идёт сейчас',
+  },
+  {
+    id: 'freecase',
+    title: 'Бесплатный кейс',
+    sub: 'За подписку на наш канал',
+    art: '/assets/ui/promo-square.webp',
+    tag: 'Идёт сейчас',
+  },
+  {
+    id: 'promo',
+    title: 'Промокод',
+    sub: 'Введите код и заберите бонус к пополнению',
+    art: '/assets/ui/promo-square.webp',
+    tag: 'Всегда',
+  },
+  {
+    id: 'rolls',
+    title: 'Розыгрыш Rolls-Royce Wraith',
+    sub: 'Условия готовятся',
+    art: '/assets/ui/promo-wide.webp',
+    tag: 'Скоро',
+    soon: true,
+  },
+];
+
+function renderFreeMoneyHub() {
+  const box = document.getElementById('fmHub');
+  if (!box) return;
+
+  const events = FREE_MONEY_EVENTS.filter((e) =>
+    // Бесплатный кейс показываем, только когда канал и кейс заданы в
+    // настройках: иначе карточка вела бы в ошибку.
+    e.id !== 'freecase' || state.config?.freeCase?.enabled);
+
+  box.innerHTML = events.map((e) => `
+    <button class="fm-card${e.soon ? ' soon' : ''}" data-event="${e.id}">
+      <img class="fm-card-art" src="${e.art}" alt="">
+      <span class="fm-card-body">
+        <span class="fm-card-tag">${esc(e.tag)}</span>
+        <span class="fm-card-title">${esc(e.title)}</span>
+        <span class="fm-card-sub">${esc(e.sub)}</span>
+      </span>
+    </button>`).join('');
+
+  box.querySelectorAll('[data-event]').forEach((btn) => {
+    btn.addEventListener('click', () => openFreeMoneyEvent(btn.dataset.event));
+  });
+}
+
+function openFreeMoneyEvent(id) {
+  haptic('light');
+
+  if (id === 'fortune') {
+    document.getElementById('fmHub').hidden = true;
+    document.getElementById('fmFortune').hidden = false;
+    // Ивент всегда начинается с витрины: колесо открывается «Продолжить».
+    document.getElementById('fortuneIntro').hidden = false;
+    document.getElementById('fortuneStage').hidden = true;
+    loadFortune();
+    return;
+  }
+  if (id === 'promo') { switchView('bonuses'); return; }
+  if (id === 'freecase') {
+    // Кнопка бесплатного кейса живёт на первом экране: ведём туда и нажимаем
+    // её за игрока, чтобы он не искал её глазами.
+    switchView('cases');
+    setTimeout(() => document.getElementById('freeCase')?.click(), 250);
+    return;
+  }
+  if (id === 'rolls') {
+    toast('Условия розыгрыша ещё готовятся');
+  }
+}
+
+/** Заход в раздел: список ивентов, что бы ни было открыто в прошлый раз. */
+function openFreeMoney() {
+  renderFreeMoneyHub();
+  document.getElementById('fmHub').hidden = false;
+  document.getElementById('fmFortune').hidden = true;
+  document.getElementById('fortuneIntro').hidden = false;
+  document.getElementById('fortuneStage').hidden = true;
+}
+
 function wireFortune() {
+  document.getElementById('fmBack')?.addEventListener('click', () => {
+    haptic('light');
+    openFreeMoney();
+  });
+
   document.getElementById('fortuneGo')?.addEventListener('click', () => {
     haptic('light');
     document.getElementById('fortuneIntro').hidden = true;
@@ -5350,7 +5452,7 @@ function wireFortune() {
 
   document.getElementById('promoFortune')?.addEventListener('click', () => {
     haptic('light');
-    switchView('fortune');
+    switchView('freemoney');
   });
   document.getElementById('promoBonuses')?.addEventListener('click', () => {
     haptic('light');
