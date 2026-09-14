@@ -605,6 +605,21 @@ export function footerHtml() {
       </div>
     </div>
 
+    <!-- Два присланных баннера в самом низу. Кнопки на них нарисованы, поэтому
+         кликабельна вся карточка целиком: вешать настоящую кнопку поверх
+         нарисованной здесь незачем - вся карточка и есть кнопка, а подсветка
+         нарисованной показывает, куда именно ведёт нажатие. -->
+    <div class="footer-promos">
+      <a class="footer-promo" href="${COMPANY.support}" target="_blank" rel="noopener noreferrer">
+        <img src="/assets/ui/footer-support.webp" alt="Обратиться в поддержку">
+        <span class="footer-promo-hit support" aria-hidden="true"></span>
+      </a>
+      <a class="footer-promo" href="${COMPANY.telegram}" target="_blank" rel="noopener noreferrer">
+        <img src="/assets/ui/footer-channel.webp" alt="Подписаться на канал">
+        <span class="footer-promo-hit channel" aria-hidden="true"></span>
+      </a>
+    </div>
+
     <!-- Знаки партнёров. Это собственные стилизованные марки, а не
          официальные эмблемы правообладателей - см. комментарий в icons.js. -->
     <div class="footer-marks">
@@ -622,21 +637,6 @@ export function footerHtml() {
     <a class="footer-mail" href="mailto:${COMPANY.email}">
       <span class="footer-mail-ico" data-ico="mail"></span>${COMPANY.email}
     </a>
-
-    <!-- Два присланных баннера в самом низу. Кнопки на них нарисованы, поэтому
-         кликабельна вся карточка целиком: вешать настоящую кнопку поверх
-         нарисованной здесь незачем - вся карточка и есть кнопка, а подсветка
-         нарисованной показывает, куда именно ведёт нажатие. -->
-    <div class="footer-promos">
-      <a class="footer-promo" href="${COMPANY.support}" target="_blank" rel="noopener noreferrer">
-        <img src="/assets/ui/footer-support.webp" alt="Обратиться в поддержку">
-        <span class="footer-promo-hit support" aria-hidden="true"></span>
-      </a>
-      <a class="footer-promo" href="${COMPANY.telegram}" target="_blank" rel="noopener noreferrer">
-        <img src="/assets/ui/footer-channel.webp" alt="Подписаться на канал">
-        <span class="footer-promo-hit channel" aria-hidden="true"></span>
-      </a>
-    </div>
 
     <!-- Самая нижняя строка. Намеренно тихая: копирайт слева, возрастное
          ограничение справа и чуть крупнее - его читают, а не украшают. -->

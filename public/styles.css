@@ -1664,18 +1664,36 @@ select.seed-input {
  * четыре от 620 точек (сюда попадает и телефон, повёрнутый горизонтально), три
  * крупных на компьютере - см. конец файла.
  */
+/*
+ * ПРОМЕЖУТОК И ЧИСЛО КОЛОНОК ЗАДАНЫ ПЕРЕМЕННЫМИ, И ЭТО НЕ УКРАШАТЕЛЬСТВО.
+ *
+ * Ширина карточки считается из них же. Как только промежуток и вычитаемое из
+ * ширины число разъезжаются, строка перестаёт вмещать нужное количество
+ * карточек и полка рассыпается по одной в ряд. Ровно это и случилось с
+ * полками «Направления» и «Игра престолов»: у них свой промежуток 12 точек,
+ * а ширина считалась от 10, и два кейса переставали влезать в строку.
+ *
+ * Поэтому переопределять здесь можно только --shelf-gap и --shelf-cols.
+ * Писать gap или ширину числом напрямую нельзя.
+ */
 .shelf-row {
+  --shelf-gap: 10px;
+  --shelf-cols: 2;
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
   align-items: flex-start;
-  gap: 4px 10px;
+  gap: 4px var(--shelf-gap);
 }
 
-/* Два в ряд: из ширины вычитается один промежуток. */
 .shelf-row > .case-card {
-  flex: 0 0 calc((100% - 10px) / 2);
-  max-width: calc((100% - 10px) / 2);
+  flex: 0 0 var(--shelf-cell);
+  max-width: var(--shelf-cell);
+}
+
+/* Ширина одной ячейки: из ширины полки вычитаются все промежутки. */
+.shelf-row {
+  --shelf-cell: calc((100% - (var(--shelf-cols) - 1) * var(--shelf-gap)) / var(--shelf-cols));
 }
 
 /* ---------- Компактная карточка ---------- */
@@ -1739,12 +1757,9 @@ select.seed-input {
 .shelf-row .cover-badge { font-size: 8px; padding: 2px 6px; border-width: 1px; }
 .shelf-row .cover-top { font-size: 9px; bottom: 5px; left: 9px; }
 
-/* Планшет и телефон, повёрнутый горизонтально: четыре в ряд, три промежутка. */
+/* Планшет и телефон, повёрнутый горизонтально: четыре в ряд. */
 @media (min-width: 620px) {
-  .shelf-row > .case-card {
-    flex-basis: calc((100% - 30px) / 4);
-    max-width: calc((100% - 30px) / 4);
-  }
+  .shelf-row { --shelf-cols: 4; }
   .shelf-row .case-cover { height: 120px; }
 }
 
@@ -3264,8 +3279,11 @@ select.seed-input {
   box-shadow: 0 5px 16px rgba(255, 139, 56, 0.1);
 }
 
+/* У этих двух полок арт вырезан по контуру и шире своей колонки, поэтому
+   промежуток больше. Меняем ТОЛЬКО переменную: ширина ячейки пересчитается
+   сама. */
 .shelf-country .shelf-row,
-.shelf-got .shelf-row { gap: 2px 12px; }
+.shelf-got .shelf-row { --shelf-gap: 12px; row-gap: 2px; }
 
 .shelf-got .shelf-title {
   background: linear-gradient(100deg, #e8c56a, #c2410c);
@@ -3593,69 +3611,6 @@ select.seed-input {
 /* ============================================================
    LUCKY FORTUNE
    ============================================================ */
-
-/* ---------- Витрина розыгрышей ---------- */
-
-.fm-hub { display: flex; flex-direction: column; gap: 10px; }
-
-/*
- * Карточка ивента: картинка слева, текст справа. Картинка обрезается по
- * центру - здесь она только метка, а не баннер, и её надписи всё равно не
- * прочитать в полоске шириной в сто точек.
- */
-.fm-card {
-  display: grid;
-  grid-template-columns: 104px minmax(0, 1fr);
-  align-items: center;
-  gap: 14px;
-  padding: 0 16px 0 0;
-  border: 1px solid var(--line);
-  border-radius: 18px;
-  background: linear-gradient(110deg, rgba(255, 255, 255, 0.05), transparent 60%),
-              var(--bg-soft);
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-  overflow: hidden;
-  transition: transform 0.15s, border-color 0.15s;
-}
-.fm-card:active { transform: scale(0.985); }
-.fm-card-art {
-  display: block;
-  width: 104px; height: 104px;
-  object-fit: cover;
-}
-.fm-card-body { display: block; min-width: 0; padding: 14px 0; }
-.fm-card-tag {
-  display: inline-block;
-  margin-bottom: 6px;
-  padding: 3px 9px;
-  border-radius: 999px;
-  border: 1px solid var(--line);
-  font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
-  text-transform: uppercase; color: var(--muted);
-}
-.fm-card-title { display: block; font-size: 16px; font-weight: 800; }
-.fm-card-sub { display: block; margin-top: 3px; font-size: 12.5px; color: var(--muted); }
-
-/* Ивент, который ещё не запущен: приглушён, но виден - иначе о нём не узнают. */
-.fm-card.soon { opacity: 0.62; }
-.fm-card.soon .fm-card-tag { border-color: rgba(255, 214, 10, 0.5); color: var(--gold); }
-
-.fm-back {
-  display: inline-flex; align-items: center; gap: 8px;
-  margin-bottom: 14px;
-  padding: 9px 15px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: none;
-  color: var(--muted);
-  font: inherit; font-size: 13px;
-  cursor: pointer;
-}
-.fm-back::before { content: '‹'; font-size: 17px; line-height: 1; }
-.fm-back:active { transform: scale(0.96); }
 
 .fortune-page { max-width: 560px; margin: 0 auto; }
 
@@ -4814,17 +4769,6 @@ select.seed-input {
 
   .fortune-page { max-width: 720px; }
 
-  /* Витрина розыгрышей на широком экране идёт в два столбца. */
-  .fm-hub {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-    gap: 14px;
-  }
-  .fm-card { grid-template-columns: 124px minmax(0, 1fr); }
-  .fm-card-art { width: 124px; height: 124px; }
-  .fm-card-title { font-size: 18px; }
-  .fm-card-sub { font-size: 13.5px; }
-
   /* В строку - и по одной линии сверху и снизу. Доли ширины равны пропорциям
      самих картинок, поэтому высота у обеих выходит одинаковой сама собой:
      тот же приём, что у пары баннеров на первом экране. Числа печатает
@@ -4866,21 +4810,16 @@ select.seed-input {
    * ОСТАТОК сетка не умеет вообще. Flex переносит строки и центрирует каждую
    * отдельно, включая последнюю, - ровно то, что нужно.
    */
-  .shelf-row {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
-    align-items: flex-start;
-    /* Вплотную, но не касаясь: у вырезанного арта есть собственные прозрачные
-       поля, и щель в пару пикселей здесь читается как воздух. */
-    gap: 2px;
-  }
+  /* Вплотную, но не касаясь: у вырезанного арта есть собственные прозрачные
+     поля, и щель в пару пикселей здесь читается как воздух. */
+  .shelf-row { --shelf-gap: 2px; --shelf-cols: 3; }
+
+  /* Предел в 420 точек: на широком мониторе треть полки - это обложка в
+     полэкрана. Ширина ячейки при этом та же переменная, что и везде. */
   .shelf-row > .case-card {
-    flex: 0 0 min(420px, calc((100% - 4px) / 3));
+    flex-basis: min(420px, var(--shelf-cell));
     max-width: 420px;
   }
-  /* Правило выше задаёт базис; max-width из мобильной части перебивается
-     здесь же, иначе карточка осталась бы шириной в половину полки. */
   .shelf-row .case-cover { height: 300px; }
   /*
    * Название в полтора раза крупнее: рядом с обложкой в 300 пикселей прежние

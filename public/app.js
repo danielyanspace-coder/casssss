@@ -5319,114 +5319,20 @@ function showFortuneWin(prize) {
 }
 
 /**
- * Витрина розыгрышей.
+ * Заход в раздел Free Money.
  *
- * ПОЧЕМУ ЗАХОД В РАЗДЕЛ ВСЕГДА ВОЗВРАЩАЕТ К СПИСКУ. Free Money - это витрина,
- * а колесо - один из ивентов на ней. Если оставлять открытым тот ивент, на
- * котором игрок ушёл, он перестаёт видеть остальные и решает, что раздел
- * состоит из одного колеса.
+ * ВСЕГДА возвращает к обложке, даже если в прошлый раз игрок ушёл с середины
+ * колеса. Раздел - это витрина розыгрыша, а не сохранённая игра: открыв его
+ * заново и увидев наполовину прокрученное колесо, игрок решит, что попал не
+ * туда.
  */
-/*
- * Путь к картинке хранится целиком, вместе с ведущим слешем: автономная
- * сборка заменяет строку «/assets/ui/...» на сам файл, и слеш, приклеенный
- * снаружи в шаблоне, превратил бы адрес в «/data:image/...».
- */
-const FREE_MONEY_EVENTS = [
-  {
-    id: 'fortune',
-    title: 'Колесо фортуны',
-    sub: 'Крутите раз в сутки пять дней подряд',
-    art: '/assets/ui/fortune-card.webp',
-    tag: 'Идёт сейчас',
-  },
-  {
-    id: 'freecase',
-    title: 'Бесплатный кейс',
-    sub: 'За подписку на наш канал',
-    art: '/assets/ui/promo-square.webp',
-    tag: 'Идёт сейчас',
-  },
-  {
-    id: 'promo',
-    title: 'Промокод',
-    sub: 'Введите код и заберите бонус к пополнению',
-    art: '/assets/ui/promo-square.webp',
-    tag: 'Всегда',
-  },
-  {
-    id: 'rolls',
-    title: 'Розыгрыш Rolls-Royce Wraith',
-    sub: 'Условия готовятся',
-    art: '/assets/ui/promo-wide.webp',
-    tag: 'Скоро',
-    soon: true,
-  },
-];
-
-function renderFreeMoneyHub() {
-  const box = document.getElementById('fmHub');
-  if (!box) return;
-
-  const events = FREE_MONEY_EVENTS.filter((e) =>
-    // Бесплатный кейс показываем, только когда канал и кейс заданы в
-    // настройках: иначе карточка вела бы в ошибку.
-    e.id !== 'freecase' || state.config?.freeCase?.enabled);
-
-  box.innerHTML = events.map((e) => `
-    <button class="fm-card${e.soon ? ' soon' : ''}" data-event="${e.id}">
-      <img class="fm-card-art" src="${e.art}" alt="">
-      <span class="fm-card-body">
-        <span class="fm-card-tag">${esc(e.tag)}</span>
-        <span class="fm-card-title">${esc(e.title)}</span>
-        <span class="fm-card-sub">${esc(e.sub)}</span>
-      </span>
-    </button>`).join('');
-
-  box.querySelectorAll('[data-event]').forEach((btn) => {
-    btn.addEventListener('click', () => openFreeMoneyEvent(btn.dataset.event));
-  });
-}
-
-function openFreeMoneyEvent(id) {
-  haptic('light');
-
-  if (id === 'fortune') {
-    document.getElementById('fmHub').hidden = true;
-    document.getElementById('fmFortune').hidden = false;
-    // Ивент всегда начинается с витрины: колесо открывается «Продолжить».
-    document.getElementById('fortuneIntro').hidden = false;
-    document.getElementById('fortuneStage').hidden = true;
-    loadFortune();
-    return;
-  }
-  if (id === 'promo') { switchView('bonuses'); return; }
-  if (id === 'freecase') {
-    // Кнопка бесплатного кейса живёт на первом экране: ведём туда и нажимаем
-    // её за игрока, чтобы он не искал её глазами.
-    switchView('cases');
-    setTimeout(() => document.getElementById('freeCase')?.click(), 250);
-    return;
-  }
-  if (id === 'rolls') {
-    toast('Условия розыгрыша ещё готовятся');
-  }
-}
-
-/** Заход в раздел: список ивентов, что бы ни было открыто в прошлый раз. */
 function openFreeMoney() {
-  renderFreeMoneyHub();
-  document.getElementById('fmHub').hidden = false;
-  document.getElementById('fmFortune').hidden = true;
   document.getElementById('fortuneIntro').hidden = false;
   document.getElementById('fortuneStage').hidden = true;
+  loadFortune();
 }
 
 function wireFortune() {
-  document.getElementById('fmBack')?.addEventListener('click', () => {
-    haptic('light');
-    openFreeMoney();
-  });
-
   document.getElementById('fortuneGo')?.addEventListener('click', () => {
     haptic('light');
     document.getElementById('fortuneIntro').hidden = true;

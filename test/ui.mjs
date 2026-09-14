@@ -162,15 +162,21 @@ if (newcomer) {
     await page.evaluate(() => document.getElementById('view-freemoney').classList.contains('active')));
   check('у раздела есть заголовок',
     /free\s*money/i.test(await page.textContent('#view-freemoney .game-title')));
-  check('показан список розыгрышей', await page.isVisible('#fmHub'));
-  check('розыгрышей больше одного',
-    await page.evaluate(() => document.querySelectorAll('.fm-card').length) > 1);
-  check('колесо само по себе не открыто', !(await page.isVisible('#fmFortune')));
-
-  await page.click('.fm-card[data-event="fortune"]');
-  await page.waitForTimeout(400);
-  check('ивент открывается с витрины', await page.isVisible('#fortuneIntro'));
+  check('раздел открывается с обложки', await page.isVisible('#fortuneIntro'));
   check('колесо пока скрыто', !(await page.isVisible('#fortuneStage')));
+
+  /*
+   * Обложка вписана во всю ширину раздела, а не превращена в значок. Это уже
+   * ломалось: карточка ужималась до квадратика в списке, и присланный арт
+   * переставало быть видно.
+   */
+  const cardW = await page.evaluate(() => {
+    const img = document.querySelector('.fortune-card-img');
+    const page = document.querySelector('.fortune-page');
+    return { img: img.getBoundingClientRect().width, page: page.getBoundingClientRect().width };
+  });
+  check('обложка занимает всю ширину раздела',
+    cardW.img >= cardW.page - 2, `${Math.round(cardW.img)} из ${Math.round(cardW.page)}`);
 
   await page.click('#fortuneGo');
   await page.waitForTimeout(400);
@@ -248,8 +254,9 @@ if (newcomer) {
   await page.waitForTimeout(400);
   await page.click('#promoFortune');
   await page.waitForTimeout(500);
-  check('повторный заход возвращает к списку', await page.isVisible('#fmHub'));
-  check('открытый в прошлый раз ивент закрыт', !(await page.isVisible('#fmFortune')));
+  check('повторный заход возвращает к обложке', await page.isVisible('#fortuneIntro'));
+  check('прокрученное в прошлый раз колесо не показывается',
+    !(await page.isVisible('#fortuneStage')));
 
   await page.click('#brandHome');
   await page.waitForTimeout(400);
