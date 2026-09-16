@@ -265,7 +265,7 @@ export function caseCover(caseData) {
 const asset = (globalName, path) => () =>
   (typeof window !== 'undefined' && window[globalName]) || path;
 
-const porscheBannerSrc = asset('__PORSCHE_BANNER_SRC', '/assets/porsche-banner.webp');
+const porscheBannerSrc = asset('__PORSCHE_BANNER_SRC', '/assets/ui/case-porsche.webp');
 const porscheSrc = asset('__PORSCHE_SRC', '/assets/porsche.webp');
 
 /**
@@ -301,10 +301,11 @@ export function porschePhotoSrc() {
 }
 
 /**
- * Обложка сезонного кейса - готовый баннер во всю ширину карточки.
+ * Обложка сезонного кейса - присланный постер.
  *
- * Он нарисован с собственным фоном под конкретную пропорцию, поэтому идёт
- * через object-fit: cover, как обычная фотография.
+ * Он вертикальный и нарисован с собственным фоном, поэтому показывается
+ * целиком: высоту задаёт его пропорция (см. .featured-card.own-art в
+ * styles.css), а не число в пикселях.
  */
 export function porscheCover(caseData) {
   const alt = `Обложка кейса «${caseData.name}»`;

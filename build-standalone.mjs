@@ -143,7 +143,7 @@ const drawTables = CASES.map((c) => ({
 /* ---------- Исходники клиента ---------- */
 
 const porscheData = readFileSync(new URL('./public/assets/porsche.webp', import.meta.url)).toString('base64');
-const bannerData = readFileSync(new URL('./public/assets/porsche-banner.webp', import.meta.url)).toString('base64');
+const bannerData = readFileSync(new URL('./public/assets/ui/case-porsche.webp', import.meta.url)).toString('base64');
 // Присланные обложки уезжают в файл все разом: с диска относительных путей
 // нет. Список берётся из папки, чтобы добавленная обложка не потерялась.
 const menuData = readFileSync(new URL('./public/assets/menu.webp', import.meta.url)).toString('base64');

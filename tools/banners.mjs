@@ -86,6 +86,54 @@ const STEPS = { x: 0, y: 0, w: 1122, h: 578 };
 // него: при меньшем радиусе кольцо оставалось висеть пустым бубликом.
 const STEPS_ERASE = { cx: 1008, cy: 216, r: 82 };
 
+/*
+ * ЗНАЧКИ БОКОВОГО МЕНЮ.
+ *
+ * Присланный макет - одна картинка со всей панелью: логотип, восемь плиток с
+ * рисунком, названием и подписью. Целиком её взять нельзя: подписи в ней
+ * вшиты, активная плитка подсвечена намертво, а блок «Админ» заказчик просил
+ * убрать. Поэтому из макета берутся только рисунки, а плитки собираются
+ * разметкой - тогда у них живая подсветка и правильный набор разделов.
+ *
+ * Середины рисунков сняты с макета прослеживанием ярких строк в левой полосе
+ * панели, а не отмерены линейкой: шаг между плитками в макете гуляет на
+ * десяток точек, и равномерная сетка уводила рисунок вниз к концу списка.
+ *
+ * Фон плитки в макете почти чёрный, а рисунки светятся, поэтому фон снимается
+ * по яркости: всё темнее ALPHA_LO становится прозрачным, светлее ALPHA_HI -
+ * непрозрачным, между ними плавный переход. Вырезать по контуру руками не
+ * пришлось, а на плитке любого тона рисунок лежит без светлого прямоугольника
+ * вокруг.
+ */
+const MENU_SRC = '0C1E7433-8B84-48B0-A279-716A0320998D.png';
+
+/** Рамка вырезки: левая полоса панели, подписи в неё не попадают. */
+const MENU_ART = { x: 100, w: 250, h: 150 };
+
+/** Середина рисунка каждой плитки. Админ пропущен намеренно. */
+const MENU_ROWS = [
+  [428.5, 'nav-cases'],
+  [613, 'nav-upgrade'],
+  [787.5, 'nav-crash'],
+  [951.5, 'nav-roulette'],
+  [1127.5, 'nav-wallet'],
+  [1297.5, 'nav-bonuses'],
+  [1654.5, 'nav-support'],
+];
+
+const MENU_ICONS = MENU_ROWS.map(([centre, out]) => ({
+  src: MENU_SRC,
+  out: out + '.webp',
+  side: 320,
+  crop: {
+    x: MENU_ART.x,
+    y: Math.round(centre - MENU_ART.h / 2),
+    w: MENU_ART.w,
+    h: MENU_ART.h,
+  },
+  keyDark: true,
+}));
+
 const JOBS = [
   // Слайд-шоу главного баннера. Порядок показа задан порядком в этом списке.
   { src: 'D6BC2519-B36D-47EE-903D-E3CC550101FE.png', out: 'hero-1.webp', side: WIDE_SIDE },
@@ -120,6 +168,13 @@ const JOBS = [
     side: 1400, crop: 'padding' },
   { src: 'B6CC3BDB-260A-4AEE-9FAC-D6FC965C06AF.png', out: 'footer-channel.webp',
     side: 1400, crop: 'padding' },
+
+  // Обложка сезонного кейса. Вертикальная, поэтому на компьютере она стоит
+  // справа от слайд-шоу, а не полосой под ним.
+  { src: '60C7F2F1-77E6-4BA0-AC80-D8B9E89EB50A.png', out: 'case-porsche.webp',
+    side: 1100, crop: 'padding' },
+
+  ...MENU_ICONS,
 ];
 
 mkdirSync(OUT, { recursive: true });
@@ -133,7 +188,7 @@ for (const job of JOBS) {
   const src = 'data:image/png;base64,'
     + readFileSync(new URL(job.src, ROOT)).toString('base64');
 
-  const res = await page.evaluate(async ({ src, side, quality, crop, erase }) => {
+  const res = await page.evaluate(async ({ src, side, quality, crop, erase, keyDark }) => {
     const img = new Image();
     img.src = src;
     await img.decode();
@@ -205,6 +260,27 @@ for (const job of JOBS) {
       ctx.globalCompositeOperation = 'source-over';
     }
 
+    if (keyDark) {
+      /*
+       * Снятие почти чёрного фона по яркости.
+       *
+       * Порог мягкий, а не резкий: при резком край рисунка идёт ступеньками,
+       * и на тёмной плитке это видно как грязная обводка. Нижняя граница
+       * взята чуть выше самого светлого места фона плитки, верхняя - чуть
+       * ниже самой тёмной части самих рисунков.
+       */
+      const ALPHA_LO = 14;
+      const ALPHA_HI = 38;
+      const im = ctx.getImageData(0, 0, c.width, c.height);
+      const px = im.data;
+      for (let i = 0; i < px.length; i += 4) {
+        const lum = 0.2126 * px[i] + 0.7152 * px[i + 1] + 0.0722 * px[i + 2];
+        const a = Math.max(0, Math.min(1, (lum - ALPHA_LO) / (ALPHA_HI - ALPHA_LO)));
+        px[i + 3] = Math.round(px[i + 3] * a);
+      }
+      ctx.putImageData(im, 0, 0);
+    }
+
     if (erase) {
       ctx.globalCompositeOperation = 'destination-out';
       ctx.beginPath();
@@ -217,7 +293,8 @@ for (const job of JOBS) {
       w: c.width, h: c.height,
       base64: c.toDataURL('image/webp', quality).split(',')[1],
     };
-  }, { src, side: job.side, quality: QUALITY, crop: job.crop || null, erase: job.erase || null });
+  }, { src, side: job.side, quality: QUALITY, crop: job.crop || null,
+       erase: job.erase || null, keyDark: !!job.keyDark });
 
   const buf = Buffer.from(res.base64, 'base64');
   writeFileSync(new URL(job.out, OUT), buf);

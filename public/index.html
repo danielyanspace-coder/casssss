@@ -83,14 +83,24 @@
            пришлось бы держать полосу шириной в четыре экрана, и она бы ловила
            горизонтальную прокрутку пальцем. Крутит их runHeroSlider(). -->
       <div class="banner-stack">
-        <div class="hero" id="hero">
-          <div class="hero-slides">
-            <img src="/assets/ui/hero-1.webp" alt="Lucky Energy" class="hero-img active">
-            <img src="/assets/ui/hero-2.webp" alt="Официальные спонсоры Формула-1" class="hero-img" loading="lazy">
-            <img src="/assets/ui/hero-3.webp" alt="Партнёры международной федерации тенниса" class="hero-img" loading="lazy">
-            <img src="/assets/ui/hero-4.webp" alt="Дарим перелёт на частном джете" class="hero-img" loading="lazy">
+        <!-- Верхняя строка: слайд-шоу и сезонный кейс. На телефоне это просто
+             столбик, на компьютере - строка, где доли ширины равны пропорциям
+             картинок, поэтому высоты сходятся сами. -->
+        <div class="banner-top">
+          <div class="hero" id="hero">
+            <div class="hero-slides">
+              <img src="/assets/ui/hero-1.webp" alt="Lucky Energy" class="hero-img active">
+              <img src="/assets/ui/hero-2.webp" alt="Официальные спонсоры Формула-1" class="hero-img" loading="lazy">
+              <img src="/assets/ui/hero-3.webp" alt="Партнёры международной федерации тенниса" class="hero-img" loading="lazy">
+              <img src="/assets/ui/hero-4.webp" alt="Дарим перелёт на частном джете" class="hero-img" loading="lazy">
+            </div>
+            <div class="hero-dots" id="heroDots"></div>
           </div>
-          <div class="hero-dots" id="heroDots"></div>
+
+          <!-- Сезонный кейс. На телефоне он идёт следом за парой баннеров, как
+               и раньше, а на компьютере встаёт справа от слайд-шоу - см.
+               .banner-stack в конце styles.css. Рисует renderCases. -->
+          <div class="featured-slot" id="featuredSlot"></div>
         </div>
 
         <!-- Лента выигрышей. Обычные исходы сюда не попадают. -->

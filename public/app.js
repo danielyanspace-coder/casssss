@@ -653,7 +653,21 @@ function renderCases() {
   let from = 0;
   const blocks = [];
 
-  if (featured) blocks.push(featuredHtml(featured, vouchers));
+  /*
+   * Сезонный кейс рисуется не здесь, а в свой слот на первом экране.
+   *
+   * На телефоне он от этого не сдвинулся: слот идёт сразу за парой баннеров,
+   * ровно там, где карточка стояла первой полкой. А на компьютере слот лежит
+   * в сетке справа от слайд-шоу - одной разметкой в двух местах этого было бы
+   * не сделать, переносить блок между контейнерами стилями нельзя.
+   *
+   * Класс на стопке баннеров нужен, чтобы слайд-шоу растянулось на всю ширину,
+   * когда сезонного кейса нет вовсе: иначе справа осталась бы пустая колонка.
+   */
+  const slot = document.getElementById('featuredSlot');
+  const stack = document.querySelector('.banner-stack');
+  if (slot) slot.innerHTML = featured ? featuredHtml(featured, vouchers) : '';
+  if (stack) stack.classList.toggle('no-featured', !featured);
 
   for (const shelf of SHELVES) {
     const items = sorted.filter((c) => c.price > from && c.price <= shelf.max);
@@ -671,8 +685,11 @@ function renderCases() {
 
   root.innerHTML = blocks.join('');
 
-  root.querySelectorAll('.case-card, .featured-card').forEach((card) => {
-    card.addEventListener('click', () => openCase(card.dataset.case));
+  // Слот сезонного кейса лежит вне списка полок, поэтому перебираем оба места.
+  [root, slot].filter(Boolean).forEach((box) => {
+    box.querySelectorAll('.case-card, .featured-card').forEach((card) => {
+      card.addEventListener('click', () => openCase(card.dataset.case));
+    });
   });
 }
 
@@ -3533,50 +3550,34 @@ function renderMenu() {
  */
 /* Подписи те же, что нарисованы на картинке меню: игрок, пришедший с телефона,
    читает на компьютере ровно то, к чему привык. */
-const SIDE_NAV = [
-  { view: 'cases', ico: 'cases', title: 'Кейсы', sub: 'Открыть и крутить' },
-  { view: 'upgrade', ico: 'x2', title: 'Апгрейд', sub: 'Поднять ставку' },
-  { view: 'crash', ico: 'crash', title: 'Краш', sub: 'Успеть забрать' },
-  { view: 'roulette', ico: 'roulette', title: 'Рулетка', sub: 'Красное и чёрное' },
-  { view: 'wallet', ico: 'coin', title: 'Касса', sub: 'Пополнить и вывести' },
-  { view: 'bonuses', ico: 'gift', title: 'Бонусы', sub: 'Получить награды' },
-  // «Честности» здесь нет намеренно: ссылка на неё стоит в подвале, и второй
-  // вход в тот же раздел только удлиняет меню.
-  { view: 'partner', ico: 'people', title: 'Партнёру', partnerOnly: true },
-  { view: 'admin', ico: 'admin', title: 'Админ', adminOnly: true },
-];
-
 /*
- * Значки для бокового меню вырезаются из той же картинки, что и мобильное меню.
+ * Боковое меню компьютерной версии собрано по присланному макету: плитка с
+ * рисунком слева, названием, подписью и стрелкой справа.
  *
- * Просили «взять дизайн мобильного меню и адаптировать»: буквально взять
- * плитку целиком нельзя - в неё вшита подпись, и в колонке шириной с палец она
- * превратилась бы в нечитаемую полоску. Поэтому из плитки берётся только
- * рисунок, а подпись набирается текстом в том же строе, что на картинке.
+ * Названия и подписи взяты из макета дословно.
  *
- * Рамка рисунка внутри плитки: по горизонтали 18% отступа с каждой стороны,
- * по вертикали от 6% до 62% высоты. Числа сняты с самой картинки.
+ * Путь к рисунку хранится целиком, вместе с ведущим слешем: автономная сборка
+ * заменяет строку «/assets/ui/...» на сам файл, а склеенный из кусков путь она
+ * не увидит - и рисунки окажутся битыми. На этом уже ловились.
+ *
+ * АДМИНКИ ЗДЕСЬ НЕТ НАМЕРЕННО. Заказчик просил убрать её из меню: вход в неё
+ * будет отдельной скрытой ссылкой с паролем. Пока такой ссылки нет, вход
+ * остаётся в меню-картинке на телефоне (MENU_EXTRA ниже) - убирать его тоже
+ * значило бы отрезать администратора от панели совсем.
+ *
+ * «Честности» здесь нет по другой причине: ссылка на неё стоит в подвале, и
+ * второй вход в тот же раздел только удлиняет меню.
  */
-const MENU_ART_INSET = { x: 0.18, top: 0.06, height: 0.56 };
-
-function menuArtStyle(view) {
-  const hit = MENU_HITS.find((h) => h.view === view);
-  if (!hit) return '';
-
-  const left = hit.left + hit.width * MENU_ART_INSET.x;
-  const width = hit.width * (1 - MENU_ART_INSET.x * 2);
-  const top = hit.top + hit.height * MENU_ART_INSET.top;
-  const height = hit.height * MENU_ART_INSET.height;
-
-  // Проценты в background-position считаются от разницы размеров, а не от
-  // самой картинки: отсюда деление на (100 - размер выреза).
-  const posX = width >= 100 ? 0 : (left / (100 - width)) * 100;
-  const posY = height >= 100 ? 0 : (top / (100 - height)) * 100;
-
-  return `background-image:url(/assets/menu.webp);` +
-    `background-size:${(100 / width) * 100}% ${(100 / height) * 100}%;` +
-    `background-position:${posX.toFixed(3)}% ${posY.toFixed(3)}%`;
-}
+const SIDE_NAV = [
+  { view: 'cases', art: '/assets/ui/nav-cases.webp', title: 'Кейсы', sub: 'Открывай и побеждай' },
+  { view: 'upgrade', art: '/assets/ui/nav-upgrade.webp', title: 'Апгрейд', sub: 'Увеличь свой выигрыш' },
+  { view: 'crash', art: '/assets/ui/nav-crash.webp', title: 'Краш', sub: 'Лови коэффициент' },
+  { view: 'roulette', art: '/assets/ui/nav-roulette.webp', title: 'Рулетка', sub: 'Испытай удачу' },
+  { view: 'wallet', art: '/assets/ui/nav-wallet.webp', title: 'Касса', sub: 'Пополнение и вывод' },
+  { view: 'bonuses', art: '/assets/ui/nav-bonuses.webp', title: 'Бонусы', sub: 'Ежедневные награды' },
+  { view: 'partner', ico: 'people', title: 'Партнёру', sub: 'Статистика и выплаты',
+    partnerOnly: true },
+];
 
 function renderSideNav() {
   const nav = document.getElementById('sideNav');
@@ -3585,33 +3586,32 @@ function renderSideNav() {
   const items = SIDE_NAV.filter((m) => (!m.adminOnly || state.user?.isAdmin)
                                     && (!m.partnerOnly || state.user?.isPartner));
 
-  const icon = (m) => {
-    const art = menuArtStyle(m.view);
-    // У разделов, которых на картинке нет (честность, партнёр, админ),
-    // остаётся собственная иконка - дорисовывать их в чужой макет нельзя.
-    return art
-      ? `<span class="side-art" style="${art}"></span>`
-      : `<span class="side-ico" data-ico="${m.ico}"></span>`;
-  };
+  // Рисунок плитки - вырезка из присланного макета. У разделов, которых в
+  // макете нет (партнёр), остаётся собственная иконка: дорисовывать их в
+  // чужой макет нельзя.
+  const icon = (m) => (m.art
+    ? `<img class="side-art" src="${m.art}" alt="">`
+    : `<span class="side-ico" data-ico="${m.ico}"></span>`);
+
+  const tile = (m, extra = '') => `<button class="side-item${extra}" ${m.view
+    ? `data-view="${m.view}"` : `id="${m.id}"`}>
+      ${icon(m)}
+      <span class="side-text">
+        <span class="side-title">${m.title}</span>
+        ${m.sub ? `<span class="side-sub">${m.sub}</span>` : ''}
+      </span>
+      <span class="side-go" aria-hidden="true"></span>
+    </button>`;
 
   nav.innerHTML = `
     <button class="side-brand" data-view="cases" aria-label="На главную">
       <img src="/assets/ui/logo.webp" alt="LUCKYBOX" class="side-brand-logo">
     </button>
     <nav class="side-list">
-      ${items.map((m) => `<button class="side-item ${menuArtStyle(m.view) ? 'has-art' : ''}"
-          data-view="${m.view}">
-        ${icon(m)}
-        <span class="side-text">
-          <span class="side-title">${m.title}</span>
-          ${m.sub ? `<span class="side-sub">${m.sub}</span>` : ''}
-        </span>
-      </button>`).join('')}
+      ${items.map((m) => tile(m)).join('')}
+      ${tile({ id: 'sideSupport', art: '/assets/ui/nav-support.webp', title: 'Поддержка',
+               sub: 'Мы всегда на связи' })}
     </nav>
-    <button class="side-support" id="sideSupport">
-      <span class="side-ico" data-ico="telegram"></span>
-      <span class="side-text"><span class="side-title">Поддержка</span></span>
-    </button>
   `;
   mountIcons(nav);
 

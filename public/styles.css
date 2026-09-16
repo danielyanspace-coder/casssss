@@ -1020,8 +1020,29 @@ main { position: relative; z-index: 2; padding: 18px; }
 
 /* Баннеры больше не выходят за поля main: главный баннер выделен рамкой, а
    рамку у самого края экрана не видно. Сверху свой отступ - баннер не должен
-   лежать вплотную к шапке. */
-.banner-stack { margin: 14px 0 18px; }
+   лежать вплотную к шапке.
+
+   Столбик, а не просто поток: на компьютере эта же стопка становится сеткой,
+   и порядок блоков там задаётся областями. На телефоне порядок обычный -
+   баннер, лента, пара, сезонный кейс. */
+.banner-stack { display: flex; flex-direction: column; margin: 14px 0 18px; }
+
+/*
+ * На телефоне обёртка верхней строки не должна существовать как блок: порядок
+ * здесь прежний - баннер, лента, пара, сезонный кейс, - и сезонный кейс обязан
+ * оказаться НИЖЕ ленты, хотя в разметке он лежит рядом с баннером. display:
+ * contents убирает обёртку из раскладки, и её дети становятся элементами той
+ * же колонки, а order расставляет их в нужном порядке.
+ *
+ * Разметка при этом одна: на компьютере обёртка оживает и становится строкой.
+ */
+.banner-top { display: contents; }
+.banner-top > .hero { order: 0; }
+.feed { order: 1; }
+.promo-pair { order: 2; }
+.banner-top > .featured-slot { order: 3; }
+
+.featured-slot:empty { display: none; }
 
 /*
  * Рамка со всех сторон. Толщина в две точки, а не в одну: одноточечная на
@@ -1250,12 +1271,18 @@ main { position: relative; z-index: 2; padding: 18px; }
 /* Закрытый сезонный кейс на витрине не гасим — см. featuredHtml. */
 .featured-card.is-locked .cover-svg { filter: saturate(1.35) contrast(1.12) brightness(1.12); }
 
-/* Готовый баннер показывается целиком: высоту задаёт его собственная
-   пропорция, иначе обрезались бы клетчатый флаг слева и ящик справа.
-   Накручивать насыщенность ему не нужно — макет уже сведён. */
+/* Присланный постер показывается целиком: высоту задаёт его собственная
+   пропорция, иначе обрезались бы флаг сверху и подпись снизу. Накручивать
+   насыщенность ему не нужно - макет уже сведён.
+
+   Постер вертикальный, поэтому карточка на телефоне уже остальных: во всю
+   ширину экрана он дал бы полосу в полтора экрана высотой. */
+.featured-card.own-art {
+  max-width: 340px;
+}
 .featured-card.own-art .featured-cover {
   height: auto;
-  aspect-ratio: 1881 / 836;
+  aspect-ratio: 942 / 1100;   /* case-porsche.webp */
 }
 .cover-photo { display: block; width: 100%; height: 100%; object-fit: cover; }
 .featured-card.own-art .featured-cover::after { display: none; }
@@ -4545,7 +4572,9 @@ select.seed-input {
 /* Ширина боковой панели: одно число, от которого пляшет весь сдвиг. */
 /* Ширина боковой панели: одно число, от которого пляшет весь сдвиг.
    Под плитки с рисунком и двумя строками текста нужно больше прежнего. */
-:root { --side-w: 268px; }
+/* Панель шире прежней: в макете подписи вроде «Открывай и побеждай» идут
+   одной строкой, а в 268 точках они упирались в многоточие. */
+:root { --side-w: 306px; }
 
 .side-nav { display: none; }
 .top-deposit { display: none; }
@@ -4589,61 +4618,101 @@ select.seed-input {
   .side-brand:active { transform: scale(0.97); }
   .side-brand-logo { display: block; width: 100%; max-width: 216px; height: auto; }
 
-  .side-list { display: flex; flex-direction: column; gap: 7px; }
+  .side-list { display: flex; flex-direction: column; gap: 9px; }
 
-  /* Плитка как на картинке: тёмная подложка, тонкая фиолетовая рамка,
-     скруглённые углы. */
-  .side-item, .side-support {
-    display: flex; align-items: center; gap: 13px;
+  /*
+   * ПЛИТКА ПО ПРИСЛАННОМУ МАКЕТУ: рисунок слева, название и подпись, стрелка
+   * справа.
+   *
+   * Собрана разметкой, а не взята картинкой целиком, и это не упрямство. В
+   * макете подписи вшиты в рисунок, активная плитка подсвечена намертво, а
+   * блок «Админ» заказчик просил убрать - ни одного из трёх нельзя сделать с
+   * картинкой. Из макета взяты только рисунки (tools/banners.mjs), остальное
+   * повторено стилями.
+   */
+  .side-item {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px;
     width: 100%;
-    padding: 10px 12px;
-    border: 1px solid var(--line);
-    border-radius: 15px;
-    background: linear-gradient(150deg, rgba(255, 255, 255, 0.035), transparent);
+    padding: 9px 14px 9px 9px;
+    border: 1px solid rgba(120, 78, 190, 0.34);
+    border-radius: 18px;
+    /* Подложка темнее фона панели и с бликом сверху слева - как в макете. */
+    background:
+      linear-gradient(145deg, rgba(150, 100, 235, 0.13), transparent 62%),
+      linear-gradient(180deg, #170a29, #10061d);
     color: var(--text);
     font: inherit;
     text-align: left;
     cursor: pointer;
-    transition: border-color 0.15s, background 0.15s;
+    transition: border-color 0.15s, background 0.15s, transform 0.12s;
   }
+  .side-item:active { transform: scale(0.985); }
 
-  /* Вырезанный из картинки рисунок. Квадрат, потому что в макете значки
-     вписаны в квадрат, и на любом другом соотношении их обрежет. */
+  /*
+   * Рисунок вырезан из макета вместе с частью почти чёрного фона плитки, а фон
+   * снят по яркости - см. keyDark в tools/banners.mjs. Пропорция вырезки
+   * 250x150, поэтому слот такой же: при квадратном рисунок обрезало бы по
+   * бокам, при contain в квадрате он ужимался бы вдвое.
+   */
   .side-art {
-    width: 46px; height: 46px; flex: 0 0 auto;
-    border-radius: 10px;
-    background-repeat: no-repeat;
+    width: 62px; height: 37px; flex: 0 0 auto;
+    object-fit: contain;
+    display: block;
   }
   .side-ico[data-ico] {
-    width: 46px; height: 46px; padding: 11px; flex: 0 0 auto;
-    border-radius: 10px;
-    background: var(--card);
+    width: 62px; height: 37px; padding: 6px; flex: 0 0 auto;
     color: var(--violet);
   }
 
   .side-text { min-width: 0; }
-  /* Синий, как подписи на картинке: там названия разделов именно такие. */
-  .side-title { display: block; font-size: 16px; font-weight: 800; color: #6ea8ff; }
-  .side-sub { display: block; font-size: 11.5px; color: var(--muted); margin-top: 1px; }
-
-  .side-item:hover, .side-support:hover {
-    border-color: var(--violet);
-    background: linear-gradient(150deg, rgba(147, 102, 208, 0.16), transparent);
+  /* Название белым в верхнем регистре, как в макете. Прежний синий остался от
+     мобильной картинки, где подписи такие; здесь они белые. */
+  .side-title {
+    display: block;
+    font-size: 15px; font-weight: 900; letter-spacing: 0.4px;
+    text-transform: uppercase;
+    color: var(--text);
+  }
+  .side-sub {
+    display: block; margin-top: 2px;
+    font-size: 11.5px; color: #9f8ec7;
+    overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
   }
 
+  /* Стрелка справа. Рисуется бордюром, а не значком: один угол в две линии
+     дешевле любой картинки и не мылится ни на каком экране. */
+  .side-go {
+    width: 9px; height: 9px; flex: 0 0 auto;
+    margin-right: 2px;
+    border-right: 2px solid #8e7ac0;
+    border-top: 2px solid #8e7ac0;
+    transform: rotate(45deg);
+    transition: border-color 0.15s, transform 0.15s;
+  }
+
+  .side-item:hover {
+    border-color: rgba(168, 120, 255, 0.7);
+    background:
+      linear-gradient(145deg, rgba(168, 120, 255, 0.2), transparent 62%),
+      linear-gradient(180deg, #1c0d33, #130823);
+  }
+  .side-item:hover .side-go { border-color: var(--text); transform: rotate(45deg) translate(2px, -2px); }
+
+  /* Активный раздел: рамка и свечение, как у подсвеченной плитки в макете. */
   .side-item.active {
-    border-color: var(--pink);
-    background: linear-gradient(150deg, rgba(224, 81, 140, 0.18), transparent);
+    border-color: var(--violet);
+    background:
+      linear-gradient(145deg, rgba(160, 32, 255, 0.28), rgba(255, 46, 138, 0.1) 70%),
+      linear-gradient(180deg, #1d0d36, #140826);
+    box-shadow: 0 0 0 1px rgba(160, 32, 255, 0.35), 0 8px 26px -12px var(--violet);
   }
-  .side-item.active .side-title { color: var(--text); }
+  .side-item.active .side-go { border-color: var(--text); }
 
-  .side-support {
-    margin-top: auto;
-    /* Широкая полоса внизу - как «Поддержка» на картинке. */
-    justify-content: center;
-    gap: 10px;
-  }
-  .side-support .side-text { flex: 0 0 auto; }
+  /* Поддержка стоит последней плиткой того же вида: в макете она такая же. */
+  #sideSupport { margin-top: 4px; }
 
   /* ---------- Шапка и общий сдвиг ---------- */
 
@@ -4735,15 +4804,80 @@ select.seed-input {
    * посреди пустой колонки, и весь смысл большой рекламной картинки пропадал.
    * Ниже этой планки баннер просто уходит под сгиб, и это меньшее зло.
    */
+  /*
+   * ПЕРВЫЙ ЭКРАН НА КОМПЬЮТЕРЕ: слайд-шоу слева, постер сезонного кейса
+   * справа, лента и пара баннеров - во всю ширину под ними.
+   *
+   * Стопка занимает всю колонку содержимого, от боковой панели до правого
+   * края: лента должна тянуться именно так.
+   *
+   * Ширины колонок не заданы числами. Слайд-шоу и постер стоят рядом и обязаны
+   * быть одной высоты, а высота у обоих идёт от ширины - значит доли ширины
+   * должны совпасть с пропорциями картинок. Сетка так не умеет, поэтому
+   * верхняя строка сама флекс: доля каждого равна его пропорции, и высоты
+   * сходятся при любой ширине окна. Тот же приём, что у пары баннеров.
+   */
   .banner-stack {
-    --banner-max: 1180px;
-    --banner-min: 680px;
-    --banner-vh-reserve: 460px;
-    width: min(100%, var(--banner-max),
-               max(var(--banner-min),
-                   calc((100vh - var(--banner-vh-reserve)) * var(--hero-ratio))));
-    margin: 6px auto 24px;
+    display: grid;
+    grid-template-areas: 'top' 'feed' 'pair';
+    width: 100%;
+    margin: 6px 0 24px;
   }
+
+  .banner-top {
+    grid-area: top;
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+  }
+  .banner-top > .hero { flex-grow: var(--hero-ratio); flex-shrink: 1; flex-basis: 0%; min-width: 0; }
+  /*
+   * ВЫСОТУ СТРОКИ ЗАДАЁТ ТОЛЬКО СЛАЙД-ШОУ.
+   *
+   * Карточка кейса вынута из потока (position: absolute внутри слота) и
+   * поэтому на высоту строки не влияет вовсе. Иначе на узком окне она
+   * оказывалась выше слайд-шоу и низы не сходились: под постером стоит подпись
+   * с названием и ценой, а её высота от ширины окна почти не зависит.
+   *
+   * Постер внутри показывается через contain - он виден целиком при любой
+   * ширине колонки, остаток высоты забирает подпись. Доля 0.65 подобрана так,
+   * чтобы полей у постера почти не оставалось на обычных ширинах: при 1440
+   * идеальная доля 0.61, при 1920 - 0.68, при 2560 - 0.70.
+   */
+  .banner-top > .featured-slot {
+    position: relative;
+    flex-grow: 0.65;
+    flex-shrink: 1; flex-basis: 0%; min-width: 0;
+    align-self: stretch;
+  }
+  .banner-top .featured { position: absolute; inset: 0; margin: 0; }
+  .banner-top .featured-card.own-art {
+    max-width: none;
+    height: 100%;
+    display: flex; flex-direction: column;
+    margin: 0;
+  }
+  /* Постер забирает всю высоту, которая осталась от подписи. aspect-ratio
+     здесь снят намеренно: высоту теперь задаёт строка, а не пропорция. */
+  .banner-top .featured-card.own-art .featured-cover {
+    flex: 1 1 auto;
+    min-height: 0;
+    aspect-ratio: auto;
+  }
+  .banner-top .featured-card.own-art .cover-photo { object-fit: contain; }
+  .banner-top .featured-card.own-art .featured-body {
+    flex: 0 0 auto;
+    padding: 14px 18px 18px;
+  }
+  .banner-top .featured-name { font-size: 24px; }
+  .banner-top .featured-sub { font-size: 13px; margin-top: 4px; }
+  .banner-top .featured-foot { margin-top: 10px; gap: 10px; }
+  .banner-top .featured-price { font-size: 22px; }
+  /* Сезонного кейса нет - слайд-шоу занимает строку целиком. */
+  .banner-stack.no-featured .banner-top > .featured-slot { display: none; }
+
+  .banner-stack > .feed { grid-area: feed; }
+  .banner-stack > .promo-pair { grid-area: pair; }
 
   .hero { border-radius: 24px; border-width: 3px; }
   .hero-dots { bottom: 14px; }
@@ -4915,7 +5049,7 @@ select.seed-input {
   .featured-card.own-art .featured-cover {
     height: auto;
     min-height: 0;
-    aspect-ratio: 1881 / 836;
+    aspect-ratio: 942 / 1100;
   }
   .featured-card.own-art .featured-body { text-align: center; padding: 22px 28px 26px; }
   .featured-card.own-art .featured-foot { justify-content: center; }

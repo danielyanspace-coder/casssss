@@ -1089,9 +1089,20 @@ const seasonal = await page.evaluate(async () => {
     id: c.id,
     future: c.availableFrom > Date.now(),
     onFeatured: card !== null,
-    // Витрина должна стоять первой в списке и не дублироваться в полках.
-    first: document.getElementById('caseShelves')?.firstElementChild?.classList
-      .contains('featured') ?? false,
+    /*
+     * Витрина живёт в своём слоте на первом экране, а не первой полкой:
+     * на компьютере она встаёт справа от слайд-шоу, и переносить блок между
+     * контейнерами стилями нельзя.
+     *
+     * На телефоне порядок обязан остаться прежним - баннер, лента, пара,
+     * сезонный кейс, - поэтому проверяется не только слот, но и то, что
+     * карточка идёт ниже ленты и пары.
+     */
+    inSlot: document.getElementById('featuredSlot')?.contains(card) ?? false,
+    belowFeed: (() => {
+      const y = (sel) => document.querySelector(sel)?.getBoundingClientRect().top ?? 0;
+      return card ? card.getBoundingClientRect().top > y('.promo-pair') : false;
+    })(),
     onlyOne: featured.length === 1,
     inShelves: shelves,
     locked: card?.classList.contains('is-locked') ?? false,
@@ -1107,7 +1118,9 @@ const seasonal = await page.evaluate(async () => {
 
 if (check('сезонный кейс есть в конфиге', seasonal !== null)) {
   check('сезонный: вынесен на витрину', seasonal.onFeatured);
-  check('сезонный: витрина стоит первой под шапкой', seasonal.first);
+  check('сезонный: витрина лежит в своём слоте', seasonal.inSlot);
+  check('сезонный: на телефоне витрина ниже ленты и пары баннеров',
+    seasonal.belowFeed);
   check('сезонный: витрина одна', seasonal.onlyOne);
   check('сезонный: не продублирован в полках', seasonal.inShelves === 0,
         `найдено ${seasonal.inShelves}`);
@@ -1275,10 +1288,43 @@ check('честность: личная статистика убрана', fair
 
   // Боковое меню собрано по мотивам мобильного: у разделов с картинки стоят
   // вырезанные из неё же рисунки.
-  check('компьютер: в боковом меню рисунки из меню-картинки',
+  check('компьютер: в боковом меню рисунки из макета',
     await desk.evaluate(() => document.querySelectorAll('#sideNav .side-art').length >= 6));
-  check('компьютер: у разделов есть подписи как на картинке',
+  check('компьютер: у разделов есть подписи как в макете',
     await desk.evaluate(() => document.querySelectorAll('#sideNav .side-sub').length >= 6));
+
+  /*
+   * ПЕРЕСТАНОВКА ПЕРВОГО ЭКРАНА. Слайд-шоу слева, постер сезонного кейса
+   * справа, их низы сходятся; лента под ними тянется шире слайд-шоу - во всю
+   * колонку содержимого.
+   *
+   * Низы проверяются числом, а не глазами: карточка вынута из потока именно
+   * ради этого, и стоит её вернуть в поток - разъедется молча.
+   */
+  const row = await desk.evaluate(() => {
+    const r = (sel) => { const e = document.querySelector(sel); if (!e) return null;
+      const b = e.getBoundingClientRect(); return { x: b.x, w: b.width, bottom: b.bottom }; };
+    return { hero: r('.hero'), card: r('.featured-card'), feed: r('.feed') };
+  });
+  if (row.card) {
+    check('компьютер: постер кейса справа от слайд-шоу',
+      row.card.x > row.hero.x + row.hero.w - 2,
+      `постер на ${Math.round(row.card.x)}, баннер кончается на ${Math.round(row.hero.x + row.hero.w)}`);
+    check('компьютер: низ постера сходится с низом слайд-шоу',
+      Math.abs(row.card.bottom - row.hero.bottom) <= 2,
+      `разбег ${Math.abs(row.card.bottom - row.hero.bottom).toFixed(1)}px`);
+    check('компьютер: лента шире слайд-шоу',
+      row.feed.w > row.hero.w + 40,
+      `лента ${Math.round(row.feed.w)}, баннер ${Math.round(row.hero.w)}`);
+    check('компьютер: лента начинается там же, где слайд-шоу',
+      Math.abs(row.feed.x - row.hero.x) <= 2);
+  }
+
+  // В боковом меню админки быть не должно: заказчик просил убрать её оттуда.
+  check('компьютер: админки в боковом меню нет',
+    await desk.evaluate(() => !document.querySelector('#sideNav [data-view="admin"]')));
+  check('компьютер: у плиток меню есть стрелка',
+    await desk.evaluate(() => document.querySelectorAll('#sideNav .side-go').length >= 6));
 
   // Баланс и разделы бок о бок - главная причина, по которой десктоп ломается
   // незаметно: правило с идентификатором перебивает .view{display:none}.
