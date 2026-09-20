@@ -10,7 +10,7 @@ import {
   iconCases, iconCrash, iconRoulette, iconHistory, iconFair, iconAdmin,
   iconCoin, iconX2, iconGift, iconBolt, iconSearch, iconPlus, iconMinus,
   iconBlock, iconBack, iconTier, iconStar, iconRouletteMark,
-  iconGrid, iconKey, iconPeople, iconMail, iconTelegram,,
+  iconGrid, iconKey, iconPeople, iconMail, iconTelegram,
   markF1, markITF, markGambling, markWorldGame,
 } from './icons.js';
 import { caseCover, porschePhotoSrc, caseArtSrc } from './covers.js';
