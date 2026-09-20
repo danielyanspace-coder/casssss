@@ -1356,6 +1356,110 @@ check('честность: личная статистика убрана', fair
   await desk.close();
 }
 
+/* ---------- Мини-игры ---------- */
+
+{
+  await page.evaluate(() => document.querySelector('[data-view="mini"]')?.click());
+  await page.waitForTimeout(600);
+
+  const shelf = await page.evaluate(() => ({
+    cards: document.querySelectorAll('.mg-card').length,
+    icons: new Set([...document.querySelectorAll('.mg-card svg path')]
+      .map((n) => n.getAttribute('d'))).size,
+    families: document.querySelectorAll('[data-mini-family]').length,
+  }));
+  check('мини-игры: на полке пятьдесят карточек', shelf.cards === 50, `${shelf.cards}`);
+  check('мини-игры: у каждой карточки свой значок', shelf.icons === 50, `${shelf.icons}`);
+  check('мини-игры: показаны все семейства плюс «Все»', shelf.families === 9, `${shelf.families}`);
+
+  /*
+   * ГЛАВНАЯ ПРОВЕРКА РАЗДЕЛА: УГОЛ СЕКТОРА РАВЕН ВЕРОЯТНОСТИ.
+   *
+   * Колесо с равными секторами и разными шансами врёт картинкой сильнее любой
+   * подписи: игрок видит шестую часть круга там, где на деле два процента.
+   * Поэтому угол сектора считается прямо из его пути в SVG и сверяется с
+   * шансом из таблицы выплат, которую показывает сам клиент.
+   */
+  await page.evaluate(() => document.querySelector('[data-mini-game="smallwheel"]').click());
+  await page.waitForTimeout(400);
+
+  const wheel = await page.evaluate(() => {
+    // Доли из таблицы «Шансы и выплаты»: множитель и шанс в процентах.
+    const table = [...document.querySelectorAll('.mg-rules tbody tr')]
+      .map((tr) => tr.children[0].textContent.trim() + '|' + tr.children[1].textContent.trim())
+      .filter((x) => x.startsWith('×'));
+
+    // Угол сектора из его пути: две точки дуги плюс центр.
+    const angleOf = (d) => {
+      // M 50 50 L x1 y1 A r r 0 flag 1 x2 y2 Z
+      //  0  1   2  3     4 5 6  7    8  9 10
+      const n = d.match(/-?\d+(\.\d+)?/g).map(Number);
+      const a1 = Math.atan2(n[3] - 50, n[2] - 50);
+      const a2 = Math.atan2(n[10] - 50, n[9] - 50);
+      let deg = ((a2 - a1) * 180) / Math.PI;
+      while (deg < 0) deg += 360;
+      return deg;
+    };
+
+    const wins = [...document.querySelectorAll('.mg-sector.win')]
+      .map((n) => angleOf(n.getAttribute('d')) / 360);
+
+    return {
+      sectors: document.querySelectorAll('.mg-sector').length,
+      winShares: wins,
+      table,
+      legend: [...document.querySelectorAll('.mg-legend span')].map((n) => n.textContent.trim()),
+    };
+  });
+
+  const tableChances = wheel.table
+    .map((row) => Number(row.split('|')[1].replace('%', '').replace(',', '.')) / 100)
+    .sort((a, b) => b - a);
+  const wheelShares = [...wheel.winShares].sort((a, b) => b - a);
+
+  check('мини-игры: платящих секторов столько же, сколько исходов',
+        wheelShares.length === tableChances.length,
+        `${wheelShares.length} против ${tableChances.length}`);
+  check('мини-игры: угол каждого сектора равен его вероятности',
+        wheelShares.length === tableChances.length
+        && wheelShares.every((share, i) => Math.abs(share - tableChances[i]) < 0.005),
+        wheelShares.map((x, i) => `${(x * 100).toFixed(1)}% vs ${(tableChances[i] * 100).toFixed(1)}%`).join(', '));
+  check('мини-игры: легенда колеса не пустая', wheel.legend.length > 0);
+
+  // Один раунд: баланс обязан измениться.
+  const balanceNow = () => page.evaluate(() =>
+    Number(document.querySelector('.balance-value').textContent.replace(/[^\d]/g, '')));
+  const before = await balanceNow();
+  await page.evaluate(() => {
+    const input = document.getElementById('mgBet');
+    input.value = '100';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    document.getElementById('mgPlay').click();
+  });
+  await page.waitForTimeout(4400);
+
+  const round = await page.evaluate(() => ({
+    shown: document.getElementById('mgResult')?.textContent.trim() || '',
+    hidden: document.getElementById('mgResult')?.hidden,
+  }));
+  check('мини-игры: результат раунда показан', round.hidden === false, round.shown);
+  check('мини-игры: баланс изменился после раунда',
+        (await balanceNow()) !== before, `было ${before}`);
+
+  // Выбор ячейки: до нажатия на ячейку играть нельзя.
+  await page.evaluate(() => document.getElementById('mgBack').click());
+  await page.waitForTimeout(200);
+  await page.evaluate(() => document.querySelector('[data-mini-game="thimbles"]').click());
+  await page.waitForTimeout(300);
+  check('мини-игры: в «выборе» кнопка ждёт нажатия на ячейку',
+        await page.evaluate(() => document.getElementById('mgPlay').disabled));
+  check('мини-игры: ячеек столько, сколько заявлено',
+        await page.evaluate(() => document.querySelectorAll('.mg-cell[data-cell]').length) === 3);
+
+  await page.evaluate(() => document.getElementById('mgBack').click());
+  await page.waitForTimeout(200);
+}
+
 /* ---------- Итог ---------- */
 
 check('нет ошибок в консоли', consoleErrors.length === 0, consoleErrors.slice(0, 3).join(' | '));

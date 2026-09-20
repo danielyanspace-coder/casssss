@@ -24,6 +24,10 @@ import { FEED_MIN_MULTIPLIER, FEED_MIN_VALUE, FEED_BIG_SHARE } from './server/fe
 import { PERMISSIONS, PERMISSION_GROUPS, PERMISSION_IDS, publicRoles } from './server/staff.js';
 import { SETTING_DEFS } from './server/settings-defs.js';
 import {
+  MINIGAMES, MINI_RTP, FAMILIES as MINI_FAMILIES,
+  publicMinigame, resolveMinigame, validateMinigames,
+} from './server/minigames.js';
+import {
   FORTUNE_SEGMENTS, SEGMENT_DEG, SEGMENTS_START_DEG,
   PERCENT_MIN, PERCENT_MAX, VOUCHER_MIN, VOUCHER_MAX,
   CASH_PRIZE, GIFT_CASE_MAX_PRICE, SPINS_PER_CYCLE, MIN_DEPOSIT, SPIN_COOLDOWN_MS,
@@ -52,6 +56,8 @@ const fortuneConfig = {
 };
 
 /* ---------- Конфиг игры ---------- */
+
+validateMinigames();
 
 const config = {
   categories: CATEGORIES,
@@ -91,6 +97,11 @@ const config = {
   // Условия те же, что по умолчанию на сервере: демо показывает предложение
   // первого пополнения ровно таким, каким его увидит живой игрок.
   firstDeposit: { pct: 100, max: 1000, min: 500, wager: 2 },
+  minigames: {
+    rtp: MINI_RTP,
+    families: MINI_FAMILIES,
+    games: MINIGAMES.map(publicMinigame),
+  },
 };
 
 /**
@@ -262,6 +273,7 @@ const coinArt = read('./public/coin-art.js');
 // legal.js тоже проходит через inlineUi: в подвале лежат картинки по путям
 // assets/ui/, и без этого в автономной сборке они оказывались битыми.
 const legal = inlineUi(read('./public/legal.js'));
+const minigames = read('./public/minigames.js');
 const app = inlineUi(read('./public/app.js'));
 
 // Тело страницы без внешних подключений — всё уедет внутрь файла.
@@ -291,6 +303,7 @@ const shim = `
 const DRAW = ${JSON.stringify(drawTables)};
 const CONFIG = ${JSON.stringify(config)};
 const DRAW_BY_ID = new Map(DRAW.map((c) => [c.id, c]));
+const MINI_GAMES = CONFIG.minigames.games;
 
 /* Каталог прав и ролей берётся из server/staff.js на сборке: расходиться
    демо и настоящей панели нельзя, иначе заказчик увидит список ролей,
@@ -1802,6 +1815,50 @@ const routes = {
    * там вообще есть. Настоящие права решает сервер, и спрятанный раздел -
    * удобство, а не защита, поэтому открытая демо-панель ничего не ослабляет.
    */
+  /* ---------- Мини-игры ---------- */
+
+  /*
+   * Тот же решатель, что на сервере: таблицы приехали в сборку целиком, и
+   * демо считает по ним, а не по выдуманным числам. Иначе заказчик смотрел
+   * бы на игру с другой математикой.
+   */
+  'POST /api/mini/play': (body) => {
+    const u = store.user;
+    const game = MINI_GAMES.find((g) => g.id === body.gameId);
+    if (!game) return { status: 400, body: { error: 'Игра не найдена' } };
+    const option = game.options[Number(body.option) || 0];
+    if (!option) return { status: 400, body: { error: 'Такого варианта нет' } };
+
+    const bet = Math.trunc(Number(body.bet) || 0);
+    if (bet < game.minBet || bet > game.maxBet) {
+      return { status: 400, body: { error: 'Ставка вне границ' } };
+    }
+    if (u.balance < bet) return { status: 400, body: { error: 'Недостаточно средств' } };
+
+    const roll = Math.random();
+    let acc = 0;
+    let multiplier = 0;
+    let outcomeIndex = -1;
+    for (let i = 0; i < option.wins.length; i++) {
+      acc += option.wins[i].probability;
+      if (roll < acc) { multiplier = option.wins[i].multiplier; outcomeIndex = i; break; }
+    }
+    const payout = Math.round(bet * multiplier);
+
+    u.balance = u.balance - bet + payout;
+    u.stats.rounds++;
+    u.stats.spent += bet;
+    u.stats.won += payout;
+    u.wagerProgress = (u.wagerProgress || 0) + bet;
+    save();
+
+    return {
+      gameId: game.id, option: Number(body.option) || 0, picked: Number(body.picked) || 0,
+      win: multiplier > 0, multiplier, outcomeIndex, payout, bet, roll,
+      balance: u.balance, user: publicUser(),
+    };
+  },
+
   'POST /api/admin/me': () => ({
     role: 'owner', roleName: 'Владелец',
     permissions: DEMO_PERMISSIONS,
@@ -2162,6 +2219,8 @@ ${strip(itemArt)}
 ${strip(coinArt)}
 
 ${strip(legal)}
+
+${strip(minigames)}
 
 ${strip(app)}
 

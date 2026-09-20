@@ -24,7 +24,7 @@
  * смотреть честное раскрытие.
  */
 
-import { FAMILY_ART } from './minigame-art.js';
+import { artFor, GAME_ART } from './minigame-art.js';
 
 /** Отдача мини-игр. Та же, что у краша, рулетки и апгрейда. */
 export const MINI_RTP = 0.70;
@@ -63,7 +63,7 @@ const ladder = (...pairs) => pairs.map(([m, w]) => ({ m, w }));
  * Игрок выбирает n до старта, и выбор настоящий: длинная дорожка платит
  * больше и срывается чаще, а отдача у всех длин одна.
  */
-const walk = (n, step) => one(Number(Math.pow(step, n).toFixed(4)));
+const walk = (n, step) => one(Number(Math.pow(step, n).toFixed(2)));
 
 /**
  * Поле: открыть k безопасных клеток из size при traps ловушках.
@@ -75,7 +75,9 @@ const walk = (n, step) => one(Number(Math.pow(step, n).toFixed(4)));
 const sweep = (size, traps, k) => {
   let safe = 1;
   for (let i = 0; i < k; i++) safe *= (size - traps - i) / (size - i);
-  return one(Number((1 / safe).toFixed(4)));
+  // Два знака, а не четыре: «×1.49» читается, «×1.4935» выглядит сбоем.
+  // Отдачу это не трогает, её всё равно наводит решатель.
+  return one(Number((1 / safe).toFixed(2)));
 };
 
 /* ============================================================
@@ -336,7 +338,7 @@ function buildGame(spec) {
     minBet: bet[0],
     maxBet: bet[1],
     rtp: MINI_RTP,
-    art: FAMILY_ART[family],
+    art: artFor(id, family),
     options: built,
     top: Math.max(...built.map((o) => o.top)),
   };
@@ -407,6 +409,12 @@ export function validateMinigames() {
       if (Math.abs(ev - MINI_RTP) > 1e-9) {
         throw new Error(`[${game.id}/${option.label}] отдача ${ev}, ожидалась ${MINI_RTP}`);
       }
+    }
+
+    if (!GAME_ART[game.id]) {
+      // Не ошибка сборки, но повод заметить: полка из пятидесяти карточек с
+      // восемью картинками читается как сбой вёрстки, а не как выбор.
+      throw new Error(`[${game.id}] нет своего значка в GAME_ART`);
     }
 
     report.push({

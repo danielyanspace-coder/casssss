@@ -26,6 +26,7 @@ import {
   upgradeWinFromRoll,
   validateUpgrade,
 } from './games.js';
+import { MINIGAMES, MINI_RTP, resolveMinigame, validateMinigames } from './minigames.js';
 import { computeRoll, generateClientSeed, generateServerSeed, hashSeed } from './fair.js';
 
 const ROUNDS = Number(process.argv[2] || 200_000);
@@ -344,6 +345,66 @@ console.log('\n=== Риск-игра ===\n');
   console.log('Распределение позиции туза:', spread.join('  '));
   console.log('Максимальное отклонение от равномерного:', (maxDev * 100).toFixed(2) + '%');
   if (maxDev > 0.05) { console.error('Позиция туза распределена неравномерно'); failures++; }
+}
+
+/* ============================================================
+   МИНИ-ИГРЫ
+   ============================================================ */
+
+console.log('\n=== Мини-игры ===\n');
+
+validateMinigames();
+
+{
+  /*
+   * По игре прогоняется один вариант, но по настоящим роллам provably fair,
+   * а не по Math.random: проверяется именно та дорожка, по которой идёт
+   * живая игра. Таблицы сами по себе сверяются точно в test/minigames.mjs,
+   * здесь нужна связка «таблица - розыгрыш».
+   */
+  const ROUNDS = 40000;
+  const rows = [];
+  let failures = 0;
+
+  for (const game of MINIGAMES) {
+    const option = game.options[0];
+    let paid = 0;
+    let sumSq = 0;
+    const serverSeed = generateServerSeed();
+    const clientSeed = generateClientSeed();
+
+    for (let i = 0; i < ROUNDS; i++) {
+      const roll = computeRoll(serverSeed, clientSeed, i);
+      const out = resolveMinigame(game, 0, roll);
+      paid += out.multiplier;
+      sumSq += out.multiplier ** 2;
+    }
+
+    const rtp = paid / ROUNDS;
+    const variance = sumSq / ROUNDS - rtp ** 2;
+    const se = Math.sqrt(Math.max(variance, 0) / ROUNDS);
+    // Пять сигм по той же причине, что у кейсов: дисперсию делает редкий
+    // верх, и нормальное приближение в хвосте оптимистично.
+    const ok = Math.abs(rtp - MINI_RTP) < 5 * se + 1e-9;
+    if (!ok) failures++;
+
+    rows.push({
+      игра: game.name,
+      семейство: game.family,
+      'отдача факт': rtp.toFixed(4),
+      'допуск ±5σ': (5 * se).toFixed(4),
+      'потолок x': game.top,
+      статус: ok ? 'ок' : 'РАСХОЖДЕНИЕ',
+    });
+  }
+
+  console.table(rows);
+  console.log(`Проверено игр: ${MINIGAMES.length}, ` +
+              `таблиц: ${MINIGAMES.reduce((a, g) => a + g.options.length, 0)}`);
+  if (failures) {
+    console.error(`Мини-игры: расхождений - ${failures}`);
+    process.exitCode = 1;
+  }
 }
 
 console.log('\n=== Апгрейд ===\n');

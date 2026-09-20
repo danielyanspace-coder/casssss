@@ -498,6 +498,27 @@
       </div>
     </section>
 
+    <!-- ══════════ МИНИ-ИГРЫ ══════════ -->
+    <!--
+      Витрина и экран игры лежат рядом, а не в разных разделах: игрок
+      возвращается к списку после каждого раунда, и перезагружать ради этого
+      целый раздел незачем.
+    -->
+    <section class="view" id="view-mini">
+      <div class="game-head">
+        <h1 class="game-title">МИНИ-ИГРЫ</h1>
+        <p class="game-sub">Пятьдесят коротких розыгрышей. Отдача у всех одна,
+          различаются разбросом.</p>
+      </div>
+
+      <div id="miniShelfWrap">
+        <div class="admin-tabs" id="miniFamilies"></div>
+        <div class="mg-shelf" id="miniShelf"></div>
+      </div>
+
+      <div class="mg-screen" id="miniGame" hidden></div>
+    </section>
+
     <section class="view" id="view-bonuses">
       <div class="game-head">
         <h1 class="game-title">БОНУСЫ</h1>

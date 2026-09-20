@@ -17,6 +17,7 @@ import { caseCover, porschePhotoSrc, caseArtSrc } from './covers.js';
 import { itemArt } from './item-art.js';
 import { coinMark, coinColor } from './coin-art.js';
 import { COMPANY, LICENSE, DOCS, footerHtml } from './legal.js';
+import { createMini } from './minigames.js';
 import {
   sndTick, sndSpinStart, sndLand, sndReveal,
   sndBigWin, sndCollect, sndLose, sndFlip, sndBet, sndCrash, sndClimb,
@@ -4054,6 +4055,24 @@ document.getElementById('adminSearchBtn').addEventListener('click', () => {
 });
 
 /* ============================================================
+   МИНИ-ИГРЫ
+   ============================================================ */
+
+/*
+ * Модуль мини-игр живёт отдельным файлом и ничего не импортирует отсюда:
+ * иначе получился бы круг импортов, и оба файла перестали бы грузиться.
+ * Всё, что ему нужно, передаётся сюда явно.
+ */
+const mini = createMini({
+  api, esc, fmt, money, toast, haptic, state,
+  sounds: {
+    bet: sndBet, reveal: sndReveal, bigWin: sndBigWin, lose: sndLose,
+  },
+  onUser: (user) => applyUser(user),
+  onRound: () => { /* лента обновится сама по своему таймеру */ },
+});
+
+/* ============================================================
    КАССА
    ============================================================ */
 
@@ -4085,6 +4104,7 @@ function switchView(name) {
     }
   }
   if (name === 'roulette') renderRouletteReel(2);
+  if (name === 'mini') { mini.close(); mini.renderShelf(); }
   if (name === 'admin') initAdminPanel();
   if (name === 'cases') loadFreeCase();
   if (name === 'bonuses') { renderBonuses(); loadPromoState(); }
@@ -4157,6 +4177,7 @@ function openSupport() {
  * под картинкой и только тем, кому положены.
  */
 const MENU_EXTRA = [
+  { view: 'mini', ico: 'grid', title: 'Мини-игры', sub: 'Пятьдесят коротких' },
   { view: 'partner', ico: 'people', title: 'Партнёру', sub: 'Ваши рефералы', partnerOnly: true },
   { view: 'admin', ico: 'admin', title: 'Админ', sub: 'Панель управления', adminOnly: true },
 ];
@@ -4287,6 +4308,7 @@ const SIDE_NAV = [
   { view: 'crash', art: '/assets/ui/nav-crash.webp', title: 'Краш', sub: 'Лови коэффициент' },
   { view: 'roulette', art: '/assets/ui/nav-roulette.webp', title: 'Рулетка', sub: 'Испытай удачу' },
   { view: 'wallet', art: '/assets/ui/nav-wallet.webp', title: 'Касса', sub: 'Пополнение и вывод' },
+  { view: 'mini', ico: 'grid', title: 'Мини-игры', sub: 'Пятьдесят коротких' },
   { view: 'bonuses', art: '/assets/ui/nav-bonuses.webp', title: 'Бонусы', sub: 'Ежедневные награды' },
   { view: 'partner', ico: 'people', title: 'Партнёру', sub: 'Статистика и выплаты',
     partnerOnly: true },

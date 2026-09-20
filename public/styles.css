@@ -5499,3 +5499,372 @@ select.seed-input {
 }
 .adj-mode input { width: 18px; height: 18px; accent-color: var(--pink); }
 .adj-hint { margin: 0 0 12px; font-size: 12px; line-height: 1.5; color: var(--muted); }
+
+/* ============================================================
+   МИНИ-ИГРЫ
+   ============================================================ */
+
+/*
+ * ПАЛИТРА КАРТОЧКИ СТРОИТСЯ ИЗ ОДНОГО ЧИСЛА.
+ *
+ * У каждой из пятидесяти игр свой оттенок, заданный градусами в описании
+ * игры. Фон, свечение, рамка и подпись выводятся из него здесь, поэтому
+ * разъехаться не могут. Подобрать руками пятьдесят согласованных троек
+ * цветов нельзя, а пятьдесят чисел можно.
+ */
+.mg-shelf {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+.mg-card {
+  --mg-a: hsl(var(--mg-h) 85% 62%);
+  --mg-b: hsl(var(--mg-h) 75% 40%);
+  position: relative;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 3px;
+  padding: 14px 13px 12px;
+  border-radius: 18px;
+  text-align: left;
+  cursor: pointer;
+  color: var(--text);
+  background:
+    radial-gradient(120% 90% at 100% 0%,
+      color-mix(in srgb, var(--mg-a) 26%, transparent), transparent 62%),
+    linear-gradient(160deg, var(--card-hi), var(--card));
+  border: 1.5px solid color-mix(in srgb, var(--mg-a) 36%, var(--line));
+  box-shadow: 0 10px 30px -18px var(--mg-a);
+}
+.mg-card:active { transform: scale(0.98); }
+
+.mg-card-art {
+  display: grid; place-items: center;
+  width: 38px; height: 38px;
+  border-radius: 12px;
+  margin-bottom: 4px;
+  color: var(--mg-a);
+  background: color-mix(in srgb, var(--mg-a) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--mg-a) 34%, transparent);
+}
+.mg-art { width: 22px; height: 22px; }
+.mg-art-lg { width: 28px; height: 28px; }
+
+.mg-card-name { font-size: 14px; font-weight: 800; line-height: 1.15; }
+.mg-card-sub {
+  font-size: 11px; color: var(--muted); line-height: 1.25;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.mg-card-top {
+  margin-top: 6px;
+  font-size: 11.5px; font-weight: 800;
+  color: var(--mg-a);
+}
+
+/* ---------- Экран игры ---------- */
+
+.mg-screen {
+  --mg-a: hsl(var(--mg-h) 85% 62%);
+  --mg-b: hsl(var(--mg-h) 75% 40%);
+  /* Шапка страницы липкая и лежит поверх содержимого: без запаса прокрутка
+     «к экрану игры» заводит его заголовок вместе с кнопкой возврата под неё. */
+  scroll-margin-top: 92px;
+}
+.mg-head { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+.mg-head-main { flex: 1; min-width: 0; }
+.mg-title { font-size: 20px; font-weight: 900; letter-spacing: -0.3px; }
+.mg-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.mg-head-art {
+  display: grid; place-items: center;
+  width: 46px; height: 46px; border-radius: 14px; flex: 0 0 auto;
+  color: var(--mg-a);
+  background: color-mix(in srgb, var(--mg-a) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--mg-a) 34%, transparent);
+}
+
+/* Поле игры фиксированной высоты: без неё кнопка «Играть» прыгает под
+   пальцем между раундами, потому что раскрытие выше исходного состояния. */
+.mg-stage {
+  min-height: 240px;
+  display: grid; place-items: center;
+  padding: 16px;
+  border-radius: 20px;
+  margin-bottom: 14px;
+  background:
+    radial-gradient(120% 90% at 50% 0%,
+      color-mix(in srgb, var(--mg-a) 14%, transparent), transparent 66%),
+    linear-gradient(180deg, #120424, #08010f);
+  border: 1.5px solid color-mix(in srgb, var(--mg-a) 30%, var(--line));
+}
+
+.mg-result {
+  display: flex; align-items: baseline; justify-content: center; gap: 10px;
+  padding: 12px; border-radius: 14px; margin-bottom: 12px;
+  animation: pop 0.35s cubic-bezier(0.2, 1.3, 0.4, 1);
+}
+.mg-result b { font-size: 26px; font-weight: 900; }
+.mg-result span { font-size: 14px; color: var(--muted); }
+.mg-result.win { background: color-mix(in srgb, var(--green) 14%, transparent); }
+.mg-result.win b { color: var(--green); }
+.mg-result.lose { background: rgba(255, 255, 255, 0.04); }
+.mg-result.lose b { color: var(--muted); }
+
+.mg-options { display: grid; gap: 8px; margin-bottom: 14px; }
+.mg-option {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 11px 13px; border-radius: 14px; text-align: left;
+  background: var(--card); border: 1.5px solid var(--line);
+  color: var(--text); cursor: pointer;
+}
+.mg-option.active {
+  border-color: var(--mg-a);
+  background: color-mix(in srgb, var(--mg-a) 12%, var(--card));
+}
+.mg-option b { font-size: 13.5px; }
+.mg-option i { font-size: 11.5px; color: var(--muted); font-style: normal; }
+.mg-option span { font-size: 11px; color: var(--mg-a); font-weight: 700; }
+
+.mg-bet { margin-bottom: 12px; }
+.mg-bet-row { display: flex; gap: 6px; align-items: center; }
+.mg-bet-row .seed-input {
+  flex: 1; text-align: center;
+  font-size: 17px; font-weight: 900; color: var(--gold);
+}
+.mg-bet-hint { font-size: 11px; color: var(--muted); margin-top: 5px; text-align: center; }
+
+.mg-rules { margin-top: 16px; }
+.mg-rules summary {
+  cursor: pointer; font-size: 13px; font-weight: 700;
+  padding: 10px 0; color: var(--cyan);
+}
+.mg-rules-note { font-size: 11.5px; color: var(--muted); margin-top: 8px; line-height: 1.45; }
+
+/* ---------- Выбор и поле ---------- */
+
+.mg-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--cols), 1fr);
+  gap: 7px;
+  width: 100%;
+  max-width: 330px;
+}
+.mg-cell {
+  aspect-ratio: 1;
+  display: grid; place-items: center;
+  border-radius: 12px;
+  font-size: 13px; font-weight: 800;
+  color: var(--muted);
+  background: linear-gradient(160deg, var(--card-hi), var(--card));
+  border: 1.5px solid var(--line);
+  cursor: pointer;
+}
+button.mg-cell:active { transform: scale(0.94); }
+.mg-cell.open {
+  animation: pop 0.3s cubic-bezier(0.2, 1.3, 0.4, 1) both;
+  animation-delay: calc(var(--i, 0) * 90ms);
+}
+.mg-cell.hit { color: var(--green); border-color: color-mix(in srgb, var(--green) 50%, transparent); }
+.mg-cell.trap { color: var(--red); border-color: var(--red); }
+.mg-cell.picked { box-shadow: 0 0 0 2px var(--mg-a); }
+.mg-field .mg-cell { font-size: 11px; }
+.mg-field-note { font-size: 12px; color: var(--muted); margin-top: 12px; text-align: center; }
+
+/* ---------- Колесо ---------- */
+
+/*
+ * УГОЛ СЕКТОРА РАВЕН ЕГО ВЕРОЯТНОСТИ, а не доле от числа секторов. Колесо с
+ * равными секторами и разными шансами врёт картинкой: игрок видит шестую
+ * часть круга там, где на деле два процента.
+ */
+.mg-wheel { position: relative; width: 100%; max-width: 260px; }
+.mg-wheel-svg { width: 100%; height: auto; display: block; transform-origin: 50% 50%; }
+.mg-sector {
+  fill: rgba(255, 255, 255, 0.05);
+  stroke: rgba(0, 0, 0, 0.55); stroke-width: 0.4;
+}
+.mg-sector.win { fill: color-mix(in srgb, var(--mg-a) 52%, transparent); }
+.mg-wheel-hub { fill: #150626; stroke: var(--mg-a); stroke-width: 1.2; }
+.mg-wheel-pin {
+  position: absolute; top: -6px; left: 50%; transform: translateX(-50%);
+  width: 0; height: 0;
+  border-left: 8px solid transparent;
+  border-right: 8px solid transparent;
+  border-top: 16px solid var(--gold);
+  filter: drop-shadow(0 2px 6px #000);
+}
+.mg-legend {
+  display: flex; flex-wrap: wrap; gap: 6px; justify-content: center;
+  margin-top: 12px; font-size: 11px; color: var(--muted);
+}
+.mg-legend span {
+  padding: 3px 8px; border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* ---------- Барабаны ---------- */
+
+.mg-reels { display: flex; gap: 8px; }
+.mg-reel {
+  width: 62px; height: 78px;
+  display: grid; place-items: center;
+  font-size: 30px;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #1a0733, #0c0218);
+  border: 1.5px solid color-mix(in srgb, var(--mg-a) 34%, var(--line));
+  color: var(--mg-a);
+}
+.mg-reel span { animation: mgSpin 0.45s linear infinite; }
+.mg-reel.stop span {
+  animation: pop 0.3s cubic-bezier(0.2, 1.3, 0.4, 1) both;
+  animation-delay: calc(var(--i) * 260ms);
+}
+@keyframes mgSpin {
+  0% { transform: translateY(-14px); opacity: 0.2; }
+  50% { transform: translateY(0); opacity: 1; }
+  100% { transform: translateY(14px); opacity: 0.2; }
+}
+
+/* ---------- Бросок ---------- */
+
+.mg-toss { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; align-items: center; }
+.mg-die {
+  width: 54px; height: 54px;
+  display: grid; place-items: center;
+  font-size: 24px; font-weight: 900;
+  border-radius: 14px;
+  background: linear-gradient(160deg, #fff, #cfc6dd);
+  color: #1a0733;
+}
+.mg-die.roll { animation: mgShake 0.35s ease-in-out infinite; }
+.mg-die.stop {
+  animation: pop 0.32s cubic-bezier(0.2, 1.3, 0.4, 1) both;
+  animation-delay: calc(var(--i) * 110ms);
+}
+@keyframes mgShake {
+  0%, 100% { transform: rotate(-9deg); }
+  50% { transform: rotate(9deg); }
+}
+.mg-number {
+  font-size: 34px; font-weight: 900; color: var(--mg-a);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Падение ---------- */
+
+.mg-drop { position: relative; width: 100%; max-width: 300px; }
+.mg-pegs { display: flex; flex-direction: column; gap: 9px; align-items: center; padding: 6px 0 10px; }
+.mg-peg-row { display: flex; gap: 14px; }
+.mg-peg-row i {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: color-mix(in srgb, var(--mg-a) 55%, transparent);
+}
+.mg-ball {
+  position: absolute; top: 0; left: 0;
+  width: 12px; height: 12px; border-radius: 50%;
+  background: var(--gold);
+  box-shadow: 0 0 12px var(--gold);
+  transform: translateX(-50%);
+  opacity: 0;
+}
+.mg-ball.fall {
+  opacity: 1;
+  transition: top 2.1s cubic-bezier(0.4, 0, 0.7, 1), left 2.1s ease-in-out;
+  top: calc(100% - 34px);
+  left: var(--x);
+}
+/* Ширина лунки равна её вероятности: узкая лунка и выпадает редко. */
+.mg-slots { display: flex; gap: 3px; }
+.mg-slot {
+  flex-basis: 0; flex-shrink: 1;
+  min-width: 14px;
+  padding: 7px 2px;
+  border-radius: 8px;
+  text-align: center;
+  font-size: 10px; font-weight: 800;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.05);
+}
+.mg-slot.win { color: #0c0218; background: var(--mg-a); }
+
+/* ---------- Дорожка ---------- */
+
+.mg-path { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; align-items: center; }
+.mg-step {
+  width: 34px; height: 34px;
+  display: grid; place-items: center;
+  border-radius: 10px;
+  font-size: 12px; font-weight: 800;
+  color: var(--muted);
+  background: var(--card); border: 1.5px solid var(--line);
+}
+.mg-step.done {
+  color: #0c0218; background: var(--mg-a); border-color: var(--mg-a);
+  animation: pop 0.24s cubic-bezier(0.2, 1.3, 0.4, 1) both;
+  animation-delay: calc(var(--i, 0) * 110ms);
+}
+.mg-step.fail {
+  color: #fff; background: var(--red); border-color: var(--red);
+  animation: pop 0.24s cubic-bezier(0.2, 1.3, 0.4, 1) both;
+  animation-delay: calc(var(--i, 0) * 110ms);
+}
+.mg-step.goal { border-color: var(--gold); color: var(--gold); }
+.mg-step.goal.done { background: var(--gold); color: #0c0218; }
+
+/* ---------- Ставка ---------- */
+
+.mg-bet-stage { text-align: center; }
+.mg-bet-face {
+  font-size: 30px; font-weight: 900; letter-spacing: -0.5px;
+  color: var(--mg-a);
+}
+.mg-bet-stage.win .mg-bet-face { color: var(--green); }
+.mg-bet-stage.lose .mg-bet-face { color: var(--muted); }
+.mg-bet-note { font-size: 12px; color: var(--muted); margin-top: 8px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .mg-reel span, .mg-die.roll { animation: none; }
+  .mg-wheel-svg, .mg-ball.fall { transition-duration: 0.3s; }
+}
+
+/*
+ * Компьютерная раскладка мини-игр.
+ *
+ * Блок стоит в конце файла отдельным @media, а не внутри общего десктопного:
+ * общий идёт выше по файлу, и правила мини-игр, дописанные после него,
+ * перебивали бы его при равной специфичности.
+ */
+@media (min-width: 1024px) {
+  .mg-shelf { grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 14px; }
+  .mg-card { padding: 18px 16px 15px; border-radius: 20px; }
+  .mg-card-art { width: 44px; height: 44px; }
+  .mg-card-name { font-size: 16px; }
+  .mg-card-sub { font-size: 12.5px; }
+
+  /* Поле игры и управление рядом: на мониторе колонка в телефонную ширину
+     оставляла бы две трети экрана пустыми. */
+  .mg-screen {
+    display: grid;
+    grid-template-columns: minmax(0, 1.25fr) minmax(300px, 0.75fr);
+    grid-template-areas:
+      'head  head'
+      'stage side'
+      'rules side';
+    gap: 0 26px;
+    align-items: start;
+  }
+  .mg-head { grid-area: head; }
+  .mg-stage { grid-area: stage; min-height: 360px; }
+  .mg-rules { grid-area: rules; }
+  .mg-result, .mg-options, .mg-bet, #mgPlay { grid-column: 2; }
+  .mg-wheel { max-width: 340px; }
+  .mg-grid { max-width: 420px; }
+  /* Доска плинко на мониторе шире и с крупным шагом штырей: в телефонных
+     14 точках между ними треугольник тонул посреди пустого поля. */
+  .mg-drop { max-width: 520px; }
+  .mg-pegs { gap: 13px; }
+  .mg-peg-row { gap: 22px; }
+  .mg-peg-row i { width: 6px; height: 6px; }
+  .mg-slot { padding: 10px 3px; font-size: 12px; }
+  .mg-reel { width: 84px; height: 104px; font-size: 40px; }
+  .mg-step { width: 42px; height: 42px; font-size: 14px; }
+}
