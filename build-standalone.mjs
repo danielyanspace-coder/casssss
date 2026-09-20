@@ -27,6 +27,7 @@ import {
   MINIGAMES, MINI_RTP, FAMILIES as MINI_FAMILIES,
   publicMinigame, resolveMinigame, validateMinigames,
 } from './server/minigames.js';
+import { validateSlot } from './server/slots.js';
 import {
   FORTUNE_SEGMENTS, SEGMENT_DEG, SEGMENTS_START_DEG,
   PERCENT_MIN, PERCENT_MAX, VOUCHER_MIN, VOUCHER_MAX,
@@ -58,6 +59,7 @@ const fortuneConfig = {
 /* ---------- Конфиг игры ---------- */
 
 validateMinigames();
+validateSlot();
 
 const config = {
   categories: CATEGORIES,
@@ -263,6 +265,16 @@ const inlineUi = (src) => src
   .replace(/\/?assets\/banks\/[\w-]+\.webp/g, (m) => bankArt[m.replace(/^\//, '')] || m)
   .replace(/'\/sbp-banks\.json'/g, `'${sbpBanks}'`);
 
+/*
+ * Исходник движка слота едет в сборку целиком и вклеивается ВНУТРЬ области
+ * видимости заглушки: его имена (SYMBOLS, PAYLINES, evaluate) слишком общие,
+ * чтобы выпускать их в общую область к коду клиента.
+ *
+ * mathFingerprint() в автономной сборке не работает - он зовёт createHash из
+ * node:crypto, а импорты при склейке снимаются. Демо его и не вызывает.
+ */
+const slotEngine = read('./server/slots.js');
+
 const css = read('./public/styles.css');
 const html = inlineUi(read('./public/index.html'));
 const icons = read('./public/icons.js');
@@ -274,6 +286,9 @@ const coinArt = read('./public/coin-art.js');
 // assets/ui/, и без этого в автономной сборке они оказывались битыми.
 const legal = inlineUi(read('./public/legal.js'));
 const minigames = read('./public/minigames.js');
+// slots.js проходит через inlineUi: символы и доски рамки лежат в assets/ui/,
+// и без подстановки в автономной сборке весь слот был бы пустыми рамками.
+const slots = inlineUi(read('./public/slots.js'));
 const app = inlineUi(read('./public/app.js'));
 
 // Тело страницы без внешних подключений — всё уедет внутрь файла.
@@ -304,6 +319,17 @@ const DRAW = ${JSON.stringify(drawTables)};
 const CONFIG = ${JSON.stringify(config)};
 const DRAW_BY_ID = new Map(DRAW.map((c) => [c.id, c]));
 const MINI_GAMES = CONFIG.minigames.games;
+
+/*
+ * Слот в автономной сборке считается ТЕМ ЖЕ кодом, что и на сервере: исходник
+ * server/slots.js целиком вклеен в эту же область видимости (см. сборку ниже),
+ * и заглушка зовёт его gridFrom(), evaluate() и jackpotFrom().
+ *
+ * Переписывать математику слота для демо было бы проще, но две копии
+ * расходятся: одну правят, вторую забывают, и заказчик смотрит на игру с
+ * другой отдачей, чем будет у игроков.
+ */
+const SLOT = publicSlot();
 
 /* Каталог прав и ролей берётся из server/staff.js на сборке: расходиться
    демо и настоящей панели нельзя, иначе заказчик увидит список ролей,
@@ -1859,6 +1885,95 @@ const routes = {
     };
   },
 
+  /* ---------- Слот ---------- */
+
+  'POST /api/slot': () => ({
+    slot: SLOT,
+    session: store.user.slotFree
+      ? { spinsLeft: store.user.slotFree.spinsLeft, lineBet: store.user.slotFree.lineBet,
+          totalBet: store.user.slotFree.lineBet * LINES,
+          totalWin: store.user.slotFree.totalWin, bought: false }
+      : null,
+  }),
+
+  'POST /api/slot/spin': (body) => {
+    const u = store.user;
+    const bet = Number(body.bet) || 0;
+    if (!SLOT.bets.includes(bet)) return { status: 400, body: { error: 'Такой ставки нет' } };
+    if (u.slotFree) return { status: 400, body: { error: 'Сначала доиграйте фриспины' } };
+    if (u.balance < bet) return { status: 400, body: { error: 'Недостаточно средств' } };
+
+    const lineBet = bet / LINES;
+    const offsets = SLOT.strips.map((strip) => Math.floor(Math.random() * strip.length));
+    const grid = gridFrom(offsets, {});
+    const out = evaluate(grid, lineBet);
+    const payout = out.lineWin + out.scatterWin;
+
+    u.balance = u.balance - bet + payout;
+    u.stats.rounds++;
+    u.stats.spent += bet;
+    u.stats.won += payout;
+    u.wagerProgress = (u.wagerProgress || 0) + bet;
+
+    const jackpot = jackpotFrom(Math.random(), bet);
+    if (jackpot) { u.balance += jackpot.amount; u.stats.won += jackpot.amount; }
+    if (out.triggered) {
+      u.slotFree = { spinsLeft: FREE_SPINS, lineBet, totalWin: 0 };
+    }
+    save();
+
+    return {
+      offsets, grid, wins: out.wins, lineWin: out.lineWin, scatterWin: out.scatterWin,
+      scatters: out.scatters, payout,
+      freeSpins: out.triggered ? FREE_SPINS : 0,
+      jackpot: jackpot ? { id: jackpot.id, name: jackpot.name, amount: jackpot.amount } : null,
+      bet, lineBet, balance: u.balance, user: publicUser(),
+    };
+  },
+
+  'POST /api/slot/free': () => {
+    const u = store.user;
+    if (!u.slotFree) return { status: 400, body: { error: 'Фриспинов нет' } };
+
+    const offsets = SLOT.strips.map((strip) => Math.floor(Math.random() * strip.length));
+    const grid = gridFrom(offsets, { expandWild: true });
+    const out = evaluate(grid, u.slotFree.lineBet);
+    const payout = out.lineWin + out.scatterWin;
+
+    u.balance += payout;
+    u.stats.won += payout;
+    u.slotFree.spinsLeft--;
+    u.slotFree.totalWin += payout;
+    const left = u.slotFree.spinsLeft;
+    const total = u.slotFree.totalWin;
+    if (left <= 0) u.slotFree = null;
+    save();
+
+    return {
+      offsets, grid, wins: out.wins, lineWin: out.lineWin, scatterWin: out.scatterWin,
+      scatters: out.scatters, payout, spinsLeft: Math.max(0, left), sessionWin: total,
+      balance: u.balance, user: publicUser(),
+    };
+  },
+
+  'POST /api/slot/buy': (body) => {
+    const u = store.user;
+    const bet = Number(body.bet) || 0;
+    if (!SLOT.bets.includes(bet)) return { status: 400, body: { error: 'Такой ставки нет' } };
+    if (u.slotFree) return { status: 400, body: { error: 'Фриспины уже идут' } };
+    const price = SLOT.buyBonusPrice * bet;
+    if (u.balance < price) return { status: 400, body: { error: 'Недостаточно средств' } };
+
+    u.balance -= price;
+    u.stats.spent += price;
+    u.wagerProgress = (u.wagerProgress || 0) + price;
+    u.slotFree = { spinsLeft: FREE_SPINS, lineBet: bet / LINES, totalWin: 0 };
+    save();
+
+    return { price, spinsLeft: FREE_SPINS, lineBet: bet / LINES,
+             balance: u.balance, user: publicUser() };
+  },
+
   'POST /api/admin/me': () => ({
     role: 'owner', roleName: 'Владелец',
     permissions: DEMO_PERMISSIONS,
@@ -2192,6 +2307,7 @@ ${body}
    функциями клиента, и раунд краша переставал завершаться. */
 (function () {
 'use strict';
+${strip(slotEngine)}
 ${shim}
 })();
 </script>
@@ -2221,6 +2337,8 @@ ${strip(coinArt)}
 ${strip(legal)}
 
 ${strip(minigames)}
+
+${strip(slots)}
 
 ${strip(app)}
 

@@ -366,6 +366,24 @@ db.exec(`
     updated_by INTEGER,
     updated_at INTEGER NOT NULL
   );
+
+  /*
+   * Незаконченная серия фриспинов слота.
+   *
+   * Серия обязана пережить закрытие мини-аппа: её выдали за три scatter или
+   * продали за деньги, и потерять её при обновлении страницы значит отнять
+   * оплаченное. По той же причине здесь лежит ставка - фриспины крутятся на
+   * ставке, действовавшей в момент запуска, а не на той, которую игрок
+   * поставит потом.
+   */
+  CREATE TABLE IF NOT EXISTS slot_sessions (
+    user_id    INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    spins_left INTEGER NOT NULL,
+    line_bet   INTEGER NOT NULL,
+    total_win  INTEGER NOT NULL DEFAULT 0,
+    bought     INTEGER NOT NULL DEFAULT 0,
+    started_at INTEGER NOT NULL
+  );
 `);
 
 // Переезд со старой схемы: история кейсов из openings в общую таблицу rounds.
@@ -678,6 +696,161 @@ export const playInstantRound = db.transaction((userId, bet, resolve) => {
 
   const balance = settleRound(userId, { ...outcome, bet, nonce });
   return { ...outcome, nonce, bet, balance };
+});
+
+/* ---------- Слот: платный прокрут, фриспины и джекпот ---------- */
+
+/**
+ * Незаконченная серия фриспинов игрока или null.
+ *
+ * Серия одна на игрока: слот пока один, а две серии разом означали бы, что
+ * игрок выбирает, какую доигрывать на более выгодной ставке.
+ */
+export function getSlotSession(userId) {
+  return db.prepare('SELECT * FROM slot_sessions WHERE user_id = ?').get(userId) || null;
+}
+
+/**
+ * Платный прокрут слота.
+ *
+ * Отличается от playInstantRound одним: решатель возвращает ещё и признак
+ * запуска фриспинов, и серия заводится ЗДЕСЬ ЖЕ, внутри той же транзакции.
+ * Иначе между списанием ставки и записью серии помещается обрыв связи, и три
+ * scatter пропадают вместе с оплаченным прокрутом.
+ */
+export const playSlotSpin = db.transaction((userId, bet, resolve) => {
+  const before = getUserById(userId);
+  if (before.balance < bet) {
+    throw Object.assign(new Error('Недостаточно средств'), { code: 'INSUFFICIENT_FUNDS' });
+  }
+  // Крутить платно, не доиграв бонус, нельзя: иначе ставка серии и ставка
+  // прокрута разъезжаются, а выплаты бонуса считаются по сохранённой.
+  if (getSlotSession(userId)) {
+    throw Object.assign(new Error('Сначала доиграйте фриспины'), { code: 'BAD' });
+  }
+
+  const nonce = bumpNonce(userId);
+  const user = getUserById(userId);
+  const outcome = resolve(user.server_seed, user.client_seed, nonce);
+
+  const balance = settleRound(userId, { ...outcome, bet, nonce });
+
+  if (outcome.freeSpins > 0) {
+    db.prepare(`INSERT INTO slot_sessions (user_id, spins_left, line_bet, total_win, bought, started_at)
+                VALUES (?, ?, ?, 0, 0, ?)`)
+      .run(userId, outcome.freeSpins, Math.round(bet / outcome.lines), Date.now());
+  }
+
+  return { ...outcome, nonce, bet, balance };
+});
+
+/**
+ * Покупка серии фриспинов за деньги.
+ *
+ * Ставка списывается как обычный оборот: покупка это игра, а не пополнение,
+ * и отыгрыш депозита она гасит наравне с прокрутом. Раунд в историю пишется
+ * с нулевой выплатой - выплаты придут прокрутами серии.
+ */
+export const buySlotBonus = db.transaction((userId, price, lineBet, spins, title) => {
+  const user = getUserById(userId);
+  if (user.balance < price) {
+    throw Object.assign(new Error('Недостаточно средств'), { code: 'INSUFFICIENT_FUNDS' });
+  }
+  if (getSlotSession(userId)) {
+    throw Object.assign(new Error('Фриспины уже идут'), { code: 'BAD' });
+  }
+
+  db.prepare(`UPDATE users SET balance = balance - ?, total_spent = total_spent + ?
+               WHERE id = ?`).run(price, price, userId);
+  consumeWager(userId, price);
+
+  db.prepare(`
+    INSERT INTO rounds (user_id, game, title, subtitle, bet, payout, multiplier,
+                        tier, roll, nonce, server_hash, client_seed, created_at)
+    VALUES (?, 'slot', ?, 'Покупка фриспинов', ?, 0, 0, 'common', 0, ?, ?, ?, ?)
+  `).run(userId, title, price, user.nonce, user.server_seed_hash, user.client_seed, Date.now());
+
+  db.prepare(`INSERT INTO slot_sessions (user_id, spins_left, line_bet, total_win, bought, started_at)
+              VALUES (?, ?, ?, 0, 1, ?)`)
+    .run(userId, spins, lineBet, Date.now());
+
+  return { balance: getUserById(userId).balance, session: getSlotSession(userId) };
+});
+
+/**
+ * Один бесплатный прокрут серии.
+ *
+ * Ставка не списывается, поэтому это не settleRound: тот делит выплату на
+ * ставку, чтобы получить множитель, а здесь ставки нет. Оборот тоже не
+ * растёт - отыгрыш уже засчитан прокрутом, который запустил серию, или
+ * покупкой.
+ */
+export const playSlotFreeSpin = db.transaction((userId, resolve) => {
+  const session = getSlotSession(userId);
+  if (!session) throw Object.assign(new Error('Фриспинов нет'), { code: 'BAD' });
+
+  const nonce = bumpNonce(userId);
+  const user = getUserById(userId);
+  const outcome = resolve(user.server_seed, user.client_seed, nonce, session);
+
+  const payout = Math.round(outcome.payout);
+  const left = session.spins_left - 1;
+  const total = session.total_win + payout;
+
+  if (payout > 0) {
+    db.prepare(`UPDATE users SET balance = balance + ?, total_won = total_won + ?
+                 WHERE id = ?`).run(payout, payout, userId);
+  }
+
+  if (left > 0) {
+    db.prepare('UPDATE slot_sessions SET spins_left = ?, total_win = ? WHERE user_id = ?')
+      .run(left, total, userId);
+  } else {
+    db.prepare('DELETE FROM slot_sessions WHERE user_id = ?').run(userId);
+    /*
+     * Серия попадает в историю ОДНОЙ записью, когда доиграна. Десять строк
+     * по нулю рублей в ленте выигрышей это мусор, а одна строка «бонус: 37
+     * ставок» - то, что игрок и запомнил.
+     */
+    db.prepare(`
+      INSERT INTO rounds (user_id, game, title, subtitle, bet, payout, multiplier,
+                          tier, roll, nonce, server_hash, client_seed, created_at)
+      VALUES (?, 'slot', ?, ?, 0, ?, 0, ?, ?, ?, ?, ?, ?)
+    `).run(userId, outcome.title, 'Серия фриспинов',
+           total, total >= session.line_bet * 400 ? 'unique'
+                : total >= session.line_bet * 200 ? 'mythic'
+                : total >= session.line_bet * 40 ? 'epic' : 'rare',
+           outcome.roll, nonce, user.server_seed_hash, user.client_seed, Date.now());
+  }
+
+  return {
+    ...outcome,
+    payout,
+    nonce,
+    spinsLeft: Math.max(0, left),
+    sessionWin: total,
+    balance: getUserById(userId).balance,
+  };
+});
+
+/**
+ * Начисление джекпота.
+ *
+ * Отдельной транзакцией, а не внутри выплаты прокрута: джекпот это событие
+ * уровня «миллион рублей одному игроку», и оно обязано лежать в истории
+ * отдельной строкой, иначе в отчётах его не отличить от крупной линии.
+ */
+export const awardSlotJackpot = db.transaction((userId, jackpot, bet, nonce) => {
+  const user = getUserById(userId);
+  db.prepare(`UPDATE users SET balance = balance + ?, total_won = total_won + ?
+               WHERE id = ?`).run(jackpot.amount, jackpot.amount, userId);
+  db.prepare(`
+    INSERT INTO rounds (user_id, game, title, subtitle, bet, payout, multiplier,
+                        tier, roll, nonce, server_hash, client_seed, created_at)
+    VALUES (?, 'slot', ?, ?, 0, ?, 0, 'unique', 0, ?, ?, ?, ?)
+  `).run(userId, `Джекпот ${jackpot.name}`, 'TREASURE ISLAND', jackpot.amount,
+         nonce, user.server_seed_hash, user.client_seed, Date.now());
+  return getUserById(userId).balance;
 });
 
 /* ---------- Краш: ставка и вывод — разные запросы ---------- */
@@ -1669,6 +1842,7 @@ const ALL_EVENTS = new Set([
   ...CLIENT_EVENTS,
   'deposit_first_bonus', 'promo_redeemed', 'freespins_bought', 'bot_reminder',
   'fortune_unlocked', 'fortune_spin', 'mini_played',
+  'slot_spin', 'slot_jackpot', 'slot_bonus_bought',
 ]);
 
 const insertEvent = db.prepare(

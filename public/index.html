@@ -519,6 +519,17 @@
       <div class="mg-screen" id="miniGame" hidden></div>
     </section>
 
+    <!-- ══════════ СЛОТЫ ══════════ -->
+    <!--
+      Раздел пустой намеренно: весь экран слота собирает public/slots.js при
+      открытии. Держать его разметку здесь бессмысленно - она зависит от
+      описания игры, которое приходит с сервера (символы, линии, ставки,
+      джекпоты), и половина её всё равно строилась бы кодом.
+    -->
+    <section class="view" id="view-slots">
+      <div id="slotRoot"></div>
+    </section>
+
     <section class="view" id="view-bonuses">
       <div class="game-head">
         <h1 class="game-title">БОНУСЫ</h1>

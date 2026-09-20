@@ -107,11 +107,18 @@ import {
   clearPendingSpins,
   trackEvent, funnelStats, eventTotals, CLIENT_EVENTS,
   firstDepositRules,
+  getSlotSession, playSlotSpin, buySlotBonus, playSlotFreeSpin, awardSlotJackpot,
 } from './db.js';
 import {
   MINIGAMES, MINI_RTP, FAMILIES as MINI_FAMILIES,
   getMinigame, resolveMinigame, publicMinigame, validateMinigames,
 } from './minigames.js';
+import {
+  SLOT_RTP, LINES as SLOT_LINES, FREE_SPINS as SLOT_FREE_SPINS, BETS as SLOT_BETS,
+  BUY_BONUS_PRICE, JACKPOTS as SLOT_JACKPOTS, STRIPS as SLOT_STRIPS,
+  gridFrom, evaluate as evaluateSlot, jackpotFrom, offsetFrom,
+  publicSlot, validateSlot,
+} from './slots.js';
 import { resolveUser } from './auth.js';
 import {
   PERMISSIONS, PERMISSION_GROUPS, ROLES, ROLE_BY_ID, permissionsFor, balanceCapFor,
@@ -140,6 +147,7 @@ const gameReport = validateGames();
 const gambleReport = validateGamble();
 const upgradeReport = validateUpgrade();
 const miniReport = validateMinigames();
+const slotReport = validateSlot();
 validateFortune();
 
 // Администраторы задаются Telegram ID через настройки — не через базу,
@@ -380,6 +388,7 @@ app.get('/api/config', (req, res) => {
       upgrade: setting('games_upgrade'),
       mini: setting('games_mini'),
       fortune: setting('games_fortune'),
+      slots: setting('games_slots'),
     },
     // Условия приветственного бонуса нужны клиенту, чтобы показать их в кассе
     // до пополнения, а не после.
@@ -1162,6 +1171,218 @@ app.post('/api/mini/play', auth, limits.play, gameGate('mini'), (req, res) => {
   });
 });
 
+/* ============================================================
+   СЛОТ TREASURE ISLAND
+   ============================================================ */
+
+/**
+ * Ставка слота обязана делиться на двадцать линий без остатка.
+ *
+ * Выплаты в таблице заданы в ставках НА ЛИНИЮ. Если общая ставка не делится,
+ * линейная становится дробной, и выигрыш приходится округлять на каждой
+ * линии по отдельности - тогда сумма на экране перестаёт сходиться с
+ * таблицей. Поэтому список ставок закрытый и весь делится на двадцать.
+ */
+function slotLineBet(raw) {
+  const bet = parseBet(raw);
+  if (!bet || !SLOT_BETS.includes(bet)) return null;
+  return { total: bet, line: bet / SLOT_LINES };
+}
+
+/**
+ * Позиции пяти барабанов из одного честного числа.
+ *
+ * Роллов нужно пять, а честное число одно на nonce. Поэтому из него
+ * раскручивается последовательность: каждый следующий ролл берётся из
+ * дробной части предыдущего, умноженной на длину ленты. Так все пять
+ * позиций восстанавливаются игроком из тех же серверного и клиентского
+ * зерна - проверяемость не теряется.
+ */
+function slotOffsets(roll) {
+  const offsets = [];
+  let x = roll;
+  for (const strip of SLOT_STRIPS) {
+    const scaled = x * strip.length;
+    offsets.push(Math.min(strip.length - 1, Math.floor(scaled)));
+    x = scaled - Math.floor(scaled);
+    // Ролл, выродившийся в ноль, дал бы одинаковые позиции на остатке
+    // барабанов. Подмешиваем несократимый сдвиг, а не берём случайное.
+    if (x <= 0 || x >= 1) x = (roll * 997 + offsets.length * 0.6180339887) % 1;
+  }
+  return offsets;
+}
+
+/** Джекпот берётся из хвоста того же числа: отдельный nonce не нужен. */
+function slotJackpotRoll(roll) {
+  return (roll * 1_000_003) % 1;
+}
+
+app.post('/api/slot', auth, limits.read, (req, res) => {
+  const session = getSlotSession(req.player.id);
+  res.json({
+    slot: publicSlot(),
+    session: session ? {
+      spinsLeft: session.spins_left,
+      lineBet: session.line_bet,
+      totalBet: session.line_bet * SLOT_LINES,
+      totalWin: session.total_win,
+      bought: Boolean(session.bought),
+    } : null,
+  });
+});
+
+app.post('/api/slot/spin', auth, limits.play, gameGate('slots'), (req, res) => {
+  const bet = slotLineBet(req.body?.bet);
+  if (!bet) return res.status(400).json({ error: 'Такой ставки нет' });
+
+  const user = req.player;
+  if (user.balance < bet.total) return sendInsufficient(res, bet.total - user.balance);
+
+  let result;
+  try {
+    result = playSlotSpin(user.id, bet.total, (serverSeed, clientSeed, nonce) => {
+      const roll = computeRoll(serverSeed, clientSeed, nonce);
+      const offsets = slotOffsets(roll);
+      const grid = gridFrom(offsets);
+      const outcome = evaluateSlot(grid, bet.line);
+      const payout = outcome.lineWin + outcome.scatterWin;
+      const multiplier = payout / bet.total;
+
+      return {
+        game: 'slot',
+        title: 'TREASURE ISLAND',
+        subtitle: outcome.triggered
+          ? `${outcome.scatters} SCATTER - фриспины`
+          : payout > 0 ? `Выигрыш ×${multiplier.toFixed(2)}` : 'Без выигрыша',
+        payout,
+        tier: multiplier >= 50 ? 'unique'
+            : multiplier >= 20 ? 'mythic'
+            : multiplier >= 5 ? 'epic'
+            : payout > 0 ? 'rare' : 'common',
+        roll,
+        offsets,
+        grid,
+        wins: outcome.wins,
+        lineWin: outcome.lineWin,
+        scatterWin: outcome.scatterWin,
+        scatters: outcome.scatters,
+        freeSpins: outcome.triggered ? SLOT_FREE_SPINS : 0,
+        lines: SLOT_LINES,
+        multiplier,
+      };
+    });
+  } catch (err) {
+    if (err.code === 'INSUFFICIENT_FUNDS') return sendInsufficient(res, bet.total - user.balance);
+    if (err.code === 'BAD') return res.status(400).json({ error: err.message });
+    throw err;
+  }
+
+  /*
+   * Джекпот разыгрывается ПОСЛЕ прокрута и отдельной транзакцией: он не
+   * зависит от того, что выпало на барабанах, и его отдача посчитана
+   * отдельным слагаемым (см. JACKPOT_BUDGET в server/slots.js).
+   */
+  const jackpot = jackpotFrom(slotJackpotRoll(result.roll), bet.total);
+  let balance = result.balance;
+  if (jackpot) {
+    balance = awardSlotJackpot(user.id, jackpot, bet.total, result.nonce);
+    trackEvent(user.id, 'slot_jackpot', { id: jackpot.id, amount: jackpot.amount, bet: bet.total });
+  }
+
+  trackEvent(user.id, 'slot_spin', { bet: bet.total, payout: result.payout });
+
+  res.json({
+    offsets: result.offsets,
+    grid: result.grid,
+    wins: result.wins,
+    lineWin: result.lineWin,
+    scatterWin: result.scatterWin,
+    scatters: result.scatters,
+    payout: result.payout,
+    freeSpins: result.freeSpins,
+    jackpot: jackpot ? { id: jackpot.id, name: jackpot.name, amount: jackpot.amount } : null,
+    bet: bet.total,
+    lineBet: bet.line,
+    roll: result.roll,
+    nonce: result.nonce,
+    balance,
+    user: publicUser(getUserById(user.id)),
+  });
+});
+
+app.post('/api/slot/free', auth, limits.play, gameGate('slots'), (req, res) => {
+  const user = req.player;
+  let result;
+  try {
+    result = playSlotFreeSpin(user.id, (serverSeed, clientSeed, nonce, session) => {
+      const roll = computeRoll(serverSeed, clientSeed, nonce);
+      const offsets = slotOffsets(roll);
+      // Во фриспинах wild расширяется на весь барабан - это и есть бонус.
+      const grid = gridFrom(offsets, { expandWild: true });
+      const outcome = evaluateSlot(grid, session.line_bet);
+
+      return {
+        title: 'TREASURE ISLAND',
+        roll,
+        offsets,
+        grid,
+        wins: outcome.wins,
+        lineWin: outcome.lineWin,
+        scatterWin: outcome.scatterWin,
+        scatters: outcome.scatters,
+        payout: outcome.lineWin + outcome.scatterWin,
+      };
+    });
+  } catch (err) {
+    if (err.code === 'BAD') return res.status(400).json({ error: err.message });
+    throw err;
+  }
+
+  res.json({
+    offsets: result.offsets,
+    grid: result.grid,
+    wins: result.wins,
+    lineWin: result.lineWin,
+    scatterWin: result.scatterWin,
+    scatters: result.scatters,
+    payout: result.payout,
+    spinsLeft: result.spinsLeft,
+    sessionWin: result.sessionWin,
+    roll: result.roll,
+    nonce: result.nonce,
+    balance: result.balance,
+    user: publicUser(getUserById(user.id)),
+  });
+});
+
+app.post('/api/slot/buy', auth, limits.play, gameGate('slots'), (req, res) => {
+  const bet = slotLineBet(req.body?.bet);
+  if (!bet) return res.status(400).json({ error: 'Такой ставки нет' });
+
+  const price = BUY_BONUS_PRICE * bet.total;
+  const user = req.player;
+  if (user.balance < price) return sendInsufficient(res, price - user.balance);
+
+  let result;
+  try {
+    result = buySlotBonus(user.id, price, bet.line, SLOT_FREE_SPINS, 'TREASURE ISLAND');
+  } catch (err) {
+    if (err.code === 'INSUFFICIENT_FUNDS') return sendInsufficient(res, price - user.balance);
+    if (err.code === 'BAD') return res.status(400).json({ error: err.message });
+    throw err;
+  }
+
+  trackEvent(user.id, 'slot_bonus_bought', { bet: bet.total, price });
+
+  res.json({
+    price,
+    spinsLeft: result.session.spins_left,
+    lineBet: bet.line,
+    balance: result.balance,
+    user: publicUser(getUserById(user.id)),
+  });
+});
+
 app.post('/api/fortune/state', auth, limits.read, (req, res) => {
   res.json({
     ...fortuneState(req.player.id),
@@ -1792,6 +2013,9 @@ app.listen(PORT, () => {
               `Рулетка RTP: ${(gameReport.rouletteRtp * 100).toFixed(2)}%  ` +
               `Риск-игра RTP: ${(gambleReport.rtp * 100).toFixed(2)}%  ` +
               `Апгрейд RTP: ${(upgradeReport.rtp * 100).toFixed(2)}%`);
+  console.log(`  Слот TREASURE ISLAND: отдача ${slotReport['отдача всего']}, ` +
+              `бонус раз в ${slotReport['бонус раз в']} прокрутов, ` +
+              `покупка бонуса ${slotReport['цена бонуса']}`);
   console.log(`  Витрина: ${FEED_CONFIG.synthetic ? 'выдуманные выпадения включены' : 'только живые игроки'}` +
               `, порог x${FEED_CONFIG.minMultiplier}, пул ${FEED_CONFIG.poolSize}`);
   console.log(`  Бесплатный кейс за подписку: ${subscriptionConfigured() ? 'настроен' : 'выключен (нет канала/кейса)'}\n`);

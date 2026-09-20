@@ -1284,6 +1284,14 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
   check('прогон не оставил недоигранную риск-игру', !clean.gambleStake,
         `ставка ${clean.gambleStake}`);
 
+  /*
+   * Фриспины могли выпасть плюшкой в любом из открытых здесь кейсов: деньги
+   * за них уже на балансе, но серия ждёт докрутки. Интерфейсный тест после
+   * этого показывал бы не ленту кейса, а экран фриспинов.
+   */
+  if ((await post('/api/freespins/pending')).data.pending) {
+    await post('/api/freespins/ack');
+  }
   const spins = (await post('/api/freespins/pending')).data;
   check('прогон не оставил недокрученных фриспинов', !spins.pending,
         JSON.stringify(spins.pending));

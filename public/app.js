@@ -12,12 +12,14 @@ import {
   iconBlock, iconBack, iconTier, iconStar, iconRouletteMark,
   iconGrid, iconKey, iconPeople, iconMail, iconTelegram,
   markF1, markITF, markGambling, markWorldGame,
+  iconSlot,
 } from './icons.js';
 import { caseCover, porschePhotoSrc, caseArtSrc } from './covers.js';
 import { itemArt } from './item-art.js';
 import { coinMark, coinColor } from './coin-art.js';
 import { COMPANY, LICENSE, DOCS, footerHtml } from './legal.js';
 import { createMini } from './minigames.js';
+import { createSlot } from './slots.js';
 import {
   sndTick, sndSpinStart, sndLand, sndReveal,
   sndBigWin, sndCollect, sndLose, sndFlip, sndBet, sndCrash, sndClimb,
@@ -59,6 +61,7 @@ const ICONS = {
   search: iconSearch, plus: iconPlus, minus: iconMinus,
   block: iconBlock, back: iconBack, grid: iconGrid,
   key: iconKey, people: iconPeople, mail: iconMail, telegram: iconTelegram,
+  slot: iconSlot,
   markF1, markITF, markGambling, markWorldGame,
 };
 
@@ -4074,6 +4077,21 @@ const mini = createMini({
   onRound: () => { /* лента обновится сама по своему таймеру */ },
 });
 
+/*
+ * Слот живёт отдельным файлом по той же причине, что и мини-игры: у него своя
+ * анимация лент, своя панель и свои окна, и держать всё это в app.js значило
+ * бы добавить туда полторы тысячи строк, никак не связанных с остальным.
+ */
+const slot = createSlot({
+  api, esc, fmt, money, toast, haptic, state,
+  sounds: {
+    bet: sndBet, tick: sndTick, land: sndLand,
+    collect: sndCollect, bigWin: sndBigWin, lose: sndLose,
+  },
+  onUser: (user) => applyUser(user),
+  onNoFunds: (need) => needMoney(need),
+});
+
 /* ============================================================
    КАССА
    ============================================================ */
@@ -4107,6 +4125,8 @@ function switchView(name) {
   }
   if (name === 'roulette') renderRouletteReel(2);
   if (name === 'mini') { mini.close(); mini.renderShelf(); }
+  if (name === 'slots') slot.open();
+  else slot.close();
   if (name === 'admin') initAdminPanel();
   if (name === 'cases') loadFreeCase();
   if (name === 'bonuses') { renderBonuses(); loadPromoState(); }
@@ -4179,6 +4199,7 @@ function openSupport() {
  * под картинкой и только тем, кому положены.
  */
 const MENU_EXTRA = [
+  { view: 'slots', ico: 'slot', title: 'Слоты', sub: 'TREASURE ISLAND' },
   { view: 'mini', ico: 'grid', title: 'Мини-игры', sub: 'Пятьдесят коротких' },
   { view: 'partner', ico: 'people', title: 'Партнёру', sub: 'Ваши рефералы', partnerOnly: true },
   { view: 'admin', ico: 'admin', title: 'Админ', sub: 'Панель управления', adminOnly: true },
@@ -4294,7 +4315,7 @@ function renderMenu() {
  */
 const VIEW_SWITCH = {
   cases: 'cases', crash: 'crash', roulette: 'roulette',
-  upgrade: 'upgrade', freemoney: 'fortune', mini: 'mini',
+  upgrade: 'upgrade', freemoney: 'fortune', mini: 'mini', slots: 'slots',
 };
 
 function viewOpen(view) {
@@ -4310,6 +4331,7 @@ const SIDE_NAV = [
   { view: 'crash', art: '/assets/ui/nav-crash.webp', title: 'Краш', sub: 'Лови коэффициент' },
   { view: 'roulette', art: '/assets/ui/nav-roulette.webp', title: 'Рулетка', sub: 'Испытай удачу' },
   { view: 'wallet', art: '/assets/ui/nav-wallet.webp', title: 'Касса', sub: 'Пополнение и вывод' },
+  { view: 'slots', ico: 'slot', title: 'Слоты', sub: 'TREASURE ISLAND' },
   { view: 'mini', ico: 'grid', title: 'Мини-игры', sub: 'Пятьдесят коротких' },
   { view: 'bonuses', art: '/assets/ui/nav-bonuses.webp', title: 'Бонусы', sub: 'Ежедневные награды' },
   { view: 'partner', ico: 'people', title: 'Партнёру', sub: 'Статистика и выплаты',

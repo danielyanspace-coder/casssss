@@ -28,4 +28,5 @@ export const SETTING_DEFS = [
   { key: 'games_upgrade', type: 'bool', value: '1', group: 'Игры', label: 'Апгрейд' },
   { key: 'games_mini', type: 'bool', value: '1', group: 'Игры', label: 'Мини-игры' },
   { key: 'games_fortune', type: 'bool', value: '1', group: 'Игры', label: 'Колесо фортуны' },
+  { key: 'games_slots', type: 'bool', value: '1', group: 'Игры', label: 'Слоты' },
 ];

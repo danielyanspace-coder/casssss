@@ -196,6 +196,20 @@ export function iconGrid() {
     <rect x="13" y="13" width="7.5" height="7.5" rx="2.2" fill="currentColor"/>`);
 }
 
+/**
+ * Слот: три барабана в корпусе.
+ *
+ * Рисуется тремя полосами разной высоты, а не «вишенками»: вишня это
+ * конкретный символ конкретной игры, а значок обязан говорить про механику.
+ */
+export function iconSlot() {
+  return svg(`<rect x="3" y="4.5" width="18" height="15" rx="2.6" fill="none"
+      stroke="currentColor" stroke-width="1.9"/>
+    <rect x="6" y="8" width="3.4" height="8" rx="1.1" fill="currentColor"/>
+    <rect x="10.3" y="8" width="3.4" height="5.4" rx="1.1" fill="currentColor" opacity="0.72"/>
+    <rect x="14.6" y="8" width="3.4" height="7" rx="1.1" fill="currentColor" opacity="0.86"/>`);
+}
+
 /** Ключ — счётчик открытых кейсов. */
 export function iconKey(color = '#ffd60a') {
   return svg(`<circle cx="8" cy="8" r="4.4" fill="none" stroke="${color}" stroke-width="2.1"/>
