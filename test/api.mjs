@@ -1248,6 +1248,33 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
   await post('/api/admin/settings/save', { patch: { games_mini: true } });
 }
 
+/* ---------- Уборка за собой ---------- */
+
+/*
+ * Прогон обязан оставить игрока в состоянии, из которого можно играть
+ * дальше. Иначе следующий тест (интерфейсный, он ходит в тот же сервер)
+ * падает на ровном месте: открытие кейса показывает не ленту, а
+ * недоигранную риск-игру, начатую здесь.
+ *
+ * Ловилось это тяжело: сам прогон API проходил целиком и зелёным.
+ */
+{
+  const me2 = (await post('/api/me')).data.user;
+  if (me2.gambleStake > 0) {
+    await post('/api/gamble/skip');
+  }
+  const clean = (await post('/api/me')).data.user;
+  check('прогон не оставил недоигранную риск-игру', !clean.gambleStake,
+        `ставка ${clean.gambleStake}`);
+
+  const spins = (await post('/api/freespins/pending')).data;
+  check('прогон не оставил недокрученных фриспинов', !spins.pending,
+        JSON.stringify(spins.pending));
+
+  check('прогон оставил игроку деньги на следующие тесты', clean.balance > 100000,
+        `${clean.balance}`);
+}
+
 /* ---------- Итог ---------- */
 
 console.log(`Пройдено проверок: ${passed}`);
