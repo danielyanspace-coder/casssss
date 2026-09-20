@@ -1547,6 +1547,164 @@ main { position: relative; z-index: 2; padding: 18px; }
 
 .admin-search { display: flex; gap: 10px; margin-bottom: 14px; }
 
+/* ============================================================
+   ПАНЕЛЬ УПРАВЛЕНИЯ: ОБОЛОЧКА
+   ============================================================ */
+
+/*
+ * Разделов стало пятнадцать, и в ленту вкладок они больше не укладываются:
+ * на телефоне это лента длиной в три экрана, в которой невозможно найти
+ * нужное. Поэтому разделы сгруппированы и вынесены в колонку слева, а на
+ * телефоне колонка превращается в ту же ленту, но с заголовками групп.
+ */
+.bo-head {
+  display: flex; align-items: flex-end; justify-content: space-between;
+  gap: 14px; margin-bottom: 16px; flex-wrap: wrap;
+}
+.bo-title { font-size: 22px; font-weight: 900; letter-spacing: -0.4px; }
+.bo-who { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+.bo-shell { display: block; }
+
+.bo-nav {
+  display: flex; gap: 14px;
+  overflow-x: auto; scrollbar-width: none;
+  padding-bottom: 6px; margin-bottom: 16px;
+  border-bottom: 1.5px solid var(--line);
+}
+.bo-nav::-webkit-scrollbar { display: none; }
+.bo-group { flex: 0 0 auto; }
+.bo-group-name {
+  font-size: 10px; letter-spacing: 0.8px; text-transform: uppercase;
+  color: var(--muted); margin-bottom: 6px;
+}
+.bo-link {
+  display: inline-block;
+  padding: 8px 13px; margin-right: 6px;
+  border-radius: 10px;
+  border: 1.5px solid var(--line);
+  background: var(--card);
+  color: var(--text);
+  font-size: 13px; font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.bo-link.active {
+  border-color: var(--pink);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--pink) 30%, transparent), transparent);
+  color: #fff;
+}
+
+/* Таблицы в панели широкие по существу: у отчёта десять столбцов, и сжать
+   их до ширины телефона значит сделать нечитаемыми все десять. Едет вбок
+   сама таблица, а не страница. */
+.bo-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; margin-bottom: 8px; }
+.bo-scroll .admin-table { min-width: 560px; }
+
+.bo-sub { font-size: 11px; color: var(--muted); }
+.bo-mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11.5px; }
+.bo-ok { color: var(--green); font-weight: 700; }
+.bo-no { color: var(--red); font-weight: 700; }
+.bo-off { opacity: 0.45; }
+.bo-subtitle { font-size: 15px; font-weight: 800; margin: 18px 0 8px; }
+
+.bo-userlink {
+  background: none; border: none; padding: 0;
+  color: var(--cyan); font: inherit; font-size: 12.5px;
+  text-decoration: underline; cursor: pointer;
+}
+
+/* ---------- Столбики ---------- */
+
+.bo-chart {
+  display: flex; align-items: flex-end; gap: 3px;
+  height: 120px; margin-bottom: 18px;
+  padding: 10px 10px 0;
+  border-radius: 14px;
+  background: var(--card);
+  border: 1.5px solid var(--line);
+  overflow-x: auto; scrollbar-width: none;
+}
+.bo-chart::-webkit-scrollbar { display: none; }
+.bo-bar {
+  flex: 1 0 14px; min-width: 14px;
+  display: flex; flex-direction: column; justify-content: flex-end;
+  height: 100%;
+}
+.bo-bar i { display: block; border-radius: 3px 3px 0 0; }
+.bo-bar span {
+  font-size: 8px; color: var(--muted); text-align: center;
+  margin-top: 3px; white-space: nowrap;
+}
+
+/* ---------- Формы панели ---------- */
+
+.bo-settings { display: grid; gap: 10px; margin-bottom: 14px; }
+.bo-field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.bo-field b { font-size: 13px; font-weight: 700; }
+.bo-field i { font-size: 11px; color: var(--muted); font-style: normal; }
+
+.bo-toggle {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 11px 13px; border-radius: 12px;
+  background: var(--card); border: 1.5px solid var(--line);
+  cursor: pointer;
+}
+.bo-toggle input { margin-top: 2px; width: 18px; height: 18px; flex: 0 0 auto; }
+.bo-toggle span { display: flex; flex-direction: column; gap: 2px; }
+.bo-toggle b { font-size: 13px; }
+.bo-toggle i { font-size: 11px; color: var(--muted); font-style: normal; }
+
+.bo-daybar {
+  padding: 10px 13px; border-radius: 12px; margin-bottom: 16px;
+  background: var(--card); border: 1.5px solid var(--line);
+  font-size: 12.5px; color: var(--muted);
+}
+.bo-daybar b { color: var(--text); font-variant-numeric: tabular-nums; }
+
+.bo-note {
+  padding: 10px 13px; border-radius: 12px; margin-bottom: 8px;
+  background: var(--card); border-left: 3px solid var(--cyan);
+  font-size: 13px;
+}
+.bo-note .bo-sub { margin-top: 5px; display: flex; gap: 8px; align-items: center; }
+
+/* ---------- Роли и права ---------- */
+
+.bo-roles { display: grid; gap: 10px; margin-bottom: 16px; }
+.bo-role {
+  padding: 13px; border-radius: 14px;
+  background: var(--card); border: 1.5px solid var(--line);
+}
+.bo-role b { font-size: 14px; }
+.bo-role p { font-size: 12px; color: var(--muted); margin: 5px 0 6px; }
+.bo-role span { font-size: 11px; color: var(--cyan); display: block; }
+
+.bo-perms { display: grid; gap: 12px; margin-bottom: 14px; }
+.bo-perm-group {
+  padding: 12px; border-radius: 14px;
+  background: var(--card); border: 1.5px solid var(--line);
+}
+.bo-perm {
+  display: grid; grid-template-columns: 1fr auto auto;
+  align-items: center; gap: 10px;
+  padding: 7px 0; border-bottom: 1px solid var(--line);
+}
+.bo-perm:last-child { border-bottom: none; }
+.bo-perm span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.bo-perm b { font-size: 12.5px; font-weight: 600; }
+.bo-perm i { font-size: 10.5px; color: var(--muted); font-style: normal; }
+.bo-perm label {
+  display: flex; align-items: center; gap: 4px;
+  font-size: 13px; font-weight: 900; color: var(--muted);
+  cursor: pointer;
+}
+.bo-perm label input { width: 16px; height: 16px; }
+
+.bo-rowact { display: flex; gap: 6px; }
+.bo-rowact .btn { padding: 6px 10px; font-size: 11.5px; }
+
+
 .user-row {
   display: flex; align-items: center; gap: 12px;
   padding: 13px 15px;
@@ -1593,11 +1751,16 @@ main { position: relative; z-index: 2; padding: 18px; }
 .log-row .plus { color: var(--green); }
 .log-row .minus { color: var(--red); }
 
-.nav-admin 
-
 /* ---------- Правки под новую карточку кейса ---------- */
 
-.case-card { min-height: auto; padding: 22px; }
+/*
+ * Здесь лежало правило .case-card { min-height: auto; padding: 22px }, а
+ * перед ним - обрывок селектора .nav-admin без тела. Комментарий между ними
+ * браузер выбрасывает, и правило всё это время читалось как
+ * «.nav-admin .case-card», то есть не применялось нигде. Вёрстка карточки
+ * сложилась без него и принята такой, поэтому правило убрано, а не
+ * восстановлено: включить его сейчас значит поменять то, что уже утверждено.
+ */
 
 .case-info { margin-bottom: 14px; }
 .case-name { font-size: 24px; margin-bottom: 5px; }
@@ -5255,6 +5418,43 @@ select.seed-input {
   /* Админка наоборот распахивается на всю ширину: там таблицы. */
   #view-admin { max-width: none; }
   .admin-kpis { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
+
+  /* На мониторе разделы уходят в колонку слева: пятнадцать кнопок в строку
+     не помещаются даже здесь, а прокручивать их вбок на мыши неудобно. */
+  .bo-shell {
+    display: grid;
+    grid-template-columns: 210px minmax(0, 1fr);
+    gap: 24px;
+    align-items: start;
+  }
+  .bo-nav {
+    display: block;
+    position: sticky; top: 96px;
+    border-bottom: none;
+    padding: 0; margin: 0;
+    overflow: visible;
+  }
+  .bo-group { margin-bottom: 16px; }
+  .bo-link { display: block; width: 100%; text-align: left; margin: 0 0 5px; }
+  .bo-title { font-size: 28px; }
+  .bo-scroll .admin-table { min-width: 0; }
+  .bo-roles { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+  .bo-perms { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+  .bo-settings { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+  .bo-chart { height: 160px; }
+
+  /* Карточка игрока на мониторе - не слой во весь экран, а колонка справа:
+     слой прятал список, и после каждой правки приходилось искать игрока
+     заново. */
+  .admin-detail {
+    position: fixed;
+    inset: 0 0 0 auto;
+    width: min(620px, 52vw);
+    border-left: 1.5px solid var(--line);
+    box-shadow: -30px 0 80px -40px #000;
+    padding: 26px 28px 60px;
+  }
+
 
   /* ---------- Наведение ---------- */
 

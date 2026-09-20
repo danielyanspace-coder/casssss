@@ -1012,6 +1012,148 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
         typeof me.depositsCount === 'number');
 }
 
+/* ---------- Панель: права, сотрудники, настройки, лимиты, журнал ---------- */
+
+{
+  const meRes = await post('/api/admin/me');
+  check('панель: /me отдаёт роль и права', meRes.status === 200 && Array.isArray(meRes.data.permissions));
+  const perms = new Set(meRes.data.permissions || []);
+  check('панель: владелец получил право на сотрудников', perms.has('staff.manage'));
+  check('панель: у владельца нет потолка правки баланса', meRes.data.balanceCap === 0);
+
+  const staff = await post('/api/admin/staff');
+  check('панель: состав команды доступен', staff.status === 200 && Array.isArray(staff.data.rows));
+  check('панель: каталог прав приходит целиком',
+        (staff.data.permissions || []).length === perms.size,
+        `${staff.data.permissions?.length} против ${perms.size}`);
+  check('панель: владелец есть в составе',
+        (staff.data.rows || []).some((r) => r.user_id === me.id && r.role === 'owner'));
+
+  const badRole = await post('/api/admin/staff/save', { userKey: String(me.tgId || '999000001'), role: 'wizard' });
+  check('панель: выдуманная роль отклонена', badRole.status === 400, `статус ${badRole.status}`);
+
+  const selfOff = await post('/api/admin/staff/save',
+    { userKey: '999000001', role: 'support', active: false });
+  check('панель: нельзя выключить самого себя', selfOff.status === 400, `статус ${selfOff.status}`);
+
+  const selfDel = await post('/api/admin/staff/remove', { userId: me.id });
+  check('панель: нельзя удалить самого себя', selfDel.status === 400, `статус ${selfDel.status}`);
+
+  const ghost = await post('/api/admin/staff/save', { userKey: 'кого-то-нет', role: 'support' });
+  check('панель: незнакомого игрока в команду не взять', ghost.status === 404, `статус ${ghost.status}`);
+
+  /* Настройки: сохранили и прочитали обратно. */
+  const settings = await post('/api/admin/settings');
+  check('панель: настройки отдаются списком',
+        settings.status === 200 && settings.data.rows.some((r) => r.key === 'maintenance'));
+  await post('/api/admin/settings/save', { patch: { min_payout: 7777 } });
+  const back = await post('/api/admin/settings');
+  check('панель: настройка сохраняется и читается обратно',
+        back.data.rows.find((r) => r.key === 'min_payout')?.value === '7777');
+
+  /*
+   * Главное в настройках не то, что число сохранилось, а то, что оно
+   * действует. Выключатель, который ничего не выключает, хуже отсутствующего:
+   * им пользуются, считая, что приём закрыт.
+   */
+  const cfgTight = await get('/api/config');
+  check('настройки: минимум вывода доходит до клиента', cfgTight.minPayout === 7777,
+        `${cfgTight.minPayout}`);
+  const tooSmall = await post('/api/payout/create', { amount: 1500, method: 'sbp',
+                                                      phone: '+79000000000', bank: 'sber' });
+  check('настройки: заявка ниже минимума отклонена', tooSmall.status === 400,
+        `статус ${tooSmall.status}`);
+  await post('/api/admin/settings/save', { patch: { min_payout: 0 } });
+
+  await post('/api/admin/settings/save', { patch: { payouts_open: false } });
+  const closed = await post('/api/payout/create', { amount: 100000, method: 'sbp',
+                                                    phone: '+79000000000', bank: 'sber' });
+  check('настройки: закрытый приём выводов отказывает', closed.status === 503,
+        `статус ${closed.status}`);
+  await post('/api/admin/settings/save', { patch: { payouts_open: true } });
+
+  await post('/api/admin/settings/save', { patch: { games_roulette: false } });
+  const offGame = await post('/api/roulette', { bet: 100, color: 'red' });
+  check('настройки: выключенная игра отказывает', offGame.status === 503,
+        `статус ${offGame.status}`);
+  const cfgOff = await get('/api/config');
+  check('настройки: клиент узнаёт о выключенной игре', cfgOff.open?.roulette === false);
+  await post('/api/admin/settings/save', { patch: { games_roulette: true } });
+
+  /* Работы: сотрудника они не касаются, иначе включивший сам себя запрёт. */
+  await post('/api/admin/settings/save', { patch: { maintenance: true } });
+  const staffPass = await post('/api/me');
+  check('настройки: работы не запирают сотрудника', staffPass.status === 200,
+        `статус ${staffPass.status}`);
+  await post('/api/admin/settings/save', { patch: { maintenance: false } });
+
+  /* Заметки. */
+  const note = await post('/api/admin/player/note', { userId: me.id, text: 'проверка заметки' });
+  check('панель: заметка добавляется',
+        note.status === 200 && note.data.notes.some((n) => n.text === 'проверка заметки'));
+  const noteId = note.data.notes.find((n) => n.text === 'проверка заметки')?.id;
+  const empty = await post('/api/admin/player/note', { userId: me.id, text: '   ' });
+  check('панель: пустая заметка отклонена', empty.status === 400, `статус ${empty.status}`);
+  await post('/api/admin/player/note/delete', { noteId });
+
+  /*
+   * Лимиты. Главная проверка здесь не в том, что число сохранилось, а в том,
+   * что ослабление откладывается: лимит, снимаемый сразу, не лимит.
+   */
+  await post('/api/admin/player/limits', { userId: me.id, patch: { loss_day: 5000 } });
+  const tight = await post('/api/admin/player/limits', { userId: me.id, patch: { loss_day: 1000 } });
+  check('панель: ужесточение лимита действует сразу',
+        tight.data.limits.loss_day === 1000, `${tight.data.limits.loss_day}`);
+  const loose = await post('/api/admin/player/limits', { userId: me.id, patch: { loss_day: 90000 } });
+  check('панель: ослабление лимита откладывается',
+        loose.data.limits.loss_day === 1000 && loose.data.limits.pending_loss === 90000,
+        `текущий ${loose.data.limits.loss_day}, отложенный ${loose.data.limits.pending_loss}`);
+  check('панель: у отложенного ослабления есть срок',
+        loose.data.limits.pending_at > Date.now());
+  const drop = await post('/api/admin/player/limits', { userId: me.id, patch: { loss_day: 0 } });
+  check('панель: снятие лимита это тоже ослабление',
+        drop.data.limits.loss_day === 1000, `${drop.data.limits.loss_day}`);
+
+  /* Риск и отчёты. */
+  const risk = await post('/api/admin/risk');
+  check('панель: сигналы риска считаются',
+        risk.status === 200 && Array.isArray(risk.data.sharedPhone) && Array.isArray(risk.data.hotPlayers));
+
+  const reports = await post('/api/admin/reports', { days: 7 });
+  check('панель: отчёт по дням считается',
+        reports.status === 200 && Array.isArray(reports.data.daily));
+  if (reports.data.daily?.length) {
+    const row = reports.data.daily[reports.data.daily.length - 1];
+    check('панель: доход в отчёте это ставки минус выплаты',
+          row.ggr === row.wagered - row.paid);
+    check('панель: чистый приход это пополнения минус выводы',
+          row.net === row.deposits - row.payouts);
+  }
+
+  /* Выгрузка. */
+  const csv = await fetch(BASE + '/api/admin/export', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ kind: 'daily', days: 7 }),
+  });
+  // Смотрим байты, а не строку: fetch().text() снимает BOM по спецификации,
+  // и проверка по первому символу строки всегда проходила бы мимо.
+  const bytes = new Uint8Array(await csv.arrayBuffer());
+  const text = new TextDecoder('utf-8').decode(bytes);
+  check('панель: выгрузка отдаёт CSV', csv.ok && text.includes(';'));
+  check('панель: у выгрузки есть BOM для Excel',
+        bytes[0] === 0xEF && bytes[1] === 0xBB && bytes[2] === 0xBF,
+        `первые байты ${bytes[0]} ${bytes[1]} ${bytes[2]}`);
+
+  /* Журнал: всё, что мы только что сделали, должно в нём быть. */
+  const journal = await post('/api/admin/journal', { limit: 200 });
+  check('панель: журнал отдаётся', journal.status === 200 && Array.isArray(journal.data.rows));
+  const actions = new Set((journal.data.rows || []).map((r) => r.action));
+  for (const action of ['settings', 'note_add', 'limits', 'export', 'credit']) {
+    check(`панель: журнал записал «${action}»`, actions.has(action));
+  }
+}
+
 /* ---------- Итог ---------- */
 
 console.log(`Пройдено проверок: ${passed}`);

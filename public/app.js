@@ -36,7 +36,7 @@ const state = {
   crashHistory: [],
   rouletteHistory: [],
   view: 'cases',
-  admin: { tab: 'overview', users: [], query: '', funnelDays: 7 },
+  admin: { tab: 'overview', users: [], query: '', funnelDays: 7, perms: new Set(), me: null, reportDays: 30 },
   paymentBank: 'sber', paymentTimer: null, payment: null,
   withdrawMethod: 'sbp',
   /*
@@ -2778,10 +2778,10 @@ async function openAdminUser(userId) {
   const name = u.username ? '@' + u.username : (u.first_name || 'Без имени');
 
   const logRows = d.log.map((l) => {
-    const labels = { credit: 'Начислено', debit: 'Списано', block: 'Заблокирован',
-                     unblock: 'Разблокирован', voucher: 'Выдан кейс' };
+    const who = l.admin_username ? '@' + l.admin_username : (l.admin_name || '');
     return `<div class="log-row">
-      <span>${labels[l.action] || l.action}${l.note ? ` · ${esc(l.note)}` : ''}</span>
+      <span>${esc(BO_ACTIONS[l.action] || l.action)}${l.note ? ` · ${esc(l.note)}` : ''}
+        <div class="bo-sub">${esc(who)} · ${boDateTime(l.created_at)}</div></span>
       <b class="${l.amount > 0 ? 'plus' : l.amount < 0 ? 'minus' : ''}">${l.amount ? fmt(l.amount) : ''}</b>
     </div>`;
   }).join('');
@@ -2801,18 +2801,35 @@ async function openAdminUser(userId) {
       </div>
     </div>
 
-    <div class="admin-kpis">
-      <div class="kpi"><div class="kpi-label">Баланс</div><div class="kpi-value">${fmt(u.balance)}</div></div>
-      <div class="kpi"><div class="kpi-label">Раундов</div><div class="kpi-value">${fmt(u.total_rounds)}</div></div>
-      <div class="kpi"><div class="kpi-label">Поставил</div><div class="kpi-value">${fmt(u.total_spent)}</div></div>
-      <div class="kpi"><div class="kpi-label">Выиграл</div><div class="kpi-value">${fmt(u.total_won)}</div></div>
-      <div class="kpi"><div class="kpi-label">Его RTP</div>
-        <div class="kpi-value">${u.total_spent ? ((u.total_won / u.total_spent) * 100).toFixed(1) + '%' : '-'}</div></div>
-      <div class="kpi"><div class="kpi-label">Прибыль с него</div>
-        <div class="kpi-value ${u.total_spent - u.total_won >= 0 ? 'plus' : 'minus'}">
-          ${fmt(u.total_spent - u.total_won)}</div></div>
+    ${boKpis([
+      { label: 'Баланс', value: fmt(u.balance),
+        sub: `к выводу: ${fmt(d.money.withdrawable)}` },
+      { label: 'Пополнил', value: fmt(d.money.deposited),
+        sub: d.money.bonus ? `бонусами ещё ${fmt(d.money.bonus)}` : '' },
+      { label: 'Вывел', value: fmt(d.money.paidOut),
+        sub: d.money.pendingOut ? `в заявках ${fmt(d.money.pendingOut)}` : '' },
+      { label: 'Касса заработала', value: fmt(d.money.deposited - d.money.paidOut),
+        cls: d.money.deposited - d.money.paidOut >= 0 ? 'plus' : 'minus',
+        sub: 'пополнил минус вывел' },
+      { label: 'Раундов', value: fmt(u.total_rounds),
+        sub: `поставил ${fmt(u.total_spent)}` },
+      { label: 'Его отдача', value: u.total_spent
+          ? ((u.total_won / u.total_spent) * 100).toFixed(1) + '%' : '-',
+        cls: u.total_spent && u.total_won > u.total_spent ? 'minus' : '',
+        sub: `выиграл ${fmt(u.total_won)}` },
+      { label: 'Долг по обороту', value: fmt(d.money.depositDebt),
+        cls: d.money.depositDebt ? 'minus' : 'plus',
+        sub: d.money.depositDebt ? 'вывод закрыт, пока не отыграет' : 'вывод открыт' },
+      { label: 'Отыграть бонус', value: fmt(d.money.wagerRequired) },
+    ])}
+
+    <div class="bo-daybar">
+      За сутки: поставил <b>${fmt(d.day.wagered)}</b> ·
+      проиграл <b>${fmt(d.day.lost)}</b> ·
+      пополнил <b>${fmt(d.day.deposited)}</b>
     </div>
 
+    ${boCan('players.balance') ? `
     <h2 class="section-title">Изменить баланс</h2>
     <div class="amount-row">
       <input class="seed-input" id="adjAmount" type="number" inputmode="numeric" placeholder="сумма">
@@ -2825,12 +2842,14 @@ async function openAdminUser(userId) {
     <p class="adj-hint">Обычное начисление считается пополнением, и его надо
       прокрутить через ставки, прежде чем откроется вывод. Для возврата после
       сбоя или компенсации ставьте галочку - иначе поддержка своими руками
-      запрёт игроку вывод.</p>
+      запрёт игроку вывод.${state.admin.me?.balanceCap
+        ? ` Ваш потолок одной правки: ${fmt(state.admin.me.balanceCap)}.` : ''}</p>
     <div class="admin-actions">
       <button class="btn btn-primary" id="adjPlus"><span data-ico="plus"></span> Начислить</button>
       <button class="btn btn-outline" id="adjMinus"><span data-ico="minus"></span> Списать</button>
-    </div>
+    </div>` : ''}
 
+    ${boCan('players.gift') ? `
     <h2 class="section-title">Подарочный кейс</h2>
     <div class="amount-row">
       <select class="seed-input" id="voucherCase">
@@ -2838,12 +2857,50 @@ async function openAdminUser(userId) {
       </select>
       <input class="seed-input" id="voucherCount" type="number" value="1" min="1" max="100" style="max-width:80px">
     </div>
-    <button class="btn btn-outline btn-wide" id="grantVoucher">Выдать кейс</button>
+    <button class="btn btn-outline btn-wide" id="grantVoucher">Выдать кейс</button>` : ''}
 
+    ${boCan('players.limits') ? `
+    <h2 class="section-title">Лимиты ответственной игры</h2>
+    <p class="game-sub">Ужесточение действует сразу, ослабление - через сутки.
+      Лимит, который снимается в ту минуту, когда очень хочется играть, не лимит.</p>
+    <div class="bo-settings">
+      <label class="bo-field"><b>Пополнение в сутки</b>
+        <i>0 - без ограничения</i>
+        <input class="seed-input" type="number" id="limDeposit" value="${d.limits.deposit_day || 0}"></label>
+      <label class="bo-field"><b>Проигрыш в сутки</b>
+        <i>0 - без ограничения</i>
+        <input class="seed-input" type="number" id="limLoss" value="${d.limits.loss_day || 0}"></label>
+      <label class="bo-field"><b>Оборот в сутки</b>
+        <i>0 - без ограничения</i>
+        <input class="seed-input" type="number" id="limWager" value="${d.limits.wager_day || 0}"></label>
+      <label class="bo-field"><b>Самоисключение, дней</b>
+        <i>Продлить можно, укоротить - нет</i>
+        <input class="seed-input" type="number" id="limExclude" value="0"></label>
+    </div>
+    ${d.limits.pending_at ? `<p class="adj-hint">Ослабление вступит в силу
+      ${boDateTime(d.limits.pending_at)}.</p>` : ''}
+    ${d.limits.excluded_until > Date.now() ? `<p class="adj-hint">Самоисключение
+      до ${boDateTime(d.limits.excluded_until)}.</p>` : ''}
+    <button class="btn btn-outline btn-wide" id="saveLimits">Сохранить лимиты</button>` : ''}
+
+    ${boCan('players.block') ? `
     <h2 class="section-title">Доступ</h2>
     <button class="btn ${u.is_blocked ? 'btn-primary' : 'btn-outline'} btn-wide" id="toggleBlock">
       <span data-ico="block"></span> ${u.is_blocked ? 'Разблокировать' : 'Заблокировать'}
-    </button>
+    </button>` : ''}
+
+    ${boCan('players.notes') ? `
+    <h2 class="section-title">Заметки</h2>
+    <div class="amount-row">
+      <input class="seed-input" id="noteText" maxlength="2000" placeholder="что важно знать следующему">
+      <button class="btn btn-sm" id="noteAdd">Добавить</button>
+    </div>
+    ${d.notes.length ? d.notes.map((n) => `<div class="bo-note">
+      <div>${esc(n.text)}</div>
+      <div class="bo-sub">${esc(n.author_username ? '@' + n.author_username
+        : (n.author_name || '#' + n.author_id))} · ${boDateTime(n.created_at)}
+        <button class="bo-userlink" data-note-del="${n.id}">убрать</button></div>
+    </div>`).join('') : '<div class="empty">Пока ничего</div>'}` : ''}
 
     ${d.vouchers.length ? `<h2 class="section-title">Подарки на руках</h2>
       ${d.vouchers.map((v) => `<div class="log-row"><span>${esc(
@@ -2878,10 +2935,40 @@ async function openAdminUser(userId) {
     } catch (err) { toast(err.message); haptic('error'); }
   };
 
-  document.getElementById('adjPlus').addEventListener('click', () => adjust(1));
-  document.getElementById('adjMinus').addEventListener('click', () => adjust(-1));
+  document.getElementById('adjPlus')?.addEventListener('click', () => adjust(1));
+  document.getElementById('adjMinus')?.addEventListener('click', () => adjust(-1));
 
-  document.getElementById('grantVoucher').addEventListener('click', async () => {
+  document.getElementById('saveLimits')?.addEventListener('click', async () => {
+    const num = (id) => Math.max(0, Math.trunc(Number(document.getElementById(id).value) || 0));
+    try {
+      await api('/api/admin/player/limits', { userId, patch: {
+        deposit_day: num('limDeposit'), loss_day: num('limLoss'),
+        wager_day: num('limWager'), excludedDays: num('limExclude'),
+      } });
+      toast('Лимиты сохранены');
+      openAdminUser(userId);
+    } catch (err) { toast(err.message); }
+  });
+
+  document.getElementById('noteAdd')?.addEventListener('click', async () => {
+    const text = document.getElementById('noteText').value.trim();
+    if (!text) { toast('Пустая заметка'); return; }
+    try {
+      await api('/api/admin/player/note', { userId, text });
+      openAdminUser(userId);
+    } catch (err) { toast(err.message); }
+  });
+
+  detail.querySelectorAll('[data-note-del]').forEach((b) => {
+    b.onclick = async () => {
+      try {
+        await api('/api/admin/player/note/delete', { noteId: Number(b.dataset.noteDel) });
+        openAdminUser(userId);
+      } catch (err) { toast(err.message); }
+    };
+  });
+
+  document.getElementById('grantVoucher')?.addEventListener('click', async () => {
     try {
       await api('/api/admin/voucher', {
         userId,
@@ -2894,7 +2981,7 @@ async function openAdminUser(userId) {
     } catch (err) { toast(err.message); haptic('error'); }
   });
 
-  document.getElementById('toggleBlock').addEventListener('click', async () => {
+  document.getElementById('toggleBlock')?.addEventListener('click', async () => {
     try {
       await api('/api/admin/block', { userId, blocked: !u.is_blocked });
       toast(u.is_blocked ? 'Разблокирован' : 'Заблокирован');
@@ -2904,24 +2991,625 @@ async function openAdminUser(userId) {
   });
 }
 
-document.querySelectorAll('[data-admin-tab]').forEach((btn) => {
-  btn.addEventListener('click', () => {
-    state.admin.tab = btn.dataset.adminTab;
-    document.querySelectorAll('[data-admin-tab]').forEach((b) => b.classList.remove('active'));
-    document.querySelectorAll('.admin-pane').forEach((p) => p.classList.remove('active'));
-    btn.classList.add('active');
-    document.getElementById(`admin-${state.admin.tab}`).classList.add('active');
-    if (state.admin.tab === 'funnel') loadAdminFunnel();
-    if (state.admin.tab === 'users') loadAdminUsers();
-    if (state.admin.tab === 'payouts') loadAdminPayouts();
-    if (state.admin.tab === 'payments') loadAdminPayments();
-    if (state.admin.tab === 'support') loadAdminSupport();
-    if (state.admin.tab === 'promos') loadAdminPromos();
-    if (state.admin.tab === 'partners') loadAdminPartners();
-    if (state.admin.tab === 'payment-settings') loadAdminPaymentSettings();
-    haptic('light');
+/* ---------- Панель: разделы и права ---------- */
+
+/*
+ * Список разделов с правом, которое их открывает.
+ *
+ * Право одно на раздел - то, без которого раздел бессмысленен. Внутри раздела
+ * отдельные кнопки прячутся по своим правам: финансист видит заявки на вывод,
+ * но кнопку «Выплатить» видит только с finance.payouts.resolve.
+ */
+const BO_SECTIONS = [
+  { id: 'overview', name: 'Сводка', group: 'Обзор', need: 'reports.view', load: () => loadAdminOverview() },
+  { id: 'reports', name: 'Отчёты', group: 'Обзор', need: 'reports.view', load: () => loadAdminReports() },
+  { id: 'funnel', name: 'Воронка', group: 'Обзор', need: 'reports.view', load: () => loadAdminFunnel() },
+  { id: 'feed', name: 'Лента', group: 'Обзор', need: 'reports.view', load: () => loadAdminOverview() },
+
+  { id: 'users', name: 'Игроки', group: 'Игроки', need: 'players.view', load: () => loadAdminUsers() },
+  { id: 'risk', name: 'Риск', group: 'Игроки', need: 'risk.view', load: () => loadAdminRisk() },
+
+  { id: 'payouts', name: 'Выводы', group: 'Финансы', need: 'finance.payouts.view', load: () => loadAdminPayouts() },
+  { id: 'payments', name: 'Пополнения', group: 'Финансы', need: 'finance.payments.view', load: () => loadAdminPayments() },
+  { id: 'payment-settings', name: 'Приём платежей', group: 'Финансы', need: 'finance.settings', load: () => loadAdminPaymentSettings() },
+
+  { id: 'promos', name: 'Промокоды', group: 'Промо', need: 'promo.view', load: () => loadAdminPromos() },
+  { id: 'partners', name: 'Партнёры', group: 'Промо', need: 'partners.view', load: () => loadAdminPartners() },
+
+  { id: 'support', name: 'Обращения', group: 'Поддержка', need: 'support.view', load: () => loadAdminSupport() },
+
+  { id: 'settings', name: 'Настройки', group: 'Система', need: 'settings.manage', load: () => loadAdminSettings() },
+  { id: 'staff', name: 'Сотрудники', group: 'Система', need: 'staff.manage', load: () => loadAdminStaff() },
+  { id: 'journal', name: 'Журнал', group: 'Система', need: 'journal.view', load: () => loadAdminJournal() },
+];
+
+function boCan(permission) {
+  return state.admin.perms?.has(permission) || false;
+}
+
+function boOpen(id) {
+  const section = BO_SECTIONS.find((s) => s.id === id);
+  if (!section || !boCan(section.need)) return;
+  state.admin.tab = id;
+  document.querySelectorAll('[data-admin-tab]').forEach((b) =>
+    b.classList.toggle('active', b.dataset.adminTab === id));
+  document.querySelectorAll('.admin-pane').forEach((p) =>
+    p.classList.toggle('active', p.id === `admin-${id}`));
+  document.getElementById('adminDetail').hidden = true;
+  section.load();
+  haptic('light');
+}
+
+/**
+ * Собирает панель под права вошедшего.
+ *
+ * Вызывается при каждом входе в раздел: состав команды меняют на ходу, и
+ * панель, собранная один раз при загрузке страницы, показывала бы вчерашние
+ * права до перезагрузки.
+ */
+async function initAdminPanel() {
+  let me;
+  try { me = await api('/api/admin/me'); }
+  catch (err) { toast(err.message); return; }
+
+  state.admin.perms = new Set(me.permissions);
+  state.admin.me = me;
+
+  document.getElementById('boWho').innerHTML =
+    `${esc(me.roleName || 'Без роли')} · прав: ${me.permissions.length}` +
+    (me.balanceCap ? ` · правка баланса до ${fmt(me.balanceCap)}` : '');
+
+  const allowed = BO_SECTIONS.filter((s) => boCan(s.need));
+  const groups = [];
+  for (const section of allowed) {
+    let group = groups.find((g) => g.name === section.group);
+    if (!group) groups.push(group = { name: section.group, items: [] });
+    group.items.push(section);
+  }
+
+  document.getElementById('boNav').innerHTML = groups.map((g) => `
+    <div class="bo-group">
+      <div class="bo-group-name">${esc(g.name)}</div>
+      ${g.items.map((s) => `<button class="bo-link" data-admin-tab="${s.id}">${esc(s.name)}</button>`).join('')}
+    </div>`).join('') || '<div class="empty">Разделов нет</div>';
+
+  document.querySelectorAll('[data-admin-tab]').forEach((btn) => {
+    btn.addEventListener('click', () => boOpen(btn.dataset.adminTab));
   });
+
+  const first = allowed.find((s) => s.id === state.admin.tab) || allowed[0];
+  if (first) boOpen(first.id);
+  else document.getElementById('boNav').innerHTML =
+    '<div class="empty">Доступа ни к одному разделу нет</div>';
+}
+
+document.getElementById('boRefresh')?.addEventListener('click', () => {
+  const current = state.admin.tab;
+  state.admin.tab = current;
+  initAdminPanel();
 });
+
+/* ---------- Панель: общие кирпичи ---------- */
+
+const boDate = (t) => new Date(t).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' });
+const boDateTime = (t) => new Date(t).toLocaleString('ru-RU',
+  { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+
+function boKpis(items) {
+  return `<div class="admin-kpis">${items.map((k) => `<div class="kpi">
+    <div class="kpi-label">${esc(k.label)}</div>
+    <div class="kpi-value ${k.cls || ''}">${k.value}</div>
+    ${k.sub ? `<div class="kpi-sub">${k.sub}</div>` : ''}
+  </div>`).join('')}</div>`;
+}
+
+function boTable(head, rows, empty = 'Нет данных') {
+  return `<div class="bo-scroll"><table class="admin-table">
+    <thead><tr>${head.map((h) => `<th class="${h.num ? 'num' : ''}">${esc(h.label ?? h)}</th>`).join('')}</tr></thead>
+    <tbody>${rows.length ? rows.join('')
+      : `<tr><td colspan="${head.length}">${esc(empty)}</td></tr>`}</tbody>
+  </table></div>`;
+}
+
+/*
+ * Столбики рисуются делениями, а не картинкой и не библиотекой.
+ *
+ * График в панели нужен ровно для одного: увидеть, что позавчера было не как
+ * обычно. Для этого хватает высоты столбика, а тянуть ради этого рисовалку в
+ * проект без сборщика - значит тянуть её и на телефон игрока.
+ */
+function boBars(points, { key, label, color = 'var(--cyan)' }) {
+  const max = Math.max(1, ...points.map((p) => Math.abs(p[key])));
+  return `<div class="bo-chart" role="img" aria-label="${esc(label)}">
+    ${points.map((p) => {
+      const value = p[key];
+      const height = Math.round((Math.abs(value) / max) * 100);
+      return `<div class="bo-bar" title="${boDate(p.day)}: ${fmt(value)}">
+        <i style="height:${Math.max(2, height)}%;background:${value < 0 ? 'var(--pink)' : color}"></i>
+        <span>${boDate(p.day)}</span>
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+
+/* ---------- Панель: отчёты ---------- */
+
+async function loadAdminReports() {
+  const box = document.getElementById('admin-reports');
+  box.innerHTML = '<div class="empty">Считаем...</div>';
+
+  let d;
+  try { d = await api('/api/admin/reports', { days: state.admin.reportDays }); }
+  catch (err) { box.innerHTML = `<div class="empty">${esc(err.message)}</div>`; return; }
+
+  const sum = (key) => d.daily.reduce((a, r) => a + r[key], 0);
+  const wagered = sum('wagered');
+  const paid = sum('paid');
+
+  const dayRows = [...d.daily].reverse().map((r) => `<tr>
+    <td>${boDate(r.day)}</td>
+    <td class="num">${fmt(r.rounds)}</td>
+    <td class="num">${fmt(r.players)}</td>
+    <td class="num">${fmt(r.wagered)}</td>
+    <td class="num ${r.ggr >= 0 ? 'plus' : 'minus'}">${fmt(r.ggr)}</td>
+    <td class="num">${pct(r.rtp)}</td>
+    <td class="num">${fmt(r.deposits)}</td>
+    <td class="num">${fmt(r.payouts)}</td>
+    <td class="num ${r.net >= 0 ? 'plus' : 'minus'}">${fmt(r.net)}</td>
+    <td class="num">${fmt(r.signups)}</td>
+  </tr>`);
+
+  const caseRows = d.cases.slice(0, 30).map((c) => `<tr>
+    <td>${esc(c.title)}</td>
+    <td class="num">${fmt(c.opened)}</td>
+    <td class="num">${fmt(c.players)}</td>
+    <td class="num">${fmt(c.wagered)}</td>
+    <td class="num ${c.ggr >= 0 ? 'plus' : 'minus'}">${fmt(c.ggr)}</td>
+    <td class="num">${pct(c.rtp)}</td>
+  </tr>`);
+
+  box.innerHTML = `
+    <div class="admin-tabs" id="reportPeriod">
+      ${[7, 30, 90].map((n) => `<button class="tab ${n === state.admin.reportDays ? 'active' : ''}"
+        data-report-days="${n}">${n} дней</button>`).join('')}
+      <button class="tab" id="exportDaily">Выгрузить дни</button>
+      <button class="tab" id="exportCases">Выгрузить кейсы</button>
+    </div>
+
+    ${boKpis([
+      { label: 'Поставлено', value: fmt(wagered) },
+      { label: 'Выплачено', value: fmt(paid) },
+      { label: 'Доход с игры', value: fmt(wagered - paid),
+        cls: wagered - paid >= 0 ? 'plus' : 'minus',
+        sub: `фактическая отдача ${pct(wagered ? paid / wagered : null)}` },
+      { label: 'Пополнено', value: fmt(sum('deposits')) },
+      { label: 'Выведено', value: fmt(sum('payouts')) },
+      { label: 'Чистый приход', value: fmt(sum('deposits') - sum('payouts')),
+        cls: sum('deposits') - sum('payouts') >= 0 ? 'plus' : 'minus',
+        sub: 'пополнения минус выплаты' },
+      { label: 'Регистраций', value: fmt(sum('signups')) },
+    ])}
+
+    <h2 class="section-title">Доход с игры по дням</h2>
+    ${boBars(d.daily, { key: 'ggr', label: 'Доход по дням', color: 'var(--green)' })}
+
+    <h2 class="section-title">Чистый приход кассы по дням</h2>
+    <p class="game-sub">Пополнения минус выплаты. Доход с игры считает ставки,
+      но выигрыш на балансе игрока ещё не выведен и ничей.</p>
+    ${boBars(d.daily, { key: 'net', label: 'Приход кассы по дням' })}
+
+    <h2 class="section-title">По дням</h2>
+    ${boTable(
+      ['Дата', { label: 'Раундов', num: 1 }, { label: 'Игроков', num: 1 },
+       { label: 'Ставки', num: 1 }, { label: 'Доход', num: 1 }, { label: 'Отдача', num: 1 },
+       { label: 'Пополнено', num: 1 }, { label: 'Выведено', num: 1 },
+       { label: 'Чисто', num: 1 }, { label: 'Регистраций', num: 1 }],
+      dayRows)}
+
+    <h2 class="section-title">По кейсам</h2>
+    ${boTable(
+      ['Кейс', { label: 'Открытий', num: 1 }, { label: 'Игроков', num: 1 },
+       { label: 'Ставки', num: 1 }, { label: 'Доход', num: 1 }, { label: 'Отдача', num: 1 }],
+      caseRows)}
+  `;
+
+  box.querySelectorAll('[data-report-days]').forEach((btn) => {
+    btn.onclick = () => {
+      state.admin.reportDays = Number(btn.dataset.reportDays);
+      loadAdminReports();
+    };
+  });
+  box.querySelector('#exportDaily').onclick = () => boExport('daily');
+  box.querySelector('#exportCases').onclick = () => boExport('cases');
+}
+
+/**
+ * Выгрузка отчёта файлом.
+ *
+ * Скачивание собрано вручную через Blob, а не ссылкой на ручку: авторизация
+ * в мини-аппе идёт заголовком с подписью Telegram, а обычный переход по
+ * ссылке заголовков не несёт и вернул бы 401.
+ */
+async function boExport(kind) {
+  try {
+    const res = await fetch('/api/admin/export', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Telegram-Init-Data': tg?.initData || '',
+      },
+      body: JSON.stringify({ kind, days: state.admin.reportDays }),
+    });
+    if (!res.ok) throw new Error('Не удалось выгрузить');
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `luckybox-${kind}-${state.admin.reportDays}d.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast('Файл готов');
+  } catch (err) { toast(err.message); }
+}
+
+/* ---------- Панель: риск ---------- */
+
+async function loadAdminRisk() {
+  const box = document.getElementById('admin-risk');
+  box.innerHTML = '<div class="empty">Проверяем...</div>';
+
+  let d;
+  try { d = await api('/api/admin/risk'); }
+  catch (err) { box.innerHTML = `<div class="empty">${esc(err.message)}</div>`; return; }
+
+  const openLink = (id, label) =>
+    `<button class="bo-userlink" data-open-user="${id}">${esc(label)}</button>`;
+
+  const signals = [
+    {
+      title: 'Один номер СБП на нескольких аккаунтах',
+      hint: 'Самый прямой признак мультиаккаунта: деньги сходятся в один кошелёк.',
+      head: ['Номер', { label: 'Аккаунтов', num: 1 }, { label: 'Сумма заявок', num: 1 }, 'Кто'],
+      rows: d.sharedPhone.map((r) => `<tr>
+        <td>${esc(r.phone)}</td><td class="num">${r.accounts}</td>
+        <td class="num">${fmt(r.amount)}</td>
+        <td>${String(r.users).split(',').map((id) => openLink(id, '#' + id)).join(' ')}</td></tr>`),
+    },
+    {
+      title: 'Один криптокошелёк на нескольких аккаунтах',
+      head: ['Адрес', { label: 'Аккаунтов', num: 1 }, { label: 'Сумма заявок', num: 1 }, 'Кто'],
+      rows: d.sharedWallet.map((r) => `<tr>
+        <td class="bo-mono">${esc(String(r.address).slice(0, 18))}…</td>
+        <td class="num">${r.accounts}</td><td class="num">${fmt(r.amount)}</td>
+        <td>${String(r.users).split(',').map((id) => openLink(id, '#' + id)).join(' ')}</td></tr>`),
+    },
+    {
+      title: 'Заявка на вывод при почти нулевом обороте',
+      hint: 'Так выглядит и вымывание бонусов, и прогон чужих денег через площадку.',
+      head: ['Игрок', { label: 'Заявка', num: 1 }, { label: 'Поставил всего', num: 1 },
+             { label: 'Раундов', num: 1 }, 'Статус'],
+      rows: d.quickCashout.map((r) => `<tr>
+        <td>${openLink(r.user_id, r.username ? '@' + r.username : (r.first_name || '#' + r.user_id))}</td>
+        <td class="num">${fmt(r.amount)}</td><td class="num">${fmt(r.total_spent)}</td>
+        <td class="num">${fmt(r.total_rounds)}</td><td>${esc(r.status)}</td></tr>`),
+    },
+    {
+      title: 'Отдача игрока сильно выше заявленной',
+      hint: 'Само по себе это везение. Ровно так же выглядит и найденная дыра, поэтому смотреть стоит.',
+      head: ['Игрок', { label: 'Поставил', num: 1 }, { label: 'Выиграл', num: 1 },
+             { label: 'Его отдача', num: 1 }, { label: 'Баланс', num: 1 }],
+      rows: d.hotPlayers.map((r) => `<tr>
+        <td>${openLink(r.id, r.username ? '@' + r.username : (r.first_name || '#' + r.id))}</td>
+        <td class="num">${fmt(r.total_spent)}</td><td class="num">${fmt(r.total_won)}</td>
+        <td class="num plus">${((r.total_won / r.total_spent) * 100).toFixed(0)}%</td>
+        <td class="num">${fmt(r.balance)}</td></tr>`),
+    },
+    {
+      title: 'Свежие аккаунты с бонусом и без единой ставки',
+      head: ['Игрок', { label: 'Промокодов', num: 1 }, { label: 'Баланс', num: 1 }, 'Заведён'],
+      rows: d.bonusOnly.map((r) => `<tr>
+        <td>${openLink(r.id, r.username ? '@' + r.username : (r.first_name || '#' + r.id))}</td>
+        <td class="num">${r.redemptions}</td><td class="num">${fmt(r.balance)}</td>
+        <td>${boDateTime(r.created_at)}</td></tr>`),
+    },
+  ];
+
+  const total = signals.reduce((a, s) => a + s.rows.length, 0);
+
+  box.innerHTML = `
+    <p class="game-sub">Сигнал это повод посмотреть, а не повод заблокировать.
+      Ни один из них ничего не делает сам.</p>
+    ${boKpis([{ label: 'Сигналов', value: fmt(total),
+                cls: total ? 'minus' : 'plus',
+                sub: total ? 'есть что проверить' : 'чисто' }])}
+    ${signals.map((s) => `
+      <h2 class="section-title">${esc(s.title)}</h2>
+      ${s.hint ? `<p class="game-sub">${esc(s.hint)}</p>` : ''}
+      ${boTable(s.head, s.rows, 'Чисто')}`).join('')}
+  `;
+
+  box.querySelectorAll('[data-open-user]').forEach((b) => {
+    b.onclick = () => openAdminUser(Number(b.dataset.openUser));
+  });
+}
+
+/* ---------- Панель: настройки площадки ---------- */
+
+async function loadAdminSettings() {
+  const box = document.getElementById('admin-settings');
+  box.innerHTML = '<div class="empty">Загружаем...</div>';
+
+  let d;
+  try { d = await api('/api/admin/settings'); }
+  catch (err) { box.innerHTML = `<div class="empty">${esc(err.message)}</div>`; return; }
+
+  const groups = [];
+  for (const row of d.rows) {
+    let g = groups.find((x) => x.name === row.group);
+    if (!g) groups.push(g = { name: row.group, items: [] });
+    g.items.push(row);
+  }
+
+  box.innerHTML = `
+    <p class="game-sub">Меняется на лету, без выката. Каждая правка попадает
+      в журнал вместе с тем, что было до неё.</p>
+    ${groups.map((g) => `
+      <h2 class="section-title">${esc(g.name)}</h2>
+      <div class="bo-settings">
+        ${g.items.map((row) => row.type === 'bool' ? `
+          <label class="bo-toggle">
+            <input type="checkbox" data-setting="${row.key}" ${row.value === '1' ? 'checked' : ''}>
+            <span><b>${esc(row.label)}</b>${row.hint ? `<i>${esc(row.hint)}</i>` : ''}</span>
+          </label>` : `
+          <label class="bo-field">
+            <b>${esc(row.label)}</b>
+            ${row.hint ? `<i>${esc(row.hint)}</i>` : ''}
+            <input class="seed-input" type="number" inputmode="numeric"
+                   data-setting="${row.key}" value="${esc(row.value)}">
+          </label>`).join('')}
+      </div>`).join('')}
+    <button class="btn btn-primary btn-wide" id="saveSettings">Сохранить</button>
+  `;
+
+  box.querySelector('#saveSettings').onclick = async () => {
+    const patch = {};
+    box.querySelectorAll('[data-setting]').forEach((el) => {
+      patch[el.dataset.setting] = el.type === 'checkbox' ? el.checked : el.value;
+    });
+    try {
+      await api('/api/admin/settings/save', { patch });
+      toast('Сохранено');
+      haptic('success');
+      loadAdminSettings();
+    } catch (err) { toast(err.message); haptic('error'); }
+  };
+}
+
+/* ---------- Панель: сотрудники ---------- */
+
+async function loadAdminStaff() {
+  const box = document.getElementById('admin-staff');
+  box.innerHTML = '<div class="empty">Загружаем...</div>';
+
+  let d;
+  try { d = await api('/api/admin/staff'); }
+  catch (err) { box.innerHTML = `<div class="empty">${esc(err.message)}</div>`; return; }
+
+  state.admin.staff = d;
+  const roleName = (id) => d.roles.find((r) => r.id === id)?.name || id;
+
+  const rows = d.rows.map((r) => {
+    const name = r.username ? '@' + r.username : (r.first_name || 'Без имени');
+    return `<tr class="${r.active ? '' : 'bo-off'}">
+      <td>${esc(name)}<div class="bo-sub">Telegram ID ${esc(r.tg_id)} · #${r.user_id}</div></td>
+      <td>${esc(roleName(r.role))}${r.added_by === null ? '<div class="bo-sub">из настроек сервера</div>' : ''}</td>
+      <td class="num">${fmt(r.actions || 0)}</td>
+      <td>${r.last_action ? boDateTime(r.last_action) : 'не заходил'}</td>
+      <td>${r.active ? '<span class="bo-ok">работает</span>' : '<span class="bo-no">выключен</span>'}</td>
+      <td class="bo-rowact">
+        <button class="btn btn-sm" data-staff-edit="${r.user_id}">Править</button>
+        ${r.user_id === d.meId ? '' : `<button class="btn btn-sm btn-outline" data-staff-del="${r.user_id}">Убрать</button>`}
+      </td>
+    </tr>`;
+  });
+
+  box.innerHTML = `
+    <p class="game-sub">Роль это заготовка набора прав. Поправки сверху дают
+      «поддержка, но ещё и промокоды» без новой роли.</p>
+
+    ${boTable(['Сотрудник', 'Роль', { label: 'Действий', num: 1 }, 'Последнее', 'Статус', ''], rows,
+              'Пока только вы')}
+
+    <h2 class="section-title">Роли</h2>
+    <div class="bo-roles">
+      ${d.roles.map((r) => `<div class="bo-role ${d.assignable.includes(r.id) ? '' : 'bo-off'}">
+        <b>${esc(r.name)}</b>
+        <p>${esc(r.description)}</p>
+        <span>${r.permissions.length} прав${r.balanceCap ? ` · правка баланса до ${fmt(r.balanceCap)}` : ''}</span>
+        ${d.assignable.includes(r.id) ? '' : '<span class="bo-no">вам недоступна</span>'}
+      </div>`).join('')}
+    </div>
+
+    <h2 class="section-title">Добавить или изменить</h2>
+    <div id="staffForm"></div>
+  `;
+
+  renderStaffForm(null);
+
+  box.querySelectorAll('[data-staff-edit]').forEach((b) => {
+    b.onclick = () => {
+      const row = d.rows.find((r) => r.user_id === Number(b.dataset.staffEdit));
+      renderStaffForm(row);
+      document.getElementById('staffForm').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    };
+  });
+  box.querySelectorAll('[data-staff-del]').forEach((b) => {
+    b.onclick = async () => {
+      if (!confirm('Убрать сотрудника из панели?')) return;
+      try {
+        await api('/api/admin/staff/remove', { userId: Number(b.dataset.staffDel) });
+        toast('Убран');
+        loadAdminStaff();
+      } catch (err) { toast(err.message); }
+    };
+  });
+}
+
+function renderStaffForm(row) {
+  const d = state.admin.staff;
+  const box = document.getElementById('staffForm');
+  const parse = (raw) => { try { return JSON.parse(raw || '[]'); } catch { return []; } };
+  const extra = new Set(row ? parse(row.extra_perms) : []);
+  const denied = new Set(row ? parse(row.denied_perms) : []);
+  const role = row?.role || d.assignable[d.assignable.length - 1] || d.roles[0].id;
+
+  const byGroup = d.groups.map((g) => ({
+    ...g, items: d.permissions.filter((p) => p.group === g.id),
+  }));
+
+  box.innerHTML = `
+    <div class="bo-settings">
+      <label class="bo-field">
+        <b>Кто</b>
+        <i>Telegram ID, ник или внутренний номер. Человек должен хотя бы раз открыть приложение.</i>
+        <input class="seed-input" id="staffKey" value="${row ? esc(row.tg_id) : ''}"
+               ${row ? 'readonly' : ''} placeholder="например 123456789 или @nickname">
+      </label>
+      <label class="bo-field">
+        <b>Роль</b>
+        <select class="seed-input" id="staffRole">
+          ${d.roles.filter((r) => d.assignable.includes(r.id)).map((r) =>
+            `<option value="${r.id}" ${r.id === role ? 'selected' : ''}>${esc(r.name)}</option>`).join('')}
+        </select>
+      </label>
+      <label class="bo-field">
+        <b>Потолок одной правки баланса</b>
+        <i>Пусто - как у роли. Ноль - без потолка.</i>
+        <input class="seed-input" id="staffCap" type="number" inputmode="numeric"
+               value="${row && row.balance_cap !== null ? row.balance_cap : ''}">
+      </label>
+      <label class="bo-field">
+        <b>Заметка</b>
+        <input class="seed-input" id="staffNote" maxlength="300" value="${row ? esc(row.note || '') : ''}">
+      </label>
+      <label class="bo-toggle">
+        <input type="checkbox" id="staffActive" ${!row || row.active ? 'checked' : ''}>
+        <span><b>Доступ включён</b><i>Выключенный сотрудник остаётся в списке, но в панель не входит</i></span>
+      </label>
+    </div>
+
+    <h3 class="bo-subtitle">Поправки к роли</h3>
+    <p class="game-sub">Слева выдать сверх роли, справа отобрать. Выдать можно
+      только то, что есть у вас самих.</p>
+    <div class="bo-perms">
+      ${byGroup.map((g) => `
+        <div class="bo-perm-group">
+          <div class="bo-group-name">${esc(g.name)}</div>
+          ${g.items.map((p) => `
+            <div class="bo-perm ${d.grantable.includes(p.id) ? '' : 'bo-off'}">
+              <span><b>${esc(p.label)}</b>${p.hint ? `<i>${esc(p.hint)}</i>` : ''}</span>
+              <label title="Выдать сверх роли">
+                <input type="checkbox" data-extra="${p.id}" ${extra.has(p.id) ? 'checked' : ''}
+                       ${d.grantable.includes(p.id) ? '' : 'disabled'}>+
+              </label>
+              <label title="Отобрать у роли">
+                <input type="checkbox" data-denied="${p.id}" ${denied.has(p.id) ? 'checked' : ''}>&minus;
+              </label>
+            </div>`).join('')}
+        </div>`).join('')}
+    </div>
+
+    <div class="admin-actions">
+      <button class="btn btn-primary" id="staffSave">${row ? 'Сохранить' : 'Добавить'}</button>
+      ${row ? '<button class="btn btn-outline" id="staffCancel">Отмена</button>' : ''}
+    </div>
+  `;
+
+  box.querySelector('#staffSave').onclick = async () => {
+    const payload = {
+      userKey: box.querySelector('#staffKey').value.trim(),
+      role: box.querySelector('#staffRole').value,
+      balanceCap: box.querySelector('#staffCap').value === ''
+        ? null : Number(box.querySelector('#staffCap').value),
+      note: box.querySelector('#staffNote').value,
+      active: box.querySelector('#staffActive').checked,
+      extra: [...box.querySelectorAll('[data-extra]:checked')].map((i) => i.dataset.extra),
+      denied: [...box.querySelectorAll('[data-denied]:checked')].map((i) => i.dataset.denied),
+    };
+    if (!payload.userKey) { toast('Укажите, кого добавляем'); return; }
+    try {
+      await api('/api/admin/staff/save', payload);
+      toast('Сохранено');
+      haptic('success');
+      loadAdminStaff();
+    } catch (err) { toast(err.message); haptic('error'); }
+  };
+  box.querySelector('#staffCancel')?.addEventListener('click', () => renderStaffForm(null));
+}
+
+/* ---------- Панель: журнал ---------- */
+
+const BO_ACTIONS = {
+  credit: 'Начисление', debit: 'Списание', block: 'Блокировка',
+  unblock: 'Разблокировка', voucher: 'Выдан кейс', payout_paid: 'Вывод выплачен',
+  payout_rejected: 'Вывод отклонён', payout_processing: 'Вывод в работе',
+  partner_payout: 'Выплата партнёру', promo_save: 'Промокод сохранён',
+  promo_delete: 'Промокод удалён', partner_save: 'Партнёр сохранён',
+  staff_add: 'Сотрудник добавлен', staff_update: 'Права изменены',
+  staff_remove: 'Сотрудник убран', settings: 'Настройки', limits: 'Лимиты',
+  note_add: 'Заметка', note_delete: 'Заметка удалена', export: 'Выгрузка',
+};
+
+async function loadAdminJournal() {
+  const box = document.getElementById('admin-journal');
+  box.innerHTML = '<div class="empty">Загружаем...</div>';
+
+  let d;
+  try { d = await api('/api/admin/journal', { action: state.admin.journalAction || '' }); }
+  catch (err) { box.innerHTML = `<div class="empty">${esc(err.message)}</div>`; return; }
+
+  const rows = d.rows.map((l) => {
+    const who = l.admin_username ? '@' + l.admin_username : (l.admin_name || '#' + l.admin_id);
+    const target = l.target_id
+      ? (l.target_username ? '@' + l.target_username : (l.target_name || '#' + l.target_id))
+      : '';
+    let meta = '';
+    if (l.meta) {
+      try {
+        meta = Object.entries(JSON.parse(l.meta))
+          .map(([k, v]) => `${k}: ${typeof v === 'object' && v && 'before' in v
+            ? `${v.before} → ${v.after}` : JSON.stringify(v)}`)
+          .join(', ');
+      } catch { meta = ''; }
+    }
+    return `<tr>
+      <td>${boDateTime(l.created_at)}</td>
+      <td>${esc(who)}</td>
+      <td>${esc(BO_ACTIONS[l.action] || l.action)}</td>
+      <td>${esc(target)}</td>
+      <td class="num ${l.amount > 0 ? 'plus' : l.amount < 0 ? 'minus' : ''}">${l.amount ? fmt(l.amount) : ''}</td>
+      <td class="bo-sub">${esc(l.note || '')}${meta ? `<br>${esc(meta)}` : ''}</td>
+    </tr>`;
+  });
+
+  box.innerHTML = `
+    <p class="game-sub">Всё, что сотрудники делают руками. Записи не правятся
+      и не удаляются.</p>
+    <div class="admin-tabs">
+      <button class="tab ${state.admin.journalAction ? '' : 'active'}" data-journal="">Все</button>
+      ${d.actions.slice(0, 10).map((a) => `<button class="tab
+        ${state.admin.journalAction === a.action ? 'active' : ''}"
+        data-journal="${esc(a.action)}">${esc(BO_ACTIONS[a.action] || a.action)} · ${a.n}</button>`).join('')}
+    </div>
+    ${boTable(['Когда', 'Кто', 'Что', 'Кому', { label: 'Сумма', num: 1 }, 'Подробности'], rows,
+              'Пока ничего')}
+    <p class="game-sub">Показано ${d.rows.length} из ${fmt(d.total)}.</p>
+  `;
+
+  box.querySelectorAll('[data-journal]').forEach((b) => {
+    b.onclick = () => { state.admin.journalAction = b.dataset.journal; loadAdminJournal(); };
+  });
+}
 
 /* ---------- Админка: воронка ---------- */
 
@@ -3370,6 +4058,12 @@ document.getElementById('adminSearchBtn').addEventListener('click', () => {
    ============================================================ */
 
 function switchView(name) {
+  // Выключенную игру не открываем даже по прямой ссылке или из старого меню:
+  // сервер всё равно откажет, и игрок увидит ошибку вместо объяснения.
+  if (!viewOpen(name)) {
+    toast('Раздел временно недоступен');
+    return;
+  }
   document.querySelectorAll('.view').forEach((v) => v.classList.remove('active'));
   document.getElementById(`view-${name}`).classList.add('active');
   window.scrollTo({ top: 0 });
@@ -3391,7 +4085,7 @@ function switchView(name) {
     }
   }
   if (name === 'roulette') renderRouletteReel(2);
-  if (name === 'admin') loadAdminOverview();
+  if (name === 'admin') initAdminPanel();
   if (name === 'cases') loadFreeCase();
   if (name === 'bonuses') { renderBonuses(); loadPromoState(); }
   if (name === 'freemoney') openFreeMoney();
@@ -3568,6 +4262,25 @@ function renderMenu() {
  * «Честности» здесь нет по другой причине: ссылка на неё стоит в подвале, и
  * второй вход в тот же раздел только удлиняет меню.
  */
+/**
+ * Игра выключена из панели управления.
+ *
+ * Клиент прячет вход, сервер отказывает. Нужно и то и другое: прятать без
+ * отказа бессмысленно (раздел открывается прямым запросом), а отказывать без
+ * пряток значит оставить игроку кнопку, которая всегда ругается.
+ */
+const VIEW_SWITCH = {
+  cases: 'cases', crash: 'crash', roulette: 'roulette',
+  upgrade: 'upgrade', freemoney: 'fortune', mini: 'mini',
+};
+
+function viewOpen(view) {
+  const key = VIEW_SWITCH[view];
+  if (!key) return true;
+  const open = state.config?.open;
+  return !open || open[key] !== false;
+}
+
 const SIDE_NAV = [
   { view: 'cases', art: '/assets/ui/nav-cases.webp', title: 'Кейсы', sub: 'Открывай и побеждай' },
   { view: 'upgrade', art: '/assets/ui/nav-upgrade.webp', title: 'Апгрейд', sub: 'Увеличь свой выигрыш' },
@@ -3584,7 +4297,8 @@ function renderSideNav() {
   if (!nav) return;
 
   const items = SIDE_NAV.filter((m) => (!m.adminOnly || state.user?.isAdmin)
-                                    && (!m.partnerOnly || state.user?.isPartner));
+                                    && (!m.partnerOnly || state.user?.isPartner)
+                                    && viewOpen(m.view));
 
   // Рисунок плитки - вырезка из присланного макета. У разделов, которых в
   // макете нет (партнёр), остаётся собственная иконка: дорисовывать их в

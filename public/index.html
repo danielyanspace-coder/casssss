@@ -532,57 +532,68 @@
       <div id="partnerBody"></div>
     </section>
 
-    <!-- ══════════ АДМИНКА ══════════ -->
+    <!-- ══════════ ПАНЕЛЬ УПРАВЛЕНИЯ ══════════ -->
+    <!--
+      Разделы и их видимость решает сервер: /api/admin/me отдаёт список прав,
+      и кнопка раздела, на который права нет, не рисуется вовсе. Это удобство,
+      а не защита - защита стоит на каждой ручке.
+    -->
     <section class="view" id="view-admin">
-      <div class="admin-tabs">
-        <button class="tab active" data-admin-tab="overview">Сводка</button>
-        <button class="tab" data-admin-tab="funnel">Воронка</button>
-        <button class="tab" data-admin-tab="users">Игроки</button>
-        <button class="tab" data-admin-tab="payouts">Выплаты</button>
-        <button class="tab" data-admin-tab="payments">Платежи</button>
-        <button class="tab" data-admin-tab="support">Поддержка</button>
-        <button class="tab" data-admin-tab="promos">Промокоды</button>
-        <button class="tab" data-admin-tab="partners">Партнёры</button>
-        <button class="tab" data-admin-tab="payment-settings">Настройки</button>
-        <button class="tab" data-admin-tab="feed">Лента</button>
-      </div>
-
-      <div class="admin-pane active" id="admin-overview"></div>
-
-      <div class="admin-pane" id="admin-users">
-        <div class="admin-search">
-          <input class="seed-input" id="adminSearch" placeholder="ник, имя или Telegram ID">
-          <button class="btn btn-sm" id="adminSearchBtn">Найти</button>
+      <header class="bo-head">
+        <div>
+          <h1 class="bo-title">Панель управления</h1>
+          <div class="bo-who" id="boWho"></div>
         </div>
-        <div id="adminUserList"></div>
-      </div>
-
-      <div class="admin-pane" id="admin-payouts">
-        <div class="admin-tabs" id="payoutFilter">
-          <button class="tab active" data-payout-status="pending">Ожидают</button>
-          <button class="tab" data-payout-status="processing">В работе</button>
-          <button class="tab" data-payout-status="paid">Выплачены</button>
-          <button class="tab" data-payout-status="rejected">Отклонены</button>
-          <button class="tab" data-payout-status="all">Все</button>
+        <div class="bo-head-actions">
+          <button class="btn btn-sm" id="boRefresh">Обновить</button>
         </div>
-        <div id="payoutAdminList"></div>
-      </div>
+      </header>
 
-      <div class="admin-pane" id="admin-funnel">
-        <div class="admin-tabs" id="funnelPeriod">
-          <button class="tab" data-funnel-days="1">Сутки</button>
-          <button class="tab active" data-funnel-days="7">Неделя</button>
-          <button class="tab" data-funnel-days="30">Месяц</button>
+      <div class="bo-shell">
+        <nav class="bo-nav" id="boNav"></nav>
+        <div class="bo-body">
+          <div class="admin-pane active" id="admin-overview"></div>
+          <div class="admin-pane" id="admin-reports"></div>
+          <div class="admin-pane" id="admin-funnel">
+            <div class="admin-tabs" id="funnelPeriod">
+              <button class="tab" data-funnel-days="1">Сутки</button>
+              <button class="tab active" data-funnel-days="7">Неделя</button>
+              <button class="tab" data-funnel-days="30">Месяц</button>
+            </div>
+            <div id="funnelBody"></div>
+          </div>
+
+          <div class="admin-pane" id="admin-users">
+            <div class="admin-search">
+              <input class="seed-input" id="adminSearch" placeholder="ник, имя или Telegram ID">
+              <button class="btn btn-sm" id="adminSearchBtn">Найти</button>
+            </div>
+            <div id="adminUserList"></div>
+          </div>
+
+          <div class="admin-pane" id="admin-payouts">
+            <div class="admin-tabs" id="payoutFilter">
+              <button class="tab active" data-payout-status="pending">Ожидают</button>
+              <button class="tab" data-payout-status="processing">В работе</button>
+              <button class="tab" data-payout-status="paid">Выплачены</button>
+              <button class="tab" data-payout-status="rejected">Отклонены</button>
+              <button class="tab" data-payout-status="all">Все</button>
+            </div>
+            <div id="payoutAdminList"></div>
+          </div>
+
+          <div class="admin-pane" id="admin-risk"></div>
+          <div class="admin-pane" id="admin-promos"></div>
+          <div class="admin-pane" id="admin-partners"></div>
+          <div class="admin-pane" id="admin-feed"></div>
+          <div class="admin-pane" id="admin-payments"><div id="adminPaymentList"></div></div>
+          <div class="admin-pane" id="admin-support"><div id="adminSupportList"></div></div>
+          <div class="admin-pane" id="admin-payment-settings"><div id="adminPaymentSettings"></div></div>
+          <div class="admin-pane" id="admin-settings"></div>
+          <div class="admin-pane" id="admin-staff"></div>
+          <div class="admin-pane" id="admin-journal"></div>
         </div>
-        <div id="funnelBody"></div>
       </div>
-
-      <div class="admin-pane" id="admin-promos"></div>
-      <div class="admin-pane" id="admin-partners"></div>
-      <div class="admin-pane" id="admin-feed"></div>
-      <div class="admin-pane" id="admin-payments"><div id="adminPaymentList"></div></div>
-      <div class="admin-pane" id="admin-support"><div id="adminSupportList"></div></div>
-      <div class="admin-pane" id="admin-payment-settings"><div id="adminPaymentSettings"></div></div>
 
       <div class="admin-detail" id="adminDetail" hidden></div>
     </section>

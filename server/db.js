@@ -9,6 +9,8 @@ import Database from 'better-sqlite3';
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
+
+import { SETTING_DEFS } from './settings-defs.js';
 import { generateClientSeed, generateServerSeed, hashSeed, computeRoll } from './fair.js';
 import {
   FORTUNE_SEGMENTS, pickSegment, pickAmount,
@@ -297,6 +299,73 @@ db.exec(`
     note       TEXT,
     created_at INTEGER NOT NULL
   );
+
+  /*
+   * Сотрудники панели.
+   *
+   * Отдельная таблица, а не колонка role у пользователя, по одной причине:
+   * состав команды - это список, который надо целиком показать и целиком
+   * сверить. Колонка у пользователя заставляет искать сотрудников среди
+   * пятидесяти тысяч игроков, и «кто у нас вообще имеет доступ» перестаёт
+   * быть вопросом с быстрым ответом.
+   *
+   * extra_perms и denied_perms - поправки к роли, списками строк в JSON.
+   * balance_cap NULL означает «как у роли».
+   */
+  CREATE TABLE IF NOT EXISTS staff (
+    user_id      INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    role         TEXT    NOT NULL,
+    extra_perms  TEXT    NOT NULL DEFAULT '[]',
+    denied_perms TEXT    NOT NULL DEFAULT '[]',
+    balance_cap  INTEGER,
+    note         TEXT    NOT NULL DEFAULT '',
+    active       INTEGER NOT NULL DEFAULT 1,
+    added_by     INTEGER,
+    created_at   INTEGER NOT NULL,
+    updated_at   INTEGER NOT NULL
+  );
+
+  -- Заметки в карточке игрока. Поддержка пишет их друг другу, и это
+  -- единственное место в панели, где текст пишет человек, а не механика.
+  CREATE TABLE IF NOT EXISTS player_notes (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    author_id  INTEGER NOT NULL,
+    text       TEXT    NOT NULL,
+    pinned     INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_notes_user ON player_notes(user_id, id DESC);
+
+  /*
+   * Лимиты ответственной игры.
+   *
+   * Лимит ставится игроком или сотрудником и снимается ТОЛЬКО с задержкой:
+   * смысл лимита в том, что снять его нельзя в ту минуту, когда очень
+   * хочется. Поэтому у ослабления есть pending_* и время применения, а
+   * ужесточение действует сразу.
+   */
+  CREATE TABLE IF NOT EXISTS player_limits (
+    user_id            INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    deposit_day        INTEGER NOT NULL DEFAULT 0,
+    loss_day           INTEGER NOT NULL DEFAULT 0,
+    wager_day          INTEGER NOT NULL DEFAULT 0,
+    excluded_until     INTEGER NOT NULL DEFAULT 0,
+    pending_deposit    INTEGER,
+    pending_loss       INTEGER,
+    pending_wager      INTEGER,
+    pending_at         INTEGER,
+    updated_by         INTEGER,
+    updated_at         INTEGER NOT NULL
+  );
+
+  -- Настройки площадки: то, что правят чаще, чем выкатывают код.
+  CREATE TABLE IF NOT EXISTS app_settings (
+    key        TEXT PRIMARY KEY,
+    value      TEXT NOT NULL,
+    updated_by INTEGER,
+    updated_at INTEGER NOT NULL
+  );
 `);
 
 // Переезд со старой схемы: история кейсов из openings в общую таблицу rounds.
@@ -344,6 +413,9 @@ function ensureColumn(table, column, definition) {
 }
 
 ensureColumn('users', 'is_admin', 'INTEGER NOT NULL DEFAULT 0');
+// Подробности действия в журнале: кто и что именно поменял. Без них
+// запись «правка настроек» ничего не говорит через неделю.
+ensureColumn('admin_log', 'meta', 'TEXT');
 ensureColumn('users', 'is_blocked', 'INTEGER NOT NULL DEFAULT 0');
 // Колонка осталась от прежней схемы: один удвоитель на игрока. Данные из неё
 // переезжают в x2_perks, сама она больше не читается и не пишется.
@@ -2046,9 +2118,33 @@ export function adminUserDetail(userId) {
     user,
     history: getHistory(userId, 30),
     vouchers: getVouchers(userId),
+    notes: playerNotes(userId, 30),
+    limits: getPlayerLimits(userId),
+    day: dayActivity(userId),
+    // Деньги игрока одним куском: без этого поддержка идёт считать руками
+    // по трём разным экранам и ошибается.
+    money: {
+      deposited: db.prepare(
+        "SELECT COALESCE(SUM(amount),0) AS n FROM deposits WHERE user_id = ? AND source <> 'promo'")
+        .get(userId).n,
+      bonus: db.prepare(
+        "SELECT COALESCE(SUM(amount),0) AS n FROM deposits WHERE user_id = ? AND source = 'promo'")
+        .get(userId).n,
+      paidOut: db.prepare(
+        "SELECT COALESCE(SUM(amount),0) AS n FROM payouts WHERE user_id = ? AND status = 'paid'")
+        .get(userId).n,
+      pendingOut: pendingPayoutTotal(userId),
+      withdrawable: withdrawable(user),
+      depositDebt: user.deposit_debt || 0,
+      wagerRequired: user.wager_required || 0,
+    },
+    payouts: getPayouts(userId, 15),
+    deposits: getDeposits(userId, 15),
     log: db.prepare(`
-      SELECT action, amount, note, created_at FROM admin_log
-       WHERE target_id = ? ORDER BY id DESC LIMIT 20
+      SELECT l.action, l.amount, l.note, l.meta, l.created_at,
+             a.username AS admin_username, a.first_name AS admin_name
+        FROM admin_log l LEFT JOIN users a ON a.id = l.admin_id
+       WHERE l.target_id = ? ORDER BY l.id DESC LIMIT 25
     `).all(userId),
   };
 }
@@ -2595,4 +2691,492 @@ export function payoutStats() {
       COALESCE(SUM(CASE WHEN status = 'rejected' THEN amount END), 0) AS rejectedSum
     FROM payouts
   `).get();
+}
+
+/* ============================================================
+   БЭК-ОФИС: СОТРУДНИКИ, ЗАМЕТКИ, ЛИМИТЫ, НАСТРОЙКИ, ОТЧЁТЫ
+   ============================================================ */
+
+/**
+ * Единая запись в журнал.
+ *
+ * Раньше каждое действие писало INSERT само, и половина действий не писала
+ * вовсе: правка настроек, выдача прав, снятие лимита. Журнал, в котором есть
+ * не всё, хуже отсутствующего - на него полагаются.
+ */
+export function logAdmin(adminId, targetId, action, { amount = null, note = null, meta = null } = {}) {
+  db.prepare(`INSERT INTO admin_log (admin_id, target_id, action, amount, note, meta, created_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?)`)
+    .run(adminId, targetId || 0, action, amount, note,
+         meta ? JSON.stringify(meta) : null, Date.now());
+}
+
+/* ---------- Сотрудники ---------- */
+
+export function staffRow(userId) {
+  return db.prepare('SELECT * FROM staff WHERE user_id = ?').get(userId) || null;
+}
+
+export function staffList() {
+  return db.prepare(`
+    SELECT s.*, u.tg_id, u.username, u.first_name,
+           (SELECT COUNT(*) FROM admin_log l WHERE l.admin_id = s.user_id) AS actions,
+           (SELECT MAX(created_at) FROM admin_log l WHERE l.admin_id = s.user_id) AS last_action
+      FROM staff s JOIN users u ON u.id = s.user_id
+     ORDER BY s.active DESC, s.created_at ASC
+  `).all();
+}
+
+/**
+ * Приводит состав сотрудников в соответствие с переменной окружения.
+ *
+ * ВАЖНО: затирает только записи, заведённые самой переменной (added_by IS
+ * NULL). Прежний syncAdmins снимал флаг со ВСЕХ и ставил заново по списку из
+ * настроек - с появлением таблицы сотрудников это означало бы, что каждый
+ * перезапуск выбрасывает из панели всю команду.
+ */
+export const syncStaff = db.transaction((tgIds) => {
+  const now = Date.now();
+  const wanted = new Set(tgIds.map(String));
+
+  for (const tgId of wanted) {
+    const user = db.prepare('SELECT id FROM users WHERE tg_id = ?').get(tgId);
+    if (!user) continue;   // ещё не заходил - запись появится при первом входе
+    const existing = staffRow(user.id);
+    if (!existing) {
+      db.prepare(`INSERT INTO staff (user_id, role, added_by, created_at, updated_at)
+                  VALUES (?, 'owner', NULL, ?, ?)`).run(user.id, now, now);
+    } else if (existing.added_by === null && (!existing.active || existing.role !== 'owner')) {
+      db.prepare(`UPDATE staff SET role = 'owner', active = 1, updated_at = ?
+                   WHERE user_id = ?`).run(now, user.id);
+    }
+  }
+
+  // Убрали ID из настроек - доступ пропадает. Но только у тех, кого настройки
+  // и завели: сотрудника, которого добавил человек, переменная окружения не
+  // трогает.
+  const bootstrap = db.prepare(`
+    SELECT s.user_id, u.tg_id FROM staff s JOIN users u ON u.id = s.user_id
+     WHERE s.added_by IS NULL
+  `).all();
+  for (const row of bootstrap) {
+    if (!wanted.has(String(row.tg_id))) {
+      db.prepare('DELETE FROM staff WHERE user_id = ?').run(row.user_id);
+    }
+  }
+
+  // is_admin остаётся признаком «есть хоть какой-то доступ в панель»: по нему
+  // клиент решает, показывать ли вход, а auth - пускать ли в /api/admin/*.
+  db.exec(`
+    UPDATE users SET is_admin = CASE
+      WHEN EXISTS (SELECT 1 FROM staff s WHERE s.user_id = users.id AND s.active = 1)
+      THEN 1 ELSE 0 END
+    WHERE is_admin <> CASE
+      WHEN EXISTS (SELECT 1 FROM staff s WHERE s.user_id = users.id AND s.active = 1)
+      THEN 1 ELSE 0 END
+  `);
+});
+
+/** Находит игрока по числовому id, tg_id или @нику - для добавления в команду. */
+export function findUserByAnyId(raw) {
+  const key = String(raw || '').trim().replace(/^@/, '');
+  if (!key) return null;
+  return db.prepare(`
+    SELECT * FROM users
+     WHERE tg_id = ? OR username = ? OR (CAST(id AS TEXT) = ?)
+     LIMIT 1
+  `).get(key, key, key) || null;
+}
+
+export const staffSave = db.transaction((actorId, data) => {
+  const user = findUserByAnyId(data.userKey);
+  if (!user) {
+    throw Object.assign(
+      new Error('Игрок не найден. Он должен хотя бы раз открыть приложение'),
+      { code: 'NOT_FOUND' });
+  }
+  const now = Date.now();
+  const existing = staffRow(user.id);
+  const payload = {
+    role: data.role,
+    extra: JSON.stringify(data.extra || []),
+    denied: JSON.stringify(data.denied || []),
+    cap: data.balanceCap === null || data.balanceCap === undefined
+      ? null : Math.max(0, Math.trunc(Number(data.balanceCap) || 0)),
+    note: String(data.note || '').slice(0, 300),
+    active: data.active === false ? 0 : 1,
+  };
+
+  if (existing) {
+    db.prepare(`UPDATE staff SET role=?, extra_perms=?, denied_perms=?, balance_cap=?,
+                                 note=?, active=?, updated_at=?
+                 WHERE user_id=?`)
+      .run(payload.role, payload.extra, payload.denied, payload.cap,
+           payload.note, payload.active, now, user.id);
+  } else {
+    db.prepare(`INSERT INTO staff (user_id, role, extra_perms, denied_perms, balance_cap,
+                                   note, active, added_by, created_at, updated_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?)`)
+      .run(user.id, payload.role, payload.extra, payload.denied, payload.cap,
+           payload.note, payload.active, actorId, now, now);
+  }
+
+  db.prepare('UPDATE users SET is_admin = ? WHERE id = ?').run(payload.active, user.id);
+  logAdmin(actorId, user.id, existing ? 'staff_update' : 'staff_add', {
+    note: payload.role,
+    meta: { role: payload.role, extra: data.extra, denied: data.denied,
+            cap: payload.cap, active: !!payload.active },
+  });
+  return staffList();
+});
+
+export const staffRemove = db.transaction((actorId, userId) => {
+  const row = staffRow(userId);
+  if (!row) throw Object.assign(new Error('Сотрудник не найден'), { code: 'NOT_FOUND' });
+  db.prepare('DELETE FROM staff WHERE user_id = ?').run(userId);
+  db.prepare('UPDATE users SET is_admin = 0 WHERE id = ?').run(userId);
+  logAdmin(actorId, userId, 'staff_remove', { note: row.role });
+  return staffList();
+});
+
+/* ---------- Заметки в карточке игрока ---------- */
+
+export function playerNotes(userId, limit = 50) {
+  return db.prepare(`
+    SELECT n.id, n.text, n.pinned, n.created_at, n.author_id,
+           u.username AS author_username, u.first_name AS author_name
+      FROM player_notes n LEFT JOIN users u ON u.id = n.author_id
+     WHERE n.user_id = ?
+     ORDER BY n.pinned DESC, n.id DESC LIMIT ?
+  `).all(userId, limit);
+}
+
+export function addPlayerNote(authorId, userId, text, pinned = false) {
+  const body = String(text || '').trim().slice(0, 2000);
+  if (!body) throw Object.assign(new Error('Пустая заметка'), { code: 'BAD' });
+  db.prepare(`INSERT INTO player_notes (user_id, author_id, text, pinned, created_at)
+              VALUES (?,?,?,?,?)`).run(userId, authorId, body, pinned ? 1 : 0, Date.now());
+  logAdmin(authorId, userId, 'note_add', { note: body.slice(0, 120) });
+  return playerNotes(userId);
+}
+
+export function deletePlayerNote(actorId, noteId) {
+  const row = db.prepare('SELECT * FROM player_notes WHERE id = ?').get(noteId);
+  if (!row) throw Object.assign(new Error('Заметка не найдена'), { code: 'NOT_FOUND' });
+  db.prepare('DELETE FROM player_notes WHERE id = ?').run(noteId);
+  logAdmin(actorId, row.user_id, 'note_delete', { note: row.text.slice(0, 120) });
+  return playerNotes(row.user_id);
+}
+
+/* ---------- Лимиты ответственной игры ---------- */
+
+/** Задержка перед тем, как ослабление лимита вступит в силу. */
+export const LIMIT_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+
+export function getPlayerLimits(userId) {
+  const row = db.prepare('SELECT * FROM player_limits WHERE user_id = ?').get(userId);
+  const base = row || {
+    user_id: userId, deposit_day: 0, loss_day: 0, wager_day: 0,
+    excluded_until: 0, pending_deposit: null, pending_loss: null,
+    pending_wager: null, pending_at: null, updated_at: 0,
+  };
+  // Отложенное ослабление применяем лениво, при чтении: отдельный таймер ради
+  // одной строки - лишняя движущаяся часть, а читают лимиты перед каждой
+  // ставкой и каждым пополнением.
+  if (row && row.pending_at && row.pending_at <= Date.now()) {
+    db.prepare(`UPDATE player_limits
+                   SET deposit_day = COALESCE(pending_deposit, deposit_day),
+                       loss_day    = COALESCE(pending_loss, loss_day),
+                       wager_day   = COALESCE(pending_wager, wager_day),
+                       pending_deposit = NULL, pending_loss = NULL,
+                       pending_wager = NULL, pending_at = NULL
+                 WHERE user_id = ?`).run(userId);
+    return db.prepare('SELECT * FROM player_limits WHERE user_id = ?').get(userId);
+  }
+  return base;
+}
+
+/**
+ * Ставит лимиты.
+ *
+ * Ужесточение действует сразу, ослабление - через сутки. Это не формальность:
+ * лимит, который можно снять в ту минуту, когда очень хочется играть, не
+ * лимит, а галочка. Ноль означает «без ограничения» и тоже считается
+ * ослаблением.
+ */
+export const setPlayerLimits = db.transaction((actorId, userId, patch) => {
+  const now = Date.now();
+  const current = getPlayerLimits(userId);
+  db.prepare(`INSERT INTO player_limits (user_id, updated_at) VALUES (?, ?)
+              ON CONFLICT(user_id) DO NOTHING`).run(userId, now);
+
+  const fields = { deposit_day: 'pending_deposit', loss_day: 'pending_loss', wager_day: 'pending_wager' };
+  const immediate = {};
+  const deferred = {};
+
+  for (const [field, pendingField] of Object.entries(fields)) {
+    if (patch[field] === undefined) continue;
+    const next = Math.max(0, Math.trunc(Number(patch[field]) || 0));
+    const prev = current[field] || 0;
+    /*
+     * Ноль означает «без ограничения», то есть слабее любого числа. Отсюда
+     * три случая, а не сравнение чисел:
+     *   next = 0  - лимит снимают, это ослабление (если он вообще был);
+     *   prev = 0  - лимит ставят впервые, это всегда ужесточение;
+     *   иначе     - ослабление, если новое число больше старого.
+     */
+    const looser = next === 0 ? prev !== 0
+                 : prev === 0 ? false
+                 : next > prev;
+    if (looser) deferred[pendingField] = next;
+    else immediate[field] = next;
+  }
+
+  for (const [field, value] of Object.entries(immediate)) {
+    db.prepare(`UPDATE player_limits SET ${field} = ?, updated_by = ?, updated_at = ?
+                 WHERE user_id = ?`)
+      .run(value, actorId, now, userId);
+  }
+  if (Object.keys(deferred).length) {
+    const sets = Object.keys(deferred).map((f) => `${f} = ?`).join(', ');
+    db.prepare(`UPDATE player_limits SET ${sets}, pending_at = ?, updated_by = ?, updated_at = ?
+                 WHERE user_id = ?`)
+      .run(...Object.values(deferred), now + LIMIT_COOLDOWN_MS, actorId, now, userId);
+  }
+  if (patch.excludedDays !== undefined) {
+    const days = Math.max(0, Math.trunc(Number(patch.excludedDays) || 0));
+    const until = days ? now + days * 86400000 : 0;
+    // Самоисключение продлить можно, укоротить - нет.
+    const next = Math.max(until, current.excluded_until || 0);
+    db.prepare('UPDATE player_limits SET excluded_until = ?, updated_by = ?, updated_at = ? WHERE user_id = ?')
+      .run(next, actorId, now, userId);
+  }
+
+  logAdmin(actorId, userId, 'limits', { meta: { immediate, deferred, excludedDays: patch.excludedDays } });
+  return getPlayerLimits(userId);
+});
+
+/** Сколько игрок уже поставил и проиграл за последние сутки. */
+export function dayActivity(userId) {
+  const from = Date.now() - 86400000;
+  const rounds = db.prepare(`
+    SELECT COALESCE(SUM(bet), 0) AS wagered, COALESCE(SUM(payout), 0) AS paid
+      FROM rounds WHERE user_id = ? AND created_at > ?
+  `).get(userId, from);
+  const deposited = db.prepare(`
+    SELECT COALESCE(SUM(amount), 0) AS n FROM deposits WHERE user_id = ? AND created_at > ?
+  `).get(userId, from).n;
+  return { wagered: rounds.wagered, lost: Math.max(0, rounds.wagered - rounds.paid), deposited };
+}
+
+/* ---------- Настройки площадки ---------- */
+
+/**
+ * Значения по умолчанию заданы здесь, а не в базе: база пустая у нового
+ * сервера, и приложение обязано подниматься без неё.
+ */
+const SETTING_BY_KEY = new Map(SETTING_DEFS.map((d) => [d.key, d]));
+
+export function settingsAll() {
+  const stored = new Map(
+    db.prepare('SELECT key, value FROM app_settings').all().map((r) => [r.key, r.value]));
+  return SETTING_DEFS.map((d) => ({ ...d, value: stored.has(d.key) ? stored.get(d.key) : d.value }));
+}
+
+export function setting(key) {
+  const def = SETTING_BY_KEY.get(key);
+  if (!def) return null;
+  const row = db.prepare('SELECT value FROM app_settings WHERE key = ?').get(key);
+  const raw = row ? row.value : def.value;
+  return def.type === 'bool' ? raw === '1' || raw === 'true'
+       : def.type === 'int' ? Number(raw) || 0
+       : raw;
+}
+
+export const saveSettings = db.transaction((actorId, patch) => {
+  const now = Date.now();
+  const changed = {};
+  for (const [key, raw] of Object.entries(patch || {})) {
+    const def = SETTING_BY_KEY.get(key);
+    if (!def) continue;
+    const value = def.type === 'bool' ? (raw ? '1' : '0')
+                : def.type === 'int' ? String(Math.max(0, Math.trunc(Number(raw) || 0)))
+                : String(raw).slice(0, 500);
+    const before = setting(key);
+    db.prepare(`INSERT INTO app_settings (key, value, updated_by, updated_at)
+                VALUES (?,?,?,?)
+                ON CONFLICT(key) DO UPDATE SET value=excluded.value,
+                    updated_by=excluded.updated_by, updated_at=excluded.updated_at`)
+      .run(key, value, actorId, now);
+    const after = setting(key);
+    if (String(before) !== String(after)) changed[key] = { before, after };
+  }
+  if (Object.keys(changed).length) {
+    logAdmin(actorId, 0, 'settings', { meta: changed });
+  }
+  return settingsAll();
+});
+
+/* ---------- Журнал ---------- */
+
+export function adminJournal({ limit = 80, offset = 0, adminId = 0, action = '' } = {}) {
+  const rows = db.prepare(`
+    SELECT l.*, a.username AS admin_username, a.first_name AS admin_name,
+           t.username AS target_username, t.first_name AS target_name
+      FROM admin_log l
+      LEFT JOIN users a ON a.id = l.admin_id
+      LEFT JOIN users t ON t.id = l.target_id
+     WHERE (? = 0 OR l.admin_id = ?)
+       AND (? = '' OR l.action = ?)
+     ORDER BY l.id DESC LIMIT ? OFFSET ?
+  `).all(adminId, adminId, action, action, limit, offset);
+  const total = db.prepare(`
+    SELECT COUNT(*) AS n FROM admin_log
+     WHERE (? = 0 OR admin_id = ?) AND (? = '' OR action = ?)
+  `).get(adminId, adminId, action, action).n;
+  const actions = db.prepare(
+    'SELECT action, COUNT(*) AS n FROM admin_log GROUP BY action ORDER BY n DESC').all();
+  return { rows, total, actions };
+}
+
+/* ---------- Отчёты ---------- */
+
+/** Выручка по дням: поставлено, выплачено, депозиты, выводы, игроки. */
+export function revenueDaily(days = 30) {
+  const from = Date.now() - days * 86400000;
+  const bucket = (t) => Math.floor(t / 86400000) * 86400000;
+
+  const rounds = db.prepare(`
+    SELECT created_at, bet, payout, user_id FROM rounds WHERE created_at > ?
+  `).all(from);
+  const deposits = db.prepare(`
+    SELECT created_at, amount FROM deposits WHERE created_at > ?
+  `).all(from);
+  const payouts = db.prepare(`
+    SELECT created_at, amount FROM payouts WHERE created_at > ? AND status = 'paid'
+  `).all(from);
+  const signups = db.prepare(`
+    SELECT created_at FROM users WHERE created_at > ?
+  `).all(from);
+
+  const map = new Map();
+  const slot = (t) => {
+    const day = bucket(t);
+    if (!map.has(day)) {
+      map.set(day, { day, wagered: 0, paid: 0, rounds: 0, deposits: 0,
+                     payouts: 0, signups: 0, players: new Set() });
+    }
+    return map.get(day);
+  };
+  for (const r of rounds) {
+    const s = slot(r.created_at);
+    s.wagered += r.bet; s.paid += r.payout; s.rounds++; s.players.add(r.user_id);
+  }
+  for (const d of deposits) slot(d.created_at).deposits += d.amount;
+  for (const p of payouts) slot(p.created_at).payouts += p.amount;
+  for (const u of signups) slot(u.created_at).signups++;
+
+  return [...map.values()]
+    .sort((a, b) => a.day - b.day)
+    .map((s) => ({
+      day: s.day,
+      wagered: s.wagered,
+      paid: s.paid,
+      ggr: s.wagered - s.paid,
+      rtp: s.wagered ? s.paid / s.wagered : null,
+      rounds: s.rounds,
+      players: s.players.size,
+      deposits: s.deposits,
+      payouts: s.payouts,
+      // Чистый приход кассы. Именно он, а не GGR, показывает, сколько денег
+      // реально осталось: выигрыш на балансе ещё не выведен и ничей.
+      net: s.deposits - s.payouts,
+      signups: s.signups,
+    }));
+}
+
+/** Самые прибыльные и самые убыточные кейсы за период. */
+export function caseReport(days = 30) {
+  const from = Date.now() - days * 86400000;
+  return db.prepare(`
+    SELECT COALESCE(case_id, title) AS id, title,
+           COUNT(*) AS opened,
+           COALESCE(SUM(bet), 0) AS wagered,
+           COALESCE(SUM(payout), 0) AS paid,
+           COUNT(DISTINCT user_id) AS players
+      FROM rounds
+     WHERE game = 'case' AND created_at > ?
+     GROUP BY COALESCE(case_id, title)
+     ORDER BY wagered DESC
+  `).all(from).map((r) => ({
+    ...r, ggr: r.wagered - r.paid, rtp: r.wagered ? r.paid / r.wagered : null,
+  }));
+}
+
+/**
+ * Сигналы риска.
+ *
+ * Здесь нет никакой магии и не должно быть: это несколько запросов по тем
+ * данным, которые у нас есть. Каждый сигнал - повод посмотреть, а не повод
+ * заблокировать, поэтому ни один из них ничего не делает сам.
+ */
+export function riskSignals({ limit = 40 } = {}) {
+  const now = Date.now();
+
+  // 1. Один номер СБП на нескольких аккаунтах. Номер лежит открытым, в
+  //    отличие от карты, и по нему мультиаккаунт виден сразу.
+  const sharedPhone = db.prepare(`
+    SELECT phone, COUNT(DISTINCT user_id) AS accounts,
+           GROUP_CONCAT(DISTINCT user_id) AS users,
+           COALESCE(SUM(amount), 0) AS amount
+      FROM payouts
+     WHERE phone IS NOT NULL AND phone <> ''
+     GROUP BY phone HAVING accounts > 1
+     ORDER BY accounts DESC, amount DESC LIMIT ?
+  `).all(limit);
+
+  // 2. То же по адресу криптокошелька.
+  const sharedWallet = db.prepare(`
+    SELECT crypto_address AS address, COUNT(DISTINCT user_id) AS accounts,
+           GROUP_CONCAT(DISTINCT user_id) AS users,
+           COALESCE(SUM(amount), 0) AS amount
+      FROM payouts
+     WHERE crypto_address IS NOT NULL AND crypto_address <> ''
+     GROUP BY crypto_address HAVING accounts > 1
+     ORDER BY accounts DESC LIMIT ?
+  `).all(limit);
+
+  // 3. Отдача игрока заметно выше заявленной при значимых оборотах. Само по
+  //    себе это везение, но именно так выглядит и найденная дыра.
+  const hotPlayers = db.prepare(`
+    SELECT id, tg_id, username, first_name, balance, total_spent, total_won,
+           total_rounds, created_at
+      FROM users
+     WHERE total_spent > 20000 AND total_won > total_spent * 1.25
+     ORDER BY (total_won - total_spent) DESC LIMIT ?
+  `).all(limit);
+
+  // 4. Вывод при почти нулевом обороте: признак отмывания через площадку и
+  //    вымывания бонусов.
+  const quickCashout = db.prepare(`
+    SELECT p.id, p.amount, p.status, p.created_at,
+           u.id AS user_id, u.tg_id, u.username, u.first_name,
+           u.total_spent, u.total_rounds
+      FROM payouts p JOIN users u ON u.id = p.user_id
+     WHERE p.status IN ('pending','processing')
+       AND u.total_spent < p.amount / 2
+     ORDER BY p.amount DESC LIMIT ?
+  `).all(limit);
+
+  // 5. Свежие аккаунты с бонусом и без единой ставки: раздача на одноразовые
+  //    номера выглядит именно так.
+  const bonusOnly = db.prepare(`
+    SELECT u.id, u.tg_id, u.username, u.first_name, u.balance, u.created_at,
+           COUNT(r.id) AS redemptions
+      FROM users u JOIN promo_redemptions r ON r.user_id = u.id
+     WHERE u.total_rounds = 0 AND u.created_at > ?
+     GROUP BY u.id ORDER BY u.created_at DESC LIMIT ?
+  `).all(now - 14 * 86400000, limit);
+
+  return { sharedPhone, sharedWallet, hotPlayers, quickCashout, bonusOnly };
 }

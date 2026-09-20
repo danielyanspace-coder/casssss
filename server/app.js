@@ -60,7 +60,12 @@ import {
   startCrashRound,
   getVouchers, getX2Perks,
   fortuneState, fortuneHistory, playFortuneSpin,
-  syncAdmins,
+  syncStaff, staffRow, staffList, staffSave, staffRemove, findUserByAnyId,
+  playerNotes, addPlayerNote, deletePlayerNote,
+  getPlayerLimits, setPlayerLimits, dayActivity, LIMIT_COOLDOWN_MS,
+  settingsAll, setting, saveSettings,
+  adminJournal, revenueDaily, caseReport as caseRevenueReport, riskSignals,
+  logAdmin,
   adminOverview,
   adminUsers,
   adminUserDetail,
@@ -105,6 +110,10 @@ import {
 } from './db.js';
 import { resolveUser } from './auth.js';
 import {
+  PERMISSIONS, PERMISSION_GROUPS, ROLES, ROLE_BY_ID, permissionsFor, balanceCapFor,
+  canManage, assignableRoles, publicRoles, isPermission,
+} from './staff.js';
+import {
   startFeed, getFeed, FEED_CONFIG, FEED_MIN_MULTIPLIER, FEED_MIN_VALUE, FEED_PLAIN_MIN_VALUE,
   FEED_REAL_SHARE,
 } from './feed.js';
@@ -132,7 +141,7 @@ validateFortune();
 // чтобы права нельзя было получить, дописав себе строку в таблицу.
 const ADMIN_TG_IDS = String(process.env.ADMIN_TG_IDS || '')
   .split(',').map((s) => s.trim()).filter(Boolean);
-syncAdmins(ADMIN_TG_IDS);
+syncStaff(ADMIN_TG_IDS);
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -154,27 +163,112 @@ app.use(express.static(join(__dirname, '..', 'public'), { maxAge: '1h' }));
 function auth(req, res, next) {
   const result = resolveUser(req);
   if (!result.ok) return res.status(401).json({ error: result.error });
+
+  // Закрытая регистрация касается только НОВЫХ: у того, кто уже заходил,
+  // доступ отбирать не за что, а закрывают приём обычно на время разбора.
+  if (!setting('registration_open') && !findUserByAnyId(String(result.user.id))) {
+    return res.status(403).json({ error: 'Регистрация новых игроков временно закрыта' });
+  }
+
   const player = getOrCreateUser(result.user);
 
-  // Права админа берутся из настроек при каждом запросе: убрали ID из
-  // ADMIN_TG_IDS — доступ пропал сразу, без перезапуска чужих сессий.
-  const shouldBeAdmin = ADMIN_TG_IDS.includes(String(player.tg_id));
-  if (!!player.is_admin !== shouldBeAdmin) {
-    syncAdmins(ADMIN_TG_IDS);
+  /*
+   * Владельцы задаются Telegram ID в настройках, и список сверяется при
+   * каждом запросе того, кто в нём есть или должен был быть: убрали ID из
+   * ADMIN_TG_IDS - доступ пропал сразу, без перезапуска.
+   *
+   * Сверка идёт только для владельцев. Остальных сотрудников заводит человек
+   * через панель, и переменная окружения их не касается.
+   */
+  const inEnv = ADMIN_TG_IDS.includes(String(player.tg_id));
+  const bootstrapRow = staffRow(player.id);
+  const bootstrapMismatch = inEnv
+    ? !bootstrapRow || (bootstrapRow.added_by === null && bootstrapRow.role !== 'owner')
+    : !!(bootstrapRow && bootstrapRow.added_by === null);
+  if (bootstrapMismatch) {
+    syncStaff(ADMIN_TG_IDS);
     req.player = getUserById(player.id);
   } else {
     req.player = player;
   }
 
+  req.staff = staffRow(req.player.id);
+  req.perms = permissionsFor(req.staff);
+
   if (req.player.is_blocked) {
     return res.status(403).json({ error: 'Аккаунт заблокирован' });
   }
-  next();
+  maintenanceGate(req, res, next);
 }
 
-/** Пропускает дальше только администратора. */
+/**
+ * Режим обслуживания.
+ *
+ * Стоит ПОСЛЕ auth, а не до: сотрудники обязаны входить в закрытую площадку,
+ * иначе включивший работы сам себя из панели и выгонит. Заглушка отдаётся
+ * кодом 503, чтобы клиент отличал её от обычной ошибки.
+ *
+ * Список исключений короткий и не случайный: /api/me и /api/config нужны
+ * клиенту, чтобы вообще показать экран с заглушкой.
+ */
+/**
+ * Минимум вывода: настройка панели, а если её не трогали - значение сервера.
+ *
+ * Ноль означает «как в настройках сервера», а не «выводить можно копейку»:
+ * пустое поле в панели не должно молча открывать вывод на любую сумму.
+ */
+function minPayoutNow() {
+  return setting('min_payout') || MIN_PAYOUT;
+}
+
+const MAINTENANCE_OPEN = new Set(['/api/me', '/api/config', '/api/track']);
+
+function maintenanceGate(req, res, next) {
+  if (!setting('maintenance')) return next();
+  if (req.perms && req.perms.size > 0) return next();
+  if (MAINTENANCE_OPEN.has(req.path)) return next();
+  return res.status(503).json({
+    error: 'Идут технические работы. Загляните чуть позже',
+    maintenance: true,
+  });
+}
+
+/**
+ * Выключатель игры из панели.
+ *
+ * Прятать раздел на клиенте мало: раздел открывается прямым запросом, а
+ * выключают игру обычно потому, что в ней что-то не так. Поэтому отказ
+ * стоит на сервере, а клиент по тому же признаку прячет вход, чтобы игрок
+ * не упирался в кнопку, которая всегда ругается.
+ */
+function gameGate(key) {
+  return (req, res, next) => {
+    if (setting(`games_${key}`)) return next();
+    res.status(503).json({ error: 'Игра временно недоступна' });
+  };
+}
+
+/**
+ * Проверка права.
+ *
+ * Не «пропустить админа», а именно право: дальше по коду ни одна ручка не
+ * должна спрашивать про роль. Как только появляется `if (role === 'admin')`,
+ * набор прав перестаёт быть правдой о том, кто что может.
+ */
+function need(permission) {
+  return (req, res, next) => {
+    if (!req.perms || !req.perms.has(permission)) {
+      return res.status(403).json({ error: 'Недостаточно прав', need: permission });
+    }
+    next();
+  };
+}
+
+/** Есть ли у человека хоть какой-то доступ в панель. */
 function adminOnly(req, res, next) {
-  if (!req.player.is_admin) return res.status(403).json({ error: 'Недостаточно прав' });
+  if (!req.perms || req.perms.size === 0) {
+    return res.status(403).json({ error: 'Недостаточно прав' });
+  }
   next();
 }
 
@@ -262,7 +356,21 @@ app.get('/api/config', (req, res) => {
     bonus: { enabled: false },
     maxBatch: MAX_BATCH,
     freeSpinPacks: FREESPIN_PACKS,
-    minPayout: MIN_PAYOUT,
+    minPayout: minPayoutNow(),
+    // Выключатели из панели: клиент по ним прячет разделы, сервер по ним же
+    // отказывает. Прятать без отказа нельзя - раздел открывается прямым
+    // запросом; отказывать без пряток можно, но игрок будет тыкать в кнопку,
+    // которая всегда ругается.
+    open: {
+      payouts: setting('payouts_open'),
+      deposits: setting('deposits_open'),
+      cases: setting('games_cases'),
+      crash: setting('games_crash'),
+      roulette: setting('games_roulette'),
+      upgrade: setting('games_upgrade'),
+      mini: setting('games_mini'),
+      fortune: setting('games_fortune'),
+    },
     // Условия приветственного бонуса нужны клиенту, чтобы показать их в кассе
     // до пополнения, а не после.
     firstDeposit: firstDepositRules(),
@@ -327,7 +435,7 @@ app.post('/api/track', auth, limits.read, (req, res) => {
 /** Сколько одинаковых кейсов можно открыть за раз. */
 const MAX_BATCH = 5;
 
-app.post('/api/open', auth, limits.play, (req, res) => {
+app.post('/api/open', auth, limits.play, gameGate('cases'), (req, res) => {
   const caseData = getCase(req.body?.caseId);
   if (!caseData) return res.status(404).json({ error: 'Кейс не найден' });
 
@@ -416,7 +524,7 @@ app.post('/api/open', auth, limits.play, (req, res) => {
  * Цену считает сервер, клиент её только показывает: иначе подобранным запросом
  * можно было бы купить серию за свою цену.
  */
-app.post('/api/freespins/buy', auth, limits.play, (req, res) => {
+app.post('/api/freespins/buy', auth, limits.play, gameGate('cases'), (req, res) => {
   const caseData = getCase(req.body?.caseId);
   if (!caseData) return res.status(404).json({ error: 'Кейс не найден' });
 
@@ -472,7 +580,7 @@ app.post('/api/freespins/buy', auth, limits.play, (req, res) => {
    РУЛЕТКА
    ============================================================ */
 
-app.post('/api/roulette', auth, limits.play, (req, res) => {
+app.post('/api/roulette', auth, limits.play, gameGate('roulette'), (req, res) => {
   const bet = parseBet(req.body?.bet);
   const color = String(req.body?.color || '');
 
@@ -532,7 +640,7 @@ function labelOf(colorId) {
    КРАШ
    ============================================================ */
 
-app.post('/api/crash/start', auth, limits.play, (req, res) => {
+app.post('/api/crash/start', auth, limits.play, gameGate('crash'), (req, res) => {
   const bet = parseBet(req.body?.bet);
   if (!bet) return res.status(400).json({ error: 'Некорректная ставка' });
 
@@ -713,11 +821,11 @@ app.post('/api/partner/stats', auth, limits.read, (req, res) => {
    АДМИНКА: ПРОМОКОДЫ И ПАРТНЁРЫ
    ============================================================ */
 
-app.post('/api/admin/promos', auth, adminOnly, (req, res) => {
+app.post('/api/admin/promos', auth, need('promo.view'), (req, res) => {
   res.json({ rows: adminListPromos(), cases: CASES.map((c) => ({ id: c.id, name: c.name, price: c.price })) });
 });
 
-app.post('/api/admin/promo/save', auth, adminOnly, (req, res) => {
+app.post('/api/admin/promo/save', auth, need('promo.edit'), (req, res) => {
   try {
     res.json(adminSavePromo(req.player.id, req.body || {}));
   } catch (err) {
@@ -726,7 +834,7 @@ app.post('/api/admin/promo/save', auth, adminOnly, (req, res) => {
   }
 });
 
-app.post('/api/admin/promo/delete', auth, adminOnly, (req, res) => {
+app.post('/api/admin/promo/delete', auth, need('promo.edit'), (req, res) => {
   try {
     res.json(adminDeletePromo(req.player.id, Number(req.body?.id)));
   } catch (err) {
@@ -735,11 +843,11 @@ app.post('/api/admin/promo/delete', auth, adminOnly, (req, res) => {
   }
 });
 
-app.post('/api/admin/partners', auth, adminOnly, (req, res) => {
+app.post('/api/admin/partners', auth, need('partners.view'), (req, res) => {
   res.json({ rows: adminListPartners() });
 });
 
-app.post('/api/admin/partner/save', auth, adminOnly, (req, res) => {
+app.post('/api/admin/partner/save', auth, need('partners.edit'), (req, res) => {
   try {
     res.json(adminSavePartner(req.player.id, req.body || {}));
   } catch (err) {
@@ -748,7 +856,7 @@ app.post('/api/admin/partner/save', auth, adminOnly, (req, res) => {
   }
 });
 
-app.post('/api/admin/partner/pay', auth, adminOnly, (req, res) => {
+app.post('/api/admin/partner/pay', auth, need('partners.pay'), (req, res) => {
   try {
     res.json(adminPayPartner(req.player.id, Number(req.body?.partnerId),
                              req.body?.amount, req.body?.comment));
@@ -794,16 +902,24 @@ app.post('/api/wallet', auth, limits.read, (req, res) => {
     // расстояние до цели, а не только слово «нельзя».
     depositDebt: req.player.deposit_debt || 0,
     wagerProgress: req.player.wager_progress,
-    minPayout: MIN_PAYOUT,
+    minPayout: minPayoutNow(),
     deposits: getDeposits(req.player.id),
     payouts: getPayouts(req.player.id),
   });
 });
 
 app.post('/api/payout/create', auth, limits.cashier, (req, res) => {
+  if (!setting('payouts_open')) {
+    return res.status(503).json({ error: 'Приём заявок на вывод временно закрыт' });
+  }
   const amount = Math.trunc(Number(req.body?.amount));
   if (!Number.isFinite(amount) || amount <= 0) {
     return res.status(400).json({ error: 'Укажите сумму вывода' });
+  }
+  if (amount < minPayoutNow()) {
+    return res.status(400).json({
+      error: `Минимальная сумма вывода ${minPayoutNow().toLocaleString('ru-RU')}`,
+    });
   }
 
   try {
@@ -887,7 +1003,7 @@ app.post('/api/gamble/skip', auth, limits.play, (req, res) => {
    АПГРЕЙД
    ============================================================ */
 
-app.post('/api/upgrade', auth, limits.play, (req, res) => {
+app.post('/api/upgrade', auth, limits.play, gameGate('upgrade'), (req, res) => {
   const stake = parseBet(req.body?.stake);
   const multiplier = Number(req.body?.multiplier);
 
@@ -966,7 +1082,7 @@ app.post('/api/fortune/state', auth, limits.read, (req, res) => {
  * Прокрут. Ограничитель тот же, что у кассы: денежная ручка, и дёргать её
  * вплотную незачем - всё равно раз в сутки.
  */
-app.post('/api/fortune/spin', auth, limits.cashier, (req, res) => {
+app.post('/api/fortune/spin', auth, limits.cashier, gameGate('fortune'), (req, res) => {
   let result;
   try {
     result = playFortuneSpin(req.player.id, CASES);
@@ -1061,7 +1177,7 @@ app.post('/api/fair/rotate', auth, limits.guess, (req, res) => {
    АДМИНКА
    ============================================================ */
 
-app.post('/api/admin/overview', auth, adminOnly, (req, res) => {
+app.post('/api/admin/overview', auth, need('reports.view'), (req, res) => {
   res.json({ ...adminOverview(), recent: adminRecentRounds(30) });
 });
 
@@ -1071,25 +1187,25 @@ app.post('/api/admin/overview', auth, adminOnly, (req, res) => {
  * Период ограничен сверху: запрос за всё время прочитал бы таблицу событий
  * целиком, а она растёт быстрее всех остальных.
  */
-app.post('/api/admin/funnel', auth, adminOnly, (req, res) => {
+app.post('/api/admin/funnel', auth, need('reports.view'), (req, res) => {
   const days = Math.min(90, Math.max(1, Math.trunc(Number(req.body?.days) || 7)));
   res.json({ funnel: funnelStats(days), events: eventTotals(days) });
 });
 
-app.post('/api/admin/users', auth, adminOnly, (req, res) => {
+app.post('/api/admin/users', auth, need('players.view'), (req, res) => {
   const query = String(req.body?.query || '').slice(0, 64);
   const limit = Math.min(100, Math.max(1, Number(req.body?.limit) || 30));
   const offset = Math.max(0, Number(req.body?.offset) || 0);
   res.json(adminUsers({ query, limit, offset }));
 });
 
-app.post('/api/admin/user', auth, adminOnly, (req, res) => {
+app.post('/api/admin/user', auth, need('players.view'), (req, res) => {
   const detail = adminUserDetail(Number(req.body?.userId));
   if (!detail) return res.status(404).json({ error: 'Игрок не найден' });
   res.json(detail);
 });
 
-app.post('/api/admin/balance', auth, adminOnly, (req, res) => {
+app.post('/api/admin/balance', auth, need('players.balance'), (req, res) => {
   const targetId = Number(req.body?.userId);
   const amount = Math.trunc(Number(req.body?.amount));
 
@@ -1098,6 +1214,19 @@ app.post('/api/admin/balance', auth, adminOnly, (req, res) => {
   }
   if (Math.abs(amount) > 100_000_000) {
     return res.status(400).json({ error: 'Слишком большая сумма' });
+  }
+
+  /*
+   * Потолок одной правки. Он не про недоверие к поддержке, а про опечатку:
+   * компенсация зависшего прокрута на 500 с промахом в три нуля уходит без
+   * единой проверки, и заметят её в отчёте через неделю. Подтверждение здесь
+   * не помогло бы - его нажимают не глядя.
+   */
+  const cap = balanceCapFor(req.staff);
+  if (cap > 0 && Math.abs(amount) > cap) {
+    return res.status(403).json({
+      error: `Правка больше ${cap.toLocaleString('ru-RU')} вам недоступна`,
+    });
   }
 
   try {
@@ -1114,7 +1243,7 @@ app.post('/api/admin/balance', auth, adminOnly, (req, res) => {
   }
 });
 
-app.post('/api/admin/block', auth, adminOnly, (req, res) => {
+app.post('/api/admin/block', auth, need('players.block'), (req, res) => {
   const targetId = Number(req.body?.userId);
   if (targetId === req.player.id) {
     return res.status(400).json({ error: 'Нельзя заблокировать самого себя' });
@@ -1127,7 +1256,7 @@ app.post('/api/admin/block', auth, adminOnly, (req, res) => {
   }
 });
 
-app.post('/api/admin/voucher', auth, adminOnly, (req, res) => {
+app.post('/api/admin/voucher', auth, need('players.gift'), (req, res) => {
   const targetId = Number(req.body?.userId);
   const caseId = String(req.body?.caseId || '');
   const count = Math.min(100, Math.max(1, Math.trunc(Number(req.body?.count) || 1)));
@@ -1142,13 +1271,13 @@ app.post('/api/admin/voucher', auth, adminOnly, (req, res) => {
   }
 });
 
-app.post('/api/admin/payouts', auth, adminOnly, (req, res) => {
+app.post('/api/admin/payouts', auth, need('finance.payouts.view'), (req, res) => {
   const status = ['pending', 'processing', 'paid', 'rejected', 'cancelled', 'all']
     .includes(req.body?.status) ? req.body.status : 'pending';
   res.json({ rows: adminPayouts(status), stats: payoutStats() });
 });
 
-app.post('/api/admin/payout/resolve', auth, adminOnly, (req, res) => {
+app.post('/api/admin/payout/resolve', auth, need('finance.payouts.resolve'), (req, res) => {
   const id = Number(req.body?.id);
   const status = String(req.body?.status || '');
   const comment = String(req.body?.comment || '').slice(0, 300);
@@ -1196,6 +1325,10 @@ app.post('/api/crypto/options', auth, limits.read, async (req, res) => {
 });
 
 app.post('/api/crypto/create', auth, limits.cashier, async (req, res) => {
+  if (!setting('deposits_open')) {
+    return res.status(503).json({ error: 'Приём пополнений временно закрыт' });
+  }
+
   try {
     const payment = await crypto.createDeposit(
       req.player.id, req.body?.amount, req.body?.currency, req.body?.network
@@ -1277,6 +1410,10 @@ app.get('/api/payments/events', auth, (req, res) => {
 });
 
 app.post('/api/payments/create', auth, limits.cashier, (req, res) => {
+  if (!setting('deposits_open')) {
+    return res.status(503).json({ error: 'Приём пополнений временно закрыт' });
+  }
+
   try { res.status(201).json(createPayment(req.player.id, req.body?.amount, String(req.body?.bank || ''))); }
   catch (err) { res.status(400).json({ error: err.code || 'PAYMENT_ERROR', message: err.message }); }
 });
@@ -1328,20 +1465,210 @@ app.get('/api/support/files/:file', auth, (req,res) => {
   res.sendFile(join(__dirname,'..','data','support-uploads',file));
 });
 
-app.post('/api/admin/payments', auth, adminOnly, (req, res) => res.json({ rows: adminPayments(String(req.body?.status || 'ALL')), dashboard: paymentDashboard() }));
-app.post('/api/admin/payment-settings', auth, adminOnly, (req, res) => {
+app.post('/api/admin/payments', auth, need('finance.payments.view'), (req, res) => res.json({ rows: adminPayments(String(req.body?.status || 'ALL')), dashboard: paymentDashboard() }));
+app.post('/api/admin/payment-settings', auth, need('finance.settings'), (req, res) => {
   try { res.json(req.body?.save ? updatePaymentSettings(req.body.values || {}) : paymentSettings()); }
   catch (err) { res.status(400).json({ error: err.message }); }
 });
-app.post('/api/admin/payment-devices', auth, adminOnly, (req, res) => res.json({ rows: adminDevices() }));
-app.post('/api/admin/payment-device/register', auth, adminOnly, (req, res) => {
+app.post('/api/admin/payment-devices', auth, need('finance.settings'), (req, res) => res.json({ rows: adminDevices() }));
+app.post('/api/admin/payment-device/register', auth, need('finance.settings'), (req, res) => {
   const id=String(req.body?.deviceId||'').trim(), secret=String(req.body?.secret||'');
   if (!id || secret.length < 24) return res.status(400).json({ error: 'ID обязателен, секрет — минимум 24 символа' });
   registerDevice(id, String(req.body?.name||id).slice(0,80), secret); res.status(201).json({ ok:true });
 });
-app.post('/api/admin/support', auth, adminOnly, (req, res) => res.json({ rows: adminChats() }));
-app.post('/api/admin/support/chat', auth, adminOnly, (req, res) => res.json(supportChat(Number(req.body?.chatId))));
-app.post('/api/admin/support/message', auth, adminOnly, (req, res) => {
+/* ============================================================
+   БЭК-ОФИС: СОТРУДНИКИ, ЖУРНАЛ, НАСТРОЙКИ, РИСК, ОТЧЁТЫ
+   ============================================================ */
+
+/**
+ * Что этот сотрудник может. Клиент рисует панель по этому ответу и ничего
+ * не додумывает: раздела, на который нет права, он просто не строит.
+ *
+ * Это удобство, а не защита. Защита - need() на каждой ручке: спрятанный
+ * раздел открывается одной строкой в консоли браузера.
+ */
+app.post('/api/admin/me', auth, adminOnly, (req, res) => {
+  const role = ROLE_BY_ID.get(req.staff?.role);
+  res.json({
+    role: req.staff?.role || null,
+    roleName: role?.name || '',
+    permissions: [...req.perms],
+    balanceCap: balanceCapFor(req.staff),
+    note: req.staff?.note || '',
+    sections: {
+      players: req.perms.has('players.view'),
+      finance: req.perms.has('finance.payouts.view') || req.perms.has('finance.payments.view'),
+      promo: req.perms.has('promo.view') || req.perms.has('partners.view'),
+      support: req.perms.has('support.view'),
+      risk: req.perms.has('risk.view'),
+      reports: req.perms.has('reports.view'),
+      journal: req.perms.has('journal.view'),
+      staff: req.perms.has('staff.manage'),
+      settings: req.perms.has('settings.manage'),
+    },
+  });
+});
+
+app.post('/api/admin/staff', auth, need('staff.manage'), (req, res) => {
+  res.json({
+    rows: staffList(),
+    roles: publicRoles(),
+    assignable: assignableRoles(req.perms, req.staff?.role).map((r) => r.id),
+    permissions: PERMISSIONS,
+    groups: PERMISSION_GROUPS,
+    // Выдать можно только то, что есть у себя: иначе любой, кому доверили
+    // заводить поддержку, за два шага выписывает себе реквизиты приёма.
+    grantable: [...req.perms],
+    meId: req.player.id,
+  });
+});
+
+app.post('/api/admin/staff/save', auth, need('staff.manage'), (req, res) => {
+  const body = req.body || {};
+  const role = String(body.role || '');
+  if (!ROLE_BY_ID.has(role)) return res.status(400).json({ error: 'Неизвестная роль' });
+
+  const allowedRoles = assignableRoles(req.perms, req.staff?.role).map((r) => r.id);
+  if (!allowedRoles.includes(role)) {
+    return res.status(403).json({ error: 'Эта роль вам недоступна' });
+  }
+
+  const extra = (Array.isArray(body.extra) ? body.extra : []).filter(isPermission);
+  const denied = (Array.isArray(body.denied) ? body.denied : []).filter(isPermission);
+  const notMine = extra.filter((p) => !req.perms.has(p));
+  if (notMine.length) {
+    return res.status(403).json({ error: `Нельзя выдать то, чего нет у вас: ${notMine.join(', ')}` });
+  }
+
+  const target = findUserByAnyId(body.userKey);
+  if (target) {
+    const existing = staffRow(target.id);
+    if (existing && !canManage(req.perms, req.staff?.role, existing.role)) {
+      return res.status(403).json({ error: 'Эту запись вам править нельзя' });
+    }
+    // Снять права самому себе можно только по ошибке, и это ошибка, после
+    // которой в панель никто не войдёт. Поэтому нельзя.
+    if (target.id === req.player.id && body.active === false) {
+      return res.status(400).json({ error: 'Нельзя выключить самого себя' });
+    }
+  }
+
+  try {
+    res.json({ rows: staffSave(req.player.id, { ...body, role, extra, denied }) });
+  } catch (err) {
+    if (err.code === 'NOT_FOUND') return res.status(404).json({ error: err.message });
+    throw err;
+  }
+});
+
+app.post('/api/admin/staff/remove', auth, need('staff.manage'), (req, res) => {
+  const userId = Number(req.body?.userId);
+  if (userId === req.player.id) {
+    return res.status(400).json({ error: 'Нельзя удалить самого себя' });
+  }
+  const existing = staffRow(userId);
+  if (!existing) return res.status(404).json({ error: 'Сотрудник не найден' });
+  if (!canManage(req.perms, req.staff?.role, existing.role)) {
+    return res.status(403).json({ error: 'Эту запись вам править нельзя' });
+  }
+  res.json({ rows: staffRemove(req.player.id, userId) });
+});
+
+app.post('/api/admin/journal', auth, need('journal.view'), (req, res) => {
+  res.json(adminJournal({
+    limit: Math.min(200, Math.max(1, Number(req.body?.limit) || 80)),
+    offset: Math.max(0, Number(req.body?.offset) || 0),
+    adminId: Math.max(0, Number(req.body?.adminId) || 0),
+    action: String(req.body?.action || '').slice(0, 40),
+  }));
+});
+
+app.post('/api/admin/settings', auth, need('settings.manage'), (req, res) => {
+  res.json({ rows: settingsAll() });
+});
+
+app.post('/api/admin/settings/save', auth, need('settings.manage'), (req, res) => {
+  res.json({ rows: saveSettings(req.player.id, req.body?.patch || {}) });
+});
+
+app.post('/api/admin/player/note', auth, need('players.notes'), (req, res) => {
+  const userId = Number(req.body?.userId);
+  try {
+    res.json({ notes: addPlayerNote(req.player.id, userId, req.body?.text, req.body?.pinned) });
+  } catch (err) {
+    if (err.code === 'BAD') return res.status(400).json({ error: err.message });
+    throw err;
+  }
+});
+
+app.post('/api/admin/player/note/delete', auth, need('players.notes'), (req, res) => {
+  try {
+    res.json({ notes: deletePlayerNote(req.player.id, Number(req.body?.noteId)) });
+  } catch (err) {
+    if (err.code === 'NOT_FOUND') return res.status(404).json({ error: err.message });
+    throw err;
+  }
+});
+
+app.post('/api/admin/player/limits', auth, need('players.limits'), (req, res) => {
+  const userId = Number(req.body?.userId);
+  if (!getUserById(userId)) return res.status(404).json({ error: 'Игрок не найден' });
+  res.json({
+    limits: setPlayerLimits(req.player.id, userId, req.body?.patch || {}),
+    day: dayActivity(userId),
+    cooldownMs: LIMIT_COOLDOWN_MS,
+  });
+});
+
+app.post('/api/admin/risk', auth, need('risk.view'), (req, res) => {
+  res.json(riskSignals({ limit: Math.min(100, Math.max(5, Number(req.body?.limit) || 40)) }));
+});
+
+app.post('/api/admin/reports', auth, need('reports.view'), (req, res) => {
+  const days = Math.min(180, Math.max(1, Number(req.body?.days) || 30));
+  res.json({ days, daily: revenueDaily(days), cases: caseRevenueReport(days) });
+});
+
+/**
+ * Выгрузка в CSV.
+ *
+ * Разделитель - точка с запятой, кодировка с BOM: Excel в русской локали
+ * открывает запятую как разделитель дробной части и складывает всю строку в
+ * одну ячейку. Это не придирка, это первое, обо что спотыкается любой отчёт.
+ */
+app.post('/api/admin/export', auth, need('reports.view'), (req, res) => {
+  const kind = String(req.body?.kind || 'daily');
+  const days = Math.min(180, Math.max(1, Number(req.body?.days) || 30));
+  const date = (t) => new Date(t).toISOString().slice(0, 10);
+
+  let head = [];
+  let rows = [];
+  if (kind === 'cases') {
+    head = ['кейс', 'открытий', 'игроков', 'поставлено', 'выплачено', 'доход', 'отдача'];
+    rows = caseRevenueReport(days).map((r) => [
+      r.title, r.opened, r.players, r.wagered, r.paid, r.ggr,
+      r.rtp === null ? '' : (r.rtp * 100).toFixed(2)]);
+  } else {
+    head = ['дата', 'раундов', 'игроков', 'поставлено', 'выплачено', 'доход',
+            'отдача', 'пополнено', 'выведено', 'чистый приход', 'регистраций'];
+    rows = revenueDaily(days).map((r) => [
+      date(r.day), r.rounds, r.players, r.wagered, r.paid, r.ggr,
+      r.rtp === null ? '' : (r.rtp * 100).toFixed(2),
+      r.deposits, r.payouts, r.net, r.signups]);
+  }
+
+  const escape = (v) => {
+    const text = String(v ?? '');
+    return /[";\n]/.test(text) ? '"' + text.replace(/"/g, '""') + '"' : text;
+  };
+  const csv = '\ufeff' + [head, ...rows].map((r) => r.map(escape).join(';')).join('\r\n');
+  logAdmin(req.player.id, 0, 'export', { note: kind, meta: { days, rows: rows.length } });
+  res.type('text/csv; charset=utf-8').send(csv);
+});
+
+app.post('/api/admin/support', auth, need('support.view'), (req, res) => res.json({ rows: adminChats() }));
+app.post('/api/admin/support/chat', auth, need('support.view'), (req, res) => res.json(supportChat(Number(req.body?.chatId))));
+app.post('/api/admin/support/message', auth, need('support.reply'), (req, res) => {
   addSupportMessage(Number(req.body?.chatId),'ADMIN',req.player.id,String(req.body?.text||'').slice(0,2000),req.body?.attachmentUrl,String(req.body?.attachmentName||'').slice(0,200));
   res.status(201).json(supportChat(Number(req.body?.chatId)));
 });

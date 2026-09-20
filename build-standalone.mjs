@@ -21,6 +21,8 @@ import {
   CRASH_CONFIG, ROULETTE_CONFIG, ROULETTE_WHEEL, GAMBLE_CONFIG, UPGRADE_CONFIG,
 } from './server/games.js';
 import { FEED_MIN_MULTIPLIER, FEED_MIN_VALUE, FEED_BIG_SHARE } from './server/feed.js';
+import { PERMISSIONS, PERMISSION_GROUPS, PERMISSION_IDS, publicRoles } from './server/staff.js';
+import { SETTING_DEFS } from './server/settings-defs.js';
 import {
   FORTUNE_SEGMENTS, SEGMENT_DEG, SEGMENTS_START_DEG,
   PERCENT_MIN, PERCENT_MAX, VOUCHER_MIN, VOUCHER_MAX,
@@ -289,6 +291,31 @@ const shim = `
 const DRAW = ${JSON.stringify(drawTables)};
 const CONFIG = ${JSON.stringify(config)};
 const DRAW_BY_ID = new Map(DRAW.map((c) => [c.id, c]));
+
+/* Каталог прав и ролей берётся из server/staff.js на сборке: расходиться
+   демо и настоящей панели нельзя, иначе заказчик увидит список ролей,
+   которого в проекте нет. */
+const DEMO_PERMISSION_DEFS = ${JSON.stringify(PERMISSIONS)};
+const DEMO_PERMISSION_GROUPS = ${JSON.stringify(PERMISSION_GROUPS)};
+const DEMO_PERMISSIONS = ${JSON.stringify(PERMISSION_IDS)};
+const DEMO_ROLES = ${JSON.stringify(publicRoles())};
+const DEMO_SETTINGS = ${JSON.stringify(SETTING_DEFS)};
+
+/* Довесок к карточке игрока: деньги, лимиты, заметки, сутки. */
+function demoPlayerExtra(id, balance, spent) {
+  const deposited = Math.round((spent || 0) * 0.42) + 5000;
+  const paidOut = Math.round(deposited * 0.35);
+  return {
+    notes: store.notes[id] || [],
+    limits: store.limits[id] || { deposit_day: 0, loss_day: 0, wager_day: 0,
+                                  excluded_until: 0, pending_at: null },
+    day: { wagered: Math.round((spent || 0) * 0.08), lost: Math.round((spent || 0) * 0.03),
+           deposited: 0 },
+    money: { deposited, bonus: 1500, paidOut, pendingOut: 0,
+             withdrawable: balance, depositDebt: 0, wagerRequired: 0 },
+    payouts: [], deposits: [],
+  };
+}
 const FORTUNE = ${JSON.stringify(fortuneConfig)};
 const FORTUNE_COOLDOWN_MS = ${SPIN_COOLDOWN_MS};
 
@@ -459,6 +486,26 @@ function freshUser() {
   };
 }
 
+/** Демонстрационная команда: по человеку на роль, чтобы список не был пустым. */
+function demoStaff() {
+  const now = Date.now();
+  const people = [
+    ['999000001', 'demo_owner', 'Вы', 'owner', null],
+    ['999000102', 'demo_finance', 'Марина', 'finance', 1],
+    ['999000103', 'demo_support', 'Илья', 'support', 1],
+    ['999000104', 'demo_risk', 'Артём', 'risk', 1],
+    ['999000105', 'demo_marketing', 'Ольга', 'marketing', 1],
+  ];
+  return people.map(([tg_id, username, first_name, role, added_by], i) => ({
+    user_id: i === 0 ? 1 : 900 + i,
+    tg_id, username, first_name, role,
+    extra_perms: '[]', denied_perms: '[]', balance_cap: null, note: '',
+    active: 1, added_by, created_at: now - i * 86400000,
+    actions: [412, 96, 233, 51, 18][i],
+    last_action: now - i * 3600000,
+  }));
+}
+
 /**
  * Демонстрационные игроки — чтобы в админке было на что смотреть.
  * Это выдуманные данные, а не чья-то реальная статистика.
@@ -505,12 +552,19 @@ function load() {
         // обычной: иначе человек открыл бы файл и не увидел того, ради чего его
         // и собирали.
         if (${DEMO_ADMIN}) parsed.showAdmin = true;
+        // Разделы панели появились позже, а сохранение у человека уже есть.
+        parsed.settings ||= JSON.parse(JSON.stringify(DEMO_SETTINGS));
+        parsed.staff ||= demoStaff();
+        parsed.notes ||= {};
+        parsed.limits ||= {};
         return parsed;
       }
     }
   } catch { /* повреждённое хранилище просто игнорируем */ }
   return { user: freshUser(), players: demoPlayers(), adminLog: [], showAdmin: ${DEMO_ADMIN},
-           promos: [], partners: [], partnerPayouts: [], seq: 1 };
+           promos: [], partners: [], partnerPayouts: [], seq: 1,
+           settings: JSON.parse(JSON.stringify(DEMO_SETTINGS)),
+           staff: demoStaff(), notes: {}, limits: {} };
 }
 
 function save() {
@@ -1741,6 +1795,143 @@ const routes = {
     };
   },
 
+  /* ---------- Панель: права, отчёты, риск, сотрудники ---------- */
+
+  /*
+   * В демо панель открыта целиком: смотреть её присылают, чтобы увидеть, что
+   * там вообще есть. Настоящие права решает сервер, и спрятанный раздел -
+   * удобство, а не защита, поэтому открытая демо-панель ничего не ослабляет.
+   */
+  'POST /api/admin/me': () => ({
+    role: 'owner', roleName: 'Владелец',
+    permissions: DEMO_PERMISSIONS,
+    balanceCap: 0, note: '',
+    sections: {},
+  }),
+
+  'POST /api/admin/reports': (body) => {
+    const days = Math.min(180, Math.max(1, Number(body.days) || 30));
+    const daily = [];
+    for (let i = days - 1; i >= 0; i--) {
+      const day = Math.floor((Date.now() - i * 86400000) / 86400000) * 86400000;
+      // Числа демонстрационные и выводятся из номера дня, а не случайные:
+      // при перерисовке график не должен прыгать.
+      const wave = 1 + 0.35 * Math.sin(i / 3) + 0.2 * Math.sin(i / 11);
+      const wagered = Math.round(180000 * wave);
+      const paid = Math.round(wagered * (0.66 + 0.05 * Math.sin(i / 5)));
+      const deposits = Math.round(wagered * 0.32);
+      const payouts = Math.round(deposits * (0.55 + 0.2 * Math.sin(i / 7)));
+      daily.push({
+        day, wagered, paid, ggr: wagered - paid, rtp: paid / wagered,
+        rounds: Math.round(wagered / 900), players: Math.round(60 * wave),
+        deposits, payouts, net: deposits - payouts,
+        signups: Math.round(18 * wave),
+      });
+    }
+    const cases = DRAW.slice(0, 24).map((c, i) => {
+      const opened = Math.round(3200 / (i + 2));
+      const wagered = opened * c.price;
+      const paid = Math.round(wagered * 0.7);
+      return { id: c.id, title: c.name, opened, players: Math.round(opened / 7),
+               wagered, paid, ggr: wagered - paid, rtp: paid / wagered };
+    });
+    return { days, daily, cases };
+  },
+
+  'POST /api/admin/risk': () => ({
+    sharedPhone: [{ phone: '+7 (900) 111-22-33', accounts: 3, amount: 48000,
+                    users: [store.user.id, store.players[0]?.id || 2, store.players[1]?.id || 3].join(',') }],
+    sharedWallet: [],
+    hotPlayers: store.players.slice(0, 3).map((p) => ({
+      ...p, total_spent: 64000, total_won: 91000 })),
+    quickCashout: [],
+    bonusOnly: store.players.slice(3, 5).map((p) => ({ ...p, redemptions: 2 })),
+  }),
+
+  'POST /api/admin/settings': () => ({ rows: store.settings }),
+  'POST /api/admin/settings/save': (body) => {
+    for (const row of store.settings) {
+      if (!(row.key in (body.patch || {}))) continue;
+      const raw = body.patch[row.key];
+      row.value = row.type === 'bool' ? (raw ? '1' : '0') : String(raw);
+    }
+    save();
+    return { rows: store.settings };
+  },
+
+  'POST /api/admin/staff': () => ({
+    rows: store.staff,
+    roles: DEMO_ROLES,
+    assignable: DEMO_ROLES.map((r) => r.id),
+    permissions: DEMO_PERMISSION_DEFS,
+    groups: DEMO_PERMISSION_GROUPS,
+    grantable: DEMO_PERMISSIONS,
+    meId: store.user.id,
+  }),
+  'POST /api/admin/staff/save': (body) => {
+    const key = String(body.userKey || '').replace(/^@/, '');
+    let row = store.staff.find((r) => String(r.tg_id) === key || r.username === key);
+    if (!row) {
+      row = { user_id: 900 + store.staff.length, tg_id: key, username: key,
+              first_name: '', actions: 0, last_action: null, added_by: store.user.id,
+              created_at: Date.now() };
+      store.staff.push(row);
+    }
+    Object.assign(row, {
+      role: body.role, extra_perms: JSON.stringify(body.extra || []),
+      denied_perms: JSON.stringify(body.denied || []),
+      balance_cap: body.balanceCap, note: body.note || '',
+      active: body.active === false ? 0 : 1,
+    });
+    save();
+    return { rows: store.staff };
+  },
+  'POST /api/admin/staff/remove': (body) => {
+    store.staff = store.staff.filter((r) => r.user_id !== Number(body.userId));
+    save();
+    return { rows: store.staff };
+  },
+
+  'POST /api/admin/journal': (body) => {
+    const rows = store.adminLog.filter((l) => !body.action || l.action === body.action)
+      .slice(0, 80)
+      .map((l) => ({ ...l, admin_id: store.user.id, admin_username: store.user.username,
+                     created_at: l.created_at || Date.now() }));
+    const counts = {};
+    for (const l of store.adminLog) counts[l.action] = (counts[l.action] || 0) + 1;
+    return { rows, total: store.adminLog.length,
+             actions: Object.entries(counts).map(([action, n]) => ({ action, n })) };
+  },
+
+  'POST /api/admin/player/note': (body) => {
+    const list = (store.notes[body.userId] ||= []);
+    list.unshift({ id: Date.now(), text: String(body.text || ''), pinned: 0,
+                   created_at: Date.now(), author_id: store.user.id,
+                   author_username: store.user.username });
+    save();
+    return { notes: list };
+  },
+  'POST /api/admin/player/note/delete': (body) => {
+    for (const key of Object.keys(store.notes)) {
+      store.notes[key] = store.notes[key].filter((n) => n.id !== Number(body.noteId));
+    }
+    save();
+    return { notes: [] };
+  },
+  'POST /api/admin/player/limits': (body) => {
+    const patch = body.patch || {};
+    const limits = (store.limits[body.userId] ||= {
+      deposit_day: 0, loss_day: 0, wager_day: 0, excluded_until: 0, pending_at: null });
+    Object.assign(limits, {
+      deposit_day: patch.deposit_day ?? limits.deposit_day,
+      loss_day: patch.loss_day ?? limits.loss_day,
+      wager_day: patch.wager_day ?? limits.wager_day,
+    });
+    if (patch.excludedDays) limits.excluded_until = Date.now() + patch.excludedDays * 86400000;
+    save();
+    return { limits, day: { wagered: 0, lost: 0, deposited: 0 }, cooldownMs: 86400000 };
+  },
+
   'POST /api/admin/users': (body) => {
     const q = String(body.query || '').toLowerCase();
     const me = store.user;
@@ -1766,12 +1957,14 @@ const routes = {
         history: me.rounds.slice(0, 30),
         vouchers: Object.entries(me.vouchers).filter(([, n]) => n > 0)
           .map(([case_id, count]) => ({ case_id, count })),
+        ...demoPlayerExtra(id, me.balance, me.stats.spent),
         log: store.adminLog.filter((l) => l.target_id === id).slice(0, 20),
       };
     }
     const p = store.players.find((x) => x.id === id);
     if (!p) return { status: 404, body: { error: 'Игрок не найден' } };
     return { user: p, history: [], vouchers: [],
+             ...demoPlayerExtra(id, p.balance, p.total_spent),
              log: store.adminLog.filter((l) => l.target_id === id).slice(0, 20) };
   },
 
