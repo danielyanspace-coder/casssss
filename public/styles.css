@@ -1279,13 +1279,55 @@ main { position: relative; z-index: 2; padding: 18px; }
 
    Постер вертикальный, поэтому карточка на телефоне уже остальных: во всю
    ширину экрана он дал бы полосу в полтора экрана высотой. */
+/*
+ * НА ТЕЛЕФОНЕ КАРТОЧКА ГОРИЗОНТАЛЬНАЯ: постер слева, подпись справа.
+ *
+ * Постер вертикальный (942 на 1100), и карточка, повторяющая его пропорцию,
+ * занимала пол-экрана в высоту и выглядела как отдельная страница, а не как
+ * строка между баннерами и полками. В строку она укладывается в 200 точек
+ * высоты вместо 420.
+ *
+ * Сам постер при этом не обрезается: contain показывает его целиком. Обрезать
+ * нельзя - у него надписи у самого края кадра.
+ */
 .featured-card.own-art {
-  max-width: 232px;
+  max-width: none;
+  display: flex;
+  align-items: stretch;
 }
 .featured-card.own-art .featured-cover {
+  flex: 0 0 40%;
   height: auto;
-  aspect-ratio: 942 / 1100;   /* case-porsche.webp */
+  min-height: 0;
+  aspect-ratio: auto;
+  display: grid;
+  place-items: center;
+  padding: 10px 0 10px 10px;
 }
+/* Постер целиком: у него надписи у самого края кадра, обрезать нельзя. */
+.featured-card.own-art .cover-photo { object-fit: contain; }
+
+.featured-card.own-art .featured-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex; flex-direction: column; justify-content: center;
+  text-align: left;
+}
+.featured-card.own-art .featured-foot { justify-content: flex-start; }
+
+/*
+ * Плашка со сроком вынута из потока. В строке из двух колонок она была бы
+ * ТРЕТЬИМ элементом строки и забирала бы себе треть ширины: именно так
+ * карточка и разъехалась в первый раз.
+ */
+.featured-card.own-art .featured-badges {
+  position: absolute;
+  top: 10px; right: 12px;
+  padding: 0;
+  justify-content: flex-end;
+  z-index: 3;
+}
+.featured-card.own-art .featured-date { font-size: 9.5px; padding: 4px 9px; letter-spacing: 0.6px; }
 .cover-photo { display: block; width: 100%; height: 100%; object-fit: cover; }
 .featured-card.own-art .featured-cover::after { display: none; }
 
@@ -1458,15 +1500,13 @@ main { position: relative; z-index: 2; padding: 18px; }
 /* У кейса с готовым баннером в строку добавляется ещё и потолок выигрыша —
    вчетвером они не влезают на узкий экран и переносятся, оставляя одинокую
    плашку. Поджимаем, чтобы строка осталась одной. */
-.featured-card.own-art .featured-foot { gap: 6px; margin-top: 10px; }
-.featured-card.own-art .featured-price { font-size: 18px; }
+.featured-card.own-art .featured-foot { gap: 7px; margin-top: 11px; }
+.featured-card.own-art .featured-price { font-size: 20px; }
 .featured-card.own-art .featured-max,
-.featured-card.own-art .featured-chip { font-size: 10px; padding: 3px 7px; }
-/* Подпись считается от ширины карточки, а она вдвое уже обычной: прежние
-   27px имени переносили «Porsche 911» на две строки. */
-.featured-card.own-art .featured-body { padding: 11px 12px 14px; }
-.featured-card.own-art .featured-name { font-size: 19px; }
-.featured-card.own-art .featured-sub { font-size: 11px; }
+.featured-card.own-art .featured-chip { font-size: 10.5px; padding: 4px 8px; }
+.featured-card.own-art .featured-body { padding: 30px 16px 16px; }
+.featured-card.own-art .featured-name { font-size: 21px; }
+.featured-card.own-art .featured-sub { font-size: 12px; }
 
 @media (max-width: 420px) {
   .featured-cover { height: 148px; }
@@ -5034,6 +5074,7 @@ select.seed-input {
     aspect-ratio: auto;
   }
   .banner-top .featured-card.own-art .cover-photo { object-fit: contain; }
+  .banner-top .featured-card.own-art .featured-cover { padding: 0; }
   .banner-top .featured-card.own-art .featured-body {
     flex: 0 0 auto;
     padding: 14px 18px 18px;
@@ -5500,6 +5541,7 @@ select.seed-input {
 .adj-mode input { width: 18px; height: 18px; accent-color: var(--pink); }
 .adj-hint { margin: 0 0 12px; font-size: 12px; line-height: 1.5; color: var(--muted); }
 
+
 /* ============================================================
    МИНИ-ИГРЫ
    ============================================================ */
@@ -5512,15 +5554,10 @@ select.seed-input {
  * разъехаться не могут. Подобрать руками пятьдесят согласованных троек
  * цветов нельзя, а пятьдесят чисел можно.
  */
-.mg-shelf {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 10px;
-}
+.mg-shelf { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
 
 .mg-card {
   --mg-a: hsl(var(--mg-h) 85% 62%);
-  --mg-b: hsl(var(--mg-h) 75% 40%);
   position: relative;
   display: flex; flex-direction: column; align-items: flex-start; gap: 3px;
   padding: 14px 13px 12px;
@@ -5552,22 +5589,24 @@ select.seed-input {
 .mg-card-name { font-size: 14px; font-weight: 800; line-height: 1.15; }
 .mg-card-sub {
   font-size: 11px; color: var(--muted); line-height: 1.25;
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
-  overflow: hidden;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
-.mg-card-top {
-  margin-top: 6px;
-  font-size: 11.5px; font-weight: 800;
-  color: var(--mg-a);
+/* Подпись механики прямо на карточке: по названию «Пузырь» невозможно
+   догадаться, что там надувается и лопается, а выбирают игру именно по
+   этому. */
+.mg-card-foot { margin-top: 7px; display: flex; flex-direction: column; gap: 3px; }
+.mg-card-foot i {
+  font-size: 10px; font-style: normal; color: var(--muted); line-height: 1.25;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
+.mg-card-foot b { font-size: 11.5px; font-weight: 800; color: var(--mg-a); }
 
 /* ---------- Экран игры ---------- */
 
 .mg-screen {
   --mg-a: hsl(var(--mg-h) 85% 62%);
-  --mg-b: hsl(var(--mg-h) 75% 40%);
-  /* Шапка страницы липкая и лежит поверх содержимого: без запаса прокрутка
-     «к экрану игры» заводит его заголовок вместе с кнопкой возврата под неё. */
+  /* Шапка страницы липкая: без запаса прокрутка «к экрану игры» заводит
+     заголовок вместе с кнопкой возврата под неё. */
   scroll-margin-top: 92px;
 }
 .mg-head { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
@@ -5582,20 +5621,23 @@ select.seed-input {
   border: 1px solid color-mix(in srgb, var(--mg-a) 34%, transparent);
 }
 
-/* Поле игры фиксированной высоты: без неё кнопка «Играть» прыгает под
-   пальцем между раундами, потому что раскрытие выше исходного состояния. */
+/* Поле игры фиксированной высоты: без неё кнопка прыгает под пальцем между
+   раундами, потому что раскрытие выше исходного состояния. */
 .mg-stage {
-  min-height: 240px;
-  display: grid; place-items: center;
+  min-height: 250px;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 10px;
   padding: 16px;
   border-radius: 20px;
   margin-bottom: 14px;
+  overflow: hidden;
   background:
     radial-gradient(120% 90% at 50% 0%,
       color-mix(in srgb, var(--mg-a) 14%, transparent), transparent 66%),
     linear-gradient(180deg, #120424, #08010f);
   border: 1.5px solid color-mix(in srgb, var(--mg-a) 30%, var(--line));
 }
+.mg-note { font-size: 12px; color: var(--muted); text-align: center; }
 
 .mg-result {
   display: flex; align-items: baseline; justify-content: center; gap: 10px;
@@ -5627,218 +5669,478 @@ select.seed-input {
 .mg-bet { margin-bottom: 12px; }
 .mg-bet-row { display: flex; gap: 6px; align-items: center; }
 .mg-bet-row .seed-input {
-  flex: 1; text-align: center;
-  font-size: 17px; font-weight: 900; color: var(--gold);
+  flex: 1; text-align: center; font-size: 17px; font-weight: 900; color: var(--gold);
 }
 .mg-bet-hint { font-size: 11px; color: var(--muted); margin-top: 5px; text-align: center; }
 
 .mg-rules { margin-top: 16px; }
-.mg-rules summary {
-  cursor: pointer; font-size: 13px; font-weight: 700;
-  padding: 10px 0; color: var(--cyan);
-}
+.mg-rules summary { cursor: pointer; font-size: 13px; font-weight: 700; padding: 10px 0; color: var(--cyan); }
 .mg-rules-note { font-size: 11.5px; color: var(--muted); margin-top: 8px; line-height: 1.45; }
 
-/* ---------- Выбор и поле ---------- */
+/* ============================================================
+   1. ВЗЛЁТ: множитель бежит вверх и обрывается
+   ============================================================ */
+
+.mg-rise { position: relative; width: 100%; height: 190px; }
+.mg-rise-svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.mg-rise-line { fill: none; stroke: var(--mg-a); stroke-width: 1.4; vector-effect: non-scaling-stroke; }
+.mg-rise-fill { fill: color-mix(in srgb, var(--mg-a) 18%, transparent); stroke: none; }
+.mg-rise-craft {
+  position: absolute; font-size: 20px; transform: translate(-50%, -50%);
+  filter: drop-shadow(0 0 8px var(--mg-a));
+  transition: none;
+}
+.mg-rise-num {
+  position: absolute; left: 50%; top: 22%; transform: translateX(-50%);
+  font-size: 44px; font-weight: 900; font-variant-numeric: tabular-nums;
+  color: #fff; text-shadow: 0 4px 24px #000;
+}
+.mg-rise-num i { font-size: 26px; font-style: normal; color: var(--mg-a); }
+.mg-rise-goal {
+  position: absolute; right: 10px; top: 8px;
+  font-size: 11px; color: var(--muted);
+}
+.mg-rise.cashed .mg-rise-num { color: var(--green); }
+.mg-rise.boom .mg-rise-num { color: var(--red); }
+.mg-rise.boom .mg-rise-line { stroke: var(--red); }
+.mg-rise.boom .mg-rise-fill { fill: color-mix(in srgb, var(--red) 20%, transparent); }
+.mg-rise.boom .mg-rise-craft { animation: mgFallAway 0.6s ease-in forwards; }
+.mg-rise.boom { animation: mgShake 0.35s ease-in-out; }
+@keyframes mgFallAway {
+  to { transform: translate(-50%, 160px) rotate(120deg); opacity: 0; }
+}
+@keyframes mgShake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-6px); }
+  75% { transform: translateX(6px); }
+}
+
+/* ============================================================
+   2. НАКАЧКА: шар надувается рывками и лопается
+   ============================================================ */
+
+.mg-pump { display: flex; flex-direction: column; align-items: center; gap: 16px; }
+.mg-pump-body {
+  width: 92px; height: 92px; border-radius: 50%;
+  display: grid; place-items: center;
+  font-size: 15px; font-weight: 900; color: #0c0218;
+  background: radial-gradient(circle at 34% 30%, #fff 2%, var(--mg-a) 60%, color-mix(in srgb, var(--mg-a) 60%, #000));
+  box-shadow: 0 10px 30px -12px var(--mg-a);
+  transition: transform 180ms cubic-bezier(0.3, 1.5, 0.5, 1);
+  transform-origin: center bottom;
+}
+.mg-pump[data-shape="gauge"] .mg-pump-body { border-radius: 18px; }
+.mg-pump-body.kick { animation: mgKick 180ms ease-out; }
+@keyframes mgKick {
+  50% { filter: brightness(1.5); }
+}
+.mg-pump-body.held { box-shadow: 0 0 0 5px color-mix(in srgb, var(--green) 55%, transparent); }
+.mg-pump-body.pop { animation: mgPop 420ms ease-out forwards; }
+@keyframes mgPop {
+  30% { transform: scale(2.1); opacity: 0.85; filter: brightness(2); }
+  100% { transform: scale(2.6); opacity: 0; }
+}
+.mg-pump-scale { display: flex; gap: 5px; }
+.mg-pump-scale i {
+  width: 12px; height: 5px; border-radius: 3px;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+/* ============================================================
+   3. ПОДЪЁМ: фигурка идёт вверх по этажам
+   ============================================================ */
+
+.mg-climb {
+  --floor-h: 30px;
+  position: relative;
+  width: 100%; max-width: 250px;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.mg-floor {
+  height: var(--floor-h);
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 10px 0 34px;
+  border-radius: 8px;
+  font-size: 11px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--line);
+  transition: background 200ms, border-color 200ms;
+}
+.mg-floor-n { color: var(--muted); }
+.mg-floor-x { font-weight: 800; color: var(--mg-a); }
+.mg-floor.done {
+  background: color-mix(in srgb, var(--mg-a) 22%, transparent);
+  border-color: var(--mg-a);
+}
+.mg-floor.broken {
+  background: color-mix(in srgb, var(--red) 26%, transparent);
+  border-color: var(--red);
+  animation: mgShake 0.3s ease-in-out;
+}
+.mg-climb-hero {
+  position: absolute; left: 10px; bottom: 6px;
+  width: 16px; height: 16px; border-radius: 50%;
+  background: var(--gold);
+  box-shadow: 0 0 14px var(--gold);
+  transition: bottom 200ms cubic-bezier(0.3, 1.4, 0.5, 1);
+}
+.mg-climb-hero.hop { transform: scale(1.25); }
+.mg-climb-hero.top { background: var(--green); box-shadow: 0 0 20px var(--green); }
+.mg-climb-hero.fall { animation: mgFallAway 0.6s ease-in forwards; }
+
+/* ============================================================
+   4. МИНЫ и 16. ВЫБОР: сетка клеток
+   ============================================================ */
 
 .mg-grid {
-  display: grid;
-  grid-template-columns: repeat(var(--cols), 1fr);
-  gap: 7px;
-  width: 100%;
-  max-width: 330px;
+  display: grid; grid-template-columns: repeat(var(--cols), 1fr);
+  gap: 6px; width: 100%; max-width: 320px;
 }
 .mg-cell {
   aspect-ratio: 1;
   display: grid; place-items: center;
-  border-radius: 12px;
+  border-radius: 10px;
   font-size: 13px; font-weight: 800;
   color: var(--muted);
   background: linear-gradient(160deg, var(--card-hi), var(--card));
   border: 1.5px solid var(--line);
   cursor: pointer;
+  transition: transform 160ms, background 160ms, border-color 160ms;
 }
-button.mg-cell:active { transform: scale(0.94); }
-.mg-cell.open {
-  animation: pop 0.3s cubic-bezier(0.2, 1.3, 0.4, 1) both;
-  animation-delay: calc(var(--i, 0) * 90ms);
+button.mg-cell:active { transform: scale(0.92); }
+.mg-cell.open, .mg-cell.reveal {
+  animation: pop 0.26s cubic-bezier(0.2, 1.3, 0.4, 1) both;
+  animation-delay: calc(var(--i, 0) * 80ms);
 }
-.mg-cell.hit { color: var(--green); border-color: color-mix(in srgb, var(--green) 50%, transparent); }
-.mg-cell.trap { color: var(--red); border-color: var(--red); }
+.mg-cell.hit {
+  color: var(--green);
+  border-color: color-mix(in srgb, var(--green) 55%, transparent);
+  background: color-mix(in srgb, var(--green) 12%, var(--card));
+}
+.mg-cell.trap {
+  color: #fff; border-color: var(--red);
+  background: color-mix(in srgb, var(--red) 40%, var(--card));
+  animation: mgShake 0.3s ease-in-out;
+}
 .mg-cell.picked { box-shadow: 0 0 0 2px var(--mg-a); }
-.mg-field .mg-cell { font-size: 11px; }
-.mg-field-note { font-size: 12px; color: var(--muted); margin-top: 12px; text-align: center; }
+.mg-cell.again { cursor: pointer; }
+.mg-mines .mg-cell { font-size: 12px; }
 
-/* ---------- Колесо ---------- */
-
-/*
- * УГОЛ СЕКТОРА РАВЕН ЕГО ВЕРОЯТНОСТИ, а не доле от числа секторов. Колесо с
- * равными секторами и разными шансами врёт картинкой: игрок видит шестую
- * часть круга там, где на деле два процента.
- */
-.mg-wheel { position: relative; width: 100%; max-width: 260px; }
-.mg-wheel-svg { width: 100%; height: auto; display: block; transform-origin: 50% 50%; }
-.mg-sector {
-  fill: rgba(255, 255, 255, 0.05);
-  stroke: rgba(0, 0, 0, 0.55); stroke-width: 0.4;
-}
-.mg-sector.win { fill: color-mix(in srgb, var(--mg-a) 52%, transparent); }
-.mg-wheel-hub { fill: #150626; stroke: var(--mg-a); stroke-width: 1.2; }
-.mg-wheel-pin {
-  position: absolute; top: -6px; left: 50%; transform: translateX(-50%);
-  width: 0; height: 0;
-  border-left: 8px solid transparent;
-  border-right: 8px solid transparent;
-  border-top: 16px solid var(--gold);
-  filter: drop-shadow(0 2px 6px #000);
-}
-.mg-legend {
-  display: flex; flex-wrap: wrap; gap: 6px; justify-content: center;
-  margin-top: 12px; font-size: 11px; color: var(--muted);
-}
-.mg-legend span {
-  padding: 3px 8px; border-radius: 999px;
-  background: rgba(255, 255, 255, 0.05);
-}
-
-/* ---------- Барабаны ---------- */
-
-.mg-reels { display: flex; gap: 8px; }
-.mg-reel {
-  width: 62px; height: 78px;
-  display: grid; place-items: center;
-  font-size: 30px;
-  border-radius: 14px;
-  background: linear-gradient(180deg, #1a0733, #0c0218);
-  border: 1.5px solid color-mix(in srgb, var(--mg-a) 34%, var(--line));
-  color: var(--mg-a);
-}
-.mg-reel span { animation: mgSpin 0.45s linear infinite; }
-.mg-reel.stop span {
-  animation: pop 0.3s cubic-bezier(0.2, 1.3, 0.4, 1) both;
-  animation-delay: calc(var(--i) * 260ms);
-}
-@keyframes mgSpin {
-  0% { transform: translateY(-14px); opacity: 0.2; }
-  50% { transform: translateY(0); opacity: 1; }
-  100% { transform: translateY(14px); opacity: 0.2; }
-}
-
-/* ---------- Бросок ---------- */
-
-.mg-toss { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; align-items: center; }
-.mg-die {
-  width: 54px; height: 54px;
-  display: grid; place-items: center;
-  font-size: 24px; font-weight: 900;
-  border-radius: 14px;
-  background: linear-gradient(160deg, #fff, #cfc6dd);
-  color: #1a0733;
-}
-.mg-die.roll { animation: mgShake 0.35s ease-in-out infinite; }
-.mg-die.stop {
-  animation: pop 0.32s cubic-bezier(0.2, 1.3, 0.4, 1) both;
-  animation-delay: calc(var(--i) * 110ms);
-}
-@keyframes mgShake {
-  0%, 100% { transform: rotate(-9deg); }
-  50% { transform: rotate(9deg); }
-}
-.mg-number {
-  font-size: 34px; font-weight: 900; color: var(--mg-a);
-  font-variant-numeric: tabular-nums;
-}
-
-/* ---------- Падение ---------- */
+/* ============================================================
+   5. ПАДЕНИЕ: шар прыгает по штырям
+   ============================================================ */
 
 .mg-drop { position: relative; width: 100%; max-width: 300px; }
-.mg-pegs { display: flex; flex-direction: column; gap: 9px; align-items: center; padding: 6px 0 10px; }
+.mg-pegs { position: relative; display: flex; flex-direction: column; gap: 9px; align-items: center; padding: 4px 0 10px; }
 .mg-peg-row { display: flex; gap: 14px; }
-.mg-peg-row i {
-  width: 5px; height: 5px; border-radius: 50%;
-  background: color-mix(in srgb, var(--mg-a) 55%, transparent);
-}
+.mg-peg-row i { width: 5px; height: 5px; border-radius: 50%; background: color-mix(in srgb, var(--mg-a) 55%, transparent); }
 .mg-ball {
-  position: absolute; top: 0; left: 0;
+  position: absolute; top: 0; left: 50%;
   width: 12px; height: 12px; border-radius: 50%;
   background: var(--gold);
   box-shadow: 0 0 12px var(--gold);
   transform: translateX(-50%);
   opacity: 0;
-}
-.mg-ball.fall {
-  opacity: 1;
-  transition: top 2.1s cubic-bezier(0.4, 0, 0.7, 1), left 2.1s ease-in-out;
-  top: calc(100% - 34px);
-  left: var(--x);
+  z-index: 2;
 }
 /* Ширина лунки равна её вероятности: узкая лунка и выпадает редко. */
 .mg-slots { display: flex; gap: 3px; }
 .mg-slot {
-  flex-basis: 0; flex-shrink: 1;
-  min-width: 14px;
-  padding: 7px 2px;
-  border-radius: 8px;
-  text-align: center;
-  font-size: 10px; font-weight: 800;
-  color: var(--muted);
+  flex-basis: 0; flex-shrink: 1; min-width: 14px;
+  padding: 7px 2px; border-radius: 8px; text-align: center;
+  font-size: 10px; font-weight: 800; color: var(--muted);
   background: rgba(255, 255, 255, 0.05);
+  transition: transform 180ms, filter 180ms;
 }
 .mg-slot.win { color: #0c0218; background: var(--mg-a); }
+.mg-slot.landed { transform: translateY(-5px) scale(1.08); filter: brightness(1.5); }
 
-/* ---------- Дорожка ---------- */
+/* ============================================================
+   6. КОЛЕСО: угол сектора равен вероятности
+   ============================================================ */
 
-.mg-path { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; align-items: center; }
-.mg-step {
-  width: 34px; height: 34px;
+.mg-wheel { position: relative; width: 100%; max-width: 240px; }
+.mg-wheel-svg { width: 100%; height: auto; display: block; transform-origin: 50% 50%; }
+.mg-sector { fill: rgba(255, 255, 255, 0.05); stroke: rgba(0, 0, 0, 0.55); stroke-width: 0.4; }
+.mg-sector.win { fill: color-mix(in srgb, var(--mg-a) 52%, transparent); }
+.mg-wheel-hub { fill: #150626; stroke: var(--mg-a); stroke-width: 1.2; }
+.mg-wheel-pin {
+  position: absolute; top: -6px; left: 50%; transform: translateX(-50%);
+  width: 0; height: 0;
+  border-left: 8px solid transparent; border-right: 8px solid transparent;
+  border-top: 16px solid var(--gold);
+  filter: drop-shadow(0 2px 6px #000);
+}
+.mg-legend { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; font-size: 11px; color: var(--muted); }
+.mg-legend span { padding: 3px 8px; border-radius: 999px; background: rgba(255, 255, 255, 0.05); }
+
+/* ============================================================
+   7. БАРАБАНЫ: ленты едут и тормозят по очереди
+   ============================================================ */
+
+.mg-reels { display: flex; gap: 8px; }
+.mg-reel {
+  width: 76px; height: 76px; overflow: hidden;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #1a0733, #0c0218);
+  border: 1.5px solid color-mix(in srgb, var(--mg-a) 34%, var(--line));
+  transition: border-color 200ms, box-shadow 200ms;
+}
+.mg-reel.stopped {
+  border-color: var(--mg-a);
+  box-shadow: 0 0 18px -6px var(--mg-a);
+}
+.mg-strip { display: flex; flex-direction: column; will-change: transform; }
+.mg-strip span {
+  flex: 0 0 76px; height: 76px;
+  display: grid; place-items: center;
+  font-size: 34px; color: var(--mg-a);
+}
+.mg-strip .mg-final { color: #fff; }
+
+/* ============================================================
+   8. ЛОТО: тираж выпадает по одному числу
+   ============================================================ */
+
+.mg-keno { width: 100%; max-width: 320px; display: flex; flex-direction: column; gap: 10px; }
+.mg-keno-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 4px; }
+.mg-keno-n {
+  aspect-ratio: 1;
+  display: grid; place-items: center;
+  border-radius: 7px;
+  font-size: 10px; font-weight: 700; color: var(--muted);
+  background: rgba(255, 255, 255, 0.05);
+  transition: transform 180ms, background 180ms, color 180ms;
+}
+.mg-keno-n.mine { color: var(--mg-a); box-shadow: inset 0 0 0 1.5px var(--mg-a); }
+.mg-keno-n.drawn { background: rgba(255, 255, 255, 0.18); color: #fff; }
+.mg-keno-n.hit {
+  background: var(--green); color: #0c0218;
+  transform: scale(1.18);
+  animation: pop 0.3s cubic-bezier(0.2, 1.3, 0.4, 1);
+}
+
+/* ============================================================
+   9. ЗАЕЗД: участники едут наперегонки
+   ============================================================ */
+
+.mg-race { position: relative; width: 100%; max-width: 320px; display: flex; flex-direction: column; gap: 6px; }
+.mg-lane {
+  position: relative; height: 30px; border-radius: 8px;
+  background: repeating-linear-gradient(90deg,
+    rgba(255, 255, 255, 0.05) 0 14px, transparent 14px 28px);
+  border: 1px solid var(--line);
+}
+.mg-lane.mine { border-color: var(--mg-a); background-color: color-mix(in srgb, var(--mg-a) 10%, transparent); }
+.mg-runner {
+  position: absolute; left: 4px; top: 50%;
+  transform: translateY(-50%);
+  font-size: 18px;
+}
+.mg-runner.won { filter: drop-shadow(0 0 10px var(--gold)); transform: translateY(-50%) scale(1.25); }
+.mg-finish {
+  position: absolute; right: 12px; top: 0; bottom: 0; width: 4px;
+  background: repeating-linear-gradient(180deg, #fff 0 6px, #000 6px 12px);
+  opacity: 0.6;
+}
+
+/* ============================================================
+   10. ВЫШЕ-НИЖЕ: карты переворачиваются
+   ============================================================ */
+
+.mg-cards { display: flex; gap: 7px; flex-wrap: wrap; justify-content: center; }
+.mg-card-flip {
+  position: relative; width: 44px; height: 62px;
+  transform-style: preserve-3d;
+  transition: transform 300ms cubic-bezier(0.3, 1.2, 0.5, 1);
+}
+.mg-card-flip.flip { transform: rotateY(180deg); }
+.mg-face {
+  position: absolute; inset: 0;
+  display: grid; place-items: center;
+  border-radius: 8px;
+  backface-visibility: hidden;
+  font-size: 15px; font-weight: 900;
+}
+.mg-face.back {
+  background: linear-gradient(160deg, #2a0a4a, #150626);
+  border: 1.5px solid var(--line); color: var(--muted);
+}
+.mg-face.front {
+  background: #f2edf7; color: #180430;
+  transform: rotateY(180deg);
+  border: 1.5px solid transparent;
+}
+.mg-face.front b.red { color: #d61f3c; }
+.mg-card-flip.good .mg-face.front { border-color: var(--green); }
+.mg-card-flip.bad .mg-face.front { border-color: var(--red); background: #ffd9de; }
+
+/* ============================================================
+   11. ПРЕДЕЛ: стрелка летит по шкале
+   ============================================================ */
+
+.mg-limbo { width: 100%; max-width: 320px; display: flex; flex-direction: column; gap: 14px; align-items: center; }
+.mg-limbo-scale {
+  position: relative; width: 100%; height: 42px;
+  border-radius: 10px;
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--mg-a) 10%, transparent),
+    color-mix(in srgb, var(--mg-a) 45%, transparent));
+  border: 1px solid var(--line);
+}
+.mg-limbo-scale i { position: absolute; top: 100%; transform: translateX(-50%); }
+.mg-limbo-scale i b { font-size: 9px; color: var(--muted); font-weight: 700; }
+.mg-limbo-goal {
+  position: absolute; top: -4px; bottom: -4px; width: 2px;
+  background: var(--gold); box-shadow: 0 0 8px var(--gold);
+}
+.mg-limbo-needle {
+  position: absolute; top: -6px; bottom: -6px; width: 3px; left: 0;
+  background: #fff; border-radius: 2px;
+  box-shadow: 0 0 10px #fff;
+}
+.mg-limbo-needle.win { background: var(--green); box-shadow: 0 0 14px var(--green); }
+.mg-limbo-needle.lose { background: var(--red); box-shadow: 0 0 14px var(--red); }
+.mg-limbo-num { font-size: 34px; font-weight: 900; font-variant-numeric: tabular-nums; }
+.mg-limbo-num.win { color: var(--green); }
+.mg-limbo-num.lose { color: var(--red); }
+
+/* ============================================================
+   12. СКРЕТЧ: слой стирается
+   ============================================================ */
+
+.mg-scratch {
+  display: grid; grid-template-columns: repeat(var(--cols), 1fr);
+  gap: 7px; width: 100%; max-width: 280px;
+}
+.mg-panel {
+  position: relative; aspect-ratio: 1;
   display: grid; place-items: center;
   border-radius: 10px;
-  font-size: 12px; font-weight: 800;
-  color: var(--muted);
-  background: var(--card); border: 1.5px solid var(--line);
+  background: #180430;
+  border: 1.5px solid var(--line);
+  overflow: hidden;
 }
-.mg-step.done {
-  color: #0c0218; background: var(--mg-a); border-color: var(--mg-a);
-  animation: pop 0.24s cubic-bezier(0.2, 1.3, 0.4, 1) both;
-  animation-delay: calc(var(--i, 0) * 110ms);
+.mg-panel-sym { font-size: 26px; color: var(--mg-a); }
+/* Фольга уезжает наискось: так это и выглядит, когда стирают монеткой. */
+.mg-panel-foil {
+  position: absolute; inset: 0;
+  background: repeating-linear-gradient(115deg, #6b6076 0 6px, #8a7f96 6px 12px);
+  transition: clip-path 380ms ease-out, opacity 380ms;
+  clip-path: inset(0 0 0 0);
 }
-.mg-step.fail {
-  color: #fff; background: var(--red); border-color: var(--red);
-  animation: pop 0.24s cubic-bezier(0.2, 1.3, 0.4, 1) both;
-  animation-delay: calc(var(--i, 0) * 110ms);
-}
-.mg-step.goal { border-color: var(--gold); color: var(--gold); }
-.mg-step.goal.done { background: var(--gold); color: #0c0218; }
+.mg-panel.scratched .mg-panel-foil { clip-path: inset(0 0 0 100%); opacity: 0; }
+.mg-panel.hit { border-color: var(--green); box-shadow: 0 0 16px -4px var(--green); }
 
-/* ---------- Ставка ---------- */
+/* ============================================================
+   13. УДАР: мяч летит, вратарь прыгает
+   ============================================================ */
 
-.mg-bet-stage { text-align: center; }
-.mg-bet-face {
-  font-size: 30px; font-weight: 900; letter-spacing: -0.5px;
-  color: var(--mg-a);
+.mg-goal {
+  position: relative; width: 100%; max-width: 300px; height: 170px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 60%);
+  border-bottom: 3px solid color-mix(in srgb, var(--mg-a) 50%, transparent);
 }
-.mg-bet-stage.win .mg-bet-face { color: var(--green); }
-.mg-bet-stage.lose .mg-bet-face { color: var(--muted); }
-.mg-bet-note { font-size: 12px; color: var(--muted); margin-top: 8px; }
+.mg-goal-net {
+  position: absolute; left: 8%; right: 8%; top: 8px; height: 58%;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-bottom: none;
+  background:
+    repeating-linear-gradient(90deg, rgba(255,255,255,0.14) 0 1px, transparent 1px 11px),
+    repeating-linear-gradient(180deg, rgba(255,255,255,0.14) 0 1px, transparent 1px 11px);
+}
+.mg-keeper {
+  position: absolute; left: 50%; bottom: 36%;
+  transform: translateX(-50%);
+  font-size: 22px;
+}
+.mg-ballshot {
+  position: absolute; left: 50%; bottom: 6px;
+  transform: translateX(-50%);
+  font-size: 20px;
+  z-index: 2;
+}
+.mg-ballshot.flying { animation: mgSpinBall 0.5s linear; }
+@keyframes mgSpinBall { to { rotate: 720deg; } }
+.mg-ballshot.scored { filter: drop-shadow(0 0 12px var(--green)); }
+.mg-ballshot.saved { filter: drop-shadow(0 0 12px var(--red)); }
+.mg-wall {
+  position: absolute; left: 50%; bottom: 20%;
+  transform: translateX(-50%);
+  font-size: 18px; color: rgba(255, 255, 255, 0.5); letter-spacing: -2px;
+}
+
+/* ============================================================
+   14. КОСТИ: кубики катятся и замирают
+   ============================================================ */
+
+.mg-dice { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+.mg-die {
+  width: 54px; height: 54px;
+  display: grid; place-items: center;
+  font-size: 44px; line-height: 1;
+  color: #fff;
+  text-shadow: 0 4px 12px #000;
+}
+.mg-die.rolling { animation: mgTumble 0.42s linear infinite; }
+@keyframes mgTumble {
+  0% { transform: rotate(0) translateY(0); }
+  25% { transform: rotate(90deg) translateY(-8px); }
+  50% { transform: rotate(180deg) translateY(0); }
+  75% { transform: rotate(270deg) translateY(-6px); }
+  100% { transform: rotate(360deg) translateY(0); }
+}
+.mg-die.settled { animation: pop 0.3s cubic-bezier(0.2, 1.3, 0.4, 1); color: var(--mg-a); }
+
+/* ============================================================
+   15. РАСКОПКИ: слои снимаются
+   ============================================================ */
+
+.mg-dig { position: relative; width: 100%; max-width: 250px; display: flex; flex-direction: column; gap: 3px; }
+.mg-layer {
+  height: 24px;
+  display: grid; place-items: center;
+  border-radius: 6px;
+  font-size: 10.5px; font-weight: 800; color: rgba(255, 255, 255, 0.65);
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--mg-a) 26%, #2a1a12),
+    color-mix(in srgb, var(--mg-a) 10%, #1a1008));
+  transition: transform 260ms ease-in, opacity 260ms;
+}
+.mg-layer.removed { transform: translateX(-120%); opacity: 0; }
+.mg-layer.blocked {
+  background: linear-gradient(180deg, #4a4a4a, #2a2a2a);
+  color: var(--red);
+  animation: mgShake 0.3s ease-in-out;
+}
+.mg-dig-find {
+  position: absolute; left: 50%; bottom: 0;
+  transform: translateX(-50%) scale(0.4);
+  font-size: 30px; opacity: 0;
+  transition: opacity 300ms, transform 300ms cubic-bezier(0.2, 1.4, 0.4, 1);
+}
+.mg-dig-find.found { opacity: 1; transform: translateX(-50%) scale(1); }
 
 @media (prefers-reduced-motion: reduce) {
-  .mg-reel span, .mg-die.roll { animation: none; }
-  .mg-wheel-svg, .mg-ball.fall { transition-duration: 0.3s; }
+  .mg-die.rolling, .mg-rise.boom, .mg-cell.trap, .mg-floor.broken { animation: none; }
+  .mg-wheel-svg, .mg-ball, .mg-runner, .mg-strip { transition-duration: 0.3s !important; }
 }
 
 /*
  * Компьютерная раскладка мини-игр.
  *
  * Блок стоит в конце файла отдельным @media, а не внутри общего десктопного:
- * общий идёт выше по файлу, и правила мини-игр, дописанные после него,
- * перебивали бы его при равной специфичности.
+ * общий идёт выше, и правила мини-игр, дописанные после него, перебивали бы
+ * его при равной специфичности.
  */
 @media (min-width: 1024px) {
-  .mg-shelf { grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 14px; }
+  .mg-shelf { grid-template-columns: repeat(auto-fill, minmax(215px, 1fr)); gap: 14px; }
   .mg-card { padding: 18px 16px 15px; border-radius: 20px; }
   .mg-card-art { width: 44px; height: 44px; }
   .mg-card-name { font-size: 16px; }
   .mg-card-sub { font-size: 12.5px; }
+  .mg-card-foot i { font-size: 11px; }
 
   /* Поле игры и управление рядом: на мониторе колонка в телефонную ширину
      оставляла бы две трети экрана пустыми. */
@@ -5853,18 +6155,32 @@ button.mg-cell:active { transform: scale(0.94); }
     align-items: start;
   }
   .mg-head { grid-area: head; }
-  .mg-stage { grid-area: stage; min-height: 360px; }
+  .mg-stage { grid-area: stage; min-height: 380px; }
   .mg-rules { grid-area: rules; }
   .mg-result, .mg-options, .mg-bet, #mgPlay { grid-column: 2; }
-  .mg-wheel { max-width: 340px; }
-  .mg-grid { max-width: 420px; }
-  /* Доска плинко на мониторе шире и с крупным шагом штырей: в телефонных
-     14 точках между ними треугольник тонул посреди пустого поля. */
-  .mg-drop { max-width: 520px; }
+
+  .mg-wheel { max-width: 320px; }
+  .mg-grid { max-width: 400px; }
+  .mg-drop { max-width: 420px; }
   .mg-pegs { gap: 13px; }
   .mg-peg-row { gap: 22px; }
   .mg-peg-row i { width: 6px; height: 6px; }
   .mg-slot { padding: 10px 3px; font-size: 12px; }
-  .mg-reel { width: 84px; height: 104px; font-size: 40px; }
-  .mg-step { width: 42px; height: 42px; font-size: 14px; }
+  .mg-reel { width: 88px; height: 88px; }
+  .mg-strip span { flex-basis: 88px; height: 88px; font-size: 40px; }
+  .mg-rise { height: 300px; }
+  .mg-rise-num { font-size: 60px; }
+  .mg-pump-body { width: 120px; height: 120px; font-size: 18px; }
+  .mg-climb { --floor-h: 36px; max-width: 320px; }
+  .mg-keno { max-width: 420px; }
+  .mg-keno-n { font-size: 12px; }
+  .mg-race { max-width: 440px; }
+  .mg-lane { height: 36px; }
+  .mg-card-flip { width: 56px; height: 78px; }
+  .mg-limbo { max-width: 440px; }
+  .mg-scratch { max-width: 340px; }
+  .mg-goal { max-width: 400px; height: 220px; }
+  .mg-die { width: 68px; height: 68px; font-size: 56px; }
+  .mg-dig { max-width: 320px; }
+  .mg-layer { height: 30px; font-size: 12px; }
 }

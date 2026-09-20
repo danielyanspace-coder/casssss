@@ -1162,6 +1162,18 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
 
   const list = config.minigames?.games || [];
   check('мини-игры: конфиг отдаёт пятьдесят игр', list.length === 50, `${list.length}`);
+  check('мини-игры: конфиг отдаёт шестнадцать механик',
+        (config.minigames?.families || []).length === 16,
+        `${config.minigames?.families?.length}`);
+  // Ни одна механика не должна раздуться за счёт остальных: именно этим
+  // была плоха первая версия раздела.
+  {
+    const perFamily = {};
+    for (const g of list) perFamily[g.family] = (perFamily[g.family] || 0) + 1;
+    const biggest = Math.max(...Object.values(perFamily));
+    check('мини-игры: ни одна механика не занимает больше четверти раздела',
+          biggest <= 13, `самая крупная ${biggest}`);
+  }
   check('мини-игры: у каждой свой значок',
         new Set(list.map((g) => g.art.path)).size === list.length);
   check('мини-игры: отдача заявлена',
@@ -1215,7 +1227,7 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
           !d.win || game.options[0].wins.some((w) => w.multiplier === d.multiplier),
           `×${d.multiplier}`);
   }
-  check('мини-игры: сыграны все восемь семейств', seen.size === 8, `${seen.size}`);
+  check('мини-игры: сыграны все шестнадцать механик', seen.size === 16, `${seen.size}`);
 
   /*
    * Долгий прогон одной игры: эмпирическая отдача обязана сойтись с
@@ -1223,7 +1235,10 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
    * таблицей и тем, что сервер реально платит.
    */
   {
-    const game = list.find((g) => g.id === 'coin');
+    // Кость на «больше трёх»: выплата ×1.4 при шансе 50%, то есть самая
+    // низкая дисперсия в разделе. На ней четыре сигмы это примерно 0.14, и
+    // прогон в четыреста раундов уже что-то значит.
+    const game = list.find((g) => g.id === 'dice');
     const ROUNDS = 400;
     const bet = 100;
     let wagered = 0;
@@ -1239,6 +1254,8 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
     // Монета: дисперсия известна точно, четыре сигмы это примерно 0.14.
     check('мини-игры: эмпирическая отдача близка к заявленной',
           Math.abs(rtp - 0.7) < 0.15, `факт ${rtp.toFixed(3)}`);
+    check('мини-игры: прогон не ушёл в ноль по балансу',
+          (await post('/api/me')).data.user.balance > 0);
   }
 
   /* Выключатель мини-игр из панели. */

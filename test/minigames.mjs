@@ -43,6 +43,29 @@ check('значки заданы для всех игр', ids.every((id) => GAME
 const usedFamilies = new Set(MINIGAMES.map((g) => g.family));
 check('задействованы все семейства', usedFamilies.size === FAMILIES.length,
       `${usedFamilies.size} из ${FAMILIES.length}`);
+check('семейств шестнадцать', FAMILIES.length === 16, `${FAMILIES.length}`);
+
+/*
+ * ГЛАВНАЯ ПРОВЕРКА ЭТОГО ФАЙЛА ПОСЛЕ ПЕРЕДЕЛКИ: механики не повторяются.
+ *
+ * Первая версия раздела была пятьюдесятью вариантами одного и того же
+ * «угадай где»: восемь семейств, и половина игр в одном из них. Отличались
+ * они названием и цветом, и заказчик это увидел сразу. Поэтому здесь
+ * проверяется не количество игр, а то, что описания движения у семейств
+ * разные и что ни одно семейство не раздулось за счёт остальных.
+ */
+const motions = FAMILIES.map((f) => f.motion);
+check('у каждого семейства своё описание движения',
+      new Set(motions).size === motions.length);
+check('у каждого семейства есть описание движения',
+      motions.every((m) => typeof m === 'string' && m.length > 10));
+
+for (const family of FAMILIES) {
+  const n = MINIGAMES.filter((g) => g.family === family.id).length;
+  check(`${family.id}: хотя бы две игры`, n >= 2, `${n}`);
+  check(`${family.id}: не больше четверти раздела`, n <= Math.ceil(MINIGAMES.length / 4),
+        `${n} из ${MINIGAMES.length}`);
+}
 
 /* ---------- 2. Отдача каждой таблицы ---------- */
 
@@ -77,7 +100,7 @@ for (const game of MINIGAMES) {
           Math.max(...evs) - Math.min(...evs) < 1e-12);
   }
 }
-check('проверено больше девяноста таблиц', tables >= 90, `${tables}`);
+check('проверено больше восьмидесяти таблиц', tables >= 80, `${tables}`);
 
 /* ---------- 3. Разброс вариантов действительно разный ---------- */
 
@@ -93,15 +116,17 @@ for (const game of MINIGAMES.filter((g) => g.options.length > 1)) {
    * означали бы, что один из них нарисовали зря.
    */
   check(`${game.id}: варианты отличаются или это выбор стороны`,
-        differ || ['toss', 'bet'].includes(game.family),
+        differ || ['dice', 'race', 'shot', 'wheel'].includes(game.family),
         `семейство ${game.family}`);
 }
 
 /*
- * Дорожка и поле: чем дальше идёшь, тем больше платят и тем реже доходишь.
- * Это и есть настоящий выбор, ради которого варианты вообще существуют.
+ * Цепочки (подъём, накачка, мины, раскопки, выше-ниже): чем дальше идёшь,
+ * тем больше платят и тем реже доходишь. Это и есть настоящий выбор, ради
+ * которого варианты вообще существуют.
  */
-for (const game of MINIGAMES.filter((g) => ['path', 'field'].includes(g.family))) {
+const CHAINS = ['climb', 'pump', 'mines', 'dig', 'hilo'];
+for (const game of MINIGAMES.filter((g) => CHAINS.includes(g.family) && g.options.length > 1)) {
   const tops = game.options.map((o) => o.top);
   const chances = game.options.map((o) => o.winChance);
   check(`${game.id}: дальше - дороже`,
@@ -109,6 +134,27 @@ for (const game of MINIGAMES.filter((g) => ['path', 'field'].includes(g.family))
   check(`${game.id}: дальше - реже`,
         chances.every((c, i) => i === 0 || c < chances[i - 1]),
         chances.map((c) => (c * 100).toFixed(1) + '%').join(' > '));
+}
+
+/*
+ * Взлёт и предел: вариант это ЦЕЛЬ, и выплата обязана ей равняться. Если
+ * потолок варианта разойдётся с подписью, игрок увидит на экране «×5», а
+ * заплатят ему по другой цифре.
+ */
+for (const game of MINIGAMES.filter((g) => ['rise', 'limbo'].includes(g.family))) {
+  for (const option of game.options) {
+    const shown = Number(option.label.replace(/[^\d.]/g, ''));
+    check(`${game.id}/${option.label}: выплата равна подписи варианта`,
+          Math.abs(option.top - shown) < 1e-9, `${option.top} против ${shown}`);
+    check(`${game.id}/${option.label}: шанс равен отдаче, делённой на цель`,
+          Math.abs(option.winChance - MINI_RTP / shown) < 1e-9);
+  }
+  if (game.family === 'rise') {
+    for (const option of game.options) {
+      check(`${game.id}/${option.label}: цель на экране совпадает с выплатой`,
+            Math.abs(option.view.peak - option.top) < 1e-9);
+    }
+  }
 }
 
 /* ---------- 4. Границы ставки ---------- */

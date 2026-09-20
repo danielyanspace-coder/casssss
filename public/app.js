@@ -4066,7 +4066,9 @@ document.getElementById('adminSearchBtn').addEventListener('click', () => {
 const mini = createMini({
   api, esc, fmt, money, toast, haptic, state,
   sounds: {
-    bet: sndBet, reveal: sndReveal, bigWin: sndBigWin, lose: sndLose,
+    bet: sndBet, tick: sndTick, land: sndLand, flip: sndFlip,
+    reveal: sndReveal, collect: sndCollect, bigWin: sndBigWin,
+    lose: sndLose, crash: sndCrash,
   },
   onUser: (user) => applyUser(user),
   onRound: () => { /* лента обновится сама по своему таймеру */ },

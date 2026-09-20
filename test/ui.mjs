@@ -1370,7 +1370,7 @@ check('честность: личная статистика убрана', fair
   }));
   check('мини-игры: на полке пятьдесят карточек', shelf.cards === 50, `${shelf.cards}`);
   check('мини-игры: у каждой карточки свой значок', shelf.icons === 50, `${shelf.icons}`);
-  check('мини-игры: показаны все семейства плюс «Все»', shelf.families === 9, `${shelf.families}`);
+  check('мини-игры: показаны все механики плюс «Все»', shelf.families === 17, `${shelf.families}`);
 
   /*
    * ГЛАВНАЯ ПРОВЕРКА РАЗДЕЛА: УГОЛ СЕКТОРА РАВЕН ВЕРОЯТНОСТИ.
@@ -1455,6 +1455,27 @@ check('честность: личная статистика убрана', fair
         await page.evaluate(() => document.getElementById('mgPlay').disabled));
   check('мини-игры: ячеек столько, сколько заявлено',
         await page.evaluate(() => document.querySelectorAll('.mg-cell[data-cell]').length) === 3);
+
+  /*
+   * Барабан обязан остановиться РОВНО на символе. Лента едет на длину,
+   * кратную высоте ячейки, а высота на компьютере другая, чем на телефоне.
+   * На этом уже ломался барабан кейсов, когда размер в CSS разошёлся с
+   * константой в коде.
+   */
+  await page.evaluate(() => document.getElementById('mgBack').click());
+  await page.waitForTimeout(200);
+  await page.evaluate(() => document.querySelector('[data-mini-game="cherries"]').click());
+  await page.waitForTimeout(300);
+  await page.evaluate(() => document.getElementById('mgPlay').click());
+  await page.waitForTimeout(4200);
+  const reels = await page.evaluate(() => {
+    const strip = document.querySelector('.mg-strip');
+    const cell = strip.firstElementChild.getBoundingClientRect().height;
+    const m = /translateY\(([-\d.]+)px\)/.exec(strip.style.transform) || [];
+    return { cell: Math.round(cell), rest: Math.round(Math.abs(Number(m[1] || 0)) % cell) };
+  });
+  check('мини-игры: лента барабана встала ровно на символе', reels.rest === 0,
+        `ячейка ${reels.cell}, остаток ${reels.rest}`);
 
   await page.evaluate(() => document.getElementById('mgBack').click());
   await page.waitForTimeout(200);
