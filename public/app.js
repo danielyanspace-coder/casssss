@@ -813,13 +813,13 @@ function openCase(caseId) {
   if (hasRitual(c)) renderCaseStage(c);
   else { clearCaseStage(); renderIdleReel(c); }
 
-  // Витринный предмет идёт первой карточкой и честно подписан.
+  // Витринный предмет идёт первой карточкой: пунктирная рамка отличает его
+  // от тех, что действительно разыгрываются.
   const showcaseCard = c.showcase ? `
     <div class="drop-card is-showcase" style="--tier-color:${tierColor(c.showcase.tier)}">
       <div class="drop-ico">${itemArt(c.showcase.name, tierColor(c.showcase.tier))
         || iconTier(c.showcase.tier, tierColor(c.showcase.tier))}</div>
       <div class="drop-name">${esc(c.showcase.name)}</div>
-      <div class="drop-note">${esc(c.showcase.note)}</div>
     </div>` : '';
 
   const cards = c.items
