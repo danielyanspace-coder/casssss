@@ -211,5 +211,17 @@ made.push('slot-spin');
 await buildCliff();
 made.push('slot-bg-cliff');
 
+/*
+ * Обложка для полки слотов. Берётся сам игровой экран и сжимается: это самый
+ * честный значок игры, какой только может быть - ровно то, что игрок увидит,
+ * нажав. Рисовать отдельную обложку значит обещать не то, что внутри.
+ */
+await sharp(SRC)
+  .extract({ left: 8, top: 0, width: 1090, height: 647 })
+  .resize(640, 380, { fit: 'cover' })
+  .webp({ quality: 84 })
+  .toFile(OUT + 'slot-cover-treasure.webp');
+made.push('slot-cover-treasure');
+
 console.log(`Готово: ${made.length} файлов в public/assets/ui/`);
 console.log(made.join(' '));

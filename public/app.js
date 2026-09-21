@@ -4090,6 +4090,7 @@ const slot = createSlot({
   },
   onUser: (user) => applyUser(user),
   onNoFunds: (need) => needMoney(need),
+  onCashier: () => openCashier(),
 });
 
 /* ============================================================
@@ -4125,7 +4126,7 @@ function switchView(name) {
   }
   if (name === 'roulette') renderRouletteReel(2);
   if (name === 'mini') { mini.close(); mini.renderShelf(); }
-  if (name === 'slots') slot.open();
+  if (name === 'slots') slot.openShelf();
   else slot.close();
   if (name === 'admin') initAdminPanel();
   if (name === 'cases') loadFreeCase();

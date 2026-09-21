@@ -6186,66 +6186,153 @@ button.mg-cell:active { transform: scale(0.92); }
 }
 
 /* ============================================================
-   СЛОТ TREASURE ISLAND
+   СЛОТЫ
    ============================================================
 
    Вёрстка mobile-first, как и весь файл: сначала телефон, компьютерная
    раскладка собрана в конце блока под @media (min-width: 1024px).
 
-   ФОН СОБИРАЕТСЯ ИЗ ТРЁХ СЛОЁВ, а не кладётся одной картинкой. Макет
-   нарисован под широкий экран: положенный целиком на телефон, он либо
-   обрезается по бокам (и скала с лодкой уезжает), либо сжимается в полоску.
-   Небо тянется по ширине, скала прижата к левому краю и видна только на
-   широком экране, заросли держат низ.
+   ОФОРМЛЕНИЕ РАЗЛИЧАЕТСЯ ПО data-theme НА КОРНЕ ЭКРАНА, а не отдельными
+   наборами правил на каждую игру. Общая часть одна: сетка, панель, окна,
+   поведение. Тема меняет только картинки рамки, фон и цвет золота - четыре
+   переменные и три фоновых слоя. Иначе вторая игра означала бы вторую копию
+   восьмисот строк, и починенное в одной оставалось бы сломанным в другой.
    ============================================================ */
 
 #view-slots { padding: 0; }
+
+/* ---------- Полка игр ---------- */
+
+.sl-shelf {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  padding: 0 12px 20px;
+}
+
+.sl-card {
+  display: block;
+  width: 100%;
+  padding: 0;
+  overflow: hidden;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 214, 120, .3);
+  background: linear-gradient(180deg, rgba(14, 26, 42, .96), rgba(6, 14, 24, .96));
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.sl-card:active { transform: scale(.99); }
+
+/*
+ * Обложка это сам игровой экран, сжатый до значка. Рисовать отдельную
+ * картинку значит обещать не то, что внутри: игрок нажимает на одно, а
+ * открывается другое.
+ */
+.sl-card-cover {
+  display: block;
+  width: 100%;
+  aspect-ratio: 640 / 380;
+  object-fit: cover;
+}
+
+.sl-card-body { display: block; padding: 10px 12px 12px; }
+.sl-card-name {
+  display: block;
+  font-size: 17px; font-weight: 900; letter-spacing: .06em; color: #fff;
+}
+.sl-card-tag {
+  display: block; margin-top: 2px;
+  font-size: 10px; font-weight: 700; letter-spacing: .12em; color: #ffd45e;
+}
+.sl-card-blurb {
+  display: block; margin-top: 6px;
+  font-size: 12px; line-height: 1.4; color: #9fb8cc;
+}
+.sl-card-facts {
+  display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px;
+}
+.sl-card-facts span {
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .06);
+  font-size: 10px; font-weight: 700; color: #cfe4f5;
+}
+
+/* ---------- Сцена игры ---------- */
 
 .sl-stage {
   position: relative;
   min-height: 100%;
   padding: 10px 10px 24px;
   overflow: hidden;
-  /* Тёмная основа под слоями: пока картинки грузятся, экран не белый. */
+
+  /* Тема задаёт только это. Всё остальное общее. */
+  --sl-gold: #ffd45e;
+  --sl-ink: #071624;
+  --sl-frame: rgba(255, 214, 120, .3);
+}
+
+.sl-stage[data-theme='pirate'] {
   background: linear-gradient(180deg, #123a5c 0%, #0d2740 55%, #071624 100%);
 }
-
-.sl-bg { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
-/*
- * Селектор с тегом, а не без него: правило ниже гасит скалу на телефоне, и
- * без совпадающей специфичности общее `display: block` его перебивало - скала
- * вылезала поверх кнопки прокрута.
- */
-.sl-bg img { position: absolute; display: block; }
-
-.sl-bg-sky {
-  top: 0; left: 0; width: 100%; height: auto;
-  opacity: .9;
+.sl-stage[data-theme='temple'] {
+  --sl-gold: #f3c55a;
+  --sl-ink: #0a0c18;
+  background: linear-gradient(180deg, #2a1a3a 0%, #14101f 45%, #07060d 100%);
 }
-/* Скала с водопадом - украшение широкого экрана. На телефоне она съедала бы
-   пятую часть ширины, а барабаны и так впритык. */
-.sl-bg img.sl-bg-cliff { display: none; }
-.sl-bg-jungle { bottom: 0; left: 0; width: 100%; height: auto; }
+
+/*
+ * Фон собирается из слоёв, а не кладётся одной картинкой. Макет нарисован
+ * под широкий экран: положенный целиком на телефон, он либо обрезается по
+ * бокам (и скала с водопадом уезжает), либо сжимается в полоску. Небо
+ * тянется по ширине, боковые виды появляются только на широком экране.
+ */
+.sl-bg {
+  position: absolute; inset: 0; z-index: 0; pointer-events: none;
+  background-repeat: no-repeat;
+  background-position: top center, left 74px, right 74px;
+  background-size: 100% auto, auto 0, auto 0;
+}
+.sl-stage[data-theme='pirate'] .sl-bg {
+  background-image: url('/assets/ui/slot-bg-sky.webp'),
+                    url('/assets/ui/slot-bg-cliff.webp'),
+                    url('/assets/ui/slot-bg-jungle.webp');
+}
+.sl-stage[data-theme='temple'] .sl-bg {
+  background-image: url('/assets/ui/gl-bg-sky.webp'),
+                    url('/assets/ui/gl-bg-left.webp'),
+                    url('/assets/ui/gl-bg-right.webp');
+}
 
 .sl-stage > *:not(.sl-bg) { position: relative; z-index: 1; }
 
 /* ---------- Шапка ---------- */
 
 .sl-top {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto 1fr;
   align-items: center;
   gap: 8px;
-  flex-wrap: wrap;
   margin-bottom: 8px;
 }
 
-.sl-logo { width: 116px; height: auto; flex: 0 0 auto; }
+.sl-back {
+  display: flex; align-items: center; gap: 2px;
+  padding: 5px 9px 5px 5px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, .16);
+  background: rgba(8, 16, 28, .8);
+  font-size: 11px; font-weight: 700; color: #cfe4f5;
+  cursor: pointer;
+}
+
+.sl-logo { width: 116px; height: auto; justify-self: end; }
 
 .sl-jackpots {
+  grid-column: 1 / -1;
   display: flex;
   gap: 4px;
-  flex: 1 1 100%;
-  order: 3;
 }
 
 .sl-jp {
@@ -6254,7 +6341,7 @@ button.mg-cell:active { transform: scale(0.92); }
   border-radius: 8px;
   padding: 3px 4px 4px;
   text-align: center;
-  border: 1px solid rgba(255, 214, 120, .45);
+  border: 1px solid var(--sl-frame);
   background: linear-gradient(180deg, rgba(10, 22, 36, .92), rgba(6, 14, 24, .92));
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, .12);
 }
@@ -6263,34 +6350,40 @@ button.mg-cell:active { transform: scale(0.92); }
 .sl-jp-minor { border-color: #57b6e8; background: linear-gradient(180deg, #123c5c, #08202e); }
 .sl-jp-mini  { border-color: #5ac86a; background: linear-gradient(180deg, #14451e, #08220e); }
 
-.sl-jp-head { display: flex; align-items: center; justify-content: center; gap: 3px; }
-.sl-jp-gem { width: 12px; height: 12px; object-fit: contain; }
-.sl-jp-name { font-size: 9px; font-weight: 800; letter-spacing: .06em; color: #ffe6a8; }
+.sl-jp-name {
+  display: block;
+  font-size: 9px; font-weight: 800; letter-spacing: .06em; color: #ffe6a8;
+}
 .sl-jp-sum {
+  display: block;
   font-size: 11px; font-weight: 800; color: #fff;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
 .sl-bonus-badge {
-  display: flex; align-items: center; gap: 6px;
-  margin-left: auto;
-  padding: 4px 8px 4px 4px;
+  grid-column: 1 / -1;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  margin-top: 6px;
+  padding: 5px 10px;
   border-radius: 10px;
-  border: 1px solid rgba(255, 214, 120, .5);
-  background: linear-gradient(180deg, rgba(16, 32, 50, .95), rgba(8, 18, 30, .95));
+  border: 1px solid var(--sl-gold);
+  background: rgba(8, 18, 30, .92);
 }
-.sl-bonus-badge img { width: 26px; height: 26px; object-fit: contain; }
-.sl-bonus-title { font-size: 9px; font-weight: 800; letter-spacing: .05em; color: #ffe6a8; }
-.sl-bonus-dots { display: flex; gap: 3px; margin-top: 3px; }
-.sl-bonus-dots span {
-  width: 5px; height: 5px; border-radius: 50%;
-  background: rgba(255, 255, 255, .22);
+.sl-bonus-title { font-size: 10px; font-weight: 800; letter-spacing: .08em; color: var(--sl-gold); }
+.sl-bonus-left { font-size: 12px; font-weight: 800; color: #fff; }
+
+/* ---------- Кнопки ---------- */
+
+/*
+ * На телефоне столбик кнопок из макета лёг бы поверх барабанов: ширины на
+ * отдельную колонку нет. Поэтому он разворачивается в строку над машиной, а
+ * в боковой столбец возвращается только на компьютере.
+ */
+.sl-rail {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 8px;
 }
-.sl-bonus-dots span.on { background: #6ee36e; box-shadow: 0 0 4px #6ee36e; }
-
-/* ---------- Левый столбик кнопок ---------- */
-
-.sl-rail { display: none; }
 
 .sl-round {
   width: 38px; height: 38px;
@@ -6302,6 +6395,11 @@ button.mg-cell:active { transform: scale(0.92); }
   color: #cfe4f5;
   cursor: pointer;
 }
+.sl-stage[data-theme='temple'] .sl-round {
+  border-color: rgba(243, 197, 90, .45);
+  background: linear-gradient(180deg, rgba(38, 28, 18, .95), rgba(14, 10, 8, .95));
+  color: var(--sl-gold);
+}
 .sl-round:active { transform: scale(.94); }
 .sl-ico { width: 19px; height: 19px; }
 .sl-ico-sm { width: 14px; height: 14px; }
@@ -6309,10 +6407,9 @@ button.mg-cell:active { transform: scale(0.92); }
 /* ---------- Барабаны ---------- */
 
 /*
- * Поля машины - это и есть место под доски рамки. Раньше доски висели
- * снаружи через отрицательные отступы и наползали на крайние барабаны: на
- * телефоне левый столбец символов уходил под дерево наполовину. Теперь доски
- * стоят по краям машины, а барабаны живут внутри полей и рамку не задевают.
+ * Поля машины - это и есть место под рамку. Раньше доски висели снаружи
+ * через отрицательные отступы и наползали на крайние барабаны: на телефоне
+ * левый столбец символов уходил под дерево наполовину.
  */
 .sl-machine {
   position: relative;
@@ -6321,13 +6418,44 @@ button.mg-cell:active { transform: scale(0.92); }
   padding: 13px 15px 21px;
 }
 
-.sl-frame { position: absolute; z-index: 2; pointer-events: none; display: block; }
-/* Доски тянутся по краю: object-fit fill растягивает текстуру дерева, и шва
-   не видно - доска и в макете однородная по длине. */
-.sl-frame-top { left: 0; top: 0; width: 100%; height: 14px; object-fit: fill; }
-.sl-frame-bottom { left: 0; bottom: 0; width: 100%; height: 22px; object-fit: fill; }
-.sl-frame-left { left: 0; top: 0; width: 15px; height: 100%; object-fit: fill; }
-.sl-frame-right { right: 0; top: 0; width: 15px; height: 100%; object-fit: fill; }
+/*
+ * Рамка нарисована одним элементом с несколькими фоновыми слоями, а не
+ * четырьмя картинками в разметке. Слоёв у разных тем разное число, и
+ * держать в разметке четыре доски, из которых половина не нужна, значит
+ * возить по экрану пустые узлы.
+ */
+.sl-frame {
+  position: absolute; inset: 0; z-index: 2; pointer-events: none;
+  background-repeat: no-repeat;
+}
+.sl-stage[data-theme='pirate'] .sl-frame {
+  background-image: url('/assets/ui/slot-frame-top.webp'),
+                    url('/assets/ui/slot-frame-bottom.webp'),
+                    url('/assets/ui/slot-frame-left.webp'),
+                    url('/assets/ui/slot-frame-right.webp');
+  background-position: top left, bottom left, top left, top right;
+  background-size: 100% 14px, 100% 22px, 15px 100%, 15px 100%;
+}
+/*
+ * У храма рамка это две колонны и арка. Арка вырезана правой половиной и
+ * ставится дважды: второй слой отражён по горизонтали через background с
+ * тем же файлом и позиционированием от левого края - зеркалить приходится
+ * поворотом самого слоя, поэтому левая половина лежит на отдельном
+ * псевдоэлементе.
+ */
+.sl-stage[data-theme='temple'] .sl-frame {
+  background-image: url('/assets/ui/gl-col-left.webp'),
+                    url('/assets/ui/gl-col-right.webp'),
+                    url('/assets/ui/gl-arch.webp');
+  background-position: left 12px, right 12px, right top;
+  background-size: 16px calc(100% - 12px), 16px calc(100% - 12px), 50% 14px;
+}
+.sl-stage[data-theme='temple'] .sl-frame::before {
+  content: '';
+  position: absolute; left: 0; top: 0; width: 50%; height: 14px;
+  background: url('/assets/ui/gl-arch.webp') left top / 100% 100% no-repeat;
+  transform: scaleX(-1);
+}
 
 .sl-reels {
   position: relative;
@@ -6336,8 +6464,8 @@ button.mg-cell:active { transform: scale(0.92); }
   gap: 2px;
   padding: 4px;
   border-radius: 6px;
-  background: #0a1524;
-  border: 2px solid #2a1a0e;
+  background: var(--sl-ink);
+  border: 2px solid rgba(0, 0, 0, .6);
   overflow: hidden;
 }
 
@@ -6350,7 +6478,7 @@ button.mg-cell:active { transform: scale(0.92); }
   position: relative;
   overflow: hidden;
   aspect-ratio: 1 / 3;
-  background: linear-gradient(180deg, #0f1e30, #0a1524);
+  background: linear-gradient(180deg, rgba(255, 255, 255, .04), rgba(0, 0, 0, .25));
   border-radius: 4px;
 }
 
@@ -6379,7 +6507,7 @@ button.mg-cell:active { transform: scale(0.92); }
 
 /* Барабан, который решает бонус, подсвечивается рамкой. */
 .sl-reel.is-anticipating {
-  box-shadow: inset 0 0 0 2px #ffd45e, 0 0 14px rgba(255, 212, 94, .5);
+  box-shadow: inset 0 0 0 2px var(--sl-gold), 0 0 14px rgba(255, 212, 94, .5);
 }
 .sl-reel.is-expanded {
   box-shadow: inset 0 0 0 2px #7ef0ff, 0 0 16px rgba(126, 240, 255, .45);
@@ -6395,16 +6523,26 @@ button.mg-cell:active { transform: scale(0.92); }
 }
 .sl-line { opacity: .9; filter: drop-shadow(0 0 2px currentColor); }
 
+.sl-linetag {
+  position: absolute; left: 50%; bottom: 0; transform: translate(-50%, 50%);
+  z-index: 4;
+  padding: 3px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--sl-gold);
+  background: rgba(6, 12, 20, .94);
+  font-size: 11px; font-weight: 700; color: var(--sl-gold);
+  white-space: nowrap;
+}
+
 /* ---------- Плашка события ---------- */
 
 .sl-banner {
   position: absolute;
   inset: 0;
-  z-index: 4;
+  z-index: 20;
   display: grid;
   place-content: center;
   text-align: center;
-  border-radius: 6px;
   background: rgba(4, 10, 18, .82);
   animation: sl-pop 260ms ease-out;
 }
@@ -6414,8 +6552,6 @@ button.mg-cell:active { transform: scale(0.92); }
   -webkit-background-clip: text; background-clip: text; color: transparent;
 }
 .sl-banner-sub { margin-top: 6px; font-size: 15px; font-weight: 700; color: #ffe6a8; }
-.sl-banner.is-bonus .sl-banner-title { background: linear-gradient(180deg, #d8fff0, #34d9a0); -webkit-background-clip: text; background-clip: text; }
-.sl-banner.is-jackpot .sl-banner-title { background: linear-gradient(180deg, #fff, #ff6b5a); -webkit-background-clip: text; background-clip: text; }
 
 @keyframes sl-pop {
   from { transform: scale(.86); opacity: 0; }
@@ -6425,15 +6561,14 @@ button.mg-cell:active { transform: scale(0.92); }
 /* ---------- Панель ---------- */
 
 /*
- * Отступ сверху больше, чем кажется нужным: нижняя доска рамки вынесена из
- * потока и висит на 14 точек ниже поля барабанов. Без запаса она ложится
- * поверх баланса.
+ * Отступ сверху с запасом: нижняя часть рамки вынесена из потока и висит на
+ * краю машины. Без запаса она ложится поверх баланса.
  */
 .sl-panel {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 6px;
-  margin-top: 34px;
+  margin-top: 12px;
   align-items: stretch;
 }
 
@@ -6441,15 +6576,19 @@ button.mg-cell:active { transform: scale(0.92); }
   display: flex; align-items: center; justify-content: center; gap: 6px;
   padding: 7px 10px;
   border-radius: 12px;
-  border: 1px solid rgba(255, 214, 120, .3);
+  border: 1px solid var(--sl-frame);
   background: linear-gradient(180deg, rgba(14, 28, 44, .95), rgba(6, 14, 24, .95));
 }
 .sl-balance { flex-direction: column; gap: 1px; }
-.sl-balance-label, .sl-bet-label {
+.sl-bet-box {
+  border: 0; background: none; padding: 0; text-align: center; min-width: 0;
+  color: inherit; cursor: pointer;
+}
+.sl-label {
+  display: block;
   font-size: 9px; font-weight: 800; letter-spacing: .1em; color: #8fb2cc;
 }
-.sl-balance-value, .sl-bet-value { font-size: 15px; font-weight: 800; color: #fff; }
-.sl-bet-box { text-align: center; min-width: 0; }
+.sl-value { display: block; font-size: 15px; font-weight: 800; color: #fff; }
 .sl-bet-btn { width: 30px; height: 30px; }
 .sl-bet-btn .sl-ico { width: 15px; height: 15px; }
 
@@ -6465,8 +6604,9 @@ button.mg-cell:active { transform: scale(0.92); }
   width: 92px; height: 92px;
   border: 0; padding: 0; background: none; cursor: pointer;
 }
-.sl-spin img { width: 100%; height: 100%; display: block; }
+.sl-spin img { width: 100%; height: 100%; display: block; transition: transform 120ms; }
 .sl-spin:active img { transform: scale(.95); }
+.sl-spin:hover img { filter: brightness(1.1); }
 .sl-spin.is-spinning img { animation: sl-turn 900ms linear infinite; }
 .sl-spin:disabled { cursor: default; }
 .sl-spin-count {
@@ -6491,13 +6631,17 @@ button.mg-cell:active { transform: scale(0.92); }
 }
 .sl-btn-max { background: linear-gradient(180deg, #12508c, #0a2c50); }
 .sl-btn-auto { background: linear-gradient(180deg, #3a2a8c, #1c1450); }
-.sl-btn-auto.is-on { border-color: #ffd45e; box-shadow: 0 0 10px rgba(255, 212, 94, .4); }
+.sl-btn-auto.is-on { border-color: var(--sl-gold); box-shadow: 0 0 10px rgba(255, 212, 94, .4); }
 .sl-btn-buy {
   grid-column: 1 / -1;
   flex-direction: row; gap: 8px;
   background: linear-gradient(180deg, #7a2050, #3c0f28);
 }
+.sl-stage[data-theme='temple'] .sl-btn-max { background: linear-gradient(180deg, #4a3714, #241a08); }
+.sl-stage[data-theme='temple'] .sl-btn-auto { background: linear-gradient(180deg, #3d2a4c, #1c1226); }
+.sl-stage[data-theme='temple'] .sl-btn-buy { background: linear-gradient(180deg, #6d4a12, #33220a); }
 .sl-ico-gift { width: 22px; height: 22px; color: #ff8fc0; }
+.sl-stage[data-theme='temple'] .sl-ico-gift { color: var(--sl-gold); }
 .sl-btn-buy span { text-align: left; }
 
 .sl-win {
@@ -6505,59 +6649,29 @@ button.mg-cell:active { transform: scale(0.92); }
   display: flex; align-items: center; justify-content: center; gap: 8px;
   padding: 6px 14px;
   border-radius: 999px;
-  border: 1px solid rgba(255, 212, 94, .5);
+  border: 1px solid var(--sl-gold);
   background: rgba(8, 18, 30, .9);
   width: max-content;
 }
-.sl-win-label { font-size: 10px; font-weight: 800; letter-spacing: .1em; color: #8fb2cc; }
-.sl-win-sum { font-size: 17px; font-weight: 900; color: #ffd45e; }
-
-/* ---------- Карточки механик ---------- */
-
-.sl-features {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 6px;
-  margin-top: 14px;
-}
-.sl-feat {
-  position: relative;
-  display: block;
-  padding: 0;
-  border: 1px solid rgba(255, 214, 120, .3);
-  border-radius: 12px;
-  overflow: hidden;
-  background: #0a1524;
-  cursor: pointer;
-  text-align: center;
-}
-.sl-feat img { width: 100%; height: 56px; object-fit: cover; display: block; opacity: .9; }
-.sl-feat-title, .sl-feat-sub { display: block; }
-.sl-feat-title {
-  padding: 5px 6px 0;
-  font-size: 12px; font-weight: 900; letter-spacing: .05em; color: #fff;
-}
-.sl-feat-sub {
-  padding: 1px 6px 6px;
-  font-size: 10px; font-weight: 700; color: #ffe6a8;
-}
+.sl-win .sl-label { display: inline-block; }
+.sl-win-sum { font-size: 17px; font-weight: 900; color: var(--sl-gold); }
 
 .sl-tools { display: flex; gap: 8px; justify-content: center; margin-top: 12px; }
 
-/* ---------- Таблица выплат и история ---------- */
+/* ---------- Боковые панели ---------- */
 
 /* На телефоне они живут в окнах: место на экране дороже. */
 .sl-side { display: none; }
 
-.sl-card {
+.sl-card-panel {
   border-radius: 14px;
-  border: 1px solid rgba(255, 214, 120, .3);
+  border: 1px solid var(--sl-frame);
   background: linear-gradient(180deg, rgba(10, 22, 36, .96), rgba(6, 14, 24, .96));
   padding: 10px;
 }
-.sl-card-head {
+.sl-panel-head {
   display: flex; align-items: center; gap: 6px; justify-content: center;
-  font-size: 12px; font-weight: 900; letter-spacing: .1em; color: #ffe6a8;
+  font-size: 12px; font-weight: 900; letter-spacing: .1em; color: var(--sl-gold);
   margin-bottom: 8px;
 }
 
@@ -6569,7 +6683,7 @@ button.mg-cell:active { transform: scale(0.92); }
   background: rgba(255, 255, 255, .04);
 }
 .sl-pay-img { width: 42px; height: 42px; object-fit: contain; flex: 0 0 auto; }
-.sl-pay-nums { display: flex; flex-direction: column; font-size: 11px; font-weight: 700; color: #ffd45e; }
+.sl-pay-nums { display: flex; flex-direction: column; font-size: 11px; font-weight: 700; color: var(--sl-gold); }
 .sl-pay-text { font-size: 11px; line-height: 1.35; color: #cfe4f5; }
 .sl-pay-special { display: grid; gap: 6px; margin-top: 8px; }
 .sl-pay-note { margin-top: 10px; font-size: 11px; line-height: 1.45; color: #8fb2cc; }
@@ -6605,7 +6719,7 @@ button.mg-cell:active { transform: scale(0.92); }
   padding: 18px 14px 16px;
   border-radius: 16px;
   border: 1px solid rgba(255, 214, 120, .35);
-  background: linear-gradient(180deg, #102438, #071522);
+  background: linear-gradient(180deg, #14182a, #080a14);
 }
 .sl-modal-close {
   position: absolute; top: 8px; right: 8px;
@@ -6623,24 +6737,153 @@ button.mg-cell:active { transform: scale(0.92); }
 .sl-modal-note { margin-top: 10px; font-size: 11px; line-height: 1.45; color: #8fb2cc; }
 .sl-rules { margin: 0; padding-left: 18px; font-size: 12px; line-height: 1.5; color: #cfe4f5; }
 .sl-rules li { margin-bottom: 7px; }
-.sl-buy-price {
-  text-align: center; font-size: 26px; font-weight: 900; color: #ffd45e;
-  margin: 8px 0 4px;
+
+/* Золотая кнопка из макета: рамка, градиент, блик сверху. */
+.sl-gold-btn {
+  display: block; width: 100%;
+  margin-top: 10px;
+  padding: 11px 16px;
+  border-radius: 10px;
+  border: 1px solid #c9992f;
+  background: linear-gradient(180deg, #f6d271, #c2871f);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .5);
+  font-size: 13px; font-weight: 900; letter-spacing: .08em; color: #2a1a04;
+  cursor: pointer;
 }
-.sl-buy-go { width: 100%; margin-top: 10px; }
+.sl-gold-btn:active { transform: scale(.98); }
+.sl-gold-btn-quiet {
+  background: rgba(255, 255, 255, .06);
+  border-color: rgba(255, 214, 120, .35);
+  box-shadow: none;
+  color: #ffe6a8;
+}
+
+.sl-menu-list { display: flex; flex-direction: column; gap: 6px; }
+.sl-menu-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 11px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, .1);
+  background: rgba(255, 255, 255, .04);
+  font-size: 13px; font-weight: 700; color: #eaf4ff;
+  cursor: pointer;
+}
+.sl-menu-item .sl-ico { color: var(--sl-gold, #ffd45e); }
+
 .sl-switch {
   display: flex; align-items: center; gap: 10px;
   padding: 9px 4px;
   font-size: 13px; font-weight: 700; color: #eaf4ff;
   cursor: pointer;
 }
-.sl-switch input { width: 18px; height: 18px; accent-color: #ffd45e; }
+.sl-switch span { flex: 1 1 auto; }
+.sl-switch .sl-ico { color: #ffd45e; }
+
+/*
+ * Переключатель из макета - пилюля с бегунком, а не системная галочка.
+ * Системная выглядит по-разному на iOS, Android и в вебе и не красится, а
+ * весь экран собран в одном стиле.
+ */
+.sl-switch input {
+  appearance: none; -webkit-appearance: none;
+  position: relative;
+  flex: 0 0 auto;
+  width: 44px; height: 24px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 214, 120, .35);
+  background: rgba(255, 255, 255, .08);
+  cursor: pointer;
+  transition: background 160ms;
+}
+.sl-switch input::after {
+  content: '';
+  position: absolute; top: 2px; left: 2px;
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  background: #cfe4f5;
+  transition: transform 160ms, background 160ms;
+}
+.sl-switch input:checked { background: linear-gradient(180deg, #f6d271, #c2871f); }
+.sl-switch input:checked::after { transform: translateX(20px); background: #2a1a04; }
+
+.sl-chip {
+  min-width: 52px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 214, 120, .35);
+  background: rgba(255, 255, 255, .05);
+  font-size: 13px; font-weight: 800; color: #eaf4ff;
+  cursor: pointer;
+}
+.sl-chip.is-on { border-color: #ffd45e; background: rgba(255, 212, 94, .18); color: #ffe6a8; }
+.sl-chip.is-off { opacity: .4; }
+.sl-auto-row { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+.sl-bet-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+
+.sl-buy-art, .sl-free {
+  border-radius: 12px;
+  background-size: cover; background-position: center;
+  text-align: center;
+}
+.sl-buy-art {
+  display: grid; place-items: center;
+  height: 72px; margin-bottom: 10px;
+}
+.sl-buy-art span {
+  padding: 4px 12px;
+  border-radius: 8px;
+  background: rgba(6, 10, 18, .7);
+  font-size: 12px; font-weight: 900; letter-spacing: .08em; color: #ffe6a8;
+}
+.sl-buy-price {
+  text-align: center; font-size: 26px; font-weight: 900; color: #ffd45e;
+  margin: 8px 0 4px;
+}
+
+.sl-free { padding: 16px 12px; }
+.sl-free-count {
+  font-size: 54px; font-weight: 900; line-height: 1;
+  background: linear-gradient(180deg, #fff6d0, #f0b537);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.sl-free-sub {
+  margin-top: 2px;
+  font-size: 13px; font-weight: 800; letter-spacing: .08em; color: #ffe6a8;
+}
+.sl-free-note { margin: 6px 0 0; font-size: 11px; color: #cfe4f5; }
+
+.sl-bigwin { text-align: center; padding: 6px 0 0; }
+.sl-bigwin-title {
+  font-size: 40px; font-weight: 900; letter-spacing: .04em; line-height: 1;
+  background: linear-gradient(180deg, #fff6d0, #f0a021);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  animation: sl-bigwin-in 420ms cubic-bezier(.2, 1.4, .4, 1);
+}
+.sl-bigwin.is-mega .sl-bigwin-title {
+  background: linear-gradient(180deg, #fff, #ff6b5a);
+  -webkit-background-clip: text; background-clip: text;
+}
+.sl-bigwin-sum {
+  margin-top: 8px;
+  font-size: 26px; font-weight: 900; color: #ffe6a8;
+}
+@keyframes sl-bigwin-in {
+  from { transform: scale(.4); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+.sl-alert { text-align: center; }
+.sl-ico-alert { width: 40px; height: 40px; color: #ff6b5a; }
 
 /* ============================================================
-   СЛОТ: КОМПЬЮТЕР
+   СЛОТЫ: КОМПЬЮТЕР
    ============================================================ */
 
 @media (min-width: 1024px) {
+  .sl-shelf { grid-template-columns: repeat(2, 1fr); gap: 16px; padding: 0 0 24px; }
+  .sl-card:hover { border-color: var(--sl-gold, #ffd45e); }
+  .sl-card-name { font-size: 20px; }
+
   .sl-stage {
     display: grid;
     grid-template-columns: 64px minmax(0, 1fr) 310px;
@@ -6650,16 +6893,13 @@ button.mg-cell:active { transform: scale(0.92); }
     align-content: start;
   }
 
-  .sl-top { grid-area: top; flex-wrap: nowrap; gap: 14px; }
-  .sl-logo { width: 190px; }
-  .sl-jackpots { order: 0; flex: 1 1 auto; gap: 8px; max-width: 760px; }
+  .sl-top { grid-area: top; grid-template-columns: auto auto 1fr auto; gap: 14px; }
+  .sl-logo { width: 190px; justify-self: start; }
+  .sl-jackpots { grid-column: auto; gap: 8px; max-width: 700px; }
   .sl-jp { padding: 5px 10px 6px; border-radius: 10px; }
-  .sl-jp-gem { width: 18px; height: 18px; }
   .sl-jp-name { font-size: 12px; }
   .sl-jp-sum { font-size: 16px; }
-  .sl-bonus-badge { padding: 6px 12px 6px 6px; }
-  .sl-bonus-badge img { width: 40px; height: 40px; }
-  .sl-bonus-title { font-size: 11px; }
+  .sl-bonus-badge { grid-column: auto; margin-top: 0; }
 
   .sl-rail {
     grid-area: rail;
@@ -6673,21 +6913,25 @@ button.mg-cell:active { transform: scale(0.92); }
   .sl-side { grid-area: side; display: flex; flex-direction: column; gap: 12px; }
 
   /*
-   * Скала появляется только здесь: это часть макета, которая читается лишь
-   * на широком экране. Она за содержимым и кликов не ловит.
+   * Боковые виды появляются только здесь: это часть макета, которая
+   * читается лишь на широком экране. Они за содержимым и кликов не ловят.
    */
-  .sl-bg img.sl-bg-cliff { display: block; left: 0; top: 74px; width: 132px; height: auto; opacity: .95; }
+  .sl-bg { background-size: 100% auto, auto 440px, auto 440px; }
 
   .sl-machine { max-width: 820px; padding: 18px 22px 30px; }
   .sl-reels { gap: 4px; padding: 6px; border-radius: 8px; }
-  .sl-frame-top { height: 20px; }
-  .sl-frame-bottom { height: 31px; }
-  .sl-frame-left, .sl-frame-right { width: 22px; }
+  .sl-stage[data-theme='pirate'] .sl-frame {
+    background-size: 100% 20px, 100% 31px, 22px 100%, 22px 100%;
+  }
+  .sl-stage[data-theme='temple'] .sl-frame {
+    background-size: 22px calc(100% - 18px), 22px calc(100% - 18px), 50% 20px;
+  }
+  .sl-stage[data-theme='temple'] .sl-frame::before { height: 20px; }
 
   /*
    * На компьютере панель это ряд, а не сетка: кнопки разной ширины, и
-   * колоночная раскладка выносила «Купить бонус» за пределы колонки - надпись
-   * обрезало боковым столбцом. Ряд с переносом сам укладывается по месту.
+   * колоночная раскладка выносила «Купить бонус» за пределы колонки -
+   * надпись обрезало боковым столбцом. Ряд с переносом сам укладывается.
    */
   .sl-panel {
     display: flex;
@@ -6700,24 +6944,20 @@ button.mg-cell:active { transform: scale(0.92); }
   .sl-spin, .sl-btn-buy { grid-column: auto; }
   .sl-btn { flex: 0 0 auto; }
   .sl-balance, .sl-bet { padding: 9px 16px; }
-  .sl-balance-value, .sl-bet-value { font-size: 18px; }
+  .sl-value { font-size: 18px; }
   .sl-bet-btn { width: 36px; height: 36px; }
-  .sl-spin { grid-column: auto; width: 116px; height: 116px; }
+  .sl-spin { width: 116px; height: 116px; }
   .sl-btn { min-height: 56px; font-size: 12px; padding: 8px 16px; }
-  .sl-btn-buy { grid-column: auto; }
-
-  .sl-features { grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 18px; }
-  .sl-feat img { height: 78px; }
-  .sl-feat-title { font-size: 13px; }
 
   .sl-tools { justify-content: flex-end; margin-top: 14px; }
 
-  .sl-pay-grid { grid-template-columns: 1fr 1fr; }
   .sl-pay-img { width: 38px; height: 38px; }
+  .sl-bet-grid { grid-template-columns: repeat(5, 1fr); }
 
   /* Во весь экран: рамка раздела перестаёт ограничивать ширину. */
   .sl-stage.is-full {
     position: fixed; inset: 0; z-index: 50;
     overflow-y: auto;
   }
+  .sl-stage:fullscreen { overflow-y: auto; }
 }

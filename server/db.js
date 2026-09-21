@@ -378,6 +378,7 @@ db.exec(`
    */
   CREATE TABLE IF NOT EXISTS slot_sessions (
     user_id    INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    slot_id    TEXT    NOT NULL DEFAULT '',
     spins_left INTEGER NOT NULL,
     line_bet   INTEGER NOT NULL,
     total_win  INTEGER NOT NULL DEFAULT 0,
@@ -435,6 +436,13 @@ ensureColumn('users', 'is_admin', 'INTEGER NOT NULL DEFAULT 0');
 // запись «правка настроек» ничего не говорит через неделю.
 ensureColumn('admin_log', 'meta', 'TEXT');
 ensureColumn('users', 'is_blocked', 'INTEGER NOT NULL DEFAULT 0');
+/*
+ * Слот, в котором идёт незаконченная серия фриспинов. До второй игры серия
+ * была одна на всех, и колонки не было: у тех, кто успел поймать бонус до
+ * обновления, она останется пустой, и такая серия доигрывается в той игре,
+ * которую игрок откроет. Это лучше, чем отнять оплаченные вращения.
+ */
+ensureColumn('slot_sessions', 'slot_id', "TEXT NOT NULL DEFAULT ''");
 // Колонка осталась от прежней схемы: один удвоитель на игрока. Данные из неё
 // переезжают в x2_perks, сама она больше не читается и не пишется.
 ensureColumn('users', 'x2_case_id', 'TEXT');
@@ -718,7 +726,7 @@ export function getSlotSession(userId) {
  * Иначе между списанием ставки и записью серии помещается обрыв связи, и три
  * scatter пропадают вместе с оплаченным прокрутом.
  */
-export const playSlotSpin = db.transaction((userId, bet, resolve) => {
+export const playSlotSpin = db.transaction((userId, slotId, bet, resolve) => {
   const before = getUserById(userId);
   if (before.balance < bet) {
     throw Object.assign(new Error('Недостаточно средств'), { code: 'INSUFFICIENT_FUNDS' });
@@ -736,9 +744,9 @@ export const playSlotSpin = db.transaction((userId, bet, resolve) => {
   const balance = settleRound(userId, { ...outcome, bet, nonce });
 
   if (outcome.freeSpins > 0) {
-    db.prepare(`INSERT INTO slot_sessions (user_id, spins_left, line_bet, total_win, bought, started_at)
-                VALUES (?, ?, ?, 0, 0, ?)`)
-      .run(userId, outcome.freeSpins, Math.round(bet / outcome.lines), Date.now());
+    db.prepare(`INSERT INTO slot_sessions (user_id, slot_id, spins_left, line_bet, total_win, bought, started_at)
+                VALUES (?, ?, ?, ?, 0, 0, ?)`)
+      .run(userId, slotId, outcome.freeSpins, Math.round(bet / outcome.lines), Date.now());
   }
 
   return { ...outcome, nonce, bet, balance };
@@ -751,7 +759,7 @@ export const playSlotSpin = db.transaction((userId, bet, resolve) => {
  * и отыгрыш депозита она гасит наравне с прокрутом. Раунд в историю пишется
  * с нулевой выплатой - выплаты придут прокрутами серии.
  */
-export const buySlotBonus = db.transaction((userId, price, lineBet, spins, title) => {
+export const buySlotBonus = db.transaction((userId, slotId, price, lineBet, spins, title) => {
   const user = getUserById(userId);
   if (user.balance < price) {
     throw Object.assign(new Error('Недостаточно средств'), { code: 'INSUFFICIENT_FUNDS' });
@@ -770,9 +778,9 @@ export const buySlotBonus = db.transaction((userId, price, lineBet, spins, title
     VALUES (?, 'slot', ?, 'Покупка фриспинов', ?, 0, 0, 'common', 0, ?, ?, ?, ?)
   `).run(userId, title, price, user.nonce, user.server_seed_hash, user.client_seed, Date.now());
 
-  db.prepare(`INSERT INTO slot_sessions (user_id, spins_left, line_bet, total_win, bought, started_at)
-              VALUES (?, ?, ?, 0, 1, ?)`)
-    .run(userId, spins, lineBet, Date.now());
+  db.prepare(`INSERT INTO slot_sessions (user_id, slot_id, spins_left, line_bet, total_win, bought, started_at)
+              VALUES (?, ?, ?, ?, 0, 1, ?)`)
+    .run(userId, slotId, spins, lineBet, Date.now());
 
   return { balance: getUserById(userId).balance, session: getSlotSession(userId) };
 });

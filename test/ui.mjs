@@ -1481,105 +1481,131 @@ check('честность: личная статистика убрана', fair
   await page.waitForTimeout(200);
 }
 
-/* ---------- Слот TREASURE ISLAND ---------- */
+/* ---------- Слоты ---------- */
 
 {
   await page.evaluate(() => document.querySelector('[data-view="slots"]')?.click());
-  await page.waitForTimeout(1400);
+  await page.waitForTimeout(1200);
 
-  const built = await page.evaluate(() => ({
-    reels: document.querySelectorAll('.sl-reel').length,
-    jackpots: document.querySelectorAll('.sl-jp').length,
-    features: document.querySelectorAll('.sl-feat').length,
-    pays: document.querySelectorAll('.sl-paytable .sl-pay').length,
-    symbolsLoaded: [...document.querySelectorAll('.sl-reel .sl-sym')].every((i) => i.complete && i.naturalWidth > 0),
-    logo: document.querySelector('.sl-logo')?.naturalWidth > 0,
-    spin: Boolean(document.getElementById('slotSpin')),
+  const shelf = await page.evaluate(() => ({
+    cards: document.querySelectorAll('.sl-card').length,
+    covers: [...document.querySelectorAll('.sl-card-cover')].every((i) => i.complete && i.naturalWidth > 0),
+    names: [...document.querySelectorAll('.sl-card-name')].map((n) => n.textContent.trim()),
+    ids: [...document.querySelectorAll('[data-slot]')].map((n) => n.dataset.slot),
   }));
 
-  check('слот: пять барабанов', built.reels === 5, `${built.reels}`);
-  check('слот: четыре джекпота', built.jackpots === 4, `${built.jackpots}`);
-  check('слот: три карточки механик', built.features === 3, `${built.features}`);
-  check('слот: таблица выплат собрана', built.pays >= 13, `${built.pays}`);
-  check('слот: символы загрузились', built.symbolsLoaded);
-  check('слот: логотип загрузился', built.logo);
-  check('слот: кнопка прокрута есть', built.spin);
+  check('слоты: на полке больше одной игры', shelf.cards >= 2, `${shelf.cards}`);
+  check('слоты: обложки загрузились', shelf.covers);
+  check('слоты: названия английские', shelf.names.every((n) => /^[A-Z ]+$/.test(n)),
+        shelf.names.join(' | '));
+  check('слоты: идентификаторы не повторяются',
+        new Set(shelf.ids).size === shelf.ids.length);
 
   /*
-   * ГЛАВНАЯ ПРОВЕРКА РАЗДЕЛА: барабан встал РОВНО на символе, и встал на том,
-   * что решил сервер.
-   *
-   * Смещение ленты обязано делиться на высоту ячейки без остатка - высота
-   * снимается с разметки, а не зашита числом, и на этом уже ломались барабаны
-   * кейсов и мини-игр. А символы в окне обязаны совпасть с сеткой из ответа:
-   * если клиент нарисует не то, игрок увидит одну комбинацию, а заплатят ему
-   * по другой.
+   * Каждая игра проверяется отдельно: они отличаются таблицей, лентами и
+   * оформлением, и половина ошибок вылезает именно там, где игры расходятся.
    */
-  /*
-   * Ответ сервера снимается перехватом fetch, а не ожиданием сетевого ответа:
-   * в автономной сборке сети нет вовсе, там fetch отвечает заглушкой, и
-   * waitForResponse не дождался бы ничего.
-   */
-  await page.evaluate(() => {
-    const real = window.fetch;
-    window.__slotAnswer = null;
-    window.fetch = async (...args) => {
-      const res = await real(...args);
-      if (String(args[0]).includes('/api/slot/spin')) {
-        window.__slotAnswer = await res.clone().json();
-      }
-      return res;
-    };
-  });
-  await page.evaluate(() => document.getElementById('slotSpin').click());
-  await page.waitForTimeout(3400);
-  const answer = await page.evaluate(() => window.__slotAnswer);
-  check('слот: сервер ответил на прокрут', Boolean(answer && answer.offsets));
+  for (const slotId of shelf.ids) {
+    await page.evaluate((id) => {
+      document.querySelector('[data-act="shelf"]')?.click();
+      setTimeout(() => document.querySelector(`[data-slot="${id}"]`)?.click(), 60);
+    }, slotId);
+    await page.waitForTimeout(1500);
 
-  const landed = await page.evaluate(() => [...document.querySelectorAll('.sl-reel')].map((el) => {
-    const strip = el.querySelector('.sl-strip');
-    const cell = strip.firstElementChild.getBoundingClientRect().height;
-    const m = /translate3d\(0px, (-?[\d.]+)px/.exec(strip.style.transform) || [];
-    const shift = -Number(m[1] || 0);
-    const pos = Math.round(shift / cell);
-    const length = strip.children.length - 3;   // три ячейки - повтор начала
-    return {
-      cell: Math.round(cell),
-      rest: Math.abs(shift / cell - pos),
-      pos,
-      window: [0, 1, 2].map((r) => strip.children[(pos + r) % length].dataset.sym),
-    };
-  }));
+    const built = await page.evaluate(() => ({
+      reels: document.querySelectorAll('.sl-reel').length,
+      jackpots: document.querySelectorAll('.sl-jp').length,
+      pays: document.querySelectorAll('.sl-card-panel .sl-pay').length,
+      symbolsLoaded: [...document.querySelectorAll('.sl-reel .sl-sym')]
+        .every((i) => i.complete && i.naturalWidth > 0),
+      logo: document.querySelector('.sl-logo')?.naturalWidth > 0,
+      theme: document.getElementById('slotStage')?.dataset.theme,
+      spin: Boolean(document.getElementById('slotSpin')),
+      cells: document.querySelectorAll('.sl-reel:first-child .sl-cell').length,
+    }));
 
-  check('слот: высота ячейки снята с разметки',
-        landed.every((r) => r.cell > 20), landed.map((r) => r.cell).join('/'));
-  check('слот: лента встала ровно на символе',
-        landed.every((r) => r.rest < 0.02), landed.map((r) => r.rest.toFixed(3)).join('/'));
-  check('слот: барабаны встали на позиции сервера',
-        Boolean(answer) && landed.every((r, i) => r.pos === answer.offsets[i]),
-        `${landed.map((r) => r.pos).join('/')} против ${answer.offsets.join('/')}`);
-  check('слот: на экране ровно та сетка, которую прислал сервер',
-        Boolean(answer) && landed.every((r, i) => r.window.join() === answer.grid[i].join()),
-        JSON.stringify(landed.map((r) => r.window)));
+    check(`${slotId}: пять барабанов`, built.reels === 5, `${built.reels}`);
+    check(`${slotId}: четыре джекпота`, built.jackpots === 4, `${built.jackpots}`);
+    check(`${slotId}: таблица выплат собрана`, built.pays >= 10, `${built.pays}`);
+    check(`${slotId}: символы загрузились`, built.symbolsLoaded);
+    check(`${slotId}: логотип загрузился`, built.logo);
+    check(`${slotId}: тема проставлена`, Boolean(built.theme), String(built.theme));
+    check(`${slotId}: кнопка прокрута есть`, built.spin);
 
-  // Ставка меняется только по списку с сервера и не уходит за его границы.
+    /*
+     * В разметке живёт окно из нескольких ячеек, а не вся лента. У второй
+     * игры лента длиной больше сотни позиций, и выложенная целиком она
+     * означала бы шестьсот картинок на экран.
+     */
+    check(`${slotId}: лента виртуальная, а не выложена целиком`,
+          built.cells > 3 && built.cells <= 12, `${built.cells} ячеек`);
+
+    /*
+     * ГЛАВНАЯ ПРОВЕРКА РАЗДЕЛА: барабан встал РОВНО на символе, и встал на
+     * том, что решил сервер.
+     *
+     * Ответ снимается перехватом fetch, а не ожиданием сетевого ответа: в
+     * автономной сборке сети нет вовсе, там fetch отвечает заглушкой, и
+     * waitForResponse не дождался бы ничего.
+     */
+    await page.evaluate(() => {
+      const real = window.fetch;
+      window.__slotAnswer = null;
+      window.fetch = async (...args) => {
+        const res = await real(...args);
+        if (String(args[0]).includes('/api/slot/spin')) {
+          window.__slotAnswer = await res.clone().json();
+        }
+        return res;
+      };
+    });
+    await page.evaluate(() => document.getElementById('slotSpin').click());
+    await page.waitForTimeout(3600);
+    const answer = await page.evaluate(() => window.__slotAnswer);
+    check(`${slotId}: сервер ответил на прокрут`, Boolean(answer && answer.offsets));
+
+    const landed = await page.evaluate(() => [...document.querySelectorAll('.sl-reel')].map((el) => {
+      const strip = el.querySelector('.sl-strip');
+      const cell = strip.firstElementChild.getBoundingClientRect().height;
+      const m = /translate3d\(0px, (-?[\d.]+)px/.exec(strip.style.transform) || [];
+      const shift = Math.abs(Number(m[1] || 0));
+      return {
+        cell: Math.round(cell),
+        rest: cell ? shift / cell : 1,
+        window: [0, 1, 2].map((r) => strip.children[r].dataset.sym),
+      };
+    }));
+
+    check(`${slotId}: высота ячейки снята с разметки`,
+          landed.every((r) => r.cell > 20), landed.map((r) => r.cell).join('/'));
+    check(`${slotId}: лента встала ровно на символе`,
+          landed.every((r) => r.rest < 0.02), landed.map((r) => r.rest.toFixed(3)).join('/'));
+    check(`${slotId}: на экране ровно та сетка, которую прислал сервер`,
+          Boolean(answer) && landed.every((r, i) => r.window.join() === answer.grid[i].join()),
+          JSON.stringify(landed.map((r) => r.window)));
+
+    // Окно крупного выигрыша могло открыться поверх: закрываем.
+    await page.evaluate(() => {
+      const box = document.getElementById('slotModal');
+      if (box && !box.hidden) document.querySelector('[data-act="modal-close"]')?.click();
+    });
+    await page.waitForTimeout(300);
+  }
+
+  /* ---------- Панель и окна: один раз, на последней игре ---------- */
+
   const betNow = () => page.evaluate(() =>
     Number(document.getElementById('slotBet').textContent.replace(/[^\d]/g, '')));
   const bet0 = await betNow();
   await page.evaluate(() => document.querySelector('[data-act="bet-up"]').click());
   const bet1 = await betNow();
-  check('слот: ставка растёт по списку', bet1 > bet0, `${bet0} -> ${bet1}`);
-
-  await page.evaluate(() => document.querySelector('[data-act="max"]').click());
-  const betMax = await betNow();
-  await page.evaluate(() => document.querySelector('[data-act="bet-up"]').click());
-  check('слот: максимальная ставка не растёт дальше', (await betNow()) === betMax, `${betMax}`);
+  check('слоты: ставка растёт по списку', bet1 > bet0, `${bet0} -> ${bet1}`);
 
   await page.evaluate(() => {
     for (let i = 0; i < 20; i++) document.querySelector('[data-act="bet-down"]').click();
   });
   const betMin = await betNow();
-  check('слот: минимальная ставка не падает ниже нуля', betMin > 0, `${betMin}`);
+  check('слоты: минимальная ставка не падает ниже нуля', betMin > 0, `${betMin}`);
 
   /*
    * Цена покупки бонуса на экране обязана совпадать с ценой, посчитанной из
@@ -1587,45 +1613,65 @@ check('честность: личная статистика убрана', fair
    * спишется другая.
    */
   await page.evaluate(() => document.querySelector('[data-act="buy"]').click());
-  await page.waitForTimeout(300);
+  await page.waitForTimeout(350);
   const buy = await page.evaluate(() => ({
     open: !document.getElementById('slotModal').hidden,
     price: Number(document.querySelector('.sl-buy-price')?.textContent.replace(/[^\d]/g, '')),
-    button: document.querySelector('.sl-buy-go')?.textContent || '',
+    hasCancel: /ОТМЕНА/.test(document.getElementById('slotModalBody').textContent),
   }));
-  const config = await page.evaluate(() => fetch('/api/slot', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
-  }).then((r) => r.json()).catch(() => null));
-  check('слот: окно покупки бонуса открылось', buy.open);
-  check('слот: цена покупки посчитана из матожидания',
-        Boolean(config) && buy.price === config.slot.buyBonusPrice * betMin,
-        `${buy.price} против ${config ? config.slot.buyBonusPrice * betMin : '?'}`);
-  check('слот: цена в кнопке та же, что в окне',
-        buy.button.replace(/[^\d]/g, '') === String(buy.price), buy.button);
+  const openId = await page.evaluate(() => document.getElementById('slotStage')?.dataset.slotId);
+  const conf = await page.evaluate((id) => fetch('/api/slot', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ slotId: id }),
+  }).then((r) => r.json()).catch(() => null), openId);
 
+  check('слоты: окно покупки бонуса открылось', buy.open);
+  check('слоты: в окне покупки есть отмена', buy.hasCancel);
+  check('слоты: цена покупки посчитана из матожидания',
+        Boolean(conf) && buy.price === conf.slot.buyBonusPrice * betMin,
+        `${buy.price} против ${conf ? conf.slot.buyBonusPrice * betMin : '?'}`);
   await page.evaluate(() => document.querySelector('[data-act="modal-close"]').click());
 
-  // Правила и таблица выплат открываются, а не остаются картинкой.
-  await page.evaluate(() => document.querySelector('[data-act="rules"]').click());
+  // Меню, правила, настройки, история, выбор ставки, автоигра.
+  for (const [act, needle] of [
+    ['menu', 'Правила игры'],
+    ['rules', 'SCATTER'],
+    ['paytable', 'WILD'],
+    ['settings', 'Анимация'],
+    ['history', 'ИСТОРИЯ'],
+    ['bet-pick', 'ВЫБЕРИТЕ СТАВКУ'],
+    ['auto', 'ОСТАНОВИТЬ'],
+  ]) {
+    await page.evaluate((a) => document.querySelector(`[data-act="${a}"]`)?.click(), act);
+    await page.waitForTimeout(280);
+    const text = await page.evaluate(() => document.getElementById('slotModalBody')?.textContent || '');
+    check(`слоты: окно «${act}» открывается`, text.includes(needle), text.slice(0, 60));
+    await page.evaluate(() => document.querySelector('[data-act="modal-close"]')?.click());
+    await page.waitForTimeout(150);
+  }
+
+  // Настройки переживают перезагрузку окна: они в localStorage.
+  await page.evaluate(() => document.querySelector('[data-act="settings"]').click());
   await page.waitForTimeout(250);
-  check('слот: правила открываются',
-        await page.evaluate(() => /SCATTER/.test(document.getElementById('slotModalBody').textContent)));
-  await page.evaluate(() => document.querySelector('[data-act="modal-close"]').click());
-
-  await page.evaluate(() => document.querySelector('[data-act="paytable"]').click());
-  await page.waitForTimeout(250);
-  check('слот: таблица выплат открывается',
-        await page.evaluate(() => document.querySelectorAll('#slotModalBody .sl-pay').length) >= 13);
-  await page.evaluate(() => document.querySelector('[data-act="modal-close"]').click());
+  await page.evaluate(() => document.querySelector('[data-opt="fast"]').click());
+  await page.waitForTimeout(150);
+  const stored = await page.evaluate(() => {
+    try { return JSON.parse(localStorage.getItem('luckybox.slot.settings') || '{}'); }
+    catch { return {}; }
+  });
+  check('слоты: настройки сохраняются', stored.fast === true, JSON.stringify(stored));
+  await page.evaluate(() => document.querySelector('[data-act="settings-reset"]').click());
+  await page.waitForTimeout(200);
+  await page.evaluate(() => document.querySelector('[data-act="modal-close"]')?.click());
 
   // История пополняется после прокрута.
-  check('слот: прокрут попал в историю',
+  check('слоты: прокрут попал в историю',
         await page.evaluate(() => document.querySelectorAll('.sl-history-row').length) > 0);
 
   // Раздел не разъезжается вбок на телефоне.
   const wide = await page.evaluate(() =>
     document.documentElement.scrollWidth - document.documentElement.clientWidth);
-  check('слот: страница не разъезжается вбок', wide <= 1, `лишних ${wide}px`);
+  check('слоты: страница не разъезжается вбок', wide <= 1, `лишних ${wide}px`);
 }
 
 /* ---------- Итог ---------- */

@@ -114,10 +114,9 @@ import {
   getMinigame, resolveMinigame, publicMinigame, validateMinigames,
 } from './minigames.js';
 import {
-  SLOT_RTP, LINES as SLOT_LINES, FREE_SPINS as SLOT_FREE_SPINS, BETS as SLOT_BETS,
-  BUY_BONUS_PRICE, JACKPOTS as SLOT_JACKPOTS, STRIPS as SLOT_STRIPS,
-  gridFrom, evaluate as evaluateSlot, jackpotFrom, offsetFrom,
-  publicSlot, validateSlot,
+  SLOTS, getSlot, publicSlot, slotCard, validateSlots,
+  LINES as SLOT_LINES,
+  gridFrom, evaluate as evaluateSlot, jackpotFrom, jackpotRoll, offsetsFrom,
 } from './slots.js';
 import { resolveUser } from './auth.js';
 import {
@@ -147,7 +146,7 @@ const gameReport = validateGames();
 const gambleReport = validateGamble();
 const upgradeReport = validateUpgrade();
 const miniReport = validateMinigames();
-const slotReport = validateSlot();
+const slotReport = validateSlots();
 validateFortune();
 
 // Администраторы задаются Telegram ID через настройки — не через базу,
@@ -1172,56 +1171,53 @@ app.post('/api/mini/play', auth, limits.play, gameGate('mini'), (req, res) => {
 });
 
 /* ============================================================
-   СЛОТ TREASURE ISLAND
+   СЛОТЫ
    ============================================================ */
 
 /**
  * Ставка слота обязана делиться на двадцать линий без остатка.
  *
- * Выплаты в таблице заданы в ставках НА ЛИНИЮ. Если общая ставка не делится,
+ * Выплаты внутри заданы в ставках НА ЛИНИЮ. Если общая ставка не делится,
  * линейная становится дробной, и выигрыш приходится округлять на каждой
  * линии по отдельности - тогда сумма на экране перестаёт сходиться с
  * таблицей. Поэтому список ставок закрытый и весь делится на двадцать.
  */
-function slotLineBet(raw) {
+function slotLineBet(slot, raw) {
   const bet = parseBet(raw);
-  if (!bet || !SLOT_BETS.includes(bet)) return null;
+  if (!bet || !slot.bets.includes(bet)) return null;
   return { total: bet, line: bet / SLOT_LINES };
 }
 
-/**
- * Позиции пяти барабанов из одного честного числа.
- *
- * Роллов нужно пять, а честное число одно на nonce. Поэтому из него
- * раскручивается последовательность: каждый следующий ролл берётся из
- * дробной части предыдущего, умноженной на длину ленты. Так все пять
- * позиций восстанавливаются игроком из тех же серверного и клиентского
- * зерна - проверяемость не теряется.
- */
-function slotOffsets(roll) {
-  const offsets = [];
-  let x = roll;
-  for (const strip of SLOT_STRIPS) {
-    const scaled = x * strip.length;
-    offsets.push(Math.min(strip.length - 1, Math.floor(scaled)));
-    x = scaled - Math.floor(scaled);
-    // Ролл, выродившийся в ноль, дал бы одинаковые позиции на остатке
-    // барабанов. Подмешиваем несократимый сдвиг, а не берём случайное.
-    if (x <= 0 || x >= 1) x = (roll * 997 + offsets.length * 0.6180339887) % 1;
-  }
-  return offsets;
+/** Слот из запроса или 400. */
+function askSlot(req, res) {
+  const slot = getSlot(req.body?.slotId);
+  if (!slot) { res.status(400).json({ error: 'Слот не найден' }); return null; }
+  return slot;
 }
 
-/** Джекпот берётся из хвоста того же числа: отдельный nonce не нужен. */
-function slotJackpotRoll(roll) {
-  return (roll * 1_000_003) % 1;
-}
+app.post('/api/slots', auth, limits.read, (req, res) => {
+  res.json({ slots: SLOTS.map(slotCard) });
+});
 
 app.post('/api/slot', auth, limits.read, (req, res) => {
+  const slot = askSlot(req, res);
+  if (!slot) return;
+
   const session = getSlotSession(req.player.id);
+  /*
+   * Серия показывается только в СВОЕЙ игре. Бонус куплен или выигран в
+   * конкретном слоте, и его ставка с лентами относится к нему же: доигрывать
+   * его в другой игре означало бы платить по чужой таблице.
+   *
+   * Серии, заведённые до появления второй игры, лежат с пустым slot_id и
+   * доигрываются там, куда игрок зайдёт: отнимать оплаченные вращения из-за
+   * нашего обновления не за что.
+   */
+  const mine = session && (!session.slot_id || session.slot_id === slot.id);
+
   res.json({
-    slot: publicSlot(),
-    session: session ? {
+    slot: publicSlot(slot),
+    session: mine ? {
       spinsLeft: session.spins_left,
       lineBet: session.line_bet,
       totalBet: session.line_bet * SLOT_LINES,
@@ -1232,7 +1228,9 @@ app.post('/api/slot', auth, limits.read, (req, res) => {
 });
 
 app.post('/api/slot/spin', auth, limits.play, gameGate('slots'), (req, res) => {
-  const bet = slotLineBet(req.body?.bet);
+  const slot = askSlot(req, res);
+  if (!slot) return;
+  const bet = slotLineBet(slot, req.body?.bet);
   if (!bet) return res.status(400).json({ error: 'Такой ставки нет' });
 
   const user = req.player;
@@ -1240,17 +1238,17 @@ app.post('/api/slot/spin', auth, limits.play, gameGate('slots'), (req, res) => {
 
   let result;
   try {
-    result = playSlotSpin(user.id, bet.total, (serverSeed, clientSeed, nonce) => {
+    result = playSlotSpin(user.id, slot.id, bet.total, (serverSeed, clientSeed, nonce) => {
       const roll = computeRoll(serverSeed, clientSeed, nonce);
-      const offsets = slotOffsets(roll);
-      const grid = gridFrom(offsets);
-      const outcome = evaluateSlot(grid, bet.line);
+      const offsets = offsetsFrom(roll, slot.strips);
+      const grid = gridFrom(slot, offsets);
+      const outcome = evaluateSlot(slot, grid, bet.line);
       const payout = outcome.lineWin + outcome.scatterWin;
       const multiplier = payout / bet.total;
 
       return {
         game: 'slot',
-        title: 'TREASURE ISLAND',
+        title: slot.name,
         subtitle: outcome.triggered
           ? `${outcome.scatters} SCATTER - фриспины`
           : payout > 0 ? `Выигрыш ×${multiplier.toFixed(2)}` : 'Без выигрыша',
@@ -1266,7 +1264,7 @@ app.post('/api/slot/spin', auth, limits.play, gameGate('slots'), (req, res) => {
         lineWin: outcome.lineWin,
         scatterWin: outcome.scatterWin,
         scatters: outcome.scatters,
-        freeSpins: outcome.triggered ? SLOT_FREE_SPINS : 0,
+        freeSpins: outcome.triggered ? slot.freeSpins : 0,
         lines: SLOT_LINES,
         multiplier,
       };
@@ -1280,18 +1278,20 @@ app.post('/api/slot/spin', auth, limits.play, gameGate('slots'), (req, res) => {
   /*
    * Джекпот разыгрывается ПОСЛЕ прокрута и отдельной транзакцией: он не
    * зависит от того, что выпало на барабанах, и его отдача посчитана
-   * отдельным слагаемым (см. JACKPOT_BUDGET в server/slots.js).
+   * отдельным слагаемым (см. jackpotBudget в server/slot-engine.js).
    */
-  const jackpot = jackpotFrom(slotJackpotRoll(result.roll), bet.total);
+  const jackpot = jackpotFrom(slot, jackpotRoll(result.roll), bet.total);
   let balance = result.balance;
   if (jackpot) {
     balance = awardSlotJackpot(user.id, jackpot, bet.total, result.nonce);
-    trackEvent(user.id, 'slot_jackpot', { id: jackpot.id, amount: jackpot.amount, bet: bet.total });
+    trackEvent(user.id, 'slot_jackpot',
+               { slot: slot.id, id: jackpot.id, amount: jackpot.amount, bet: bet.total });
   }
 
-  trackEvent(user.id, 'slot_spin', { bet: bet.total, payout: result.payout });
+  trackEvent(user.id, 'slot_spin', { slot: slot.id, bet: bet.total, payout: result.payout });
 
   res.json({
+    slotId: slot.id,
     offsets: result.offsets,
     grid: result.grid,
     wins: result.wins,
@@ -1311,18 +1311,21 @@ app.post('/api/slot/spin', auth, limits.play, gameGate('slots'), (req, res) => {
 });
 
 app.post('/api/slot/free', auth, limits.play, gameGate('slots'), (req, res) => {
+  const slot = askSlot(req, res);
+  if (!slot) return;
+
   const user = req.player;
   let result;
   try {
     result = playSlotFreeSpin(user.id, (serverSeed, clientSeed, nonce, session) => {
       const roll = computeRoll(serverSeed, clientSeed, nonce);
-      const offsets = slotOffsets(roll);
+      const offsets = offsetsFrom(roll, slot.strips);
       // Во фриспинах wild расширяется на весь барабан - это и есть бонус.
-      const grid = gridFrom(offsets, { expandWild: true });
-      const outcome = evaluateSlot(grid, session.line_bet);
+      const grid = gridFrom(slot, offsets, { expandWild: true });
+      const outcome = evaluateSlot(slot, grid, session.line_bet, { free: true });
 
       return {
-        title: 'TREASURE ISLAND',
+        title: slot.name,
         roll,
         offsets,
         grid,
@@ -1339,6 +1342,7 @@ app.post('/api/slot/free', auth, limits.play, gameGate('slots'), (req, res) => {
   }
 
   res.json({
+    slotId: slot.id,
     offsets: result.offsets,
     grid: result.grid,
     wins: result.wins,
@@ -1356,25 +1360,28 @@ app.post('/api/slot/free', auth, limits.play, gameGate('slots'), (req, res) => {
 });
 
 app.post('/api/slot/buy', auth, limits.play, gameGate('slots'), (req, res) => {
-  const bet = slotLineBet(req.body?.bet);
+  const slot = askSlot(req, res);
+  if (!slot) return;
+  const bet = slotLineBet(slot, req.body?.bet);
   if (!bet) return res.status(400).json({ error: 'Такой ставки нет' });
 
-  const price = BUY_BONUS_PRICE * bet.total;
+  const price = slot.buyBonusPrice * bet.total;
   const user = req.player;
   if (user.balance < price) return sendInsufficient(res, price - user.balance);
 
   let result;
   try {
-    result = buySlotBonus(user.id, price, bet.line, SLOT_FREE_SPINS, 'TREASURE ISLAND');
+    result = buySlotBonus(user.id, slot.id, price, bet.line, slot.freeSpins, slot.name);
   } catch (err) {
     if (err.code === 'INSUFFICIENT_FUNDS') return sendInsufficient(res, price - user.balance);
     if (err.code === 'BAD') return res.status(400).json({ error: err.message });
     throw err;
   }
 
-  trackEvent(user.id, 'slot_bonus_bought', { bet: bet.total, price });
+  trackEvent(user.id, 'slot_bonus_bought', { slot: slot.id, bet: bet.total, price });
 
   res.json({
+    slotId: slot.id,
     price,
     spinsLeft: result.session.spins_left,
     lineBet: bet.line,
@@ -2013,9 +2020,11 @@ app.listen(PORT, () => {
               `Рулетка RTP: ${(gameReport.rouletteRtp * 100).toFixed(2)}%  ` +
               `Риск-игра RTP: ${(gambleReport.rtp * 100).toFixed(2)}%  ` +
               `Апгрейд RTP: ${(upgradeReport.rtp * 100).toFixed(2)}%`);
-  console.log(`  Слот TREASURE ISLAND: отдача ${slotReport['отдача всего']}, ` +
-              `бонус раз в ${slotReport['бонус раз в']} прокрутов, ` +
-              `покупка бонуса ${slotReport['цена бонуса']}`);
+  for (const r of slotReport) {
+    console.log(`  Слот ${r['слот']}: отдача ${r['отдача всего']}, ` +
+                `бонус раз в ${r['бонус раз в']} прокрутов, ` +
+                `покупка бонуса ${r['цена бонуса']}`);
+  }
   console.log(`  Витрина: ${FEED_CONFIG.synthetic ? 'выдуманные выпадения включены' : 'только живые игроки'}` +
               `, порог x${FEED_CONFIG.minMultiplier}, пул ${FEED_CONFIG.poolSize}`);
   console.log(`  Бесплатный кейс за подписку: ${subscriptionConfigured() ? 'настроен' : 'выключен (нет канала/кейса)'}\n`);

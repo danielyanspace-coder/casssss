@@ -27,7 +27,7 @@ import {
   MINIGAMES, MINI_RTP, FAMILIES as MINI_FAMILIES,
   publicMinigame, resolveMinigame, validateMinigames,
 } from './server/minigames.js';
-import { validateSlot } from './server/slots.js';
+import { validateSlots } from './server/slots.js';
 import {
   FORTUNE_SEGMENTS, SEGMENT_DEG, SEGMENTS_START_DEG,
   PERCENT_MIN, PERCENT_MAX, VOUCHER_MIN, VOUCHER_MAX,
@@ -59,7 +59,7 @@ const fortuneConfig = {
 /* ---------- Конфиг игры ---------- */
 
 validateMinigames();
-validateSlot();
+validateSlots();
 
 const config = {
   categories: CATEGORIES,
@@ -273,9 +273,15 @@ const inlineUi = (src) => src
  * mathFingerprint() в автономной сборке не работает - он зовёт createHash из
  * node:crypto, а импорты при склейке снимаются. Демо его и не вызывает.
  */
-const slotEngine = read('./server/slots.js');
+const slotEngine = read('./server/slot-engine.js');
+const slotSpecs = inlineUi(read('./server/slots.js'));
 
-const css = read('./public/styles.css');
+/*
+ * Стили тоже проходят через inlineUi: фоны слотов (небо, скалы, колонны,
+ * доски рамки) лежат в assets/ui/ и заданы в CSS, а не в разметке. Без
+ * подстановки в автономной сборке слот был бы пустыми рамками.
+ */
+const css = inlineUi(read('./public/styles.css'));
 const html = inlineUi(read('./public/index.html'));
 const icons = read('./public/icons.js');
 const covers = read('./public/covers.js');
@@ -304,6 +310,14 @@ const body = html
 // ES-модули по file:// — всё склеивается в один обычный скрипт.
 const strip = (src) => src
   .replace(/^import[\s\S]*?from\s+'[^']*';\s*$/gm, '')
+  /*
+   * Списки реэкспорта (`export { a, b };`) выкидываются целиком, а не
+   * лишаются слова export. Без слова это блок с перечислением через запятую,
+   * и висящая запятая перед скобкой роняет разбор ВСЕЙ сборки одним
+   * «Unexpected token }». Имена и так объявлены рядом: модули склеены в одну
+   * область видимости.
+   */
+  .replace(/export\s*\{[^}]*\}\s*;/g, '')
   .replace(/^export\s+/gm, '');
 
 /* ---------- Заглушка сервера ---------- */
@@ -321,15 +335,19 @@ const DRAW_BY_ID = new Map(DRAW.map((c) => [c.id, c]));
 const MINI_GAMES = CONFIG.minigames.games;
 
 /*
- * Слот в автономной сборке считается ТЕМ ЖЕ кодом, что и на сервере: исходник
- * server/slots.js целиком вклеен в эту же область видимости (см. сборку ниже),
- * и заглушка зовёт его gridFrom(), evaluate() и jackpotFrom().
+ * Слоты в автономной сборке считаются ТЕМ ЖЕ кодом, что и на сервере:
+ * исходники server/slot-engine.js и server/slots.js целиком вклеены в эту же
+ * область видимости (см. сборку ниже), и заглушка зовёт их gridFrom(),
+ * evaluate() и jackpotFrom().
  *
  * Переписывать математику слота для демо было бы проще, но две копии
  * расходятся: одну правят, вторую забывают, и заказчик смотрит на игру с
  * другой отдачей, чем будет у игроков.
  */
-const SLOT = publicSlot();
+const SLOT_LIST = SLOTS.map(publicSlot);
+const SLOT_MAP = new Map(SLOT_LIST.map((s) => [s.id, s]));
+const slotById = (id) => SLOT_MAP.get(String(id || '')) || null;
+const slotEngineById = (id) => SLOTS.find((s) => s.id === id) || null;
 
 /* Каталог прав и ролей берётся из server/staff.js на сборке: расходиться
    демо и настоящей панели нельзя, иначе заказчик увидит список ролей,
@@ -1885,28 +1903,37 @@ const routes = {
     };
   },
 
-  /* ---------- Слот ---------- */
+  /* ---------- Слоты ---------- */
 
-  'POST /api/slot': () => ({
-    slot: SLOT,
-    session: store.user.slotFree
-      ? { spinsLeft: store.user.slotFree.spinsLeft, lineBet: store.user.slotFree.lineBet,
-          totalBet: store.user.slotFree.lineBet * LINES,
-          totalWin: store.user.slotFree.totalWin, bought: false }
-      : null,
-  }),
+  'POST /api/slots': () => ({ slots: SLOTS.map(slotCard) }),
+
+  'POST /api/slot': (body) => {
+    const slot = slotById(body.slotId);
+    if (!slot) return { status: 400, body: { error: 'Слот не найден' } };
+    const free = store.user.slotFree;
+    const mine = free && (!free.slotId || free.slotId === slot.id);
+    return {
+      slot,
+      session: mine
+        ? { spinsLeft: free.spinsLeft, lineBet: free.lineBet,
+            totalBet: free.lineBet * LINES, totalWin: free.totalWin, bought: false }
+        : null,
+    };
+  },
 
   'POST /api/slot/spin': (body) => {
     const u = store.user;
+    const slot = slotEngineById(body.slotId);
+    if (!slot) return { status: 400, body: { error: 'Слот не найден' } };
     const bet = Number(body.bet) || 0;
-    if (!SLOT.bets.includes(bet)) return { status: 400, body: { error: 'Такой ставки нет' } };
+    if (!slot.bets.includes(bet)) return { status: 400, body: { error: 'Такой ставки нет' } };
     if (u.slotFree) return { status: 400, body: { error: 'Сначала доиграйте фриспины' } };
     if (u.balance < bet) return { status: 400, body: { error: 'Недостаточно средств' } };
 
     const lineBet = bet / LINES;
-    const offsets = SLOT.strips.map((strip) => Math.floor(Math.random() * strip.length));
-    const grid = gridFrom(offsets, {});
-    const out = evaluate(grid, lineBet);
+    const offsets = slot.strips.map((strip) => Math.floor(Math.random() * strip.length));
+    const grid = gridFrom(slot, offsets);
+    const out = evaluate(slot, grid, lineBet);
     const payout = out.lineWin + out.scatterWin;
 
     u.balance = u.balance - bet + payout;
@@ -1915,29 +1942,31 @@ const routes = {
     u.stats.won += payout;
     u.wagerProgress = (u.wagerProgress || 0) + bet;
 
-    const jackpot = jackpotFrom(Math.random(), bet);
+    const jackpot = jackpotFrom(slot, Math.random(), bet);
     if (jackpot) { u.balance += jackpot.amount; u.stats.won += jackpot.amount; }
     if (out.triggered) {
-      u.slotFree = { spinsLeft: FREE_SPINS, lineBet, totalWin: 0 };
+      u.slotFree = { slotId: slot.id, spinsLeft: slot.freeSpins, lineBet, totalWin: 0 };
     }
     save();
 
     return {
-      offsets, grid, wins: out.wins, lineWin: out.lineWin, scatterWin: out.scatterWin,
-      scatters: out.scatters, payout,
-      freeSpins: out.triggered ? FREE_SPINS : 0,
+      slotId: slot.id, offsets, grid, wins: out.wins, lineWin: out.lineWin,
+      scatterWin: out.scatterWin, scatters: out.scatters, payout,
+      freeSpins: out.triggered ? slot.freeSpins : 0,
       jackpot: jackpot ? { id: jackpot.id, name: jackpot.name, amount: jackpot.amount } : null,
       bet, lineBet, balance: u.balance, user: publicUser(),
     };
   },
 
-  'POST /api/slot/free': () => {
+  'POST /api/slot/free': (body) => {
     const u = store.user;
     if (!u.slotFree) return { status: 400, body: { error: 'Фриспинов нет' } };
+    const slot = slotEngineById(u.slotFree.slotId || body.slotId);
+    if (!slot) return { status: 400, body: { error: 'Слот не найден' } };
 
-    const offsets = SLOT.strips.map((strip) => Math.floor(Math.random() * strip.length));
-    const grid = gridFrom(offsets, { expandWild: true });
-    const out = evaluate(grid, u.slotFree.lineBet);
+    const offsets = slot.strips.map((strip) => Math.floor(Math.random() * strip.length));
+    const grid = gridFrom(slot, offsets, { expandWild: true });
+    const out = evaluate(slot, grid, u.slotFree.lineBet, { free: true });
     const payout = out.lineWin + out.scatterWin;
 
     u.balance += payout;
@@ -1950,27 +1979,30 @@ const routes = {
     save();
 
     return {
-      offsets, grid, wins: out.wins, lineWin: out.lineWin, scatterWin: out.scatterWin,
-      scatters: out.scatters, payout, spinsLeft: Math.max(0, left), sessionWin: total,
+      slotId: slot.id, offsets, grid, wins: out.wins, lineWin: out.lineWin,
+      scatterWin: out.scatterWin, scatters: out.scatters, payout,
+      spinsLeft: Math.max(0, left), sessionWin: total,
       balance: u.balance, user: publicUser(),
     };
   },
 
   'POST /api/slot/buy': (body) => {
     const u = store.user;
+    const slot = slotEngineById(body.slotId);
+    if (!slot) return { status: 400, body: { error: 'Слот не найден' } };
     const bet = Number(body.bet) || 0;
-    if (!SLOT.bets.includes(bet)) return { status: 400, body: { error: 'Такой ставки нет' } };
+    if (!slot.bets.includes(bet)) return { status: 400, body: { error: 'Такой ставки нет' } };
     if (u.slotFree) return { status: 400, body: { error: 'Фриспины уже идут' } };
-    const price = SLOT.buyBonusPrice * bet;
+    const price = slot.buyBonusPrice * bet;
     if (u.balance < price) return { status: 400, body: { error: 'Недостаточно средств' } };
 
     u.balance -= price;
     u.stats.spent += price;
     u.wagerProgress = (u.wagerProgress || 0) + price;
-    u.slotFree = { spinsLeft: FREE_SPINS, lineBet: bet / LINES, totalWin: 0 };
+    u.slotFree = { slotId: slot.id, spinsLeft: slot.freeSpins, lineBet: bet / LINES, totalWin: 0 };
     save();
 
-    return { price, spinsLeft: FREE_SPINS, lineBet: bet / LINES,
+    return { slotId: slot.id, price, spinsLeft: slot.freeSpins, lineBet: bet / LINES,
              balance: u.balance, user: publicUser() };
   },
 
@@ -2308,6 +2340,7 @@ ${body}
 (function () {
 'use strict';
 ${strip(slotEngine)}
+${strip(slotSpecs)}
 ${shim}
 })();
 </script>
