@@ -4249,9 +4249,16 @@ function renderMenu() {
   });
   photo.appendChild(support);
 
+  /*
+   * Выключенный раздел не показывается и в меню-картинке. Раньше фильтр по
+   * выключателю стоял только у боковой панели компьютера, и на телефоне
+   * плитка оставалась: игрок нажимал и получал «Раздел временно недоступен»
+   * от кнопки, которая выглядела рабочей.
+   */
   extra.innerHTML = MENU_EXTRA
     .filter((m) => (!m.adminOnly || state.user?.isAdmin)
-                && (!m.partnerOnly || state.user?.isPartner))
+                && (!m.partnerOnly || state.user?.isPartner)
+                && viewOpen(m.view))
     .map((m) => `<button class="menu-tile" data-view="${m.view}">
       <span class="menu-tile-ico" data-ico="${m.ico}"></span>
       <span class="menu-tile-title">${m.title}</span>

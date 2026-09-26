@@ -837,8 +837,36 @@ function openOnce(table) {
     };
 }
 
+/*
+ * Выключатели игр в демо работают по-настоящему.
+ *
+ * Раньше CONFIG был статическим, и поля open в нём не было вовсе: клиент
+ * считал открытым всё подряд, а галочки в демо-панели ничего не выключали -
+ * ровно тот случай «выключатель, который ничего не выключает», который в
+ * проекте запрещён. Теперь состояние берётся из тех же настроек, что правит
+ * демо-панель, и раздел, выключенный на сервере, выключен и в демо.
+ */
+function demoOpen() {
+  const on = (key) => {
+    const row = store.settings.find((r) => r.key === key);
+    const raw = row ? row.value : '1';
+    return raw === '1' || raw === 'true';
+  };
+  return {
+    payouts: on('payouts_open'),
+    deposits: on('deposits_open'),
+    cases: on('games_cases'),
+    crash: on('games_crash'),
+    roulette: on('games_roulette'),
+    upgrade: on('games_upgrade'),
+    mini: on('games_mini'),
+    fortune: on('games_fortune'),
+    slots: on('games_slots'),
+  };
+}
+
 const routes = {
-  'GET /api/config': () => CONFIG,
+  'GET /api/config': () => ({ ...CONFIG, open: demoOpen() }),
 
   'POST /api/me': () => ({ user: publicUser() }),
 

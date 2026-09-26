@@ -443,6 +443,28 @@ ensureColumn('users', 'is_blocked', 'INTEGER NOT NULL DEFAULT 0');
  * которую игрок откроет. Это лучше, чем отнять оплаченные вращения.
  */
 ensureColumn('slot_sessions', 'slot_id', "TEXT NOT NULL DEFAULT ''");
+
+/*
+ * Разовое скрытие слотов.
+ *
+ * Значение по умолчанию у `games_slots` стало нулём, но настройка, которую
+ * когда-то сохраняли из панели, лежит в app_settings и перебивает умолчание.
+ * Поэтому сохранённое значение снимается ОДИН раз: дальше выключатель снова
+ * принадлежит панели, и включённые слоты переживут любой перезапуск.
+ *
+ * Отметка лежит в той же таблице, но её ключа нет в SETTING_DEFS, поэтому в
+ * панели настроек она не показывается: settingsAll() перебирает описания, а
+ * не строки.
+ */
+{
+  const MARK = 'games_slots_hidden_v1';
+  const done = db.prepare('SELECT 1 FROM app_settings WHERE key = ?').get(MARK);
+  if (!done) {
+    db.prepare('DELETE FROM app_settings WHERE key = ?').run('games_slots');
+    db.prepare('INSERT INTO app_settings (key, value, updated_at) VALUES (?,?,?)')
+      .run(MARK, '1', Date.now());
+  }
+}
 // Колонка осталась от прежней схемы: один удвоитель на игрока. Данные из неё
 // переезжают в x2_perks, сама она больше не читается и не пишется.
 ensureColumn('users', 'x2_case_id', 'TEXT');

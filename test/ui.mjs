@@ -1483,7 +1483,50 @@ check('честность: личная статистика убрана', fair
 
 /* ---------- Слоты ---------- */
 
-{
+/*
+ * Раздел выключен по умолчанию (`games_slots` в server/settings-defs.js), и
+ * первая проверка именно об этом: выключенного раздела не должно быть видно
+ * НИГДЕ. Раньше фильтр по выключателю стоял только у боковой панели, и на
+ * телефоне плитка меню оставалась на месте.
+ *
+ * Дальше слоты включаются через ту же ручку, что и панель настроек, страница
+ * перезагружается, и весь раздел проверяется целиком. Прятать раздел и
+ * заодно перестать его проверять было бы худшим из возможных решений: он
+ * остаётся в коде и обязан работать в ту минуту, когда галочку вернут.
+ */
+slotChecks: {
+  const hidden = await page.evaluate(() => ({
+    menuTile: document.querySelectorAll('#menuExtra [data-view="slots"]').length,
+    sideNav: document.querySelectorAll('#sideNav [data-view="slots"]').length,
+  }));
+  check('слоты: выключенный раздел не показан в меню телефона', hidden.menuTile === 0,
+        `плиток ${hidden.menuTile}`);
+  check('слоты: выключенный раздел не показан в боковой панели', hidden.sideNav === 0,
+        `пунктов ${hidden.sideNav}`);
+
+  // Включаем тем же способом, каким это делает панель настроек.
+  await page.evaluate(() => fetch('/api/admin/settings/save', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ patch: { games_slots: true } }),
+  }).then((r) => r.json()).catch(() => null));
+  await page.reload({ waitUntil: 'load' });
+  await page.waitForTimeout(1400);
+  await page.evaluate(() => document.getElementById('onbBackdrop')?.remove());
+
+  const enabled = await page.evaluate(() =>
+    document.querySelectorAll('[data-view="slots"]').length > 0);
+
+  /*
+   * Не молчаливый пропуск, а понятная ошибка. Включить раздел может только
+   * сотрудник с правом finance.settings, и если прогон идёт по серверу, где
+   * тестовый игрок не владелец, проверки слотов просто не состоятся - об
+   * этом надо сказать вслух, а не отрапортовать зелёным.
+   */
+  if (!check('слоты: раздел удалось включить для проверки', enabled,
+             'нужен сервер с ADMIN_TG_IDS=999000001, иначе настройки закрыты правом')) {
+    break slotChecks;
+  }
+
   await page.evaluate(() => document.querySelector('[data-view="slots"]')?.click());
   await page.waitForTimeout(1200);
 
@@ -1672,6 +1715,15 @@ check('честность: личная статистика убрана', fair
   const wide = await page.evaluate(() =>
     document.documentElement.scrollWidth - document.documentElement.clientWidth);
   check('слоты: страница не разъезжается вбок', wide <= 1, `лишних ${wide}px`);
+
+  /*
+   * Возвращаем выключатель как был. Прогон не имеет права оставлять площадку
+   * в другом состоянии, чем застал: следующий тест ходит в тот же сервер.
+   */
+  await page.evaluate(() => fetch('/api/admin/settings/save', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ patch: { games_slots: false } }),
+  }).then((r) => r.json()).catch(() => null));
 }
 
 /* ---------- Итог ---------- */

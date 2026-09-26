@@ -28,5 +28,11 @@ export const SETTING_DEFS = [
   { key: 'games_upgrade', type: 'bool', value: '1', group: 'Игры', label: 'Апгрейд' },
   { key: 'games_mini', type: 'bool', value: '1', group: 'Игры', label: 'Мини-игры' },
   { key: 'games_fortune', type: 'bool', value: '1', group: 'Игры', label: 'Колесо фортуны' },
-  { key: 'games_slots', type: 'bool', value: '1', group: 'Игры', label: 'Слоты' },
+  /*
+   * Слоты выключены по умолчанию - это решение заказчика, а не поломка.
+   * Раздел готов целиком и включается одной галочкой в панели: Настройки ->
+   * Игры -> Слоты. Выключенный раздел не показывается ни в меню на телефоне,
+   * ни в боковой панели, и сервер отвечает 503 на прямой вызов ручки.
+   */
+  { key: 'games_slots', type: 'bool', value: '0', group: 'Игры', label: 'Слоты' },
 ];
