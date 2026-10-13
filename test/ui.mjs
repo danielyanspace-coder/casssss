@@ -987,6 +987,63 @@ check(`лента совпадает с результатом на ${cases.leng
 check('лента: под маркером всегда есть плитка', noTile === 0, `пропусков ${noTile}`);
 check('лента: маркер не встаёт на границу плиток', tooClose === 0, `случаев ${tooClose}`);
 
+/* ---------- Маркер: стрелки, а не полоска ---------- */
+
+{
+  /*
+   * Меряем на остановившейся ленте, а не во время прокрута: закрытый на ходу
+   * барабан оставляет открытие недоигранным, и следующий вход в кейс приходит
+   * в пустой #reels. Геометрия маркера от движения ленты всё равно не зависит.
+   */
+  const m = await (async () => {
+    await openCaseAndVerify('warmup_100');
+    return page.evaluate(() => {
+      const marker = document.querySelector('#reels .reel-marker');
+      if (!marker) return null;
+      const r = marker.getBoundingClientRect();
+      const wrap = marker.parentElement.getBoundingClientRect();
+      const px = (v) => parseFloat(v) || 0;
+      const top = getComputedStyle(marker, '::before');
+      const bottom = getComputedStyle(marker, '::after');
+      return {
+        ownBg: getComputedStyle(marker).backgroundImage,
+        offCenter: Math.abs(r.left + r.width / 2 - (wrap.left + wrap.width / 2)),
+        topClip: top.clipPath,
+        bottomClip: bottom.clipPath,
+        topH: px(top.height),
+        bottomH: px(bottom.height),
+        topW: px(top.width),
+        wrapH: wrap.height,
+      };
+    });
+  })();
+
+  check('маркер: на месте', !!m);
+  /*
+   * Полоска во всю высоту шла прямо по рисунку предмета. Её больше нет, и
+   * собственный фон у маркера означал бы, что она вернулась: ширина маркера
+   * теперь равна ширине стрелки, и фон залил бы прямоугольник во всю ленту.
+   */
+  check('маркер: полоски во всю высоту нет', m && m.ownBg === 'none', m && m.ownBg);
+  check('маркер: стрелка сверху', !!m && /polygon/.test(m.topClip), m && m.topClip);
+  check('маркер: стрелка снизу', !!m && /polygon/.test(m.bottomClip), m && m.bottomClip);
+  check('маркер: стрелки не нулевого размера',
+        !!m && m.topH > 6 && m.bottomH > 6 && m.topW > 10,
+        m && `${m.topW}x${m.topH}`);
+  /*
+   * Стрелки указывают ровно в ту точку, по которой считается остановка
+   * (центр ленты). Разъехались - игрок читает выигрыш не с той плитки.
+   */
+  check('маркер: стрелки по центру ленты', !!m && m.offCenter < 0.6,
+        m && `смещение ${m.offCenter.toFixed(2)}`);
+  // Обе стрелки вместе не должны перекрывать середину плитки с рисунком.
+  check('маркер: середина плитки свободна',
+        !!m && (m.topH + m.bottomH) < m.wrapH * 0.45,
+        m && `${m.topH + m.bottomH} из ${m.wrapH}`);
+
+  await ensureOpenerClosed();
+}
+
 /* ---------- Рулетка ---------- */
 
 await ensureOpenerClosed();
