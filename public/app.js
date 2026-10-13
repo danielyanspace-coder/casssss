@@ -1421,26 +1421,13 @@ function spinReels(c, opened, duration) {
    ============================================================ */
 
 /**
- * Нарисованные монеты ступеней. Ступени задаются на сервере, а картинки есть
- * не под любое число, поэтому для незнакомой ступени рисуем число вёрсткой.
- *
- * Пути выписаны целиком, а не собираются из числа: сборка автономной версии
- * подменяет их самими файлами, а найти она может только то, что записано
- * строкой.
- */
-const FS_COIN_ART = {
-  10: '/assets/ui/fs-coin-10.webp',
-  20: '/assets/ui/fs-coin-20.webp',
-  30: '/assets/ui/fs-coin-30.webp',
-};
-
-/**
  * Кнопки покупки серии фриспинов.
  *
- * Заголовок и монеты - куски присланного макета, всё остальное собрано
- * вёрсткой поверх. Целиком картинкой макет поставить нельзя: цена у каждого
- * кейса своя, а на телефоне такая широкая картинка ужимается так, что подписи
- * становятся с пиксель.
+ * Компактные плитки: число прокрутов, подпись и цена. Раньше блок был собран
+ * вокруг присланного макета - картинка-заголовок во всю ширину и нарисованные
+ * монеты, - и на экране кейса занимал больше места, чем сама лента. Заказчик
+ * выбрал вид из демо анимации: покупка серии - дополнительная кнопка, а не
+ * главное на странице.
  *
  * Цену считает сервер, здесь она пересчитывается только для показа - по тем же
  * числам из конфига.
@@ -1458,17 +1445,14 @@ function renderFreeSpinBuy(c, locked) {
   box.hidden = false;
   row.innerHTML = packs.map((p) => {
     const price = freeSpinPackPrice(c, p);
-    const coin = FS_COIN_ART[p.count]
-      ? `<img src="${FS_COIN_ART[p.count]}" alt="" decoding="async">`
-      : `<b>${p.count}</b>`;
 
     return `<button class="fsbuy-btn${p.popular ? ' is-popular' : ''}" data-fs="${p.count}"
         aria-label="${p.count} прокрутов за ${money(price)}"
         ${price > state.user.balance ? 'disabled' : ''}>
-      <span class="fsbuy-coin">${coin}</span>
-      <span class="fsbuy-word">прокрутов</span>
+      <b class="fsbuy-count">${p.count}</b>
+      <span class="fsbuy-word">free spins</span>
       <span class="fsbuy-price">${money(price)}</span>
-      ${p.popular ? '<span class="fsbuy-flag">Популярно</span>' : ''}
+      ${p.popular ? '<span class="fsbuy-flag">Хит</span>' : ''}
     </button>`;
   }).join('');
 

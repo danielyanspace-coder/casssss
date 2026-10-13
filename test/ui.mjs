@@ -717,7 +717,7 @@ async function openCaseAndVerify(caseId) {
     const kase = cfg.cases.find((c) => c.id === 'warmup_100');
     const box = document.getElementById('fsBuy');
     const panel = box.getBoundingClientRect();
-    const art = box.querySelector('.fsbuy-title-art');
+    const stage = document.getElementById('caseStage');
 
     return {
       packs: cfg.freeSpinPacks.map((p) => {
@@ -732,16 +732,16 @@ async function openCaseAndVerify(caseId) {
         }
         return { count: p.count, popular: !!p.popular, expected };
       }),
-      artLoaded: art.complete && art.naturalWidth > 0,
+      height: panel.height,
+      stageHeight: stage && !stage.hidden ? stage.getBoundingClientRect().height : 0,
       buttons: [...box.querySelectorAll('.fsbuy-btn')].map((b) => {
         const r = b.getBoundingClientRect();
-        const coin = b.querySelector('.fsbuy-coin img');
         return {
           count: Number(b.dataset.fs),
           price: b.querySelector('.fsbuy-price').textContent.replace(/\s/g, ' ').trim(),
           popular: b.classList.contains('is-popular'),
           flag: b.querySelector('.fsbuy-flag')?.textContent.trim() || '',
-          coinLoaded: !!coin && coin.complete && coin.naturalWidth > 0,
+          countText: b.querySelector('.fsbuy-count')?.textContent.trim() || '',
           fits: r.left >= panel.left - 1 && r.right <= panel.right + 1,
         };
       }),
@@ -750,11 +750,22 @@ async function openCaseAndVerify(caseId) {
 
   const money = (n) => `${n.toLocaleString('ru-RU')} ₽`.replace(/\s/g, ' ');
 
-  check('фриспины: заголовок из макета загрузился', fs.artLoaded);
+  /*
+   * Блок покупки - дополнительная кнопка, а не главное на экране кейса.
+   * Прежний, собранный вокруг картинки-макета, был ростом с обложку кейса, и
+   * заказчик попросил его ужать. Сравниваем с обложкой, а не с числом точек:
+   * на компьютере и на телефоне высоты разные. Обложка на экране кейса есть
+   * всегда - ленты до открытия ещё нет.
+   */
+  check('фриспины: блок покупки не больше половины обложки кейса',
+        fs.height > 0 && fs.stageHeight > 0 && fs.height < fs.stageHeight / 2,
+        `блок ${Math.round(fs.height)}, обложка ${Math.round(fs.stageHeight)}`);
   check('фриспины: ступеней столько же, сколько в конфиге',
         fs.buttons.length === fs.packs.length,
         `кнопок ${fs.buttons.length}, ступеней ${fs.packs.length}`);
-  check('фриспины: монеты нарисованы', fs.buttons.every((b) => b.coinLoaded));
+  check('фриспины: на каждой ступени видно её число прокрутов',
+        fs.buttons.every((b) => b.countText === String(b.count)),
+        fs.buttons.map((b) => `${b.count}: «${b.countText}»`).join(', '));
   check('фриспины: карточки не вылезают за панель', fs.buttons.every((b) => b.fits));
 
   // Цена считается по тем же числам, что у сервера. Расходится - значит на
@@ -773,7 +784,7 @@ async function openCaseAndVerify(caseId) {
         popularBtns[0]?.count === popularPack?.count,
         `в вёрстке ${popularBtns[0]?.count}, в конфиге ${popularPack?.count}`);
   check('фриспины: у выделенной ступени есть пометка',
-        /ПОПУЛЯРНО/i.test(popularBtns[0]?.flag || ''), popularBtns[0]?.flag);
+        /хит/i.test(popularBtns[0]?.flag || ''), popularBtns[0]?.flag);
 
   await ensureOpenerClosed();
 }

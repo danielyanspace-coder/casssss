@@ -766,10 +766,6 @@ main { position: relative; z-index: 2; padding: 18px; }
     drop-shadow(0 0 1px rgba(0, 0, 0, 0.75))
     drop-shadow(0 0 14px color-mix(in srgb, var(--case-a) 55%, transparent));
 }
-.opener.is-themed .fsbuy {
-  border-color: color-mix(in srgb, var(--case-a) 60%, transparent);
-  box-shadow: 0 0 26px -8px var(--case-a);
-}
 .opener.is-themed .opener-case span { color: var(--case-a); }
 
 .reel-wrap {
@@ -2613,135 +2609,66 @@ select.seed-input {
 
 /* ---------- Покупка фриспинов ---------- */
 
-/* Собрано по присланному макету. Заголовок и монеты - куски самой картинки,
-   карточки, подписи и цены - вёрстка: цена у каждого кейса своя.
+/* Три компактные плитки в ряд, как в демо анимации, которое выбрал заказчик.
+   Прежний блок был собран вокруг картинки-макета и занимал больше места,
+   чем лента кейса. Число прокрутов - металлом, тем же, что в прологе серии:
+   игрок узнаёт его, когда после покупки оно вылетает в центр экрана. */
+/* Отступ сверху - под плашку «Хит», она выступает над плиткой. */
+.fsbuy { margin-top: 12px; padding-top: 7px; }
 
-   Куски вырезаны вычитанием подложки (см. tools/freespin-packs.mjs), то есть
-   лежат чистым свечением на чёрном. Поэтому кладутся они режимом screen -
-   тем же сложением, каким нарисованы. Отсюда же isolation: свечение должно
-   складываться с фоном своей карточки, а не с тем, что под ней на странице. */
-.fsbuy {
-  position: relative;
-  margin-top: 22px;
-  padding: 16px 12px 14px;
-  border-radius: 22px;
-  background:
-    radial-gradient(120% 80% at 50% 0%, rgba(160, 32, 255, 0.16), transparent 60%),
-    linear-gradient(180deg, #170528, #10021c);
-  border: 1.5px solid rgba(150, 70, 235, 0.55);
-  box-shadow: 0 0 26px -8px rgba(150, 70, 235, 0.22);
-  isolation: isolate;
-}
-
-.fsbuy-title-art {
-  display: block;
-  width: 100%;
-  margin: -2px 0 12px;
-  mix-blend-mode: screen;
-}
-
-.fsbuy-row { display: flex; align-items: stretch; gap: 9px; }
+.fsbuy-row { display: flex; align-items: stretch; gap: 8px; }
 
 .fsbuy-btn {
   flex: 1;
   position: relative;
-  display: flex; flex-direction: column; align-items: center;
-  padding: 11px 5px 13px;
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 10px 6px 9px;
+  border: 0;
   border-radius: 16px;
-  border: 1.5px solid rgba(150, 70, 235, 0.6);
-  background: linear-gradient(180deg, #2a0f4d, #1b0733);
+  background: linear-gradient(180deg, rgba(150, 90, 255, 0.28), rgba(70, 30, 140, 0.35));
+  box-shadow: inset 0 0 0 1px rgba(190, 150, 255, 0.35);
   color: var(--text);
   font-family: inherit;
   cursor: pointer;
-  isolation: isolate;
-  /* Без этого колонка не сожмётся уже своей цены, и у дорогих кейсов
-     («2 639 974 ₽») третья карточка вылезает за панель. */
+  /* Без этого плитка не сожмётся уже своей цены, и у дорогих кейсов
+     («2 639 974 ₽») третья вылезает за край. */
   min-width: 0;
-  transition: transform 0.12s, box-shadow 0.15s, border-color 0.15s;
+  transition: transform 0.12s, box-shadow 0.15s;
 }
-.fsbuy-btn:not(:disabled):active { transform: scale(0.95); }
+.fsbuy-btn:not(:disabled):active { transform: scale(0.96); }
 .fsbuy-btn:disabled { opacity: 0.38; cursor: default; }
 
-/* Выделенная ступень. В макете она заметно ярче соседних - это и есть весь
-   смысл пометки, поэтому меняется не только рамка, но и заливка со свечением. */
-.fsbuy-btn.is-popular {
-  margin-bottom: 12px;
-  border-color: rgba(255, 176, 32, 0.9);
-  background: linear-gradient(180deg, #3a1a1e, #240c22);
-  box-shadow: 0 0 22px -6px rgba(255, 176, 32, 0.32);
+.fsbuy-count {
+  font: 800 18px/1 'Unbounded', 'Manrope', system-ui, sans-serif;
+  background: linear-gradient(180deg, #fff, #ffd34d);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
 }
-
-.fsbuy-coin { display: block; width: 100%; line-height: 0; }
-.fsbuy-coin img {
-  display: block;
-  width: 100%;
-  mix-blend-mode: screen;
-}
-/* Запасная монета для ступени, которой нет в макете. */
-.fsbuy-coin b {
-  display: block;
-  padding: 14px 0;
-  font-size: 30px; font-weight: 900; line-height: 1;
-  background: linear-gradient(180deg, #fff6c9, #ffb020);
-  -webkit-background-clip: text; background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-
-/* Ромбики по бокам подписи есть в макете, но там они нарисованы. Здесь это
-   псевдоэлементы: подпись одна на все ступени, и разводить под неё три
-   картинки ради двух значков незачем. */
 .fsbuy-word {
-  display: flex; align-items: center; gap: 5px;
-  margin-top: 2px;
-  font-size: clamp(7.5px, 2.35vw, 9px); font-weight: 800; letter-spacing: 0.12em;
-  color: rgba(255, 255, 255, 0.82); text-transform: uppercase;
-  white-space: nowrap;
+  font-size: 9px; font-weight: 800; letter-spacing: 0.14em;
+  color: #d9c8ff; text-transform: uppercase; white-space: nowrap;
 }
-.fsbuy-word::before, .fsbuy-word::after {
-  content: '\2726';
-  font-size: 8px;
-  color: rgba(190, 130, 255, 0.85);
-}
-.fsbuy-btn.is-popular .fsbuy-word::before,
-.fsbuy-btn.is-popular .fsbuy-word::after { color: rgba(255, 190, 90, 0.9); }
-
 .fsbuy-price {
-  display: block;
-  width: 100%;
-  margin-top: 9px;
-  padding: 7px 2px;
-  border-radius: 999px;
-  border: 1px solid rgba(150, 70, 235, 0.75);
+  max-width: 100%;
   /* Цена растёт вместе с ценой кейса: у «Вершины» это семизначное число.
      Поэтому кегль привязан к ширине экрана, а не задан жёстко. */
-  font-size: clamp(9.5px, 3.1vw, 13px); font-weight: 900;
+  font-size: clamp(9.5px, 3vw, 11.5px); font-weight: 800;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-  color: var(--gold);
-}
-.fsbuy-btn.is-popular .fsbuy-price {
-  border-color: transparent;
-  background: linear-gradient(180deg, #ffd451, #ff9d16);
-  color: #2a1400;
-  box-shadow: 0 4px 14px -4px rgba(255, 157, 22, 0.36);
 }
 
-/* Пометка свисает под карточкой, как в макете, - оттуда и margin-bottom
-   у выделенной ступени: иначе она легла бы на соседний блок. */
+/* Выделенная ступень: золотая рамка и плашка в углу. Пометку задаёт сервер -
+   она про лесенку скидок, а не про вёрстку. */
+.fsbuy-btn.is-popular { box-shadow: inset 0 0 0 1.5px #ffd34d, 0 0 18px rgba(255, 211, 77, 0.25); }
 .fsbuy-flag {
-  position: absolute;
-  left: 50%; bottom: -11px;
-  transform: translateX(-50%);
-  display: flex; align-items: center; gap: 4px;
-  padding: 3px 9px;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 176, 32, 0.7);
-  background: #200a1c;
-  font-size: 8px; font-weight: 900; letter-spacing: 0.1em;
-  color: #ffce6b; text-transform: uppercase;
-  white-space: nowrap;
+  position: absolute; top: -7px; right: 8px;
+  padding: 2px 6px; border-radius: 6px;
+  font-size: 8.5px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase;
+  color: #2a1300; background: #ffd34d;
 }
-.fsbuy-flag::before { content: '\1F525'; font-size: 9px; }
+/* Тема кейса красит рамку обычных плиток, выделенная остаётся золотой. */
+.opener.is-themed .fsbuy-btn:not(.is-popular) {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--case-a) 55%, transparent);
+}
 
 /* ---------- Подтверждение покупки ---------- */
 
@@ -5432,20 +5359,9 @@ select.seed-input {
   .case-stage { min-height: 200px; }
   .case-stage-box { height: calc((300px - (var(--rows, 1) - 1) * 8px) / var(--rows, 1)); }
 
-  /*
-   * Блок покупки фриспинов на компьютере ужат.
-   *
-   * Он собран вокруг присланной картинки-заголовка, а она растягивается по
-   * ширине контейнера. На телефоне это половина экрана, на мониторе - баннер
-   * во всю колонку, который перекрикивает сам кейс. Ограничиваем ширину
-   * картинки и поджимаем поля: блок остаётся заметным, но перестаёт быть
-   * главным на странице.
-   */
-  .fsbuy { margin-top: 16px; padding: 10px 14px 12px; border-radius: 16px; }
-  .fsbuy-title-art { max-width: 260px; margin: 0 auto 8px; }
-  .fsbuy-row { gap: 8px; max-width: 520px; margin: 0 auto; }
-  .fsbuy-btn { padding: 8px 5px 9px; border-radius: 12px; }
-  .fsbuy-btn.is-popular { margin-bottom: 8px; }
+  /* На мониторе три плитки во всю колонку растянулись бы в полосу: ряд
+     ограничен шириной, при которой плитки остаются плитками. */
+  .fsbuy-row { max-width: 440px; margin: 0 auto; }
 
   /* Состав кейса по четыре в ряд: по два он растягивался на пол-экрана,
      и до конца списка приходилось листать втрое дольше нужного. */
