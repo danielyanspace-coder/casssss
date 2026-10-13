@@ -1,15 +1,18 @@
 /**
  * Проверка системы карточек выигрыша.
  *
- * Отдельным файлом, а не внутри test/ui.mjs, по двум причинам. Первая: общий
- * интерфейсный прогон длинный и падает на колесе фортуны задолго до кейсов,
- * унося с собой всё, что идёт после. Вторая: здесь проверяется геометрия, и
- * она ломается тихо - срезанный угол съедает цену, и никто не замечает, пока
- * не посмотрит глазами на нужный кейс.
+ * Главное, ради чего файл написан: ВНУТРИ ОДНОГО КЕЙСА карточки обязаны
+ * различаться. Первая версия системы вешала оформление на тему кейса, и все
+ * двадцать с лишним предметов внутри выглядели одинаково - ровно то, с чего
+ * начинали. Игрок открывает состав одного кейса, а не сравнивает кейсы между
+ * собой, поэтому разнообразие нужно именно здесь.
  *
- * Главная проверка - цена целиком лежит внутри ВИДИМОЙ формы карточки, а не
- * внутри её прямоугольника. У шестиугольника это разные вещи: цена помещалась
- * в прямоугольник и при этом уезжала под грань.
+ * Второе: отрисованное обязано совпадать с тем, что решил сервер. Скин
+ * считается в server/card-skins.js и едет в ответе; если клиент начнёт
+ * выбирать его сам, лента, сетка и экран результата разойдутся между собой.
+ *
+ * Третье: геометрия. Срезанный угол и скос обрезают содержимое, и ломается это
+ * тихо - цена уезжает под грань, а в прямоугольник при этом помещается.
  *
  * Нужен запущенный сервер: npm run dev
  * Запуск: node test/cards.mjs [url]
@@ -20,6 +23,7 @@ import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { CASES, publicCase } from '../server/cases.js';
 import { FAMILIES } from '../server/themes.js';
+import { validateSkins } from '../server/card-skins.js';
 
 const URL_TARGET = process.argv[2] || 'http://localhost:3000';
 
@@ -42,40 +46,88 @@ const check = (name, ok, detail = '') => {
   return false;
 };
 
+/* ---------- Что можно проверить без браузера ---------- */
+
+check('таблицы оформления сходятся', (() => {
+  try { validateSkins(); return true; } catch { return false; }
+})());
+
 /*
- * По одному кейсу на семейство: проверять все 68 незачем, композиция у них
- * общая, а вот каждое семейство обязано быть пройдено - мёртвый отрисовщик
- * первым ломается незамеченным.
+ * Разнообразие внутри кейса считается по ВСЕМ 68, а не по выборке: кейс с
+ * неудачной раскладкой хешей иначе проедет незамеченным, а именно он и
+ * выглядит как «опять одно и то же».
  */
-const byFamily = new Map();
+let worstShare = 0;
+let worstCase = '';
+let minFamilies = 99;
+let minFamiliesCase = '';
 for (const c of CASES) {
   const pub = publicCase(c);
-  if (!byFamily.has(pub.visual.family)) byFamily.set(pub.visual.family, pub);
+  const n = {};
+  for (const it of pub.items) {
+    if (!it.skin) { failures.push(`${pub.id}: у предмета "${it.name}" нет скина`); break; }
+    n[it.skin.family] = (n[it.skin.family] || 0) + 1;
+  }
+  const families = Object.keys(n).length;
+  const share = Math.max(...Object.values(n)) / pub.items.length;
+  if (share > worstShare) { worstShare = share; worstCase = pub.id; }
+  if (families < minFamilies) { minFamilies = families; minFamiliesCase = pub.id; }
 }
+
+check('в каждом кейсе не меньше пяти семейств', minFamilies >= 5,
+  `минимум ${minFamilies} в кейсе ${minFamiliesCase}`);
+check('ни одно семейство не занимает больше половины кейса', worstShare <= 0.5,
+  `${(worstShare * 100).toFixed(0)}% в кейсе ${worstCase}`);
+
+/* Скин обязан быть устойчивым: иначе предмет меняет вид между двумя взглядами. */
+{
+  const a = publicCase(CASES[0]).items.map((it) => `${it.skin.family}/${it.skin.material}`).join(',');
+  const b = publicCase(CASES[0]).items.map((it) => `${it.skin.family}/${it.skin.material}`).join(',');
+  check('скин одного предмета не меняется между вызовами', a === b);
+}
+
+/* ---------- Браузер ---------- */
+
+/*
+ * Восемь кейсов вразбивку по цене: композиция у всех общая, проверять все 68
+ * в браузере незачем, а вот дешёвый и дорогой краями отличаются.
+ */
+const sample = [];
+const sorted = CASES.slice().sort((a, b) => a.price - b.price);
+for (let i = 0; i < 8; i++) sample.push(publicCase(sorted[Math.floor(i * (sorted.length - 1) / 7)]));
+
+/**
+ * Сколько ПИКСЕЛЕЙ форма съедает у нижнего края и у правого.
+ *
+ * Именно в пикселях, а не в долях: clip-path в styles.css задан пикселями, и
+ * проверка в процентах с ним расходится - первая версия этого файла требовала
+ * от шестиугольника 11% высоты там, где вёрстка оставляет 14 точек.
+ *
+ * notch срезает только нижний ПРАВЫЙ угол треугольником 10x10, поэтому у него
+ * ограничение по правому краю, а не по нижнему.
+ */
+const GEOMETRY = {
+  card:   { bottom: 0,  right: 0  },
+  notch:  { bottom: 0,  right: 10 },
+  ticket: { bottom: 0,  right: 0  },
+  hex:    { bottom: 14, right: 0  },
+};
 
 const browser = await chromium.launch({ executablePath: findChromium() });
 const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
 await page.goto(URL_TARGET, { waitUntil: 'domcontentloaded' });
 await page.waitForSelector('.case-card', { timeout: 15000 });
 
-check('у каждого семейства есть кейс', byFamily.size === FAMILIES.length,
-  `${byFamily.size} из ${FAMILIES.length}`);
+// Онбординг перекрывает экран затемнением и съедает все клики.
+for (let i = 0; i < 10; i++) {
+  if (!(await page.isVisible('#onbBackdrop').catch(() => false))) break;
+  await page.click('#onbNext').catch(() => {});
+  await page.waitForTimeout(140);
+}
 
-/**
- * Лежит ли точка внутри видимой формы карточки.
- *
- * Прямоугольника мало: clip-path срезает углы и скашивает бока, а цена
- * помещалась в прямоугольник и всё равно оказывалась за гранью.
- */
-const GEOMETRY = {
-  // Доля высоты снизу и доля ширины с краёв, которые форма съедает.
-  card:   { bottom: 0,    side: 0    },
-  notch:  { bottom: 0.02, side: 0.03 },
-  ticket: { bottom: 0,    side: 0.02 },
-  hex:    { bottom: 0.11, side: 0.07 },
-};
+const seenFamilies = new Set();
 
-for (const [family, pub] of byFamily) {
+for (const pub of sample) {
   await page.evaluate((id) => {
     const card = [...document.querySelectorAll('.case-card')].find((c) => c.dataset.case === id);
     if (card) { card.scrollIntoView({ block: 'center' }); card.click(); }
@@ -84,68 +136,98 @@ for (const [family, pub] of byFamily) {
   await page.waitForTimeout(250);
 
   const seen = await page.evaluate((geo) => {
-    const tiles = [...document.querySelectorAll('.drop-card')];
-    if (!tiles.length) return null;
-    const heights = new Set();
+    const cards = [...document.querySelectorAll('.drop-card')];
+    if (!cards.length) return null;
+    const rows = [];
     const grads = [];
     let outside = 0;
     let missingSkin = 0;
-    let family = null;
-    let shape = null;
 
-    for (const t of tiles) {
-      heights.add(Math.round(t.getBoundingClientRect().height));
-      if (!t.dataset.family || !t.dataset.shape || !t.dataset.material) { missingSkin++; continue; }
-      family = t.dataset.family;
-      shape = t.dataset.shape;
-      const g = geo[t.dataset.shape] || geo.card;
-      const cr = t.getBoundingClientRect();
-      const v = t.querySelector('.tile-value');
+    for (const c of cards) {
+      if (!c.dataset.family || !c.dataset.shape || !c.dataset.material) { missingSkin++; continue; }
+      rows.push({
+        name: (c.querySelector('.drop-name')?.textContent || '').trim(),
+        family: c.dataset.family,
+        shape: c.dataset.shape,
+        material: c.dataset.material,
+      });
+      const g = geo[c.dataset.shape] || geo.card;
+      const cr = c.getBoundingClientRect();
+      const v = c.querySelector('.drop-value');
       if (!v) continue;
-      const vr = v.getBoundingClientRect();
-      if (vr.bottom > cr.bottom - cr.height * g.bottom + 0.5) outside++;
-      if (vr.left < cr.left + cr.width * g.side - 0.5) outside++;
-      if (vr.right > cr.right - cr.width * g.side + 0.5) outside++;
-      for (const id of t.innerHTML.match(/id="(im[^"]+)"/g) || []) grads.push(id);
+      /*
+       * Мерим САМ ТЕКСТ, а не коробку: у подписи свой внутренний отступ, и
+       * коробка доходит до края карточки, когда текст до него далеко.
+       */
+      const cs = getComputedStyle(v);
+      const box = v.getBoundingClientRect();
+      const text = {
+        left: box.left + parseFloat(cs.paddingLeft),
+        right: box.right - parseFloat(cs.paddingRight),
+        bottom: box.bottom - parseFloat(cs.paddingBottom),
+      };
+      if (text.bottom > cr.bottom - g.bottom + 0.5) outside++;
+      if (text.right > cr.right - g.right + 0.5) outside++;
+      if (text.left < cr.left - 0.5) outside++;
+      for (const id of c.innerHTML.match(/id="(im[^"]+)"/g) || []) grads.push(id);
     }
     return {
-      count: tiles.length, family, shape, outside, missingSkin,
-      heights: [...heights],
+      rows, outside, missingSkin,
       gradTotal: grads.length,
       gradUnique: new Set(grads).size,
       overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
     };
   }, GEOMETRY);
 
-  if (!check(`${family}: лента отрисована`, seen && seen.count > 0)) continue;
+  const tag = pub.id;
+  if (!check(`${tag}: состав отрисован`, seen && seen.rows.length > 0)) continue;
 
-  check(`${family}: у всех плиток есть оформление`, seen.missingSkin === 0,
+  check(`${tag}: у всех карточек есть оформление`, seen.missingSkin === 0,
     `без атрибутов: ${seen.missingSkin}`);
-  check(`${family}: семейство совпадает с темой кейса`, seen.family === pub.visual.family,
-    `в разметке ${seen.family}, в теме ${pub.visual.family}`);
-  check(`${family}: форма совпадает с темой кейса`, seen.shape === pub.visual.shape,
-    `в разметке ${seen.shape}, в теме ${pub.visual.shape}`);
 
-  // Ради этой строки файл и написан.
-  check(`${family}: цена внутри видимой формы`, seen.outside === 0,
-    `нарушений: ${seen.outside} (форма ${seen.shape})`);
+  /* Ради этой строки файл и написан: внутри кейса должно быть РАЗНО. */
+  const fams = new Set(seen.rows.map((r) => r.family));
+  const mats = new Set(seen.rows.map((r) => r.material));
+  const shapes = new Set(seen.rows.map((r) => r.shape));
+  fams.forEach((f) => seenFamilies.add(f));
+
+  check(`${tag}: в кейсе несколько семейств`, fams.size >= 4, `${fams.size}: ${[...fams].join(', ')}`);
+  check(`${tag}: в кейсе несколько материалов`, mats.size >= 3, `${mats.size}`);
+  check(`${tag}: в кейсе несколько форм`, shapes.size >= 2, `${shapes.size}`);
+
+  /* Клиент не выбирает скин сам: что решил сервер, то и нарисовано. */
+  const byName = new Map();
+  for (const it of pub.items) byName.set(it.name, it.skin);
+  let drift = 0;
+  for (const r of seen.rows) {
+    const want = byName.get(r.name);
+    if (!want) continue;              // витринный предмет своего скина не имеет
+    if (want.family !== r.family || want.material !== r.material || want.shape !== r.shape) drift++;
+  }
+  check(`${tag}: разметка совпадает с ответом сервера`, drift === 0, `расхождений: ${drift}`);
+
+  check(`${tag}: цена внутри видимой формы`, seen.outside === 0, `нарушений: ${seen.outside}`);
 
   /*
-   * Повторись id градиента - и url(#...) во всех плитках разрешился бы в
-   * первую: вся лента взяла бы материал первой плитки.
+   * Повторись id градиента - и url(#...) во всех карточках разрешился бы в
+   * первый по порядку: весь кейс взял бы материал первой карточки.
    */
-  check(`${family}: id градиентов уникальны`, seen.gradTotal === seen.gradUnique,
-    `${seen.gradUnique} уникальных из ${seen.gradTotal}`);
+  check(`${tag}: id градиентов уникальны`, seen.gradTotal === seen.gradUnique,
+    `${seen.gradUnique} из ${seen.gradTotal}`);
 
-  check(`${family}: нет горизонтального скролла`, seen.overflow <= 0, `${seen.overflow}px`);
+  check(`${tag}: нет горизонтального скролла`, seen.overflow <= 0, `${seen.overflow}px`);
 
   await page.goto(URL_TARGET, { waitUntil: 'domcontentloaded' });
   await page.waitForSelector('.case-card', { timeout: 15000 });
 }
 
-/* Система должна давать РАЗНЫЕ карточки, а не один шаблон восьми оттенков. */
-const families = new Set([...byFamily.keys()]);
-check('семейств в проекте не меньше шести', families.size >= 6, `${families.size}`);
+/*
+ * Мёртвый отрисовщик не запускается никогда и первым ломается незамеченным,
+ * поэтому каждое описанное семейство обязано где-то встретиться.
+ */
+for (const f of FAMILIES) {
+  check(`семейство "${f}" встречается в выборке`, seenFamilies.has(f));
+}
 
 await browser.close();
 

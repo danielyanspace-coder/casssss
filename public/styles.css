@@ -7183,20 +7183,82 @@ button.mg-cell:active { transform: scale(0.92); }
 .reel-tile.rw-skin[data-family="slate"] .tile-value,
 .reel-tile.rw-skin[data-family="prism"] .tile-value { color: #fff; }
 
-/* Шрифт подписи - часть семейства, а не украшение: разные кейсы должны
-   ощущаться разными продуктами.
-   Капс с разрядкой проверен на обеих поверхностях: плитка барабана шириной
-   138 точек, карточка сетки шире. На 144 плитках по всем восьми семействам
-   ни одно название не обрезается. Если плитку когда-нибудь сузят, проверять
-   надо именно это: одно слово шире плитки не переносится, оно обрезается. */
+/* ---- Типографика семейств ----
+
+   Шрифт - такая же ось различия, как поверхность и форма. Соседние карточки
+   в одном кейсе принадлежат разным семействам, и по набору подписи их видно
+   раньше, чем по цвету.
+
+   Веб-шрифты не подключаем: мини-апп открывают с телефона по мобильной сети,
+   и ради подписи в одиннадцать точек тянуть файл шрифта нельзя. Разницу дают
+   системные стеки, регистр, разрядка и насыщенность - этого достаточно.
+
+   Капс с разрядкой проверен на обеих поверхностях: плитка барабана 138 точек,
+   карточка сетки шире. Если плитку когда-нибудь сузят, проверять надо именно
+   это: одно слово шире плитки не переносится, оно обрезается. */
+
+/* VAULT - гравировка: капс, широкая разрядка, тяжёлая цифра. */
 .rw-skin[data-family="vault"] .drop-name,
+.rw-skin[data-family="vault"] .tile-name { letter-spacing: .09em; text-transform: uppercase; font-weight: 700; }
+.rw-skin[data-family="vault"] .drop-value,
+.rw-skin[data-family="vault"] .tile-value { letter-spacing: .01em; font-weight: 900; }
+
+/* SIGNATURE - именная серия: самый широкий трекинг в наборе. */
 .rw-skin[data-family="signature"] .drop-name,
-.rw-skin[data-family="vault"] .tile-name,
-.rw-skin[data-family="signature"] .tile-name { letter-spacing: .07em; text-transform: uppercase; }
+.rw-skin[data-family="signature"] .tile-name { letter-spacing: .14em; text-transform: uppercase; font-weight: 700; }
+.rw-skin[data-family="signature"] .drop-value,
+.rw-skin[data-family="signature"] .tile-value { font-weight: 900; letter-spacing: .02em; }
+
+/* CIRCUIT - приборная панель: моноширинный, строчные. */
+.rw-skin[data-family="circuit"] .drop-name,
+.rw-skin[data-family="circuit"] .tile-name,
+.rw-skin[data-family="circuit"] .drop-value,
+.rw-skin[data-family="circuit"] .tile-value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  letter-spacing: -.01em;
+}
+.rw-skin[data-family="circuit"] .drop-name,
+.rw-skin[data-family="circuit"] .tile-name { font-weight: 500; }
+
+/* PAPER - билет: моноширинный в названии, капс в номинале. */
+.rw-skin[data-family="paper"] .drop-name,
+.rw-skin[data-family="paper"] .tile-name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-weight: 400;
+}
+.rw-skin[data-family="paper"] .drop-value,
+.rw-skin[data-family="paper"] .tile-value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-weight: 700; letter-spacing: .04em;
+}
+
+/* FELT - игорный стол: антиква в цифре, как в печатной таблице выплат. */
 .rw-skin[data-family="felt"] .drop-name,
+.rw-skin[data-family="felt"] .tile-name { letter-spacing: .07em; text-transform: uppercase; font-weight: 700; }
+.rw-skin[data-family="felt"] .drop-value,
+.rw-skin[data-family="felt"] .tile-value {
+  font-family: 'Bodoni 72', Didot, Georgia, 'Times New Roman', serif;
+  font-weight: 700; letter-spacing: .01em;
+}
+
+/* GEODE - минерал: лёгкий набор с разрядкой, цифра не кричит. */
 .rw-skin[data-family="geode"] .drop-name,
-.rw-skin[data-family="felt"] .tile-name,
-.rw-skin[data-family="geode"] .tile-name { letter-spacing: .05em; }
+.rw-skin[data-family="geode"] .tile-name { letter-spacing: .11em; text-transform: uppercase; font-weight: 500; }
+.rw-skin[data-family="geode"] .drop-value,
+.rw-skin[data-family="geode"] .tile-value { font-weight: 700; letter-spacing: .03em; }
+
+/* PRISM - коллекционная фольга: разрядка без капса, цифра светлая. */
+.rw-skin[data-family="prism"] .drop-name,
+.rw-skin[data-family="prism"] .tile-name { letter-spacing: .08em; font-weight: 600; }
+.rw-skin[data-family="prism"] .drop-value,
+.rw-skin[data-family="prism"] .tile-value { font-weight: 800; letter-spacing: .02em; }
+
+/* SLATE - тихое семейство: обычный набор без единой выходки. Оно и держит
+   контраст: когда у всех разрядка и капс, их перестают замечать. */
+.rw-skin[data-family="slate"] .drop-name,
+.rw-skin[data-family="slate"] .tile-name { font-weight: 500; letter-spacing: 0; }
+.rw-skin[data-family="slate"] .drop-value,
+.rw-skin[data-family="slate"] .tile-value { font-weight: 800; }
 
 /* ---------- Слой F. Анимация ----------
    Блик только на крупной карточке результата. В ленте он выключен намеренно:

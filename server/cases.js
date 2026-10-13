@@ -21,6 +21,7 @@
 import { readFileSync } from 'node:fs';
 
 import { THEMES } from './themes.js';
+import { skinFor } from './card-skins.js';
 
 /**
  * Разбор присланных обложек, посчитанный при их подготовке
@@ -654,6 +655,14 @@ function buildCase(spec, builtById) {
 
   const items = [...normalItems, ...preItems];
 
+  /*
+   * Оформление принадлежит ПРЕДМЕТУ, а не кейсу: внутри одного кейса соседние
+   * карточки обязаны различаться. Считается здесь один раз, потому что один и
+   * тот же предмет показывают лента, сетка состава, витрина выпадений и экран
+   * результата - четыре места, и расхождение между ними заметно сразу.
+   */
+  for (const item of items) item.skin = skinFor(item, theme.visual);
+
   let acc = 0;
   for (const item of items) {
     acc += item.probability;
@@ -889,6 +898,7 @@ export function publicCase(c) {
       evValue: it.evValue,
       multiplier: it.multiplier,
       tier: it.tier,
+      skin: it.skin,
       perkLabel: it.perkLabel,
       probability: it.probability,
     })),

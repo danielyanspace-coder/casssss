@@ -118,6 +118,7 @@ import {
   LINES as SLOT_LINES,
   gridFrom, evaluate as evaluateSlot, jackpotFrom, jackpotRoll, offsetsFrom,
 } from './slots.js';
+import { validateSkins } from './card-skins.js';
 import { resolveUser } from './auth.js';
 import {
   PERMISSIONS, PERMISSION_GROUPS, ROLES, ROLE_BY_ID, permissionsFor, balanceCapFor,
@@ -147,6 +148,11 @@ const gambleReport = validateGamble();
 const upgradeReport = validateUpgrade();
 const miniReport = validateMinigames();
 const slotReport = validateSlots();
+/*
+ * Опечатка в названии семейства или материала иначе всплывёт на экране
+ * игрока: карточка останется без поверхности, и это заметят не сразу.
+ */
+const skinReport = validateSkins();
 validateFortune();
 
 // Администраторы задаются Telegram ID через настройки — не через базу,
@@ -2025,6 +2031,7 @@ app.listen(PORT, () => {
                 `бонус раз в ${r['бонус раз в']} прокрутов, ` +
                 `покупка бонуса ${r['цена бонуса']}`);
   }
+  console.log(`  Оформление карточек: ${skinReport.families} семейств на ${skinReport.tiers} ступеней редкости`);
   console.log(`  Витрина: ${FEED_CONFIG.synthetic ? 'выдуманные выпадения включены' : 'только живые игроки'}` +
               `, порог x${FEED_CONFIG.minMultiplier}, пул ${FEED_CONFIG.poolSize}`);
   console.log(`  Бесплатный кейс за подписку: ${subscriptionConfigured() ? 'настроен' : 'выключен (нет канала/кейса)'}\n`);

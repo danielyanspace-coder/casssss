@@ -820,7 +820,7 @@ function openCase(caseId) {
   // Витринный предмет идёт первой карточкой: пунктирная рамка отличает его
   // от тех, что действительно разыгрываются.
   const showcaseCard = c.showcase ? `
-    <div class="drop-card rw-skin is-showcase" ${skinAttrs(c.visual)}
+    <div class="drop-card rw-skin is-showcase" ${skinAttrs(c.showcase.skin || c.visual)}
          style="--tier-color:${tierColor(c.showcase.tier)}">
       <div class="drop-ico">${tileArt(c.showcase, tierColor(c.showcase.tier))}</div>
       <div class="drop-name"><span>${esc(c.showcase.name)}</span></div>
@@ -832,7 +832,7 @@ function openCase(caseId) {
     .map((it) => {
       const color = tierColor(it.tier);
       const isPerk = it.kind === 'perk';
-      return `<div class="drop-card rw-skin" ${skinAttrs(c.visual)} style="--tier-color:${color}">
+      return `<div class="drop-card rw-skin" ${skinAttrs(it.skin)} style="--tier-color:${color}">
         <div class="drop-ico">${tileArt(it, color)}</div>
         <div class="drop-name"><span>${esc(it.name)}</span></div>
         <div class="drop-value">${isPerk && !it.value ? esc(it.perkLabel) : money(it.value)}</div>
@@ -1170,13 +1170,13 @@ function weightedSample(items) {
 }
 
 /*
- * Оформление карточки приходит от темы кейса (server/themes.js -> VISUALS),
- * а не от уровня редкости. Редкость задаёт только акцентный цвет: иначе
- * игрок читает «ярче - значит дороже и вероятнее», а вероятность решается
- * уравнением и к яркости отношения не имеет.
+ * Оформление принадлежит ПРЕДМЕТУ и приходит с сервера полем `skin`
+ * (server/card-skins.js). Внутри одного кейса соседние карточки обязаны
+ * различаться: кейс открывают ради его состава, а не ради сравнения кейсов
+ * между собой.
  *
- * Запасные значения нужны там, где кейс неизвестен: общая лента выпадений
- * показывает предметы из чужих кейсов, и тема до неё не доезжает.
+ * Запасные значения нужны там, где скина нет: витринный предмет и записи
+ * выпадений, сделанные до этой правки.
  */
 const DEFAULT_SKIN = { family: 'slate', shape: 'card', material: 'matte' };
 
@@ -1206,6 +1206,8 @@ function tileArt(item, color) {
 }
 
 function tileHtml(item, visual) {
+  // Скин принадлежит предмету. visual остаётся запасным: витринная плитка и
+  // старые записи выпадений своего скина не несут.
   const color = tierColor(item.tier);
   let value;
   if (item.showcase) value = '<span class="tile-showcase">ВИТРИНА</span>';
@@ -1217,7 +1219,7 @@ function tileHtml(item, visual) {
   const icon = tileArt(item, color);
 
   return `<div class="reel-tile rw-skin ${item.showcase ? 'is-showcase' : ''}"
-      ${skinAttrs(visual)} style="--tier-color:${color}">
+      ${skinAttrs(item.skin || visual)} style="--tier-color:${color}">
     <div class="tile-icon">${icon}</div>
     <div class="tile-name"><span>${esc(item.name)}</span></div>
     <div class="tile-value">${value}</div>
@@ -5132,7 +5134,7 @@ function feedCardHtml(drop) {
   const art = tileArt(drop, color);
   // Ников в карточке нет: витрина показывает выигрыш, а не того, кто его снял.
   return `<button class="feed-card rw-skin is-new" data-drop="${esc(String(drop.id))}"
-      ${skinAttrs(skinOfCase(drop.caseId))} style="--tier-color:${color}">
+      ${skinAttrs(drop.skin || skinOfCase(drop.caseId))} style="--tier-color:${color}">
     <span class="feed-art">${art}</span>
     <span class="feed-name">${esc(drop.name)}</span>
     <span class="feed-value">${money(drop.value)}</span>

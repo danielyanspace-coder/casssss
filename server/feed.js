@@ -110,6 +110,9 @@ for (const c of CASES) {
       caseName: c.name,
       name: item.name,
       tier: item.tier,
+      // Оформление едет вместе с выпадением: витрина показывает предметы из
+      // чужих кейсов, и подобрать им скин на клиенте не из чего.
+      skin: item.skin,
       value: item.value,
       multiplier,
     };
@@ -181,6 +184,7 @@ function synthetic() {
     caseName: pick.caseName,
     name: pick.name,
     tier: pick.tier,
+    skin: pick.skin,
     value: pick.value,
     multiplier: Number(pick.multiplier.toFixed(2)),
     at: Date.now(),
