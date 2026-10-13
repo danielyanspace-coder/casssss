@@ -403,4 +403,104 @@ export const THEMES = {
   },
 };
 
+/**
+ * Визуальное семейство темы.
+ *
+ * Раньше вся карточка выигрыша собиралась из одной переменной - цвета уровня
+ * редкости. Семь цветов на 820 названий, и лента читалась как один
+ * повторяющийся элемент разных оттенков.
+ *
+ * Семейство - это связка: форма карточки, поверхность, расположение декора и
+ * шрифт подписи. Поэтому карточки разных тем различаются композицией, а не
+ * оттенком рамки. Решение про каждую тему принято здесь, один раз: 41 запись
+ * вместо 820, и новая тема получает оформление одной строкой.
+ *
+ * material задаёт, чем залит рисунок предмета: тот же мотив под золотом и под
+ * хромом выглядит разными предметами. Мотивы при этом не меняются - их 74, и
+ * они покрывают 95.7% названий.
+ *
+ * Ни одно семейство не занимает больше четверти списка: когда громких тем
+ * становится большинство, тихие перестают читаться как тихие.
+ */
+const VISUALS = {
+  fortress:  { family: 'vault',     shape: 'notch',  material: 'chrome'  },
+  goldmine:  { family: 'vault',     shape: 'notch',  material: 'gold'    },
+  forge:     { family: 'vault',     shape: 'notch',  material: 'chrome'  },
+  vault:     { family: 'vault',     shape: 'notch',  material: 'gold'    },
+  steampunk: { family: 'vault',     shape: 'notch',  material: 'gold'    },
+
+  atom:      { family: 'circuit',   shape: 'notch',  material: 'neon'    },
+  neon:      { family: 'circuit',   shape: 'card',   material: 'neon'    },
+  orbit:     { family: 'circuit',   shape: 'hex',    material: 'chrome'  },
+  cyber:     { family: 'circuit',   shape: 'notch',  material: 'neon'    },
+  racing:    { family: 'circuit',   shape: 'notch',  material: 'carbon'  },
+  toxic:     { family: 'circuit',   shape: 'notch',  material: 'neon'    },
+  garage:    { family: 'circuit',   shape: 'notch',  material: 'carbon'  },
+
+  casino:    { family: 'felt',      shape: 'card',   material: 'matte'   },
+  monaco:    { family: 'felt',      shape: 'card',   material: 'chrome'  },
+  vegas:     { family: 'felt',      shape: 'card',   material: 'matte'   },
+  highgarden:{ family: 'felt',      shape: 'card',   material: 'gold'    },
+
+  circus:    { family: 'prism',     shape: 'card',   material: 'holo'    },
+  galaxy:    { family: 'prism',     shape: 'hex',    material: 'holo'    },
+  rio:       { family: 'prism',     shape: 'card',   material: 'holo'    },
+  singapore: { family: 'prism',     shape: 'card',   material: 'glass'   },
+
+  pirate:    { family: 'paper',     shape: 'ticket', material: 'gold'    },
+  street:    { family: 'paper',     shape: 'ticket', material: 'carbon'  },
+  santorini: { family: 'paper',     shape: 'ticket', material: 'glass'   },
+  desert:    { family: 'paper',     shape: 'ticket', material: 'gold'    },
+
+  dragon:    { family: 'geode',     shape: 'hex',    material: 'crystal' },
+  arctic:    { family: 'geode',     shape: 'hex',    material: 'crystal' },
+  deepsea:   { family: 'geode',     shape: 'hex',    material: 'glass'   },
+  rune:      { family: 'geode',     shape: 'hex',    material: 'crystal' },
+  crystal:   { family: 'geode',     shape: 'hex',    material: 'crystal' },
+  winterfell:{ family: 'geode',     shape: 'hex',    material: 'crystal' },
+
+  vampire:   { family: 'slate',     shape: 'card',   material: 'matte'   },
+  volcano:   { family: 'slate',     shape: 'card',   material: 'matte'   },
+  noir:      { family: 'slate',     shape: 'card',   material: 'chrome'  },
+  shadow:    { family: 'slate',     shape: 'card',   material: 'carbon'  },
+  samurai:   { family: 'slate',     shape: 'card',   material: 'chrome'  },
+  braavos:   { family: 'slate',     shape: 'card',   material: 'chrome'  },
+
+  pharaoh:   { family: 'signature', shape: 'card',   material: 'gold'    },
+  royal:     { family: 'signature', shape: 'card',   material: 'gold'    },
+  phoenix:   { family: 'signature', shape: 'card',   material: 'gold'    },
+  dubai:     { family: 'signature', shape: 'card',   material: 'gold'    },
+  westeros:  { family: 'signature', shape: 'card',   material: 'chrome'  },
+};
+
+/** Семейства и материалы, которые вообще существуют. Проверка ниже бьёт по ним. */
+export const FAMILIES = ['vault', 'circuit', 'felt', 'prism', 'paper', 'geode', 'slate', 'signature'];
+export const SHAPES = ['card', 'notch', 'ticket', 'hex'];
+export const MATERIALS = ['gold', 'chrome', 'glass', 'holo', 'carbon', 'crystal', 'matte', 'neon'];
+
+/*
+ * Оформление приклеивается к теме здесь, а не лежит отдельной таблицей в
+ * клиенте: иначе добавленная тема молча осталась бы без семейства и получила
+ * бы вид по умолчанию, а это ровно та однотипность, от которой уходим.
+ */
+for (const [id, theme] of Object.entries(THEMES)) {
+  const v = VISUALS[id];
+  if (!v) throw new Error(`[themes] у темы "${id}" нет визуального семейства в VISUALS`);
+  if (!FAMILIES.includes(v.family)) throw new Error(`[themes] "${id}": неизвестное семейство ${v.family}`);
+  if (!SHAPES.includes(v.shape)) throw new Error(`[themes] "${id}": неизвестная форма ${v.shape}`);
+  if (!MATERIALS.includes(v.material)) throw new Error(`[themes] "${id}": неизвестный материал ${v.material}`);
+  theme.visual = v;
+}
+
+/*
+ * Мёртвое семейство не заметишь: отрисовщик просто не запускается. Поэтому
+ * старт падает, если описанное семейство не досталось ни одной теме - та же
+ * защита, что стоит у мини-игр.
+ */
+for (const family of FAMILIES) {
+  if (!Object.values(VISUALS).some((v) => v.family === family)) {
+    throw new Error(`[themes] семейство "${family}" описано, но не занято ни одной темой`);
+  }
+}
+
 export const THEME_IDS = Object.keys(THEMES);

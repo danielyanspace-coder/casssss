@@ -15,7 +15,7 @@ import {
   iconSlot,
 } from './icons.js';
 import { caseCover, porschePhotoSrc, caseArtSrc } from './covers.js';
-import { itemArt } from './item-art.js';
+import { itemArt, itemArtMaterial } from './item-art.js';
 import { coinMark, coinColor } from './coin-art.js';
 import { COMPANY, LICENSE, DOCS, footerHtml } from './legal.js';
 import { createMini } from './minigames.js';
@@ -820,9 +820,9 @@ function openCase(caseId) {
   // Витринный предмет идёт первой карточкой: пунктирная рамка отличает его
   // от тех, что действительно разыгрываются.
   const showcaseCard = c.showcase ? `
-    <div class="drop-card is-showcase" style="--tier-color:${tierColor(c.showcase.tier)}">
-      <div class="drop-ico">${itemArt(c.showcase.name, tierColor(c.showcase.tier))
-        || iconTier(c.showcase.tier, tierColor(c.showcase.tier))}</div>
+    <div class="drop-card rw-skin is-showcase" ${skinAttrs(c.visual)}
+         style="--tier-color:${tierColor(c.showcase.tier)}">
+      <div class="drop-ico">${tileArt(c.showcase, tierColor(c.showcase.tier))}</div>
       <div class="drop-name">${esc(c.showcase.name)}</div>
     </div>` : '';
 
@@ -832,8 +832,8 @@ function openCase(caseId) {
     .map((it) => {
       const color = tierColor(it.tier);
       const isPerk = it.kind === 'perk';
-      return `<div class="drop-card" style="--tier-color:${color}">
-        <div class="drop-ico">${itemArt(it.name, color) || iconTier(it.tier, color)}</div>
+      return `<div class="drop-card rw-skin" ${skinAttrs(c.visual)} style="--tier-color:${color}">
+        <div class="drop-ico">${tileArt(it, color)}</div>
         <div class="drop-name">${esc(it.name)}</div>
         <div class="drop-value">${isPerk && !it.value ? esc(it.perkLabel) : money(it.value)}</div>
       </div>`;
@@ -1169,7 +1169,43 @@ function weightedSample(items) {
   return items[0];
 }
 
-function tileHtml(item) {
+/*
+ * Оформление карточки приходит от темы кейса (server/themes.js -> VISUALS),
+ * а не от уровня редкости. Редкость задаёт только акцентный цвет: иначе
+ * игрок читает «ярче - значит дороже и вероятнее», а вероятность решается
+ * уравнением и к яркости отношения не имеет.
+ *
+ * Запасные значения нужны там, где кейс неизвестен: общая лента выпадений
+ * показывает предметы из чужих кейсов, и тема до неё не доезжает.
+ */
+const DEFAULT_SKIN = { family: 'slate', shape: 'card', material: 'matte' };
+
+/**
+ * Оформление по идентификатору кейса. Общая лента выпадений показывает
+ * выигрыши из чужих кейсов, и тема до неё не доезжает - зато доезжает caseId,
+ * а список кейсов уже лежит в состоянии.
+ */
+function skinOfCase(caseId) {
+  return state.config?.cases?.find((x) => x.id === caseId)?.visual || DEFAULT_SKIN;
+}
+
+function skinAttrs(visual) {
+  const v = visual || DEFAULT_SKIN;
+  return `data-family="${v.family}" data-shape="${v.shape}" data-material="${v.material}"`;
+}
+
+/**
+ * Рисунок предмета под материалом темы. Падает обратно на значок редкости,
+ * если название незнакомо словарю мотивов - 35 названий из 820.
+ */
+function tileArt(item, color) {
+  if (item.photo) return `<img class="tile-photo" src="${item.photo}" alt="">`;
+  return itemArtMaterial(item.name)
+    || itemArt(item.name, color)
+    || iconTier(item.tier, color);
+}
+
+function tileHtml(item, visual) {
   const color = tierColor(item.tier);
   let value;
   if (item.showcase) value = '<span class="tile-showcase">ВИТРИНА</span>';
@@ -1178,12 +1214,10 @@ function tileHtml(item) {
 
   // У витринного предмета вместо значка редкости — сама фотография: ради неё
   // он в ленте и крутится.
-  const icon = item.photo
-    ? `<img class="tile-photo" src="${item.photo}" alt="">`
-    : (itemArt(item.name, color) || iconTier(item.tier, color));
+  const icon = tileArt(item, color);
 
-  return `<div class="reel-tile ${item.showcase ? 'is-showcase' : ''}"
-      style="--tier-color:${color}">
+  return `<div class="reel-tile rw-skin ${item.showcase ? 'is-showcase' : ''}"
+      ${skinAttrs(visual)} style="--tier-color:${color}">
     <div class="tile-icon">${icon}</div>
     <div class="tile-name">${esc(item.name)}</div>
     <div class="tile-value">${value}</div>
@@ -1393,7 +1427,7 @@ function spinReels(c, opened, duration) {
      */
     let guard = 0;
     while (target + viewport > strip.length * step - (step - tileW) && guard < 40) {
-      reel.insertAdjacentHTML('beforeend', tileHtml(weightedSample(c.items)));
+      reel.insertAdjacentHTML('beforeend', tileHtml(weightedSample(c.items), c.visual));
       strip.push(null);
       guard++;
     }
@@ -1836,7 +1870,7 @@ function runFreeSpins(grant, caseData, { auto = false, replay = false } = {}) {
     // Та же страховка от пустоты справа, что и в обычном прокруте.
     let guard = 0;
     while (target + viewport > reel.children.length * step - (step - tileW) && guard < 40) {
-      reel.insertAdjacentHTML('beforeend', tileHtml(pickFiller()));
+      reel.insertAdjacentHTML('beforeend', tileHtml(pickFiller(), caseData.visual));
       guard++;
     }
 
@@ -5095,10 +5129,10 @@ const feedDrops = new Map();
 
 function feedCardHtml(drop) {
   const color = tierColor(drop.tier);
-  const art = itemArt(drop.name, color) || iconTier(drop.tier, color);
+  const art = tileArt(drop, color);
   // Ников в карточке нет: витрина показывает выигрыш, а не того, кто его снял.
-  return `<button class="feed-card is-new" data-drop="${esc(String(drop.id))}"
-      style="--tier-color:${color}">
+  return `<button class="feed-card rw-skin is-new" data-drop="${esc(String(drop.id))}"
+      ${skinAttrs(skinOfCase(drop.caseId))} style="--tier-color:${color}">
     <span class="feed-art">${art}</span>
     <span class="feed-name">${esc(drop.name)}</span>
     <span class="feed-value">${money(drop.value)}</span>

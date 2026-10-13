@@ -671,6 +671,7 @@ function buildCase(spec, builtById) {
       : maxMultiplier,
     theme: themeId,
     palette: theme.palette,
+    visual: theme.visual,
     items,
     // Плюшки есть теперь у всех, поэтому для плашки на карточке важны только
     // те, что заданы кейсу отдельно, — иначе метка перестаёт что-либо значить.
@@ -872,6 +873,7 @@ export function publicCase(c) {
     maxMultiplier: c.maxMultiplier,
     theme: c.theme,
     palette: c.palette,
+    visual: c.visual,
     hasPerks: c.hasPerks,
     showcase: c.showcase,
     availableFrom: c.availableFrom,

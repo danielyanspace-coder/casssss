@@ -6961,3 +6961,282 @@ button.mg-cell:active { transform: scale(0.92); }
   }
   .sl-stage:fullscreen { overflow-y: auto; }
 }
+
+/* ============================================================
+   СИСТЕМА КАРТОЧЕК ВЫИГРЫША
+   ============================================================
+
+   Раньше вид карточки собирался из одной переменной --tier-color: фон,
+   рамка, подчёркивание и цена были её производными. Семь цветов на 820
+   названий, и лента читалась как один повторяющийся элемент разных оттенков.
+
+   Теперь независимых осей шесть, и они комбинируются свободно:
+
+     data-family    композиция: форма, поверхность, декор, шрифт подписи
+     data-shape     силуэт карточки (clip-path)
+     data-material   чем залит рисунок предмета
+     --tier-color   редкость: только акцент, но НЕ стиль
+     размер         компактная плитка или крупная карточка
+     анимация       блик и свечение
+
+   Семейство приходит от темы кейса (server/themes.js -> VISUALS), поэтому
+   решение принимается 41 раз, а не 820.
+
+   ВАЖНО: редкость не равна стилю. Легендарный предмет в семействе slate
+   остаётся сдержанным. Иначе игрок читает «ярче - значит дороже и
+   вероятнее», а это неправда: вероятность решается уравнением в cases.js.
+
+   Поверхность и декор рисуются псевдоэлементами, а не узлами разметки: в
+   ленте кейса сорок плиток одновременно, и два лишних div на каждую - это
+   восемьдесят узлов на ровном месте. */
+
+/* ---------- Слой B. Материалы ----------
+   Остановки градиента читают эти переменные (public/item-art.js). Поэтому
+   поверхность предмета выбирается в стилях, а мотив остаётся один. */
+[data-material="gold"]    { --mat-1:#fbeaa8; --mat-2:#e8c25f; --mat-3:#b8862c; }
+[data-material="chrome"]  { --mat-1:#f2f6fa; --mat-2:#aab6c4; --mat-3:#6e7a8a; }
+[data-material="glass"]   { --mat-1:#dff1fa; --mat-2:#9cc8de; --mat-3:#5a8fa8; }
+[data-material="holo"]    { --mat-1:#9fe9ff; --mat-2:#c79cff; --mat-3:#ff9ecb; }
+[data-material="crystal"] { --mat-1:#e4f7ff; --mat-2:#9ccdea; --mat-3:#5f8fc4; }
+[data-material="neon"]    { --mat-1:#bff4ff; --mat-2:#6bbdcc; --mat-3:#3a7f93; }
+/* Углерод осветлён относительно поверхности карточки намеренно: предмет
+   лежит НА тёмной карточке, и материал цвета фона превратил бы его в пятно. */
+[data-material="carbon"]  { --mat-1:#8f96a1; --mat-2:#4a515b; --mat-3:#6d7480; }
+/* Матовый берёт цвет редкости - это прежнее поведение, сохранённое
+   намеренно: часть кейсов должна выглядеть как раньше, иначе обновление
+   читается как смена продукта, а не как его развитие. */
+[data-material="matte"]   {
+  --mat-1: color-mix(in srgb, var(--tier-color) 55%, #ffffff);
+  --mat-2: var(--tier-color);
+  --mat-3: color-mix(in srgb, var(--tier-color) 62%, #000000);
+}
+
+/* ---------- Слой A. Геометрия ----------
+   Форма обрезает СОДЕРЖИМОЕ, а содержимое о форме не знает: цена уезжала под
+   грань шестиугольника. Поэтому безопасный отступ объявляет сама форма.
+   Падинг сжимает только поток; слои поверхности позиционированы абсолютно от
+   padding-box и закрывают карточку целиком. */
+.rw-skin {
+  --safe-b: 0px;
+  --safe-x: 0px;
+  position: relative;
+  isolation: isolate;
+  padding-bottom: var(--safe-b);
+  padding-left: var(--safe-x);
+  padding-right: var(--safe-x);
+}
+.rw-skin > * { position: relative; z-index: 1; }
+.rw-skin::before,
+.rw-skin::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+.rw-skin::after { z-index: 0; }
+
+.rw-skin[data-shape="notch"] {
+  --safe-b: 4px; --safe-x: 5px;
+  clip-path: polygon(0 10px, 10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%);
+}
+.rw-skin[data-shape="ticket"] {
+  --safe-x: 3px;
+  clip-path: polygon(0 0, 100% 0, 100% 38%, calc(100% - 5px) 42%, 100% 46%, 100% 100%,
+                     0 100%, 0 46%, 5px 42%, 0 38%);
+}
+/* Скос задан В ПИКСЕЛЯХ, а не в долях высоты, намеренно.
+   Падинг в процентах всегда считается от ШИРИНЫ, скос в процентах - от
+   высоты. На карточке 3:4 они сходились, на низкой и широкой - расходились,
+   и цена снова уезжала под грань. В пикселях безопасная зона перекрывает
+   скос при любой пропорции. */
+.rw-skin[data-shape="hex"] {
+  --safe-b: 17px; --safe-x: 5px;
+  clip-path: polygon(50% 0, 100% 14px, 100% calc(100% - 14px), 50% 100%,
+                     0 calc(100% - 14px), 0 14px);
+}
+
+/* ============================================================
+   Слой C+D. Восемь семейств. Различаются композицией, а не оттенком.
+   ============================================================ */
+
+/* VAULT - шлифованный металл, гравированные уголки, предмет на подиуме */
+.rw-skin[data-family="vault"] { background: #17161c; border-color: #2c2a33; }
+.rw-skin[data-family="vault"]::before {
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.07), transparent 42%),
+    repeating-linear-gradient(90deg, rgba(255,255,255,.035) 0 1px, transparent 1px 3px),
+    linear-gradient(168deg, #2c2a33, #121117 72%);
+}
+.rw-skin[data-family="vault"]::after {
+  background:
+    linear-gradient(90deg, var(--tier-color), transparent 42%) 7px 7px/26px 1.2px no-repeat,
+    linear-gradient(180deg, var(--tier-color), transparent 42%) 7px 7px/1.2px 26px no-repeat,
+    linear-gradient(270deg, var(--tier-color), transparent 42%) right 7px bottom 7px/26px 1.2px no-repeat,
+    linear-gradient(0deg, var(--tier-color), transparent 42%) right 7px bottom 7px/1.2px 26px no-repeat;
+  opacity: .8;
+}
+
+/* CIRCUIT - техническая сетка и угловые засечки */
+.rw-skin[data-family="circuit"] { background: #0a1020; border-color: #1b2b4d; }
+.rw-skin[data-family="circuit"]::before {
+  background:
+    repeating-linear-gradient(0deg, rgba(107,189,204,.07) 0 1px, transparent 1px 11px),
+    repeating-linear-gradient(90deg, rgba(107,189,204,.07) 0 1px, transparent 1px 11px),
+    radial-gradient(90% 70% at 50% 0%, #17254a, #070b17 76%);
+}
+.rw-skin[data-family="circuit"]::after {
+  background:
+    linear-gradient(90deg, var(--tier-color), var(--tier-color)) 6px 6px/10px 1.2px no-repeat,
+    linear-gradient(90deg, var(--tier-color), var(--tier-color)) 6px 6px/1.2px 10px no-repeat,
+    linear-gradient(90deg, var(--tier-color), var(--tier-color)) right 6px top 6px/10px 1.2px no-repeat,
+    linear-gradient(90deg, var(--tier-color), var(--tier-color)) right 6px top 6px/1.2px 10px no-repeat;
+}
+
+/* FELT - сукно игрового стола и двойная линейка */
+.rw-skin[data-family="felt"] { background: #10241c; border-color: #1d4435; }
+.rw-skin[data-family="felt"]::before {
+  background:
+    radial-gradient(circle at 1px 1px, rgba(255,255,255,.045) 1px, transparent 0) 0 0/5px 5px,
+    radial-gradient(85% 65% at 50% 32%, #1d4435, #0b1a14 78%);
+}
+.rw-skin[data-family="felt"]::after {
+  background:
+    linear-gradient(90deg, transparent, var(--tier-color), transparent) 0 8px/100% 1px no-repeat,
+    linear-gradient(90deg, transparent, var(--tier-color), transparent) 0 10.5px/100% .5px no-repeat,
+    linear-gradient(90deg, transparent, var(--tier-color), transparent) 0 calc(100% - 3px)/100% 1px no-repeat;
+  opacity: .55;
+}
+
+/* PRISM - переливающаяся фольга и вырубленное окно под предмет */
+.rw-skin[data-family="prism"] { background: #140d24; border-color: #3a2a5c; }
+.rw-skin[data-family="prism"]::before {
+  background: conic-gradient(from 210deg, #6bbdcc, #9366d0, #e0518c, #dfbe62, #63bf94, #6bbdcc);
+  filter: saturate(.7) brightness(.6);
+}
+.rw-skin[data-family="prism"]::after {
+  background: radial-gradient(circle at 50% 38%, #140d24 30%, transparent 31%);
+  box-shadow: inset 0 0 0 1.2px rgba(255,255,255,.28);
+}
+
+/* PAPER - отрывной билет: корешок, перфорация, штамп */
+.rw-skin[data-family="paper"] { background: #1a1713; border-color: #3a3228; }
+.rw-skin[data-family="paper"]::before {
+  background:
+    radial-gradient(circle at 1px 1px, rgba(255,255,255,.03) 1px, transparent 0) 0 0/3px 3px,
+    linear-gradient(142deg, #2a241c, #15120e 76%);
+}
+/* Перфорация горизонтальная и уведена под верхний край.
+   Вертикальная, как на высоком билете, в сетке предметов проходила ровно по
+   названию: карточки здесь низкие и широкие, а текст в них по центру. */
+.rw-skin[data-family="paper"]::after {
+  background: repeating-linear-gradient(90deg, rgba(255,255,255,.26) 0 4px, transparent 4px 8px)
+              0 5px/100% 1px no-repeat;
+}
+
+/* GEODE - гранёное поле и световые полосы */
+.rw-skin[data-family="geode"] { background: #0d1824; border-color: #1b3147; }
+.rw-skin[data-family="geode"]::before {
+  background:
+    linear-gradient(118deg, rgba(255,255,255,.1) 0 22%, transparent 22%),
+    linear-gradient(-54deg, rgba(255,255,255,.07) 0 34%, transparent 34%),
+    linear-gradient(72deg, rgba(107,189,204,.16) 0 46%, transparent 46%),
+    linear-gradient(200deg, #1b3147, #080e16 74%);
+}
+.rw-skin[data-family="geode"]::after {
+  background: linear-gradient(104deg, transparent 40%, rgba(255,255,255,.13) 46%, transparent 52%);
+}
+
+/* SLATE - тихое семейство. Без декора: когда громких большинство,
+   тихие перестают читаться как тихие, и наоборот. */
+.rw-skin[data-family="slate"] { background: #0e0d12; border-color: #22202a; }
+.rw-skin[data-family="slate"]::before {
+  background: linear-gradient(185deg, #16151c, #0b0a0e 70%);
+}
+.rw-skin[data-family="slate"]::after {
+  background: radial-gradient(62% 46% at 50% 36%,
+    color-mix(in srgb, var(--tier-color) 17%, transparent), transparent 72%);
+}
+
+/* SIGNATURE - тематические и лимитированные: свет во всё поле и фольга */
+.rw-skin[data-family="signature"] { background: #1a0d1e; border-color: #43265a; }
+.rw-skin[data-family="signature"]::before {
+  background: radial-gradient(78% 56% at 50% 32%,
+    color-mix(in srgb, var(--tier-color) 44%, transparent), #14081a 76%);
+}
+.rw-skin[data-family="signature"]::after {
+  background: linear-gradient(104deg, transparent 30%, rgba(255,255,255,.26) 37%,
+    color-mix(in srgb, var(--tier-color) 62%, transparent) 43%, transparent 53%);
+}
+
+/* ---------- Плитка ленты под новой системой ----------
+   Фон и нижнюю подсветку задаёт семейство, поэтому прежний градиент из
+   --tier-color снимаем: иначе две поверхности спорят и обе проигрывают.
+   Размеры НЕ трогаем: высоту ячейки барабан снимает с разметки, и любая
+   правка высоты здесь ломает остановку ленты. */
+.reel-tile.rw-skin {
+  background: none;
+  border: 1px solid transparent;
+  border-bottom-width: 1px;
+}
+.reel-tile.rw-skin .tile-value { color: var(--tier-color); }
+.reel-tile.rw-skin[data-family="slate"] .tile-value,
+.reel-tile.rw-skin[data-family="prism"] .tile-value { color: #fff; }
+
+/* Шрифт подписи - часть семейства, а не украшение: в ленте соседние плитки
+   разных кейсов не бывают, зато разные кейсы ощущаются разными продуктами. */
+.rw-skin[data-family="circuit"] .tile-name,
+.rw-skin[data-family="paper"] .tile-name { font-family: ui-monospace, Menlo, monospace; }
+.rw-skin[data-family="vault"] .tile-name,
+.rw-skin[data-family="signature"] .tile-name { letter-spacing: .09em; text-transform: uppercase; }
+.rw-skin[data-family="felt"] .tile-name,
+.rw-skin[data-family="geode"] .tile-name { letter-spacing: .06em; }
+
+/* ---------- Слой F. Анимация ----------
+   Блик только на крупной карточке результата. В ленте он выключен намеренно:
+   сорок одновременных анимаций роняют кадры на телефоне, а разглядеть блик
+   на летящей плитке всё равно нельзя. */
+.rw-skin.rw-sheen > .rw-gloss {
+  position: absolute; inset: 0; z-index: 2; pointer-events: none;
+  background: linear-gradient(108deg, transparent 36%, rgba(255,255,255,.16) 48%, transparent 60%);
+  transform: translateX(-120%);
+  animation: rw-sweep 5.2s ease-in-out infinite;
+}
+@keyframes rw-sweep {
+  0%, 72% { transform: translateX(-120%); }
+  100%    { transform: translateX(120%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rw-skin.rw-sheen > .rw-gloss { animation: none; opacity: 0; }
+}
+
+@media (min-width: 1024px) {
+  /* На компьютере плитка крупнее, поэтому декор можно показать полностью:
+     на телефоне те же уголки в 26 точек съедали бы четверть карточки. */
+  .rw-skin[data-family="vault"]::after { opacity: 1; }
+  .rw-skin[data-family="felt"]::after { opacity: .7; }
+}
+
+/* ---------- Прежние поверхности под новой системой ----------
+   У карточки выпадения и у карточки ленты фон строился из --tier-color.
+   Семейство рисует свою поверхность, поэтому старую снимаем: две заливки
+   друг поверх друга дают грязь, и обе перестают читаться.
+   Рамка остаётся цветом редкости - это единственное место, где редкость
+   видна прямо, и убирать её нельзя. */
+.drop-card.rw-skin,
+.feed-card.rw-skin {
+  background: none;
+}
+.drop-card.rw-skin { border-color: color-mix(in srgb, var(--tier-color) 34%, transparent); }
+
+/* Тихие семейства не подсвечивают цену цветом редкости: в slate и prism
+   акцент живёт в ореоле и в фольге, а белая цифра читается лучше. */
+.rw-skin[data-family="slate"] .drop-value,
+.rw-skin[data-family="prism"] .drop-value,
+.rw-skin[data-family="slate"] .feed-value,
+.rw-skin[data-family="prism"] .feed-value { color: #fff; }
+
+/* Декор крупнее размера карточки не имеет смысла: в ленте выпадений
+   карточка низкая, и гравированные уголки vault в 26 точек перечёркивали бы
+   её целиком. Для низких карточек декор приглушён. */
+.feed-card.rw-skin::after { opacity: .5; }

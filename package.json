@@ -23,7 +23,8 @@
     "test:fortune": "node test/fortune.mjs",
     "test:modules": "node --experimental-vm-modules test/modules.mjs",
     "test:mini": "node test/minigames.mjs",
-    "test:slots": "node test/slots.mjs"
+    "test:slots": "node test/slots.mjs",
+    "test:cards": "node test/cards.mjs"
   },
   "engines": {
     "node": ">=18"
