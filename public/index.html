@@ -5,6 +5,24 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>КЕЙСЫ · КРАШ · РУЛЕТКА</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
+
+  <!--
+    Шрифты семейств карточек.
+
+    Берём ровно четыре начертания и только те веса, что используются: лишний
+    вес это лишние килобайты на мобильной сети, а мини-апп открывают с
+    телефона. display=swap обязателен - без него текст не виден, пока шрифт
+    едет, и на плохой связи карточка несколько секунд стоит пустой.
+
+    Если шрифты не доедут (а в встроенном браузере Telegram такое бывает),
+    всё остаётся читаемым: в каждом стеке стоит системный запасной, и вёрстка
+    на него рассчитана. Проверять это надо именно так - выключив сеть на
+    fonts.gstatic.com, а не глазами на быстром канале.
+  -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;800&amp;family=Manrope:wght@500;700;800&amp;family=Bodoni+Moda:opsz,wght@6..96,700;6..96,900&amp;family=JetBrains+Mono:wght@400;700&amp;display=swap">
+
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>

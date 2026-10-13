@@ -7197,15 +7197,25 @@ button.mg-cell:active { transform: scale(0.92); }
    карточка сетки шире. Если плитку когда-нибудь сузят, проверять надо именно
    это: одно слово шире плитки не переносится, оно обрезается. */
 
-/* VAULT - гравировка: капс, широкая разрядка, тяжёлая цифра. */
+/* VAULT - гравировка: капс, широкая разрядка, тяжёлая цифра.
+   Дисплейный Unbounded берут только vault и signature: он выразительный, и
+   если отдать его всем, различать семейства снова будет нечем. */
 .rw-skin[data-family="vault"] .drop-name,
-.rw-skin[data-family="vault"] .tile-name { letter-spacing: .09em; text-transform: uppercase; font-weight: 700; }
+.rw-skin[data-family="vault"] .tile-name,
+.rw-skin[data-family="vault"] .drop-value,
+.rw-skin[data-family="vault"] .tile-value { font-family: 'Unbounded', system-ui, sans-serif; }
+.rw-skin[data-family="vault"] .drop-name,
+.rw-skin[data-family="vault"] .tile-name { letter-spacing: .09em; text-transform: uppercase; font-weight: 600; }
 .rw-skin[data-family="vault"] .drop-value,
 .rw-skin[data-family="vault"] .tile-value { letter-spacing: .01em; font-weight: 900; }
 
 /* SIGNATURE - именная серия: самый широкий трекинг в наборе. */
 .rw-skin[data-family="signature"] .drop-name,
-.rw-skin[data-family="signature"] .tile-name { letter-spacing: .14em; text-transform: uppercase; font-weight: 700; }
+.rw-skin[data-family="signature"] .tile-name,
+.rw-skin[data-family="signature"] .drop-value,
+.rw-skin[data-family="signature"] .tile-value { font-family: 'Unbounded', system-ui, sans-serif; }
+.rw-skin[data-family="signature"] .drop-name,
+.rw-skin[data-family="signature"] .tile-name { letter-spacing: .14em; text-transform: uppercase; font-weight: 600; }
 .rw-skin[data-family="signature"] .drop-value,
 .rw-skin[data-family="signature"] .tile-value { font-weight: 900; letter-spacing: .02em; }
 
@@ -7214,7 +7224,7 @@ button.mg-cell:active { transform: scale(0.92); }
 .rw-skin[data-family="circuit"] .tile-name,
 .rw-skin[data-family="circuit"] .drop-value,
 .rw-skin[data-family="circuit"] .tile-value {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   letter-spacing: -.01em;
 }
 .rw-skin[data-family="circuit"] .drop-name,
@@ -7223,12 +7233,12 @@ button.mg-cell:active { transform: scale(0.92); }
 /* PAPER - билет: моноширинный в названии, капс в номинале. */
 .rw-skin[data-family="paper"] .drop-name,
 .rw-skin[data-family="paper"] .tile-name {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-weight: 400;
 }
 .rw-skin[data-family="paper"] .drop-value,
 .rw-skin[data-family="paper"] .tile-value {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-weight: 700; letter-spacing: .04em;
 }
 
@@ -7237,7 +7247,7 @@ button.mg-cell:active { transform: scale(0.92); }
 .rw-skin[data-family="felt"] .tile-name { letter-spacing: .07em; text-transform: uppercase; font-weight: 700; }
 .rw-skin[data-family="felt"] .drop-value,
 .rw-skin[data-family="felt"] .tile-value {
-  font-family: 'Bodoni 72', Didot, Georgia, 'Times New Roman', serif;
+  font-family: 'Bodoni Moda', 'Bodoni 72', Didot, Georgia, 'Times New Roman', serif;
   font-weight: 700; letter-spacing: .01em;
 }
 
@@ -7255,6 +7265,7 @@ button.mg-cell:active { transform: scale(0.92); }
 
 /* SLATE - тихое семейство: обычный набор без единой выходки. Оно и держит
    контраст: когда у всех разрядка и капс, их перестают замечать. */
+.drop-card.rw-skin, .reel-tile.rw-skin { font-family: 'Manrope', system-ui, -apple-system, sans-serif; }
 .rw-skin[data-family="slate"] .drop-name,
 .rw-skin[data-family="slate"] .tile-name { font-weight: 500; letter-spacing: 0; }
 .rw-skin[data-family="slate"] .drop-value,
@@ -7462,3 +7473,75 @@ button.mg-cell:active { transform: scale(0.92); }
   overflow: hidden;
   line-height: 1.22;
 }
+
+/* ============================================================
+   ВЕРТИКАЛЬНАЯ ПЛИТКА БАРАБАНА И НЕРАЗРЫВНАЯ СУММА
+   ============================================================ */
+
+/*
+ * Сумма не переносится НИКОГДА.
+ *
+ * «3 650 ₽» разрывалось между числом и знаком рубля: пробел внутри суммы -
+ * обычный, и перенос по нему разрешён. Карточка при этом выглядит сломанной,
+ * а сумма - главное, что на ней читают.
+ *
+ * Пробел внутри числа тоже чиним, но в коде: money() ставит неразрывный,
+ * иначе «329 000» разъезжается между разрядами.
+ */
+.tile-value, .drop-value, .feed-value, .rw-skin .drop-value {
+  white-space: nowrap;
+}
+
+/*
+ * Плитка барабана вытянута по вертикали (примерно 3:4).
+ *
+ * Была почти квадратной: 138 на 148. Предмет в такой плитке мелкий, а
+ * карточка читается как ячейка списка. Вытянутая даёт рисунку высоту и
+ * выглядит карточкой, а не строкой.
+ *
+ * Числа здесь - чистая вёрстка: measureReel() снимает шаг и ширину с разметки
+ * перед каждым прокрутом, поэтому арифметика остановки подстраивается сама.
+ * Высоту ячейки нигде не зашиваем числом - на этом уже ломались барабаны
+ * мини-игр и слотов.
+ */
+.reel-wrap { height: 186px; }
+.reel-tile { flex-basis: 120px; width: 120px; }
+
+@media (min-width: 1024px) {
+  .reels:not(.compact) .reel-wrap { height: 392px; }
+  .reels:not(.compact) .reel-tile { flex-basis: 252px; width: 252px; }
+
+  .reels.compact .reel-wrap { height: 202px; }
+  .reels.compact .reel-tile { flex-basis: 130px; width: 130px; }
+  .reels.compact .tile-name { font-size: 12px; }
+  .reels.compact .tile-value { font-size: 16px; }
+
+  .fs-reel-wrap { height: 264px; }
+  .fs-reel-wrap .reel-tile { flex-basis: 172px; width: 172px; }
+}
+
+/* ---- Медальон для мелкого мотива ----
+   Мотивы item-art.js нарисованы под значок в 34 точки. Растянутые на всю
+   карточку они выглядят плоско, поэтому показываются в своём размере на диске.
+   Разнобоя не возникает: рядом либо крупный предмет, либо эмблема на пластине,
+   и то и другое выглядит намеренным. */
+.art-medal {
+  display: grid;
+  place-items: center;
+  width: 72%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 38% 32%, rgba(255, 255, 255, 0.07), transparent 62%),
+    color-mix(in srgb, var(--tier-color) 10%, rgba(0, 0, 0, 0.42));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+}
+.art-medal svg { width: 52%; height: 52%; }
+
+/* В барабане медальон мельче: плитка узкая, и диск во всю ширину съедает
+   место у подписи. */
+.reel-tile .art-medal { width: 80%; }
+.reel-tile .art-medal svg { width: 56%; height: 56%; }
+
+/* Крупный мотив занимает всю отведённую площадь - у него своя композиция. */
+.drop-ico > svg, .tile-icon > svg { width: 100%; height: 100%; }

@@ -16,6 +16,7 @@ import {
 } from './icons.js';
 import { caseCover, porschePhotoSrc, caseArtSrc } from './covers.js';
 import { itemArt, itemArtMaterial } from './item-art.js';
+import { itemArt64 } from './item-art64.js';
 import { coinMark, coinColor } from './coin-art.js';
 import { COMPANY, LICENSE, DOCS, footerHtml } from './legal.js';
 import { createMini } from './minigames.js';
@@ -106,8 +107,17 @@ function plural(n, one, few, many) {
   return many;
 }
 
-/** Сумма с символом валюты. */
-const money = (n) => fmt(n) + ' ₽';
+/*
+ * Сумма с символом валюты.
+ *
+ * Пробел перед знаком рубля НЕРАЗРЫВНЫЙ (U+00A0). С обычным «3 650 ₽»
+ * разрывалось между числом и знаком, и на карточке знак уезжал на вторую
+ * строку - выглядит как сломанная вёрстка, а сумма тут главное.
+ *
+ * Разряды внутри числа разделяет сам toLocaleString('ru-RU'), и он тоже
+ * ставит неразрывный пробел, поэтому «329 000» не рассыпается.
+ */
+const money = (n) => fmt(n) + ' ₽';
 const esc = (s) => String(s ?? '').replace(/[<>&"]/g, (c) =>
   ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]));
 
@@ -1195,14 +1205,25 @@ function skinAttrs(visual) {
 }
 
 /**
- * Рисунок предмета под материалом темы. Падает обратно на значок редкости,
- * если название незнакомо словарю мотивов - 35 названий из 820.
+ * Рисунок предмета.
+ *
+ * Два набора мотивов, и это не временное состояние, а осознанная ступенька.
+ * item-art64.js рисует крупно, во всю площадь карточки - там 46 мотивов,
+ * они покрывают 44% названий. Остальное берётся из item-art.js: те мотивы
+ * рисовались под значок в 34 точки, и растянутые на всю карточку выглядят
+ * плоско.
+ *
+ * Поэтому мелкий мотив идёт МЕДАЛЬОНОМ: на диске, в своём размере. Карточка
+ * читается как решение, а не как недоделанная. По мере того как мотивы
+ * перерисовываются крупно, предметы переезжают из медальона в полный размер
+ * сами - менять здесь ничего не придётся.
  */
 function tileArt(item, color) {
   if (item.photo) return `<img class="tile-photo" src="${item.photo}" alt="">`;
-  return itemArtMaterial(item.name)
-    || itemArt(item.name, color)
-    || iconTier(item.tier, color);
+  const big = itemArt64(item.name);
+  if (big) return big;
+  const small = itemArtMaterial(item.name) || itemArt(item.name, color) || iconTier(item.tier, color);
+  return `<span class="art-medal">${small}</span>`;
 }
 
 function tileHtml(item, visual) {

@@ -287,6 +287,9 @@ const icons = read('./public/icons.js');
 const covers = read('./public/covers.js');
 const sounds = read('./public/sounds.js');
 const itemArt = read('./public/item-art.js');
+// Крупные мотивы 64x64: отдельный файл, потому что старый набор рисовался
+// под значок в 34 точки и к карточке во всю высоту не годится.
+const itemArt64 = read('./public/item-art64.js');
 const coinArt = read('./public/coin-art.js');
 // legal.js тоже проходит через inlineUi: в подвале лежат картинки по путям
 // assets/ui/, и без этого в автономной сборке они оказывались битыми.
@@ -2392,6 +2395,8 @@ ${strip(covers)}
 ${strip(sounds)}
 
 ${strip(itemArt)}
+
+${strip(itemArt64)}
 
 ${strip(coinArt)}
 
