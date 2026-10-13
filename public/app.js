@@ -823,7 +823,7 @@ function openCase(caseId) {
     <div class="drop-card rw-skin is-showcase" ${skinAttrs(c.visual)}
          style="--tier-color:${tierColor(c.showcase.tier)}">
       <div class="drop-ico">${tileArt(c.showcase, tierColor(c.showcase.tier))}</div>
-      <div class="drop-name">${esc(c.showcase.name)}</div>
+      <div class="drop-name"><span>${esc(c.showcase.name)}</span></div>
     </div>` : '';
 
   const cards = c.items
@@ -834,7 +834,7 @@ function openCase(caseId) {
       const isPerk = it.kind === 'perk';
       return `<div class="drop-card rw-skin" ${skinAttrs(c.visual)} style="--tier-color:${color}">
         <div class="drop-ico">${tileArt(it, color)}</div>
-        <div class="drop-name">${esc(it.name)}</div>
+        <div class="drop-name"><span>${esc(it.name)}</span></div>
         <div class="drop-value">${isPerk && !it.value ? esc(it.perkLabel) : money(it.value)}</div>
       </div>`;
     }).join('');
@@ -1219,7 +1219,7 @@ function tileHtml(item, visual) {
   return `<div class="reel-tile rw-skin ${item.showcase ? 'is-showcase' : ''}"
       ${skinAttrs(visual)} style="--tier-color:${color}">
     <div class="tile-icon">${icon}</div>
-    <div class="tile-name">${esc(item.name)}</div>
+    <div class="tile-name"><span>${esc(item.name)}</span></div>
     <div class="tile-value">${value}</div>
   </div>`;
 }

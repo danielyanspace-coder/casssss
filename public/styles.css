@@ -7246,3 +7246,157 @@ button.mg-cell:active { transform: scale(0.92); }
    карточка низкая, и гравированные уголки vault в 26 точек перечёркивали бы
    её целиком. Для низких карточек декор приглушён. */
 .feed-card.rw-skin::after { opacity: .5; }
+
+/* ============================================================
+   КОМПОЗИЦИЯ КАРТОЧКИ
+   ============================================================
+
+   Поверхность и материал - половина дела. Вторая половина - пропорция и
+   место предмета. В старой плитке стоял значок в 34 точки на низкой широкой
+   коробке: под любым семейством она остаётся списком, а не витриной.
+
+   Теперь карточка высокая (3:4), предмет занимает всю свободную площадь, а
+   название и цена прижаты к низу. Предмет - главный, подпись - служебная.
+
+   Отступы вокруг предмета задаёт СЕМЕЙСТВО: в geode предмет мелкий и
+   заключён в толщу граней, в slate он почти во всю карточку. Это и есть
+   разница композиций, ради которой семейства заведены. */
+
+.drop-card.rw-skin {
+  aspect-ratio: 3 / 4;
+  align-items: stretch;
+  text-align: left;
+  gap: 0;
+  padding: 0 var(--safe-x) var(--safe-b);
+  overflow: hidden;
+}
+
+/* Значок перестаёт быть значком: это область рисунка, и она забирает всё,
+   что осталось от подписи. min-height нужен, иначе flex не даёт сжиматься
+   и карточка распирается содержимым. */
+.drop-card.rw-skin .drop-ico {
+  width: auto;
+  height: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  padding: var(--art-pad, 15% 14% 7%);
+}
+.drop-card.rw-skin .drop-ico svg { width: 100%; height: 100%; max-width: 100%; }
+
+.drop-card.rw-skin .drop-name {
+  padding: 0 11px;
+  font-size: 11.5px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.drop-card.rw-skin .drop-value { padding: 2px 11px 11px; font-size: 16px; }
+
+/* Та же логика в барабане. Ширину и высоту плитки НЕ трогаем: барабан
+   снимает высоту ячейки с разметки и по ней останавливается. */
+.reel-tile.rw-skin { gap: 0; padding: 0 var(--safe-x) var(--safe-b); }
+.reel-tile.rw-skin .tile-icon {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: auto;
+  height: auto;
+  display: grid;
+  place-items: center;
+  padding: var(--art-pad, 13% 14% 6%);
+  font-size: 0;
+}
+.reel-tile.rw-skin .tile-icon svg { width: 100%; height: 100%; }
+/*
+ * В барабане подпись в ОДНУ строку с многоточием.
+ *
+ * Не из экономии места. `-webkit-line-clamp` требует `display: -webkit-box`,
+ * а `.tile-name` - flex-элемент: у flex-элементов display блокифицируется,
+ * и обрезка по строкам не работает здесь в принципе. Она и не работала -
+ * просто при старой вёрстке места хватало и этого не было видно. Коробка
+ * высотой в две строки при содержимом в три резала вторую посередине, и
+ * из-под неё выглядывала цена.
+ *
+ * Одна строка с многоточием детерминирована при любом названии. Полное имя
+ * игрок видит в сетке предметов и на экране результата, а на летящей плитке
+ * вторую строку всё равно не прочитать.
+ */
+.reel-tile.rw-skin .tile-name {
+  flex: 0 0 auto;
+  /* У плитки align-items: center, поэтому коробка подписи по умолчанию
+     шириной в текст и вылезает за края. Растягиваем её по плитке. */
+  align-self: stretch;
+  min-width: 0;
+  padding: 0 8px;
+  display: block;
+  overflow: hidden;
+}
+.reel-tile.rw-skin .tile-value {
+  flex: 0 0 auto;
+  align-self: stretch;
+  min-width: 0;
+  padding: 3px 8px 9px;
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---- Отступы вокруг предмета по семействам ---- */
+.rw-skin[data-family="vault"]     { --art-pad: 15% 14% 9%; }
+.rw-skin[data-family="circuit"]   { --art-pad: 16% 18% 8% 12%; }
+.rw-skin[data-family="felt"]      { --art-pad: 17% 16% 5%; }
+.rw-skin[data-family="prism"]     { --art-pad: 16% 25% 11%; }
+/* Отступ симметричный: асимметрия осталась от вертикального корешка, а
+   перфорация теперь горизонтальная, и предмет просто выглядел сбитым вбок. */
+.rw-skin[data-family="paper"]     { --art-pad: 16% 14% 8%; }
+.rw-skin[data-family="geode"]     { --art-pad: 21% 25% 13%; }
+.rw-skin[data-family="slate"]     { --art-pad: 11% 11% 4%; }
+.rw-skin[data-family="signature"] { --art-pad: 17% 16% 9%; }
+
+/* ---- Подпись по семействам ---- */
+
+/* VAULT: волосок отделяет подпись от подиума, как шов на металле. */
+.rw-skin[data-family="vault"] .drop-name,
+.rw-skin[data-family="vault"] .tile-name { border-top: 1px solid rgba(255,255,255,.1); padding-top: 7px; }
+
+/* PRISM и SIGNATURE: под подписью своя подложка, иначе текст тонет в
+   переливе и в световом пятне. */
+.rw-skin[data-family="prism"] .drop-name,
+.rw-skin[data-family="prism"] .tile-name { background: rgba(20,13,36,.82); padding-top: 7px; }
+.rw-skin[data-family="prism"] .drop-value,
+.rw-skin[data-family="prism"] .tile-value { background: rgba(20,13,36,.82); }
+.rw-skin[data-family="signature"] .drop-name,
+.rw-skin[data-family="signature"] .tile-name {
+  background: linear-gradient(180deg, transparent, rgba(0,0,0,.62) 70%);
+  padding-top: 14px;
+}
+.rw-skin[data-family="signature"] .drop-value,
+.rw-skin[data-family="signature"] .tile-value { background: rgba(0,0,0,.62); }
+
+/* Витринный предмет остаётся пунктирным: это его единственная метка. */
+.drop-card.rw-skin.is-showcase { border-style: dashed; }
+
+@media (min-width: 560px) {
+  /* На широком экране карточка чуть менее вытянутая: четыре в ряд при 3:4
+     дают колонку высотой в полтора экрана, и список перестаёт читаться. */
+  .drop-card.rw-skin { aspect-ratio: 4 / 5; }
+}
+
+
+/* ---- Обрезка подписи по двум строкам ----
+   `-webkit-line-clamp` требует `display: -webkit-box`, а у flex-элемента
+   display блокифицируется - обрезка не работает. Поэтому текст завёрнут в
+   span: он уже обычный блок внутри блока, и обрезка к нему применима.
+   Без этого длинное название выталкивало цену за пределы карточки, а в
+   барабане резалось посередине строки и наезжало на цену. */
+.drop-card.rw-skin .drop-name > span,
+.reel-tile.rw-skin .tile-name > span {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.22;
+}
