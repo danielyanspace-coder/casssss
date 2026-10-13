@@ -149,6 +149,10 @@ const drawTables = CASES.map((c) => ({
     kind: it.kind,
     value: it.value,
     tier: it.tier,
+    // Оформление и рисунок едут в ответе на открытие, как на сервере: без них
+    // выигрышная плитка демо рисовалась бы видом кейса, а не предмета.
+    skin: it.skin,
+    art: it.art,
     perk: it.perk || null,
     perkLabel: it.perkLabel || null,
     cumulative: it.cumulative,
@@ -290,6 +294,14 @@ const itemArt = read('./public/item-art.js');
 // Крупные мотивы 64x64: отдельный файл, потому что старый набор рисовался
 // под значок в 34 точки и к карточке во всю высоту не годится.
 const itemArt64 = read('./public/item-art64.js');
+/*
+ * Объёмные рисунки: кисть первой, за ней темы, реестр последним - в одной
+ * области видимости имя обязано быть объявлено раньше, чем его используют
+ * при загрузке (HD_THEMES собирается сразу, а не по вызову).
+ */
+const hdArt = ['kit.js', ...readdirSync('./public/hd').filter((f) => f.endsWith('.js') && f !== 'kit.js').sort()]
+  .map((f) => read(`./public/hd/${f}`));
+const itemArtHd = read('./public/item-art-hd.js');
 const coinArt = read('./public/coin-art.js');
 // legal.js тоже проходит через inlineUi: в подвале лежат картинки по путям
 // assets/ui/, и без этого в автономной сборке они оказывались битыми.
@@ -714,6 +726,7 @@ function runFreeSpinSeries(table, startCount) {
 
     total += fItem.value;
     spins.push({ name: fItem.name, value: fItem.value, tier: fItem.tier, kind: fItem.kind,
+      skin: fItem.skin, art: fItem.art,
       perkType: fItem.perk?.type || null, added, x2: false,
       roll: fRoll, nonce: u.nonce });
   }
@@ -832,7 +845,7 @@ function openOnce(table) {
 
     return {
       item: { id: item.id, name: item.name, kind: item.kind, value: payout,
-              tier: item.tier, perkLabel: item.perkLabel,
+              tier: item.tier, skin: item.skin, art: item.art, perkLabel: item.perkLabel,
               multiplier: Number((payout / table.price).toFixed(2)) },
       granted, free, x2Applied: x2Active && item.value > 0,
       net: totalPayout - spent,
@@ -2397,6 +2410,10 @@ ${strip(sounds)}
 ${strip(itemArt)}
 
 ${strip(itemArt64)}
+
+${hdArt.map(strip).join('\n')}
+
+${strip(itemArtHd)}
 
 ${strip(coinArt)}
 

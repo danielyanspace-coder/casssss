@@ -21,7 +21,7 @@
 import { readFileSync } from 'node:fs';
 
 import { THEMES } from './themes.js';
-import { skinFor } from './card-skins.js';
+import { skinsForCase } from './card-skins.js';
 
 /**
  * Разбор присланных обложек, посчитанный при их подготовке
@@ -551,6 +551,12 @@ function buildCase(spec, builtById) {
           : p.type === 'freespins' ? { type: 'freespins', caseId: id, count: p.count }
           : { type: 'x2', caseId: id },
       perkLabel: PERK_LABELS[p.type],
+      // Рисунок плюшки зависит от её содержимого: десять фриспинов и двадцать
+      // выглядят по-разному, а ваучер несёт имя своего кейса.
+      art: p.type === 'freespins' ? `perk/fs/${p.count}`
+        : p.type === 'credits' ? `perk/credits/${p.amount}`
+        : p.type === 'voucher' ? `perk/voucher/${p.caseId}`
+        : 'perk/x2',
       value: payout,
       evValue,
       share: p.share,
@@ -578,6 +584,7 @@ function buildCase(spec, builtById) {
       id: `${id}_jackpot`,
       name: j.name,
       kind: 'item',
+      art: `jackpot/${id}`,
       value: jackpotValue,
       evValue: jackpotValue,
       share: j.share,
@@ -659,6 +666,12 @@ function buildCase(spec, builtById) {
     id: `${id}_${i}`,
     name: theme.items[i],
     kind: 'item',
+    /*
+     * Ключ рисунка - тема и номер, а не название: одиннадцать названий
+     * повторяются в разных темах, и по названию два разных предмета получили
+     * бы один рисунок (public/item-art-hd.js).
+     */
+    art: `${themeId}/${i}`,
     value,
     evValue: value,
     multiplier: Number((value / price).toFixed(3)),
@@ -676,7 +689,8 @@ function buildCase(spec, builtById) {
    * тот же предмет показывают лента, сетка состава, витрина выпадений и экран
    * результата - четыре места, и расхождение между ними заметно сразу.
    */
-  for (const item of items) item.skin = skinFor(item, theme.visual);
+  const skins = skinsForCase(items, theme.visual);
+  for (const item of items) item.skin = skins.get(item.id);
 
   let acc = 0;
   for (const item of items) {
@@ -843,6 +857,17 @@ export function validateCases(cases = CASES) {
     // Кейс обязан быть убыточен для игрока, иначе его можно крутить в плюс.
     if (c.ev >= c.price) throw new Error(`[${c.id}] EV ${c.ev} >= цены ${c.price}`);
 
+    /*
+     * Названия внутри кейса уникальны: по названию витрина находит предмет
+     * настоящего выпадения (в таблице раундов лежит только оно), и два
+     * одноимённых предмета дали бы витрине чужую карточку.
+     */
+    const names = new Set();
+    for (const it of c.items) {
+      if (names.has(it.name)) throw new Error(`[${c.id}] два предмета с названием «${it.name}»`);
+      names.add(it.name);
+    }
+
     for (const it of c.items) {
       if (!(it.probability > 0) || !(it.probability < 1)) {
         throw new Error(`[${c.id}] предмет ${it.id} имеет вероятность ${it.probability}`);
@@ -914,6 +939,7 @@ export function publicCase(c) {
       multiplier: it.multiplier,
       tier: it.tier,
       skin: it.skin,
+      art: it.art,
       perkLabel: it.perkLabel,
       probability: it.probability,
     })),

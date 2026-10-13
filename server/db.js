@@ -1431,6 +1431,8 @@ function runFreeSpinSeries(userId, caseData, startCount, resolveFree) {
       value: fi.value,
       tier: fi.tier,
       kind: fi.kind,
+      skin: fi.skin,
+      art: fi.art,
       perkType: fi.perk?.type || null,
       added,
       x2: false,

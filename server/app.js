@@ -409,6 +409,18 @@ app.get('/api/config', (req, res) => {
  * Лента открыта без авторизации: она видна и до входа в Telegram.
  * Наружу уходят только ник, кейс и предмет — ни ID, ни балансов.
  */
+/**
+ * Оформление и рисунок для настоящего выпадения.
+ *
+ * В таблице раундов лежит только название предмета, а витрина показывает
+ * карточку целиком. Ищем предмет в его кейсе по названию: внутри одного кейса
+ * названия не повторяются (это проверяет validateCases).
+ */
+function withItemLook(drop) {
+  const item = getCase(drop.caseId)?.items.find((it) => it.name === drop.name);
+  return item ? { ...drop, skin: drop.skin || item.skin, art: drop.art || item.art } : drop;
+}
+
 app.get('/api/feed', limits.read, (req, res) => {
   const limit = Math.min(Math.max(Number(req.query.limit) || 24, 1), 40);
   // Свои выпадения игрок должен видеть в ленте наравне с выдуманными, поэтому
@@ -416,7 +428,8 @@ app.get('/api/feed', limits.read, (req, res) => {
   // поломкой, а не скромным выигрышем.
   // Доля настоящих ограничена: иначе игрок, открывший подряд четыре десятка
   // кейсов, вытесняет из витрины всё остальное - см. FEED_REAL_SHARE.
-  const real = recentPublicDrops(Math.ceil(limit * FEED_REAL_SHARE), FEED_PLAIN_MIN_VALUE);
+  const real = recentPublicDrops(Math.ceil(limit * FEED_REAL_SHARE), FEED_PLAIN_MIN_VALUE)
+    .map(withItemLook);
   const shown = FEED_CONFIG.synthetic ? getFeed(limit) : [];
 
   // Настоящие выпадения идут первыми при равной свежести.
@@ -502,6 +515,10 @@ app.post('/api/open', auth, limits.play, gameGate('cases'), (req, res) => {
       kind: result.item.kind,
       value: result.payout,
       tier: result.item.tier,
+      // Без оформления выигрышная плитка ленты рисовалась видом кейса, а та же
+      // карточка в составе - видом предмета, и игрок видел два разных приза.
+      skin: result.item.skin,
+      art: result.item.art,
       perkLabel: result.item.perkLabel,
       multiplier: Number((result.payout / caseData.price).toFixed(2)),
     },

@@ -30,7 +30,11 @@ function check(name, ok, detail = '') {
   console.error(`  ПРОВАЛ: ${name}${detail ? ' - ' + detail : ''}`);
 }
 
-const files = readdirSync(DIR).filter((f) => f.endsWith('.js'));
+// С подпапками: объёмные рисунки лежат в public/hd/, и импорт между ними
+// ломается ровно так же молча, как в корне.
+const files = readdirSync(DIR, { recursive: true })
+  .map((f) => f.split('\\').join('/'))
+  .filter((f) => f.endsWith('.js'));
 const modules = new Map();
 
 // 1. Разбор. Синтаксическая ошибка в любом файле - приложение не стартует.
@@ -69,7 +73,8 @@ for (const [file, { source }] of modules) {
   for (const m of source.matchAll(/^import\s*\{([\s\S]*?)\}\s*from\s*'([^']+)';/gm)) {
     const target = m[2];
     if (!target.startsWith('.')) continue;
-    const rel = relative(DIR, resolvePath(DIR, target));
+    // Путь импорта считается от папки самого файла, а не от public/.
+    const rel = relative(DIR, resolvePath(DIR, dirname(file), target)).split('\\').join('/');
     check(`${file}: модуль ${target} существует`, modules.has(rel), 'файла нет');
     if (!modules.has(rel)) continue;
     // Последний элемент пустой у любого списка с висячей запятой - это

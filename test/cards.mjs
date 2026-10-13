@@ -79,6 +79,46 @@ check('в каждом кейсе не меньше пяти семейств', 
 check('ни одно семейство не занимает больше половины кейса', worstShare <= 0.5,
   `${(worstShare * 100).toFixed(0)}% в кейсе ${worstCase}`);
 
+/*
+ * Внутри кейса нет двух одинаковых карточек. «Первый удар» и «Путь воина» в
+ * «Самурае» были одной карточкой с разной суммой - заказчик увидел это сразу.
+ * Сравниваются пары «семейство + материал» по всем предметам, плюшки тоже:
+ * два фриспина одинакового вида читались бы как один и тот же приз.
+ */
+{
+  const dupes = [];
+  const neighbours = [];
+  const quietTop = [];
+  for (const c of CASES) {
+    const items = publicCase(c).items;
+    const seen = new Map();
+    for (const it of items) {
+      const pair = `${it.skin.family}/${it.skin.material}`;
+      if (seen.has(pair)) dupes.push(`${c.id}: «${seen.get(pair)}» и «${it.name}» (${pair})`);
+      else seen.set(pair, it.name);
+    }
+    // Соседи по цене: ряд состава кейса идёт по стоимости, и две одинаковые
+    // формы подряд в нём сливаются в одну.
+    const ladder = items.filter((it) => it.kind !== 'perk').sort((a, b) => a.value - b.value);
+    for (let i = 1; i < ladder.length; i++) {
+      if (ladder[i].skin.family === ladder[i - 1].skin.family) {
+        neighbours.push(`${c.id}: «${ladder[i - 1].name}» и «${ladder[i].name}» (${ladder[i].skin.family})`);
+      }
+    }
+    const top = ladder[ladder.length - 1];
+    if (['slate', 'paper', 'felt'].includes(top.skin.family)) quietTop.push(`${c.id}: ${top.skin.family}`);
+  }
+  check('в кейсе нет двух одинаковых карточек', dupes.length === 0, dupes.slice(0, 3).join('; '));
+  check('соседние по цене карточки различаются семейством', neighbours.length === 0, neighbours.slice(0, 3).join('; '));
+  check('главный приз не носит тихое семейство', quietTop.length === 0, quietTop.slice(0, 3).join('; '));
+
+  const samurai = publicCase(CASES.find((c) => c.theme === 'samurai')).items;
+  const look = (name) => samurai.find((it) => it.name === name)?.skin;
+  const a = look('Первый удар'), b = look('Путь воина');
+  check('«Первый удар» и «Путь воина» выглядят по-разному',
+    a && b && (a.family !== b.family || a.material !== b.material), JSON.stringify([a, b]));
+}
+
 /* Скин обязан быть устойчивым: иначе предмет меняет вид между двумя взглядами. */
 {
   const a = publicCase(CASES[0]).items.map((it) => `${it.skin.family}/${it.skin.material}`).join(',');

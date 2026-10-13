@@ -26,9 +26,17 @@
  *    Чего по-прежнему делать нельзя: привязывать громкость к ЦЕНЕ КЕЙСА.
  *    Филлер в кейсе за 100 000 остаётся филлером и обязан выглядеть тихо.
  *
- * 3. КЕЙС СОХРАНЯЕТ ЛИЦО. Два верхних уровня берут семейство своей темы
- *    (VISUALS в themes.js). Поэтому «Рио» узнаётся по главным призам, а не
+ * 3. КЕЙС СОХРАНЯЕТ ЛИЦО. Самый дорогой предмет берёт оформление своей темы
+ *    (VISUALS в themes.js). Поэтому «Рио» узнаётся по главному призу, а не
  *    растворяется в общей каше: различается тело кейса, а не его вершина.
+ *
+ * 4. ВНУТРИ КЕЙСА НЕТ ДВУХ ОДИНАКОВЫХ КАРТОЧЕК. Пара «семейство + материал»
+ *    в кейсе не повторяется, а соседние ступени различаются семейством.
+ *    Хеш по одному предмету этого не гарантирует: три предмета верхней
+ *    ступени «Самурая» получали slate с хромом, slate с углём и снова slate с
+ *    хромом - «Путь воина» и «Первый удар» были одной карточкой с разной
+ *    суммой. Поэтому скины раздаются кейсу целиком (skinsForCase), а хеш
+ *    только задаёт порядок перебора - так результат остаётся постоянным.
  */
 
 import { THEMES, FAMILIES, SHAPES, MATERIALS } from './themes.js';
@@ -50,7 +58,12 @@ const FAMILY_BY_TIER = {
   epic:      ['felt', 'circuit', 'vault'],
   legendary: ['circuit', 'vault', 'geode'],
   mythic:    ['vault', 'geode', 'prism'],
-  unique:    ['geode', 'prism', 'signature'],
+  /*
+   * signature здесь нет намеренно: его носят плюшки и лицо кейса. Отдай его
+   * ещё и ступени - и в кейсе с тремя плюшками сочетаний signature не хватит,
+   * карточки начнут совпадать.
+   */
+  unique:    ['geode', 'prism', 'vault'],
 };
 
 /** Форма - свойство семейства, а не отдельное решение: билет у paper, грань у geode. */
@@ -73,24 +86,58 @@ const SHAPE_OF_FAMILY = {
  * остальные дают разброс внутри семейства.
  */
 const MATERIALS_BY_FAMILY = {
-  vault:     ['chrome', 'gold', 'carbon'],
-  circuit:   ['neon', 'chrome', 'carbon'],
-  felt:      ['matte', 'gold', 'chrome'],
-  prism:     ['holo', 'crystal', 'glass'],
-  paper:     ['carbon', 'gold', 'glass'],
-  geode:     ['crystal', 'glass', 'chrome'],
-  slate:     ['matte', 'chrome', 'carbon'],
-  signature: ['gold', 'holo', 'crystal'],
+  vault:     ['chrome', 'gold', 'carbon', 'matte'],
+  circuit:   ['neon', 'chrome', 'carbon', 'glass'],
+  felt:      ['matte', 'gold', 'chrome', 'carbon'],
+  prism:     ['holo', 'crystal', 'glass', 'neon'],
+  paper:     ['carbon', 'gold', 'glass', 'matte'],
+  geode:     ['crystal', 'glass', 'chrome', 'holo'],
+  slate:     ['matte', 'chrome', 'carbon', 'glass'],
+  // Пять, а не три: signature носят лицо кейса и до трёх плюшек сразу.
+  signature: ['gold', 'holo', 'crystal', 'chrome', 'neon'],
 };
 
 /*
- * Фирменное семейство темы берёт ТОЛЬКО верхняя ступень.
+ * Тихие семейства. Фирменное семейство темы бывает тихим (у «Самурая» и
+ * «Тени» это slate), и отдать его главному призу значило бы нарушить правило
+ * 2: самая редкая карточка выглядела бы как филлер. Тогда главный приз берёт
+ * signature, а лицо темы несёт материал.
  *
- * Сначала их было две, unique и mythic, - это три плюс пять предметов, и
- * восемь самых дорогих карточек подряд выглядели одинаково. А смотрят именно
- * на них. Одна ступень - это три карточки: кейс узнаётся, ряд не слипается.
+ * Фирменное оформление получает ОДИН предмет, самый дорогой. Сначала его
+ * давали целой ступени (unique, три предмета), и при тихом семействе темы три
+ * главные карточки были одной и той же.
  */
-const SIGNATURE_TIERS = new Set(['unique']);
+const QUIET_FAMILIES = new Set(['slate', 'paper', 'felt']);
+
+/*
+ * Сколько шагов перебора с возвратом дать одному кейсу. На всех 68 кейсах
+ * решение находится не дольше чем за полсотни шагов; потолок нужен, чтобы
+ * опечатка в таблицах не превратила сборку кейсов на старте в бесконечный
+ * перебор.
+ */
+const SEARCH_BUDGET = 20000;
+
+const TIER_ORDER = ['common', 'uncommon', 'rare', 'epic', 'legendary', 'mythic', 'unique'];
+
+/**
+ * Запасные семейства ступени: соседние ступени, сначала ближняя и верхняя.
+ * Верхняя раньше нижней, чтобы уступка не делала редкий предмет тише, - и
+ * тихие семейства верхним ступеням не достаются никогда (правило 2).
+ */
+function spareFamilies(tier, own) {
+  const at = TIER_ORDER.indexOf(tier);
+  const out = [];
+  for (let d = 1; d < TIER_ORDER.length; d++) {
+    for (const t of [TIER_ORDER[at + d], TIER_ORDER[at - d]]) {
+      for (const f of FAMILY_BY_TIER[t] || []) {
+        if (own.includes(f) || out.includes(f)) continue;
+        if (at >= TIER_ORDER.indexOf('epic') && QUIET_FAMILIES.has(f)) continue;
+        out.push(f);
+      }
+    }
+  }
+  return out;
+}
 
 /**
  * Хеш строки. FNV-1a: короткий, без зависимостей и хорошо перемешивает близкие
@@ -106,37 +153,159 @@ function hash(str) {
   return h >>> 0;
 }
 
+/** Список, сдвинутый на seed: постоянный порядок перебора без случайности. */
+function rotate(list, seed) {
+  const k = seed % list.length;
+  return [...list.slice(k), ...list.slice(0, k)];
+}
+
 /**
- * Скин одного предмета.
+ * Скины всем предметам кейса сразу.
  *
- * @param {{id:string, tier:string, kind:string}} item
- * @param {object} themeVisual  оформление темы кейса (THEMES[id].visual)
+ * Перебор идёт от дешёвых к дорогим, с возвратом. Кандидаты предмета - его
+ * семейства и материалы в порядке, заданном хешем id; берётся первая пара,
+ * которой ещё нет в кейсе и у которой семейство не совпадает с соседом снизу.
+ * Решения нет - жадный проход ослабляет требование к соседу, но не к повтору.
+ *
+ * @param {Array<{id:string, tier:string, kind:string, value:number}>} items
+ * @param {{family:string, material:string}} themeVisual  оформление темы
+ * @returns {Map<string, {family, shape, material}>} скин по id предмета
+ */
+export function skinsForCase(items, themeVisual) {
+  const out = new Map();
+  const used = new Set();
+  const key = (family, material) => `${family}/${material}`;
+
+  /*
+   * Лицо кейса - один, самый дорогой обычный предмет. Плюшки (фриспины,
+   * удвоитель) в это не входят: они всегда signature, это событие, а не
+   * предмет темы, и обязано выделяться из ряда.
+   */
+  const regular = items.filter((it) => it.kind !== 'perk');
+  const top = regular.length ? regular.reduce((a, b) => (b.value > a.value ? b : a)) : null;
+
+  const pick = (it, families, prevFamily, spare = []) => {
+    const seed = hash(it.id || it.name || '');
+    // Материал перебирается по ОТДЕЛЬНОМУ хешу: сдвинутые разряды того же
+    // хеша связаны, и на трёх соседях это видно сразу.
+    const mseed = hash(`${it.id}#material`);
+    /*
+     * Порядок уступок: сначала свои семейства без соседа, потом семейства
+     * соседних ступеней без соседа, и только потом сосед. Повтор пары не
+     * допускается ни на одном шаге. У верхних ступеней по три семейства на
+     * девять предметов «Шапито», и своих сочетаний там просто не хватает:
+     * прежде последний уникальный предмет молча повторял легендарный.
+     */
+    const rounds = [
+      [rotate(families, seed), true],
+      [rotate(spare, seed), true],
+      [rotate(families, seed), false],
+      [rotate(spare, seed), false],
+    ];
+    for (const [list, strictNeighbour] of rounds) {
+      for (const family of list) {
+        if (strictNeighbour && family === prevFamily) continue;
+        for (const material of rotate(MATERIALS_BY_FAMILY[family], mseed)) {
+          if (!used.has(key(family, material))) return { family, material };
+        }
+      }
+    }
+    // Все сочетания заняты - так бывает только в очень длинном кейсе.
+    // Повтор лучше, чем карточка без оформления.
+    const family = rotate(families, seed)[0];
+    return { family, material: rotate(MATERIALS_BY_FAMILY[family], mseed)[0] };
+  };
+
+  const assign = (it, choice) => {
+    used.add(key(choice.family, choice.material));
+    out.set(it.id, { family: choice.family, shape: SHAPE_OF_FAMILY[choice.family], material: choice.material });
+  };
+
+  /*
+   * Лицо кейса выбирается ПЕРВЫМ и бронирует своё сочетание. Когда оно шло
+   * последним по цене, нижние ступени успевали занять материалы темы, и
+   * главный приз совпадал с какой-нибудь мифической карточкой.
+   */
+  let topFamily = null;
+  if (top) {
+    const family = QUIET_FAMILIES.has(themeVisual.family) ? 'signature' : themeVisual.family;
+    const pool = MATERIALS_BY_FAMILY[family];
+    // Материал темы, если он идёт этому семейству, - он и несёт лицо кейса.
+    const material = pool.includes(themeVisual.material) ? themeVisual.material : pool[0];
+    assign(top, { family, material });
+    topFamily = family;
+  }
+
+  const ladder = regular.filter((it) => it !== top).sort((a, b) => a.value - b.value);
+  const belowTop = ladder[ladder.length - 1];
+  const options = ladder.map((it) => {
+    const tier = FAMILY_BY_TIER[it.tier] ? it.tier : 'common';
+    // Предмет прямо под главным призом не берёт его семейство: иначе две
+    // верхние карточки ряда сливаются, а смотрят именно на них.
+    const families = it === belowTop
+      ? FAMILY_BY_TIER[tier].filter((f) => f !== topFamily)
+      : FAMILY_BY_TIER[tier];
+    const own = families.length ? families : FAMILY_BY_TIER[tier];
+    const spare = spareFamilies(tier, own).filter((f) => it !== belowTop || f !== topFamily);
+    return { it, own, spare };
+  });
+
+  /*
+   * Перебор с возвратом. Жадный выбор упирался в конец лестницы: нижние
+   * ступени разбирали vault и geode, и двум верхним уникальным предметам
+   * оставалось только одно семейство - они шли подряд одинаковыми. Вариантов
+   * у лестницы немного, и первое найденное решение по-прежнему следует
+   * порядку хеша, поэтому результат постоянен. Не нашлось за отведённое
+   * число шагов - жадный проход с уступкой соседу, как раньше.
+   */
+  const strictCandidates = ({ it, own, spare }, prevFamily) => {
+    const seed = hash(it.id || it.name || '');
+    const mseed = hash(`${it.id}#material`);
+    const out = [];
+    for (const family of [...rotate(own, seed), ...rotate(spare, seed)]) {
+      if (family === prevFamily) continue;
+      for (const material of rotate(MATERIALS_BY_FAMILY[family], mseed)) out.push({ family, material });
+    }
+    return out;
+  };
+  let budget = SEARCH_BUDGET;
+  const plan = [];
+  const solve = (i, prevFamily) => {
+    if (i === options.length) return true;
+    for (const choice of strictCandidates(options[i], prevFamily)) {
+      if (used.has(key(choice.family, choice.material))) continue;
+      if (--budget < 0) return false;
+      used.add(key(choice.family, choice.material));
+      plan.push(choice);
+      if (solve(i + 1, choice.family)) return true;
+      plan.pop();
+      used.delete(key(choice.family, choice.material));
+    }
+    return false;
+  };
+
+  if (solve(0, null)) {
+    options.forEach(({ it }, i) => assign(it, plan[i]));
+  } else {
+    for (const choice of plan) used.delete(key(choice.family, choice.material));
+    let prevFamily = null;
+    for (const { it, own, spare } of options) {
+      const choice = pick(it, own, prevFamily, spare);
+      assign(it, choice);
+      prevFamily = choice.family;
+    }
+  }
+
+  for (const it of items.filter((x) => x.kind === 'perk')) assign(it, pick(it, ['signature'], null));
+  return out;
+}
+
+/**
+ * Скин одного предмета вне кейса - для записей, у которых кейса нет.
+ * Внутри кейса всегда skinsForCase: только он видит соседей.
  */
 export function skinFor(item, themeVisual) {
-  const seed = hash(item.id || item.name || '');
-  const tier = FAMILY_BY_TIER[item.tier] ? item.tier : 'common';
-
-  /*
-   * Плюшки (удвоитель, ваучер, фриспины) всегда в signature: это не предмет
-   * из темы кейса, а событие, и оно обязано выделяться из ряда. Иначе игрок
-   * пролистывает фриспины как обычную ступень.
-   */
-  const family = item.kind === 'perk'
-    ? 'signature'
-    : SIGNATURE_TIERS.has(tier)
-      ? themeVisual.family
-      : FAMILY_BY_TIER[tier][seed % FAMILY_BY_TIER[tier].length];
-
-  /*
-   * Материал берёт ОТДЕЛЬНЫЙ хеш, а не сдвиг того же.
-   * Со сдвигом три предмета верхней ступени получили один и тот же материал:
-   * сдвинутые разряды одного хеша остаются связанными, и на выборке из трёх
-   * это видно сразу. Второй хеш независим по построению.
-   */
-  const pool = MATERIALS_BY_FAMILY[family];
-  const material = pool[hash(`${item.id}#material`) % pool.length];
-
-  return { family, shape: SHAPE_OF_FAMILY[family], material };
+  return skinsForCase([item], themeVisual).get(item.id);
 }
 
 /**

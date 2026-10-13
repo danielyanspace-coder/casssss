@@ -24,7 +24,9 @@
     "test:modules": "node --experimental-vm-modules test/modules.mjs",
     "test:mini": "node test/minigames.mjs",
     "test:slots": "node test/slots.mjs",
-    "test:cards": "node test/cards.mjs"
+    "test:cards": "node test/cards.mjs",
+    "test:art": "node test/art.mjs",
+    "demo:motion": "node tools/motion-demo.mjs"
   },
   "engines": {
     "node": ">=18"

@@ -17,6 +17,7 @@ import {
 import { caseCover, porschePhotoSrc, caseArtSrc } from './covers.js';
 import { itemArt, itemArtMaterial } from './item-art.js';
 import { itemArt64 } from './item-art64.js';
+import { itemArtHd } from './item-art-hd.js';
 import { coinMark, coinColor } from './coin-art.js';
 import { COMPANY, LICENSE, DOCS, footerHtml } from './legal.js';
 import { createMini } from './minigames.js';
@@ -1207,19 +1208,22 @@ function skinAttrs(visual) {
 /**
  * Рисунок предмета.
  *
- * Два набора мотивов, и это не временное состояние, а осознанная ступенька.
- * item-art64.js рисует крупно, во всю площадь карточки - там 46 мотивов,
- * они покрывают 44% названий. Остальное берётся из item-art.js: те мотивы
- * рисовались под значок в 34 точки, и растянутые на всю карточку выглядят
- * плоско.
+ * Свой рисунок у каждого из 820 предметов и у каждой плюшки (item-art-hd.js,
+ * public/hd/). Ключ приходит с сервера полем `art` - тема и номер, а не
+ * название: одиннадцать названий повторяются в разных темах, и по имени два
+ * разных предмета получили бы одну картинку.
  *
- * Поэтому мелкий мотив идёт МЕДАЛЬОНОМ: на диске, в своём размере. Карточка
- * читается как решение, а не как недоделанная. По мере того как мотивы
- * перерисовываются крупно, предметы переезжают из медальона в полный размер
- * сами - менять здесь ничего не придётся.
+ * Объём там рисуется слоями градиентов и бликом, а не SVG-фильтром: фильтр на
+ * шестидесяти плитках ленты заметно тормозит во встроенном браузере Telegram.
+ *
+ * Прежние наборы (item-art64.js и мелкие мотивы медальоном) остались запасом
+ * для того, у чего ключа нет: витринной плитки и выпадений, записанных до
+ * появления ключа.
  */
 function tileArt(item, color) {
   if (item.photo) return `<img class="tile-photo" src="${item.photo}" alt="">`;
+  const own = itemArtHd(item.art);
+  if (own) return own;
   const big = itemArt64(item.name);
   if (big) return big;
   const small = itemArtMaterial(item.name) || itemArt(item.name, color) || iconTier(item.tier, color);
