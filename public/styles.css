@@ -7597,3 +7597,277 @@ button.mg-cell:active { transform: scale(0.92); }
 
 /* Крупный мотив занимает всю отведённую площадь - у него своя композиция. */
 .drop-ico > svg, .tile-icon > svg { width: 100%; height: 100%; }
+
+/* ============================================================
+   ПОКАЗ ВЫИГРЫША И ФРИСПИНОВ (public/motion.js)
+   ============================================================
+   Свой слой поверх окна кейса (у того z-index 80). Нажатия слой пропускает:
+   ловят их только окно крупного выигрыша и его кнопка. */
+
+.mo-root { position: fixed; inset: 0; z-index: 95; pointer-events: none; }
+.mo-layer, .mo-top { position: absolute; inset: 0; pointer-events: none; }
+.mo-layer { perspective: 1000px; }
+.mo-top { z-index: 2; }
+.mo-canvas { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; }
+
+/* Сцена уходит назад классом: так у неё одно состояние, и оно снимается
+   наверняка (см. recede в motion.js). */
+.opener-scroll { transition: filter .7s cubic-bezier(.16,1,.3,1), transform .7s cubic-bezier(.16,1,.3,1); }
+body.mo-receded .opener-scroll { filter: blur(4px) saturate(.55); transform: scale(.94); }
+.reel-tile.mo-lifted { visibility: hidden; }
+
+.mo-flash { position: absolute; inset: 0; mix-blend-mode: screen; }
+.mo-ring {
+  position: absolute; width: 120px; height: 120px; margin: -60px 0 0 -60px; border-radius: 50%;
+  border: 3px solid var(--c); box-shadow: 0 0 22px var(--c), inset 0 0 22px var(--c);
+}
+.mo-slash {
+  position: absolute; left: -20%; width: 140%; height: 3px; transform-origin: 0 50%;
+  background: linear-gradient(90deg, transparent, #fff 30%, #fff 70%, transparent);
+  box-shadow: 0 0 14px #fff, 0 0 40px var(--c, #ffd34d);
+}
+.mo-float {
+  position: absolute; white-space: nowrap; translate: -50% -50%;
+  font: 800 15px/1 'Unbounded', 'Manrope', system-ui, sans-serif; font-variant-numeric: tabular-nums;
+  color: #fff; text-shadow: 0 0 12px var(--c, #9dffcf), 0 2px 0 rgba(0,0,0,.5);
+}
+.mo-float.is-muted { color: #cfc6dc; text-shadow: 0 2px 0 rgba(0,0,0,.5); font-size: 13px; }
+
+/* Металлическая надпись: заливка градиентом, глубина - цепочкой теней
+   фильтра. text-shadow под прозрачным текстом с background-clip ложится
+   поверх заливки, поэтому объём набран drop-shadow. */
+.mo-metal {
+  display: inline-block;
+  background: linear-gradient(180deg, var(--m1, #fff6cf) 0%, var(--m2, #ffd34d) 42%, var(--m3, #c8781a) 52%, var(--m4, #ffe9a0) 100%);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  filter: drop-shadow(0 1px 0 #a8620c) drop-shadow(0 1px 0 #7a4208) drop-shadow(0 1px 0 #4a2604) drop-shadow(0 8px 14px rgba(0,0,0,.6)) drop-shadow(0 0 22px var(--glow, rgba(255,200,60,.45)));
+}
+
+/* ---------- Лучи и свечение: общие у выигрыша и пролога серии ---------- */
+.mo-sky { position: absolute; left: 50%; top: 34%; width: 0; height: 0; }
+.mo-rays {
+  position: absolute; width: 980px; height: 980px; margin: -490px;
+  background: repeating-conic-gradient(from 0deg, color-mix(in srgb, var(--c2, #ffd34d) 30%, transparent) 0deg 6deg, transparent 6deg 15deg);
+  -webkit-mask: radial-gradient(circle, #000 0%, rgba(0,0,0,.55) 22%, transparent 52%);
+  mask: radial-gradient(circle, #000 0%, rgba(0,0,0,.55) 22%, transparent 52%);
+}
+.mo-rays.b { background: repeating-conic-gradient(from 5deg, color-mix(in srgb, var(--c1, #fff6cf) 16%, transparent) 0deg 2.5deg, transparent 2.5deg 10deg); }
+.mo-bloom {
+  position: absolute; width: 440px; height: 440px; margin: -220px; border-radius: 50%;
+  background: radial-gradient(circle, var(--glow, rgba(255,200,60,.5)), transparent 64%);
+}
+
+/* ---------- Пролог серии ---------- */
+.mo-orb {
+  position: absolute; width: 22px; height: 22px; margin: -11px 0 0 -11px; border-radius: 50%;
+  background: radial-gradient(circle at 38% 32%, #fff 0%, #fff4c0 22%, #ffd34d 46%, #ff8a1f 70%, rgba(255,90,0,0) 72%);
+  box-shadow: 0 0 30px 8px rgba(255,200,60,.65), 0 0 90px 20px rgba(255,120,40,.35);
+}
+.mo-dim { position: absolute; inset: 0; background: radial-gradient(circle at 50% 42%, rgba(12,4,26,.55), rgba(4,1,10,.94) 72%); }
+.mo-fs-show { position: absolute; inset: 0; }
+.mo-fs-emblem {
+  position: absolute; left: 50%; top: 29%; width: 150px; height: 150px; margin: -75px 0 0 -75px;
+  filter: drop-shadow(0 14px 22px rgba(0,0,0,.6));
+}
+.mo-fs-emblem svg { width: 100%; height: 100%; display: block; }
+.mo-fs-title {
+  position: absolute; left: 0; right: 0; top: 46%; display: flex; justify-content: center; gap: 12px;
+  font: 800 34px/1 'Unbounded', 'Arial Black', system-ui, sans-serif; letter-spacing: .01em;
+}
+.mo-fs-title .mo-metal {
+  background-image: linear-gradient(180deg, #fff6cf 0%, #ffd34d 18%, #c8781a 26%, #ffe9a0 38%, #ffffff 50%, #ffe9a0 62%, #ffd34d 78%, #c8781a 90%, #ffe9a0 100%);
+  background-size: 100% 300%;
+}
+.mo-fs-count { position: absolute; left: 0; right: 0; top: 52.5%; text-align: center; font: 800 92px/1 'Unbounded', 'Arial Black', system-ui, sans-serif; }
+.mo-fs-sub {
+  position: absolute; left: 0; right: 0; top: 67.5%; text-align: center;
+  font-size: 12px; font-weight: 800; letter-spacing: .16em; color: #e8dcff; text-transform: uppercase;
+}
+.mo-tok {
+  position: absolute; width: var(--s, 26px); height: var(--s, 26px);
+  margin: calc(var(--s, 26px) / -2) 0 0 calc(var(--s, 26px) / -2); border-radius: 50%;
+  background: radial-gradient(circle at 36% 30%, #fffbe0 0%, #ffd85a 34%, #d89420 72%, #7a4508 100%);
+  box-shadow: inset 0 -2px 3px rgba(0,0,0,.35), inset 0 2px 2px rgba(255,255,255,.7), 0 0 12px rgba(255,200,60,.55);
+  display: grid; place-items: center;
+}
+.mo-tok svg { width: 62%; height: 62%; }
+
+/* ---------- Окно крупного выигрыша ---------- */
+.mo-wl {
+  position: absolute; inset: 0; pointer-events: auto;
+  --c1: #fff6cf; --c2: #ffd34d; --c3: #ff9a1f; --glow: rgba(255,200,60,.5);
+}
+.mo-wl[data-tier="mega"] { --c1: #ffe6fb; --c2: #ff5bd8; --c3: #8a3dff; --glow: rgba(255,80,220,.5); }
+.mo-wl[data-tier="epic"] { --c1: #ffffff; --c2: #7df9ff; --c3: #ffd34d; --glow: rgba(140,240,255,.55); }
+.mo-wl-dim { position: absolute; inset: 0; background: radial-gradient(circle at 50% 36%, rgba(12,4,26,.45), rgba(4,1,10,.93) 70%); }
+.mo-tunnel { position: absolute; left: 50%; top: 34%; opacity: 0; }
+.mo-tunnel i {
+  position: absolute; width: 140px; height: 140px; margin: -70px; border-radius: 50%;
+  border: 2px solid var(--c2); box-shadow: 0 0 18px var(--c2);
+  animation: moTunnel 2.2s cubic-bezier(.5,0,.75,0) infinite;
+  animation-delay: calc(var(--i) * -.31s);
+}
+@keyframes moTunnel { from { transform: scale(.15); opacity: 0; } 30% { opacity: .7; } to { transform: scale(7); opacity: 0; } }
+.mo-bar { position: absolute; left: 0; right: 0; height: 0; background: #000; z-index: 3; }
+.mo-bar.t { top: 0; } .mo-bar.b { bottom: 0; }
+.mo-card-slot { position: absolute; left: 50%; top: 34%; width: 0; height: 0; transform-style: preserve-3d; perspective: 1000px; }
+.mo-label { position: absolute; left: 0; right: 0; top: 59%; text-align: center; --m1: var(--c1); --m2: var(--c2); --m3: var(--c3); --m4: var(--c1); }
+.mo-word { display: block; font: 800 40px/1 'Unbounded', 'Arial Black', system-ui, sans-serif; letter-spacing: -.01em; white-space: nowrap; }
+.mo-word.out { position: absolute; left: 0; right: 0; top: 0; }
+.mo-amount {
+  position: absolute; left: 0; right: 0; top: 69%; text-align: center;
+  font: 800 34px/1 'Unbounded', 'Manrope', system-ui, sans-serif; font-variant-numeric: tabular-nums; color: #fff;
+  text-shadow: 0 0 18px var(--glow), 0 3px 0 rgba(0,0,0,.55);
+}
+.mo-sub { position: absolute; left: 0; right: 0; top: 76.5%; text-align: center; font-size: 12.5px; font-weight: 800; letter-spacing: .08em; color: var(--c1); opacity: 0; }
+.mo-take {
+  position: absolute; left: 50%; bottom: 7%; width: min(74%, 340px); translate: -50% 0;
+  border: 0; border-radius: 18px; padding: 15px; overflow: hidden; opacity: 0; pointer-events: none;
+  font: 800 15px 'Unbounded', 'Manrope', system-ui, sans-serif; color: #2a1300;
+  background: linear-gradient(180deg, #fff1b8, #ffd34d 45%, #e59a1e);
+  box-shadow: 0 1px 0 #fff8 inset, 0 -3px 0 #a8620c inset, 0 0 30px var(--glow);
+  transition: bottom .6s cubic-bezier(.16,1,.3,1);
+}
+.mo-take::after {
+  content: ''; position: absolute; inset: 0; translate: -120% 0;
+  background: linear-gradient(105deg, transparent 35%, rgba(255,255,255,.8) 50%, transparent 65%);
+  animation: moSweep 2.2s cubic-bezier(.65,0,.35,1) infinite .4s;
+}
+@keyframes moSweep { 0%, 60% { translate: -120% 0; } 100% { translate: 120% 0; } }
+/* Кинорамка EPIC закрывает низ кадра: кнопка поднимается над ней. */
+.mo-wl[data-tier="epic"] .mo-take { bottom: 12%; }
+.mo-skip {
+  position: absolute; left: 0; right: 0; bottom: 3%; text-align: center;
+  font-size: 10px; letter-spacing: .14em; font-weight: 800; color: rgba(255,255,255,.4); text-transform: uppercase;
+}
+
+/* ---------- Карточка выигрыша ----------
+   Своя крупная карточка, а не увеличенная плитка ленты: у плитки текст и
+   отступы рассчитаны на 104 точки, и в три раза больше она разваливается. */
+.mo-lift { position: absolute; width: 0; height: 0; perspective: 600px; }
+.mo-hero {
+  --cut: 18px;
+  --surf: linear-gradient(160deg, #17161d, #0b0a0f);
+  position: absolute; width: 196px; height: 250px; left: -98px; top: -125px;
+  transform-style: preserve-3d;
+}
+.mo-hero[data-family="vault"]     { --surf: linear-gradient(160deg, #24222b, #121117); }
+.mo-hero[data-family="circuit"]   { --surf: linear-gradient(160deg, #0f1a33, #070c18); }
+.mo-hero[data-family="felt"]      { --surf: radial-gradient(120% 90% at 50% 20%, #1a3a2d, #0b1c15); }
+.mo-hero[data-family="prism"]     { --surf: linear-gradient(160deg, #22143c, #0f0920); }
+.mo-hero[data-family="paper"]     { --surf: linear-gradient(160deg, #262019, #15120e); }
+.mo-hero[data-family="geode"]     { --surf: linear-gradient(160deg, #13243a, #08111c); }
+.mo-hero[data-family="signature"] { --surf: radial-gradient(120% 90% at 50% 10%, #3a1640, #150818); }
+.mo-face {
+  position: absolute; inset: 0; backface-visibility: hidden; -webkit-backface-visibility: hidden;
+  border-radius: 22px; overflow: hidden;
+  display: flex; flex-direction: column; align-items: center; padding: 16px 12px;
+  background: var(--surf);
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--tc) 70%, #fff 10%), inset 0 0 40px color-mix(in srgb, var(--tc) 22%, transparent);
+}
+.mo-face[data-shape="notch"]  { clip-path: polygon(0 var(--cut), var(--cut) 0, 100% 0, 100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%, 0 100%); }
+.mo-face[data-shape="ticket"] { clip-path: polygon(0 0, 100% 0, 100% 38%, calc(100% - 7px) 42%, 100% 46%, 100% 100%, 0 100%, 0 46%, 7px 42%, 0 38%); }
+.mo-face[data-shape="hex"]    { clip-path: polygon(50% 0, 100% calc(var(--cut) * 1.4), 100% calc(100% - var(--cut) * 1.4), 50% 100%, 0 calc(100% - var(--cut) * 1.4), 0 calc(var(--cut) * 1.4)); }
+.mo-front::before {
+  /* Кант: светлее сверху, темнее снизу - край, на который падает свет. */
+  content: ''; position: absolute; inset: 0; border-radius: inherit; padding: 2px; pointer-events: none;
+  background: linear-gradient(170deg, color-mix(in srgb, var(--tc) 70%, #fff), color-mix(in srgb, var(--tc) 40%, transparent) 30%, transparent 55%, color-mix(in srgb, var(--tc) 70%, #000));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor; mask-composite: exclude;
+}
+.mo-back {
+  transform: rotateY(180deg); justify-content: center;
+  background:
+    repeating-linear-gradient(45deg, rgba(255,211,77,.12) 0 2px, transparent 2px 12px),
+    repeating-linear-gradient(-45deg, rgba(255,211,77,.12) 0 2px, transparent 2px 12px),
+    radial-gradient(circle at 50% 50%, #3a1a10, #120806);
+  box-shadow: inset 0 0 0 2px #ffd34d, inset 0 0 0 6px #120806, inset 0 0 0 7px rgba(255,211,77,.5);
+}
+.mo-back b { font: 800 46px 'Unbounded', 'Arial Black', system-ui, sans-serif; }
+.mo-hero-glow {
+  position: absolute; left: 50%; top: 50%; width: 300px; height: 300px; margin: -150px; border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--tc) 55%, transparent), transparent 66%);
+  transform: translateZ(-1px);
+}
+/* Свет за рисунком: предмет стоит под лампой, а не лежит на фоне. */
+.mo-hero-spot {
+  position: absolute; left: 50%; top: 4px; width: 210px; height: 190px; translate: -50% 0;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--tc) 42%, transparent), transparent);
+}
+.mo-hero-art { position: relative; width: 150px; height: 150px; flex: none; filter: drop-shadow(0 12px 14px rgba(0,0,0,.55)); }
+.mo-hero-art svg, .mo-hero-art img { width: 100%; height: 100%; display: block; object-fit: contain; }
+.mo-hero-name { position: relative; margin-top: 10px; font: 700 14px/1.15 'Unbounded', 'Manrope', system-ui, sans-serif; text-align: center; color: #fff; }
+.mo-hero-sheen {
+  position: absolute; inset: -40%;
+  background: linear-gradient(105deg, transparent 42%, rgba(255,255,255,.55) 50%, transparent 58%);
+  translate: -70% 0; mix-blend-mode: overlay;
+  animation: moHeroSheen 2.8s cubic-bezier(.65,0,.35,1) infinite .6s;
+}
+@keyframes moHeroSheen { 0%, 45% { translate: -70% 0; } 100% { translate: 70% 0; } }
+/* Фольга только у голографических материалов: радуга на хроме выглядит
+   ошибкой печати, а на голограмме - тем, за что её и любят. */
+.mo-hero-foil { position: absolute; inset: 0; opacity: 0; }
+.mo-hero[data-material="holo"] .mo-hero-foil,
+.mo-hero[data-material="crystal"] .mo-hero-foil,
+.mo-hero[data-material="neon"] .mo-hero-foil {
+  opacity: .5; mix-blend-mode: color-dodge;
+  background: conic-gradient(from var(--mo-fa, 0deg) at 50% 40%, #ff6ad5, #ffd34d, #7df9ff, #a07bff, #ff6ad5);
+  -webkit-mask: linear-gradient(115deg, transparent 20%, #000 45%, transparent 60%, #000 80%, transparent);
+  mask: linear-gradient(115deg, transparent 20%, #000 45%, transparent 60%, #000 80%, transparent);
+  animation: moFoil 5s linear infinite;
+}
+@property --mo-fa { syntax: '<angle>'; inherits: false; initial-value: 0deg; }
+@keyframes moFoil { to { --mo-fa: 360deg; } }
+
+/* ---------- Бонусный режим окна кейса ----------
+   Фон темы и фон серии лежат слоями и меняются прозрачностью: смена фона
+   одним переключением выглядела бы как перезагрузка экрана. */
+.opener-bonus {
+  position: absolute; inset: 0; z-index: 0; pointer-events: none; overflow: hidden;
+  opacity: 0; transition: opacity .9s cubic-bezier(.65,0,.35,1);
+  background:
+    radial-gradient(80% 50% at 50% 30%, rgba(130,70,255,.55), transparent 70%),
+    radial-gradient(120% 90% at 50% 20%, #3a1680 0%, #170a3a 50%, #07031a 100%);
+}
+.opener-bonus::before {
+  content: ''; position: absolute; left: 50%; top: 32%; width: 170%; aspect-ratio: 1; translate: -50% -50%;
+  background: conic-gradient(from 0deg, transparent 0 10%, rgba(255,211,77,.18) 14%, transparent 22% 45%, rgba(120,220,255,.16) 52%, transparent 60% 80%, rgba(255,90,210,.18) 88%, transparent 96%);
+  filter: blur(24px);
+  animation: moSpin 26s linear infinite;
+}
+@keyframes moSpin { to { rotate: 360deg; } }
+.opener.is-bonus .opener-bonus { opacity: 1; }
+.opener.is-bonus .opener-theme { opacity: 0; transition: opacity .9s; }
+
+/* Шапка серии: эмблема и ячейка на каждый прокрут. Число отвечает
+   «сколько», ряд ячеек показывает это телом: видно, сколько осталось и как
+   серия выросла после ретриггера. */
+.fs-emblem { width: 92px; height: 92px; margin: 0 auto 2px; filter: drop-shadow(0 10px 16px rgba(0,0,0,.55)); }
+.fs-emblem:empty { display: none; }
+.fs-emblem svg { width: 100%; height: 100%; display: block; }
+.opener.is-bonus .fs-emblem { animation: moBobble 3.2s ease-in-out infinite; }
+@keyframes moBobble { 0%, 100% { transform: translateY(0) rotate(-3deg); } 50% { transform: translateY(-6px) rotate(3deg); } }
+.fs-pips { display: flex; flex-wrap: wrap; justify-content: center; gap: 5px; max-width: 260px; margin: 2px auto 10px; }
+.fs-pips:empty { display: none; }
+.fs-pip { width: 14px; height: 14px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px rgba(255,211,77,.35); transition: background .3s, box-shadow .3s; }
+.fs-pip.full {
+  background: radial-gradient(circle at 36% 30%, #fffbe0, #ffd85a 40%, #c8841a 80%);
+  box-shadow: 0 0 8px rgba(255,200,60,.6), inset 0 -1px 2px rgba(0,0,0,.3);
+}
+.fs-pip.spent { background: rgba(255,211,77,.12); box-shadow: inset 0 0 0 1.5px rgba(255,211,77,.18); }
+.fs-pip.is-current { animation: moPip .9s ease-in-out infinite alternate; }
+@keyframes moPip { to { box-shadow: 0 0 0 3px rgba(255,255,255,.25), 0 0 14px rgba(255,220,120,.9); } }
+.fs-pip.pop { animation: fsBump .42s cubic-bezier(.2,1.6,.4,1); }
+/* Рамка ленты серии: по ней бежит золото, пока идёт бонус. */
+.opener.is-bonus .fs-reel-wrap { box-shadow: 0 0 0 1.5px rgba(255,211,77,.55), 0 0 26px rgba(255,170,60,.25); }
+/* Итог серии одной строкой: окупилась она или нет, считает motion.js
+   вместе с app.js, здесь только тон. */
+.fs-verdict { margin: -4px 0 12px; font-size: 13px; font-weight: 800; }
+.fs-verdict:empty { display: none; }
+.fs-verdict em { font-style: normal; color: #9dffcf; }
+.fs-verdict.is-quiet { color: var(--muted); }
+.fs-verdict.is-quiet em { color: #ffb0bd; }
+
+@media (prefers-reduced-motion: reduce) {
+  .mo-take::after, .mo-hero-sheen, .opener-bonus::before, .opener.is-bonus .fs-emblem { animation: none; }
+}

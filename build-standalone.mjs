@@ -290,6 +290,8 @@ const html = inlineUi(read('./public/index.html'));
 const icons = read('./public/icons.js');
 const covers = read('./public/covers.js');
 const sounds = read('./public/sounds.js');
+// Показ выигрыша и фриспинов: всё внутри createMotion, наружу два имени.
+const motionFx = read('./public/motion.js');
 const itemArt = read('./public/item-art.js');
 // Крупные мотивы 64x64: отдельный файл, потому что старый набор рисовался
 // под значок в 34 точки и к карточке во всю высоту не годится.
@@ -2406,6 +2408,8 @@ ${strip(icons)}
 ${strip(covers)}
 
 ${strip(sounds)}
+
+${strip(motionFx)}
 
 ${strip(itemArt)}
 

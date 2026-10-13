@@ -275,3 +275,105 @@ export function sndClimb(multiplier) {
   const f = 300 + Math.min(900, Math.log(multiplier) * 420);
   blip(f, 0.06, 'sine', 0.12);
 }
+
+/* ============================================================
+   ЗВУКИ ПОКАЗА ВЫИГРЫША (public/motion.js)
+   ============================================================ */
+
+/**
+ * Шум с проездом фильтра. Обычный noise() стоит на одной частоте, а свист,
+ * нарастание и удар клинка читаются именно движением частоты.
+ */
+function sweep(dur, vol, from, to, q = 1, type = 'bandpass') {
+  if (!enabled) return;
+  const c = wake();
+  if (!c) return;
+  const frames = Math.max(1, Math.floor(c.sampleRate * dur));
+  const buf = c.createBuffer(1, frames, c.sampleRate);
+  const data = buf.getChannelData(0);
+  for (let i = 0; i < frames; i++) data[i] = Math.random() * 2 - 1;
+  const src = c.createBufferSource();
+  src.buffer = buf;
+  const filter = c.createBiquadFilter();
+  filter.type = type;
+  filter.Q.value = q;
+  const t = c.currentTime;
+  filter.frequency.setValueAtTime(from, t);
+  filter.frequency.exponentialRampToValueAtTime(to, t + dur);
+  const gain = c.createGain();
+  gain.gain.setValueAtTime(0.0001, t);
+  gain.gain.exponentialRampToValueAtTime(vol, t + Math.min(0.05, dur / 3));
+  gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  src.connect(filter).connect(gain).connect(master);
+  src.start(t);
+  src.stop(t + dur + 0.02);
+}
+
+/** Тон с долгой атакой: нарастание под счёт выигрыша, а не щелчок. */
+function swell(freq, dur, type, vol, slide) {
+  if (!enabled) return;
+  const c = wake();
+  if (!c) return;
+  const osc = c.createOscillator();
+  const gain = c.createGain();
+  const t = c.currentTime;
+  osc.type = type;
+  osc.frequency.setValueAtTime(freq, t);
+  osc.frequency.exponentialRampToValueAtTime(freq * slide, t + dur);
+  gain.gain.setValueAtTime(0.0001, t);
+  gain.gain.exponentialRampToValueAtTime(vol, t + dur * 0.8);
+  gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  osc.connect(gain).connect(master);
+  osc.start(t);
+  osc.stop(t + dur + 0.02);
+}
+
+/** Свист: карточка срывается с ленты (вверх) или уходит на баланс (вниз). */
+export function sndWhoosh(up = true) { sweep(0.38, 0.5, up ? 300 : 3000, up ? 3200 : 260, 0.9); }
+
+/** Удар: низкий провал и глухой шум. Под вспышку и ударную волну. */
+export function sndBoom() {
+  blip(150, 0.7, 'sine', 0.9, 0.25);
+  sweep(0.35, 0.6, 1200, 90, 0.7, 'lowpass');
+}
+
+/** Клинок: короткий высокий шум сверху вниз. */
+export function sndSlash() { sweep(0.22, 0.45, 7000, 1800, 3, 'highpass'); }
+
+/** Нарастание под счёт суммы. Длина равна длине счёта. */
+export function sndRiser(dur) {
+  sweep(dur, 0.32, 200, 5000, 2);
+  swell(110, dur, 'sawtooth', 0.1, 4);
+}
+
+/** Аккорд ступени: BIG, MEGA, EPIC звучат один выше другого. */
+export function sndHit(pitch = 1) {
+  [0, 4, 7, 12].forEach((s) => blip(330 * pitch * Math.pow(2, s / 12), 0.55, 'sawtooth', 0.1));
+}
+
+/** Фанфара на итоговую сумму. */
+export function sndFanfare(pitch = 1) {
+  [0, 4, 7, 12, 16, 19, 24].forEach((s, i) =>
+    setTimeout(() => blip(392 * pitch * Math.pow(2, s / 12), 0.5, 'triangle', 0.22), i * 70));
+}
+
+/** Монета: высокий двойной звон, под каждую каплю счёта. */
+export function sndCoin() {
+  const f = 2200 + Math.random() * 800;
+  blip(f, 0.14, 'sine', 0.16);
+  setTimeout(() => blip(f * 1.5, 0.1, 'sine', 0.09), 25);
+}
+
+/** Жетон фриспина ложится на место. Каждый следующий чуть выше. */
+export function sndDeal(i = 0) {
+  blip(660 * Math.pow(2, Math.min(i, 24) / 24), 0.09, 'triangle', 0.3);
+}
+
+/** Окупил ставку: короткий звон без праздника. */
+export function sndChime() {
+  [0, 4, 7].forEach((s, i) =>
+    setTimeout(() => blip(880 * Math.pow(2, s / 12), 0.35, 'triangle', 0.18), i * 50));
+}
+
+/** Возврат меньше ставки: мягкая нота, не фанфара и не «проигрыш». */
+export function sndSoft() { blip(520, 0.4, 'sine', 0.14, 0.96); }

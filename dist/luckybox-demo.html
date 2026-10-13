@@ -7605,6 +7605,280 @@ button.mg-cell:active { transform: scale(0.92); }
 /* Крупный мотив занимает всю отведённую площадь - у него своя композиция. */
 .drop-ico > svg, .tile-icon > svg { width: 100%; height: 100%; }
 
+/* ============================================================
+   ПОКАЗ ВЫИГРЫША И ФРИСПИНОВ (public/motion.js)
+   ============================================================
+   Свой слой поверх окна кейса (у того z-index 80). Нажатия слой пропускает:
+   ловят их только окно крупного выигрыша и его кнопка. */
+
+.mo-root { position: fixed; inset: 0; z-index: 95; pointer-events: none; }
+.mo-layer, .mo-top { position: absolute; inset: 0; pointer-events: none; }
+.mo-layer { perspective: 1000px; }
+.mo-top { z-index: 2; }
+.mo-canvas { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; }
+
+/* Сцена уходит назад классом: так у неё одно состояние, и оно снимается
+   наверняка (см. recede в motion.js). */
+.opener-scroll { transition: filter .7s cubic-bezier(.16,1,.3,1), transform .7s cubic-bezier(.16,1,.3,1); }
+body.mo-receded .opener-scroll { filter: blur(4px) saturate(.55); transform: scale(.94); }
+.reel-tile.mo-lifted { visibility: hidden; }
+
+.mo-flash { position: absolute; inset: 0; mix-blend-mode: screen; }
+.mo-ring {
+  position: absolute; width: 120px; height: 120px; margin: -60px 0 0 -60px; border-radius: 50%;
+  border: 3px solid var(--c); box-shadow: 0 0 22px var(--c), inset 0 0 22px var(--c);
+}
+.mo-slash {
+  position: absolute; left: -20%; width: 140%; height: 3px; transform-origin: 0 50%;
+  background: linear-gradient(90deg, transparent, #fff 30%, #fff 70%, transparent);
+  box-shadow: 0 0 14px #fff, 0 0 40px var(--c, #ffd34d);
+}
+.mo-float {
+  position: absolute; white-space: nowrap; translate: -50% -50%;
+  font: 800 15px/1 'Unbounded', 'Manrope', system-ui, sans-serif; font-variant-numeric: tabular-nums;
+  color: #fff; text-shadow: 0 0 12px var(--c, #9dffcf), 0 2px 0 rgba(0,0,0,.5);
+}
+.mo-float.is-muted { color: #cfc6dc; text-shadow: 0 2px 0 rgba(0,0,0,.5); font-size: 13px; }
+
+/* Металлическая надпись: заливка градиентом, глубина - цепочкой теней
+   фильтра. text-shadow под прозрачным текстом с background-clip ложится
+   поверх заливки, поэтому объём набран drop-shadow. */
+.mo-metal {
+  display: inline-block;
+  background: linear-gradient(180deg, var(--m1, #fff6cf) 0%, var(--m2, #ffd34d) 42%, var(--m3, #c8781a) 52%, var(--m4, #ffe9a0) 100%);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  filter: drop-shadow(0 1px 0 #a8620c) drop-shadow(0 1px 0 #7a4208) drop-shadow(0 1px 0 #4a2604) drop-shadow(0 8px 14px rgba(0,0,0,.6)) drop-shadow(0 0 22px var(--glow, rgba(255,200,60,.45)));
+}
+
+/* ---------- Лучи и свечение: общие у выигрыша и пролога серии ---------- */
+.mo-sky { position: absolute; left: 50%; top: 34%; width: 0; height: 0; }
+.mo-rays {
+  position: absolute; width: 980px; height: 980px; margin: -490px;
+  background: repeating-conic-gradient(from 0deg, color-mix(in srgb, var(--c2, #ffd34d) 30%, transparent) 0deg 6deg, transparent 6deg 15deg);
+  -webkit-mask: radial-gradient(circle, #000 0%, rgba(0,0,0,.55) 22%, transparent 52%);
+  mask: radial-gradient(circle, #000 0%, rgba(0,0,0,.55) 22%, transparent 52%);
+}
+.mo-rays.b { background: repeating-conic-gradient(from 5deg, color-mix(in srgb, var(--c1, #fff6cf) 16%, transparent) 0deg 2.5deg, transparent 2.5deg 10deg); }
+.mo-bloom {
+  position: absolute; width: 440px; height: 440px; margin: -220px; border-radius: 50%;
+  background: radial-gradient(circle, var(--glow, rgba(255,200,60,.5)), transparent 64%);
+}
+
+/* ---------- Пролог серии ---------- */
+.mo-orb {
+  position: absolute; width: 22px; height: 22px; margin: -11px 0 0 -11px; border-radius: 50%;
+  background: radial-gradient(circle at 38% 32%, #fff 0%, #fff4c0 22%, #ffd34d 46%, #ff8a1f 70%, rgba(255,90,0,0) 72%);
+  box-shadow: 0 0 30px 8px rgba(255,200,60,.65), 0 0 90px 20px rgba(255,120,40,.35);
+}
+.mo-dim { position: absolute; inset: 0; background: radial-gradient(circle at 50% 42%, rgba(12,4,26,.55), rgba(4,1,10,.94) 72%); }
+.mo-fs-show { position: absolute; inset: 0; }
+.mo-fs-emblem {
+  position: absolute; left: 50%; top: 29%; width: 150px; height: 150px; margin: -75px 0 0 -75px;
+  filter: drop-shadow(0 14px 22px rgba(0,0,0,.6));
+}
+.mo-fs-emblem svg { width: 100%; height: 100%; display: block; }
+.mo-fs-title {
+  position: absolute; left: 0; right: 0; top: 46%; display: flex; justify-content: center; gap: 12px;
+  font: 800 34px/1 'Unbounded', 'Arial Black', system-ui, sans-serif; letter-spacing: .01em;
+}
+.mo-fs-title .mo-metal {
+  background-image: linear-gradient(180deg, #fff6cf 0%, #ffd34d 18%, #c8781a 26%, #ffe9a0 38%, #ffffff 50%, #ffe9a0 62%, #ffd34d 78%, #c8781a 90%, #ffe9a0 100%);
+  background-size: 100% 300%;
+}
+.mo-fs-count { position: absolute; left: 0; right: 0; top: 52.5%; text-align: center; font: 800 92px/1 'Unbounded', 'Arial Black', system-ui, sans-serif; }
+.mo-fs-sub {
+  position: absolute; left: 0; right: 0; top: 67.5%; text-align: center;
+  font-size: 12px; font-weight: 800; letter-spacing: .16em; color: #e8dcff; text-transform: uppercase;
+}
+.mo-tok {
+  position: absolute; width: var(--s, 26px); height: var(--s, 26px);
+  margin: calc(var(--s, 26px) / -2) 0 0 calc(var(--s, 26px) / -2); border-radius: 50%;
+  background: radial-gradient(circle at 36% 30%, #fffbe0 0%, #ffd85a 34%, #d89420 72%, #7a4508 100%);
+  box-shadow: inset 0 -2px 3px rgba(0,0,0,.35), inset 0 2px 2px rgba(255,255,255,.7), 0 0 12px rgba(255,200,60,.55);
+  display: grid; place-items: center;
+}
+.mo-tok svg { width: 62%; height: 62%; }
+
+/* ---------- Окно крупного выигрыша ---------- */
+.mo-wl {
+  position: absolute; inset: 0; pointer-events: auto;
+  --c1: #fff6cf; --c2: #ffd34d; --c3: #ff9a1f; --glow: rgba(255,200,60,.5);
+}
+.mo-wl[data-tier="mega"] { --c1: #ffe6fb; --c2: #ff5bd8; --c3: #8a3dff; --glow: rgba(255,80,220,.5); }
+.mo-wl[data-tier="epic"] { --c1: #ffffff; --c2: #7df9ff; --c3: #ffd34d; --glow: rgba(140,240,255,.55); }
+.mo-wl-dim { position: absolute; inset: 0; background: radial-gradient(circle at 50% 36%, rgba(12,4,26,.45), rgba(4,1,10,.93) 70%); }
+.mo-tunnel { position: absolute; left: 50%; top: 34%; opacity: 0; }
+.mo-tunnel i {
+  position: absolute; width: 140px; height: 140px; margin: -70px; border-radius: 50%;
+  border: 2px solid var(--c2); box-shadow: 0 0 18px var(--c2);
+  animation: moTunnel 2.2s cubic-bezier(.5,0,.75,0) infinite;
+  animation-delay: calc(var(--i) * -.31s);
+}
+@keyframes moTunnel { from { transform: scale(.15); opacity: 0; } 30% { opacity: .7; } to { transform: scale(7); opacity: 0; } }
+.mo-bar { position: absolute; left: 0; right: 0; height: 0; background: #000; z-index: 3; }
+.mo-bar.t { top: 0; } .mo-bar.b { bottom: 0; }
+.mo-card-slot { position: absolute; left: 50%; top: 34%; width: 0; height: 0; transform-style: preserve-3d; perspective: 1000px; }
+.mo-label { position: absolute; left: 0; right: 0; top: 59%; text-align: center; --m1: var(--c1); --m2: var(--c2); --m3: var(--c3); --m4: var(--c1); }
+.mo-word { display: block; font: 800 40px/1 'Unbounded', 'Arial Black', system-ui, sans-serif; letter-spacing: -.01em; white-space: nowrap; }
+.mo-word.out { position: absolute; left: 0; right: 0; top: 0; }
+.mo-amount {
+  position: absolute; left: 0; right: 0; top: 69%; text-align: center;
+  font: 800 34px/1 'Unbounded', 'Manrope', system-ui, sans-serif; font-variant-numeric: tabular-nums; color: #fff;
+  text-shadow: 0 0 18px var(--glow), 0 3px 0 rgba(0,0,0,.55);
+}
+.mo-sub { position: absolute; left: 0; right: 0; top: 76.5%; text-align: center; font-size: 12.5px; font-weight: 800; letter-spacing: .08em; color: var(--c1); opacity: 0; }
+.mo-take {
+  position: absolute; left: 50%; bottom: 7%; width: min(74%, 340px); translate: -50% 0;
+  border: 0; border-radius: 18px; padding: 15px; overflow: hidden; opacity: 0; pointer-events: none;
+  font: 800 15px 'Unbounded', 'Manrope', system-ui, sans-serif; color: #2a1300;
+  background: linear-gradient(180deg, #fff1b8, #ffd34d 45%, #e59a1e);
+  box-shadow: 0 1px 0 #fff8 inset, 0 -3px 0 #a8620c inset, 0 0 30px var(--glow);
+  transition: bottom .6s cubic-bezier(.16,1,.3,1);
+}
+.mo-take::after {
+  content: ''; position: absolute; inset: 0; translate: -120% 0;
+  background: linear-gradient(105deg, transparent 35%, rgba(255,255,255,.8) 50%, transparent 65%);
+  animation: moSweep 2.2s cubic-bezier(.65,0,.35,1) infinite .4s;
+}
+@keyframes moSweep { 0%, 60% { translate: -120% 0; } 100% { translate: 120% 0; } }
+/* Кинорамка EPIC закрывает низ кадра: кнопка поднимается над ней. */
+.mo-wl[data-tier="epic"] .mo-take { bottom: 12%; }
+.mo-skip {
+  position: absolute; left: 0; right: 0; bottom: 3%; text-align: center;
+  font-size: 10px; letter-spacing: .14em; font-weight: 800; color: rgba(255,255,255,.4); text-transform: uppercase;
+}
+
+/* ---------- Карточка выигрыша ----------
+   Своя крупная карточка, а не увеличенная плитка ленты: у плитки текст и
+   отступы рассчитаны на 104 точки, и в три раза больше она разваливается. */
+.mo-lift { position: absolute; width: 0; height: 0; perspective: 600px; }
+.mo-hero {
+  --cut: 18px;
+  --surf: linear-gradient(160deg, #17161d, #0b0a0f);
+  position: absolute; width: 196px; height: 250px; left: -98px; top: -125px;
+  transform-style: preserve-3d;
+}
+.mo-hero[data-family="vault"]     { --surf: linear-gradient(160deg, #24222b, #121117); }
+.mo-hero[data-family="circuit"]   { --surf: linear-gradient(160deg, #0f1a33, #070c18); }
+.mo-hero[data-family="felt"]      { --surf: radial-gradient(120% 90% at 50% 20%, #1a3a2d, #0b1c15); }
+.mo-hero[data-family="prism"]     { --surf: linear-gradient(160deg, #22143c, #0f0920); }
+.mo-hero[data-family="paper"]     { --surf: linear-gradient(160deg, #262019, #15120e); }
+.mo-hero[data-family="geode"]     { --surf: linear-gradient(160deg, #13243a, #08111c); }
+.mo-hero[data-family="signature"] { --surf: radial-gradient(120% 90% at 50% 10%, #3a1640, #150818); }
+.mo-face {
+  position: absolute; inset: 0; backface-visibility: hidden; -webkit-backface-visibility: hidden;
+  border-radius: 22px; overflow: hidden;
+  display: flex; flex-direction: column; align-items: center; padding: 16px 12px;
+  background: var(--surf);
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--tc) 70%, #fff 10%), inset 0 0 40px color-mix(in srgb, var(--tc) 22%, transparent);
+}
+.mo-face[data-shape="notch"]  { clip-path: polygon(0 var(--cut), var(--cut) 0, 100% 0, 100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%, 0 100%); }
+.mo-face[data-shape="ticket"] { clip-path: polygon(0 0, 100% 0, 100% 38%, calc(100% - 7px) 42%, 100% 46%, 100% 100%, 0 100%, 0 46%, 7px 42%, 0 38%); }
+.mo-face[data-shape="hex"]    { clip-path: polygon(50% 0, 100% calc(var(--cut) * 1.4), 100% calc(100% - var(--cut) * 1.4), 50% 100%, 0 calc(100% - var(--cut) * 1.4), 0 calc(var(--cut) * 1.4)); }
+.mo-front::before {
+  /* Кант: светлее сверху, темнее снизу - край, на который падает свет. */
+  content: ''; position: absolute; inset: 0; border-radius: inherit; padding: 2px; pointer-events: none;
+  background: linear-gradient(170deg, color-mix(in srgb, var(--tc) 70%, #fff), color-mix(in srgb, var(--tc) 40%, transparent) 30%, transparent 55%, color-mix(in srgb, var(--tc) 70%, #000));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor; mask-composite: exclude;
+}
+.mo-back {
+  transform: rotateY(180deg); justify-content: center;
+  background:
+    repeating-linear-gradient(45deg, rgba(255,211,77,.12) 0 2px, transparent 2px 12px),
+    repeating-linear-gradient(-45deg, rgba(255,211,77,.12) 0 2px, transparent 2px 12px),
+    radial-gradient(circle at 50% 50%, #3a1a10, #120806);
+  box-shadow: inset 0 0 0 2px #ffd34d, inset 0 0 0 6px #120806, inset 0 0 0 7px rgba(255,211,77,.5);
+}
+.mo-back b { font: 800 46px 'Unbounded', 'Arial Black', system-ui, sans-serif; }
+.mo-hero-glow {
+  position: absolute; left: 50%; top: 50%; width: 300px; height: 300px; margin: -150px; border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--tc) 55%, transparent), transparent 66%);
+  transform: translateZ(-1px);
+}
+/* Свет за рисунком: предмет стоит под лампой, а не лежит на фоне. */
+.mo-hero-spot {
+  position: absolute; left: 50%; top: 4px; width: 210px; height: 190px; translate: -50% 0;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--tc) 42%, transparent), transparent);
+}
+.mo-hero-art { position: relative; width: 150px; height: 150px; flex: none; filter: drop-shadow(0 12px 14px rgba(0,0,0,.55)); }
+.mo-hero-art svg, .mo-hero-art img { width: 100%; height: 100%; display: block; object-fit: contain; }
+.mo-hero-name { position: relative; margin-top: 10px; font: 700 14px/1.15 'Unbounded', 'Manrope', system-ui, sans-serif; text-align: center; color: #fff; }
+.mo-hero-sheen {
+  position: absolute; inset: -40%;
+  background: linear-gradient(105deg, transparent 42%, rgba(255,255,255,.55) 50%, transparent 58%);
+  translate: -70% 0; mix-blend-mode: overlay;
+  animation: moHeroSheen 2.8s cubic-bezier(.65,0,.35,1) infinite .6s;
+}
+@keyframes moHeroSheen { 0%, 45% { translate: -70% 0; } 100% { translate: 70% 0; } }
+/* Фольга только у голографических материалов: радуга на хроме выглядит
+   ошибкой печати, а на голограмме - тем, за что её и любят. */
+.mo-hero-foil { position: absolute; inset: 0; opacity: 0; }
+.mo-hero[data-material="holo"] .mo-hero-foil,
+.mo-hero[data-material="crystal"] .mo-hero-foil,
+.mo-hero[data-material="neon"] .mo-hero-foil {
+  opacity: .5; mix-blend-mode: color-dodge;
+  background: conic-gradient(from var(--mo-fa, 0deg) at 50% 40%, #ff6ad5, #ffd34d, #7df9ff, #a07bff, #ff6ad5);
+  -webkit-mask: linear-gradient(115deg, transparent 20%, #000 45%, transparent 60%, #000 80%, transparent);
+  mask: linear-gradient(115deg, transparent 20%, #000 45%, transparent 60%, #000 80%, transparent);
+  animation: moFoil 5s linear infinite;
+}
+@property --mo-fa { syntax: '<angle>'; inherits: false; initial-value: 0deg; }
+@keyframes moFoil { to { --mo-fa: 360deg; } }
+
+/* ---------- Бонусный режим окна кейса ----------
+   Фон темы и фон серии лежат слоями и меняются прозрачностью: смена фона
+   одним переключением выглядела бы как перезагрузка экрана. */
+.opener-bonus {
+  position: absolute; inset: 0; z-index: 0; pointer-events: none; overflow: hidden;
+  opacity: 0; transition: opacity .9s cubic-bezier(.65,0,.35,1);
+  background:
+    radial-gradient(80% 50% at 50% 30%, rgba(130,70,255,.55), transparent 70%),
+    radial-gradient(120% 90% at 50% 20%, #3a1680 0%, #170a3a 50%, #07031a 100%);
+}
+.opener-bonus::before {
+  content: ''; position: absolute; left: 50%; top: 32%; width: 170%; aspect-ratio: 1; translate: -50% -50%;
+  background: conic-gradient(from 0deg, transparent 0 10%, rgba(255,211,77,.18) 14%, transparent 22% 45%, rgba(120,220,255,.16) 52%, transparent 60% 80%, rgba(255,90,210,.18) 88%, transparent 96%);
+  filter: blur(24px);
+  animation: moSpin 26s linear infinite;
+}
+@keyframes moSpin { to { rotate: 360deg; } }
+.opener.is-bonus .opener-bonus { opacity: 1; }
+.opener.is-bonus .opener-theme { opacity: 0; transition: opacity .9s; }
+
+/* Шапка серии: эмблема и ячейка на каждый прокрут. Число отвечает
+   «сколько», ряд ячеек показывает это телом: видно, сколько осталось и как
+   серия выросла после ретриггера. */
+.fs-emblem { width: 92px; height: 92px; margin: 0 auto 2px; filter: drop-shadow(0 10px 16px rgba(0,0,0,.55)); }
+.fs-emblem:empty { display: none; }
+.fs-emblem svg { width: 100%; height: 100%; display: block; }
+.opener.is-bonus .fs-emblem { animation: moBobble 3.2s ease-in-out infinite; }
+@keyframes moBobble { 0%, 100% { transform: translateY(0) rotate(-3deg); } 50% { transform: translateY(-6px) rotate(3deg); } }
+.fs-pips { display: flex; flex-wrap: wrap; justify-content: center; gap: 5px; max-width: 260px; margin: 2px auto 10px; }
+.fs-pips:empty { display: none; }
+.fs-pip { width: 14px; height: 14px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px rgba(255,211,77,.35); transition: background .3s, box-shadow .3s; }
+.fs-pip.full {
+  background: radial-gradient(circle at 36% 30%, #fffbe0, #ffd85a 40%, #c8841a 80%);
+  box-shadow: 0 0 8px rgba(255,200,60,.6), inset 0 -1px 2px rgba(0,0,0,.3);
+}
+.fs-pip.spent { background: rgba(255,211,77,.12); box-shadow: inset 0 0 0 1.5px rgba(255,211,77,.18); }
+.fs-pip.is-current { animation: moPip .9s ease-in-out infinite alternate; }
+@keyframes moPip { to { box-shadow: 0 0 0 3px rgba(255,255,255,.25), 0 0 14px rgba(255,220,120,.9); } }
+.fs-pip.pop { animation: fsBump .42s cubic-bezier(.2,1.6,.4,1); }
+/* Рамка ленты серии: по ней бежит золото, пока идёт бонус. */
+.opener.is-bonus .fs-reel-wrap { box-shadow: 0 0 0 1.5px rgba(255,211,77,.55), 0 0 26px rgba(255,170,60,.25); }
+/* Итог серии одной строкой: окупилась она или нет, считает motion.js
+   вместе с app.js, здесь только тон. */
+.fs-verdict { margin: -4px 0 12px; font-size: 13px; font-weight: 800; }
+.fs-verdict:empty { display: none; }
+.fs-verdict em { font-style: normal; color: #9dffcf; }
+.fs-verdict.is-quiet { color: var(--muted); }
+.fs-verdict.is-quiet em { color: #ffb0bd; }
+
+@media (prefers-reduced-motion: reduce) {
+  .mo-take::after, .mo-hero-sheen, .opener-bonus::before, .opener.is-bonus .fs-emblem { animation: none; }
+}
+
 
 /* ---------- Только для автономной версии ---------- */
 
@@ -8249,6 +8523,8 @@ button.mg-cell:active { transform: scale(0.92); }
     <div class="opener" id="opener" hidden>
     <!-- Тематический фон кейса: сюда уезжает его же обложка. -->
     <div class="opener-theme" id="openerTheme" aria-hidden="true"></div>
+    <!-- Фон бонусной серии: проявляется поверх темы, пока идут фриспины. -->
+    <div class="opener-bonus" aria-hidden="true"></div>
     <div class="opener-scroll">
       <div class="opener-inner">
 
@@ -8315,12 +8591,14 @@ button.mg-cell:active { transform: scale(0.92); }
         </div>
 
         <div class="freespins" id="freespins" hidden>
+          <div class="fs-emblem" id="fsEmblem" aria-hidden="true"></div>
           <div class="fs-head">
             <div class="fs-title">ФРИСПИНЫ</div>
             <div class="fs-left" id="fsLeft"></div>
           </div>
           <div class="fs-total" id="fsTotal">0 ₽</div>
           <div class="fs-sub">выигрыш с фриспинов</div>
+          <div class="fs-pips" id="fsPips" aria-hidden="true"></div>
           <div class="reel-wrap fs-reel-wrap">
             <div class="reel-marker"></div>
             <div class="reel-fade reel-fade-l"></div>
@@ -8328,6 +8606,7 @@ button.mg-cell:active { transform: scale(0.92); }
             <div class="reel" id="fsReel"></div>
           </div>
           <div class="fs-log" id="fsLog"></div>
+          <div class="fs-verdict" id="fsVerdict"></div>
           <button class="btn btn-primary btn-wide" id="fsCollect" hidden>ЗАБРАТЬ</button>
         </div>
 
@@ -12376,6 +12655,1026 @@ function sndJackpot() {
 function sndClimb(multiplier) {
   const f = 300 + Math.min(900, Math.log(multiplier) * 420);
   blip(f, 0.06, 'sine', 0.12);
+}
+
+/* ============================================================
+   ЗВУКИ ПОКАЗА ВЫИГРЫША (public/motion.js)
+   ============================================================ */
+
+/**
+ * Шум с проездом фильтра. Обычный noise() стоит на одной частоте, а свист,
+ * нарастание и удар клинка читаются именно движением частоты.
+ */
+function sweep(dur, vol, from, to, q = 1, type = 'bandpass') {
+  if (!enabled) return;
+  const c = wake();
+  if (!c) return;
+  const frames = Math.max(1, Math.floor(c.sampleRate * dur));
+  const buf = c.createBuffer(1, frames, c.sampleRate);
+  const data = buf.getChannelData(0);
+  for (let i = 0; i < frames; i++) data[i] = Math.random() * 2 - 1;
+  const src = c.createBufferSource();
+  src.buffer = buf;
+  const filter = c.createBiquadFilter();
+  filter.type = type;
+  filter.Q.value = q;
+  const t = c.currentTime;
+  filter.frequency.setValueAtTime(from, t);
+  filter.frequency.exponentialRampToValueAtTime(to, t + dur);
+  const gain = c.createGain();
+  gain.gain.setValueAtTime(0.0001, t);
+  gain.gain.exponentialRampToValueAtTime(vol, t + Math.min(0.05, dur / 3));
+  gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  src.connect(filter).connect(gain).connect(master);
+  src.start(t);
+  src.stop(t + dur + 0.02);
+}
+
+/** Тон с долгой атакой: нарастание под счёт выигрыша, а не щелчок. */
+function swell(freq, dur, type, vol, slide) {
+  if (!enabled) return;
+  const c = wake();
+  if (!c) return;
+  const osc = c.createOscillator();
+  const gain = c.createGain();
+  const t = c.currentTime;
+  osc.type = type;
+  osc.frequency.setValueAtTime(freq, t);
+  osc.frequency.exponentialRampToValueAtTime(freq * slide, t + dur);
+  gain.gain.setValueAtTime(0.0001, t);
+  gain.gain.exponentialRampToValueAtTime(vol, t + dur * 0.8);
+  gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  osc.connect(gain).connect(master);
+  osc.start(t);
+  osc.stop(t + dur + 0.02);
+}
+
+/** Свист: карточка срывается с ленты (вверх) или уходит на баланс (вниз). */
+function sndWhoosh(up = true) { sweep(0.38, 0.5, up ? 300 : 3000, up ? 3200 : 260, 0.9); }
+
+/** Удар: низкий провал и глухой шум. Под вспышку и ударную волну. */
+function sndBoom() {
+  blip(150, 0.7, 'sine', 0.9, 0.25);
+  sweep(0.35, 0.6, 1200, 90, 0.7, 'lowpass');
+}
+
+/** Клинок: короткий высокий шум сверху вниз. */
+function sndSlash() { sweep(0.22, 0.45, 7000, 1800, 3, 'highpass'); }
+
+/** Нарастание под счёт суммы. Длина равна длине счёта. */
+function sndRiser(dur) {
+  sweep(dur, 0.32, 200, 5000, 2);
+  swell(110, dur, 'sawtooth', 0.1, 4);
+}
+
+/** Аккорд ступени: BIG, MEGA, EPIC звучат один выше другого. */
+function sndHit(pitch = 1) {
+  [0, 4, 7, 12].forEach((s) => blip(330 * pitch * Math.pow(2, s / 12), 0.55, 'sawtooth', 0.1));
+}
+
+/** Фанфара на итоговую сумму. */
+function sndFanfare(pitch = 1) {
+  [0, 4, 7, 12, 16, 19, 24].forEach((s, i) =>
+    setTimeout(() => blip(392 * pitch * Math.pow(2, s / 12), 0.5, 'triangle', 0.22), i * 70));
+}
+
+/** Монета: высокий двойной звон, под каждую каплю счёта. */
+function sndCoin() {
+  const f = 2200 + Math.random() * 800;
+  blip(f, 0.14, 'sine', 0.16);
+  setTimeout(() => blip(f * 1.5, 0.1, 'sine', 0.09), 25);
+}
+
+/** Жетон фриспина ложится на место. Каждый следующий чуть выше. */
+function sndDeal(i = 0) {
+  blip(660 * Math.pow(2, Math.min(i, 24) / 24), 0.09, 'triangle', 0.3);
+}
+
+/** Окупил ставку: короткий звон без праздника. */
+function sndChime() {
+  [0, 4, 7].forEach((s, i) =>
+    setTimeout(() => blip(880 * Math.pow(2, s / 12), 0.35, 'triangle', 0.18), i * 50));
+}
+
+/** Возврат меньше ставки: мягкая нота, не фанфара и не «проигрыш». */
+function sndSoft() { blip(520, 0.4, 'sine', 0.14, 0.96); }
+
+
+/**
+ * Показ выигрыша и фриспинов: карточка срывается с ленты, сумма набирается
+ * на глазах, покупка серии разворачивается в отдельную сцену.
+ *
+ * Задумка показана заказчику демо-файлом (tools/motion-demo.html) и принята,
+ * здесь она перенесена в приложение. Правила, ради которых она так устроена:
+ *
+ *  - СИЛА ПОКАЗА - МНОЖИТЕЛЬ К ЦЕНЕ КЕЙСА, а не сумма. 8 600 в кейсе за 1 499
+ *    это событие, а в кейсе за 100 000 нет;
+ *  - ВОЗВРАТ МЕНЬШЕ СТАВКИ НЕ ПРАЗДНУЕТСЯ. Салют за проигрыш учит игрока, что
+ *    проигрыш это успех;
+ *  - НИЧТО НЕ ЖДЁТ НАЖАТИЯ ВЕЧНО. Окно выигрыша закрывается само через
+ *    несколько секунд: игрок, который отвернулся, не должен найти приложение
+ *    запертым, а автооткрытие и тесты не должны упираться в окно.
+ *
+ * Всё объявлено внутри createMotion: автономная сборка складывает модули
+ * клиента в одну область видимости, и имена вроде wait, E или P столкнулись
+ * бы с чужими (CLAUDE.md, «Одинаковые имена на верхнем уровне»).
+ */
+
+/*
+ * Ступени показа. Пороги - множитель к цене кейса.
+ * NICE: карточка приподнимается прямо в ленте, экран не перехватывается.
+ * LEVELS: захват экрана; посреди счёта показ повышает ступень.
+ */
+const MOTION_NICE_AT = 4;
+const MOTION_LEVELS = [
+  { key: 'big',  at: 12,  word: 'BIG WIN',  pitch: 1,    color: '#ffd34d', countMs: 2600 },
+  { key: 'mega', at: 50,  word: 'MEGA WIN', pitch: 1.26, color: '#ff5bd8', countMs: 4300 },
+  { key: 'epic', at: 150, word: 'EPIC WIN', pitch: 1.5,  color: '#7df9ff', countMs: 6200 },
+];
+
+/**
+ * @param {object} o
+ * @param {(n:number)=>string} o.money     формат суммы
+ * @param {(item:object)=>string} o.artFor рисунок предмета (svg)
+ * @param {(tier:string)=>string} o.tierColor
+ * @param {object} o.snd                   звуки из sounds.js
+ * @param {(kind:string)=>void} o.haptic
+ */
+function createMotion({ money, artFor, tierColor, snd, haptic = () => {} }) {
+  const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const QTY = REDUCED ? 0.35 : 1;
+  const NB = ' ';
+  const rand = (a, b) => a + Math.random() * (b - a);
+  const pick = (list) => list[Math.floor(Math.random() * list.length)];
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const play = (name, ...args) => { try { snd[name]?.(...args); } catch { /* звук не обязателен */ } };
+  const xFmt = (m) => `×${m >= 10 ? Math.round(m) : m.toFixed(1).replace('.', ',')}`;
+
+  /* Кривые. Одна сетка на все движения: у каждого эффекта своя кривая -
+     и экран дёргается вразнобой, читаясь как набор чужих анимаций. */
+  const E = {
+    out: 'cubic-bezier(.16,1,.3,1)',
+    back: 'cubic-bezier(.34,1.56,.64,1)',
+    in: 'cubic-bezier(.55,0,.8,.2)',
+    inout: 'cubic-bezier(.65,0,.35,1)',
+  };
+  const anim = (el, kf, opts) => el.animate(kf, { fill: 'both', ...(typeof opts === 'number' ? { duration: opts } : opts) });
+
+  /*
+   * Акцент удара - свой у темы. Клинок наискосок и лепестки идут «Самураю» и
+   * «Хайгардену», но не «Вегасу»: там они выглядели бы чужими. Ритм и кривые
+   * общие, меняются только частицы.
+   */
+  const ACCENTS = {
+    samurai: { slash: true, petals: true },
+    shadow: { slash: true },
+    westeros: { slash: true },
+    winterfell: { slash: true },
+    braavos: { slash: true },
+    highgarden: { petals: true },
+    santorini: { petals: true },
+    phoenix: { petals: true },
+  };
+  let accent = {};
+
+  /* ---------- Слои ---------- */
+
+  let root = null, layer = null, top = null, cv = null, g = null;
+  let W = 0, H = 0;
+
+  function mount() {
+    if (root) return;
+    root = document.createElement('div');
+    root.className = 'mo-root';
+    root.setAttribute('aria-hidden', 'true');
+    root.innerHTML = '<div class="mo-layer"></div><canvas class="mo-canvas"></canvas><div class="mo-top"></div>';
+    document.body.appendChild(root);
+    layer = root.querySelector('.mo-layer');
+    top = root.querySelector('.mo-top');
+    cv = root.querySelector('canvas');
+    g = cv.getContext('2d');
+    fit();
+    addEventListener('resize', fit);
+  }
+  function fit() {
+    const dpr = Math.min(2, devicePixelRatio || 1);
+    W = innerWidth; H = innerHeight;
+    cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  function el(tag, cls, parent) {
+    const d = document.createElement(tag);
+    if (cls) d.className = cls;
+    (parent || layer).append(d);
+    return d;
+  }
+  const box = (node) => {
+    const r = node.getBoundingClientRect();
+    return { x: r.left, y: r.top, w: r.width, h: r.height, cx: r.left + r.width / 2, cy: r.top + r.height / 2 };
+  };
+  /* Колонка показа: на телефоне весь экран, на компьютере - столбец шириной
+     с телефон посередине, иначе карточка и надписи растягиваются по окну. */
+  const colX = () => W / 2;
+
+  /*
+   * Сцена уходит назад классом, а не анимацией. Анимация размытия с
+   * заполнением однажды осталась висеть после отмены, и вся серия фриспинов
+   * шла в тумане. У класса одно состояние, и reset() снимает его наверняка.
+   */
+  function recede(on) { document.body.classList.toggle('mo-receded', !!on); }
+
+  /* ---------- Частицы ---------- */
+
+  function sprite(size, draw) {
+    const c = document.createElement('canvas');
+    c.width = c.height = size;
+    draw(c.getContext('2d'), size);
+    return c;
+  }
+  function starPath(x, cx, cy, r1, r2, n = 5) {
+    x.beginPath();
+    for (let i = 0; i < n * 2; i++) {
+      const r = i % 2 ? r2 : r1;
+      const a = -Math.PI / 2 + (i * Math.PI) / n;
+      x.lineTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r);
+    }
+    x.closePath();
+  }
+  /* Монета рисуется один раз в спрайт: сто монет градиентами на каждом кадре
+     телефон не вытянет. Поворот - сжатием спрайта по ширине. */
+  let COIN, COIN_BACK, PETAL;
+  function sprites() {
+    if (COIN) return;
+    COIN = sprite(96, (x, s) => {
+      const r = s / 2;
+      const gr = x.createRadialGradient(r * 0.72, r * 0.6, 2, r, r, r);
+      gr.addColorStop(0, '#fffbe0'); gr.addColorStop(0.35, '#ffd85a'); gr.addColorStop(0.78, '#d89420'); gr.addColorStop(1, '#7a4508');
+      x.fillStyle = gr; x.beginPath(); x.arc(r, r, r - 1, 0, 7); x.fill();
+      x.lineWidth = s * 0.05; x.strokeStyle = 'rgba(122,69,8,.7)'; x.beginPath(); x.arc(r, r, r * 0.76, 0, 7); x.stroke();
+      x.fillStyle = 'rgba(110,60,6,.55)'; starPath(x, r + 1.5, r + 2, r * 0.42, r * 0.18); x.fill();
+      x.fillStyle = '#fff2b8'; starPath(x, r, r, r * 0.42, r * 0.18); x.fill();
+    });
+    COIN_BACK = sprite(96, (x, s) => {
+      const r = s / 2;
+      const gr = x.createRadialGradient(r * 0.8, r * 0.7, 2, r, r, r);
+      gr.addColorStop(0, '#ffe58a'); gr.addColorStop(0.5, '#c8841a'); gr.addColorStop(1, '#5a3006');
+      x.fillStyle = gr; x.beginPath(); x.arc(r, r, r - 1, 0, 7); x.fill();
+      x.lineWidth = s * 0.07; x.strokeStyle = 'rgba(255,230,150,.45)'; x.beginPath(); x.arc(r, r, r * 0.62, 0, 7); x.stroke();
+    });
+    PETAL = sprite(48, (x, s) => {
+      const gr = x.createLinearGradient(0, 0, s, s);
+      gr.addColorStop(0, '#fff0f6'); gr.addColorStop(0.5, '#ffb3d1'); gr.addColorStop(1, '#ff6aa6');
+      x.fillStyle = gr;
+      x.beginPath();
+      x.moveTo(s / 2, s * 0.06);
+      x.bezierCurveTo(s * 0.95, s * 0.2, s * 0.9, s * 0.8, s / 2, s * 0.96);
+      x.bezierCurveTo(s * 0.1, s * 0.8, s * 0.05, s * 0.2, s / 2, s * 0.06);
+      x.fill();
+      x.fillStyle = 'rgba(255,255,255,.45)';
+      x.beginPath(); x.ellipse(s * 0.42, s * 0.36, s * 0.08, s * 0.2, -0.4, 0, 7); x.fill();
+    });
+  }
+  const glowCache = {};
+  const glowSprite = (color) => (glowCache[color] ||= sprite(64, (x, s) => {
+    const gr = x.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2);
+    gr.addColorStop(0, color); gr.addColorStop(0.35, color); gr.addColorStop(1, 'rgba(0,0,0,0)');
+    x.fillStyle = gr; x.fillRect(0, 0, s, s);
+  }));
+
+  const P = [];
+  const EM = [];
+  let raf = 0, lastT = 0;
+  const kick = () => { if (!raf) { lastT = performance.now(); raf = requestAnimationFrame(loop); } };
+  const add = (p) => { mount(); sprites(); P.push(Object.assign({ age: 0, life: 2, x: 0, y: 0, vx: 0, vy: 0, g: 0, drag: 0 }, p)); kick(); };
+  const emit = (ms, every, fn) => { const e = { left: ms, every, acc: every, fn }; EM.push(e); kick(); return e; };
+  const stopEmit = (e) => { const i = EM.indexOf(e); if (i >= 0) EM.splice(i, 1); };
+
+  function loop(now) {
+    const dt = Math.min(0.034, (now - lastT) / 1000);
+    lastT = now;
+    for (let i = EM.length - 1; i >= 0; i--) {
+      const e = EM[i];
+      e.left -= dt * 1000; e.acc += dt * 1000;
+      while (e.acc >= e.every) { e.acc -= e.every; e.fn(); }
+      if (e.left <= 0) EM.splice(i, 1);
+    }
+    g.clearRect(0, 0, W, H);
+    const glows = [];
+    for (let i = P.length - 1; i >= 0; i--) {
+      const p = P[i];
+      p.age += dt;
+      if (p.age >= p.life || (p.t !== 'fly' && p.y > H + 80 && p.vy > 0)) {
+        P.splice(i, 1);
+        if (p.age >= p.life) p.done?.();
+        continue;
+      }
+      step(p, dt);
+      if (p.t === 'spark' || p.t === 'glow' || p.t === 'pull') glows.push(p); else draw(p);
+    }
+    g.globalCompositeOperation = 'lighter';
+    for (const p of glows) draw(p);
+    g.globalCompositeOperation = 'source-over';
+    if (P.length || EM.length) raf = requestAnimationFrame(loop);
+    else { raf = 0; g.clearRect(0, 0, W, H); }
+  }
+
+  function step(p, dt) {
+    if (p.t === 'fly') {
+      const u = p.age / p.life;
+      const e = u < 0.5 ? 2 * u * u : 1 - Math.pow(-2 * u + 2, 2) / 2;
+      const a = 1 - e;
+      p.x = a * a * p.x0 + 2 * a * e * p.cx + e * e * p.x1;
+      p.y = a * a * p.y0 + 2 * a * e * p.cy + e * e * p.y1;
+      p.ph += p.vph * dt;
+      return;
+    }
+    if (p.drag) { const k = Math.max(0, 1 - p.drag * dt); p.vx *= k; p.vy *= k; }
+    p.vy += p.g * dt;
+    if (p.t === 'petal' || p.t === 'conf') {
+      p.vy = Math.min(p.vy, p.term || 140);
+      p.x += Math.sin(p.age * 2.6 + p.sw) * 34 * dt;
+    }
+    if (p.t === 'pull') {
+      // Искру тянет к центру заряда: ускоряется к цели и гаснет у неё.
+      const dx = p.tx - p.x, dy = p.ty - p.y;
+      const d = Math.hypot(dx, dy) || 1;
+      p.vx += (dx / d) * 2400 * dt; p.vy += (dy / d) * 2400 * dt;
+      if (d < 10) p.age = p.life;
+    }
+    p.x += p.vx * dt; p.y += p.vy * dt;
+    if (p.vr) p.rot += p.vr * dt;
+    if (p.vph) p.ph += p.vph * dt;
+  }
+
+  function draw(p) {
+    const fade = Math.min(1, (p.life - p.age) / (p.fade || 0.35));
+    if (p.t === 'coin' || p.t === 'fly') {
+      const c = Math.cos(p.ph);
+      const sx = Math.max(0.1, Math.abs(c));
+      g.save();
+      g.globalAlpha = p.t === 'fly' ? 1 : fade;
+      g.translate(p.x, p.y);
+      g.rotate(p.rot || 0);
+      // Ребро: без него сжатый спрайт читается плоским кружком, а не монетой.
+      if (sx < 0.95) {
+        g.fillStyle = '#7a4508';
+        g.beginPath();
+        g.ellipse(Math.sign(c || 1) * p.r * 0.14 * (1 - sx), 0, p.r * sx + 1.2, p.r, 0, 0, 7);
+        g.fill();
+      }
+      g.scale(sx, 1);
+      g.drawImage(c >= 0 ? COIN : COIN_BACK, -p.r, -p.r, p.r * 2, p.r * 2);
+      g.restore();
+    } else if (p.t === 'spark' || p.t === 'pull') {
+      g.globalAlpha = fade;
+      g.strokeStyle = p.color;
+      g.lineWidth = p.w;
+      g.lineCap = 'round';
+      g.beginPath();
+      g.moveTo(p.x, p.y);
+      g.lineTo(p.x - p.vx * 0.028, p.y - p.vy * 0.028);
+      g.stroke();
+      g.globalAlpha = 1;
+    } else if (p.t === 'glow') {
+      g.globalAlpha = Math.min(1, p.age / 0.4) * fade * (p.a ?? 0.6);
+      g.drawImage(glowSprite(p.color), p.x - p.r, p.y - p.r, p.r * 2, p.r * 2);
+      g.globalAlpha = 1;
+    } else {
+      g.save();
+      g.globalAlpha = fade;
+      g.translate(p.x, p.y);
+      g.rotate(p.rot);
+      g.scale(1, Math.max(0.15, Math.abs(Math.cos(p.ph))));
+      if (p.t === 'petal') g.drawImage(PETAL, -p.r, -p.r, p.r * 2, p.r * 2);
+      else { g.fillStyle = p.color; g.fillRect(-p.r / 2, -p.r, p.r, p.r * 2); }
+      g.restore();
+    }
+  }
+
+  function sparks(x, y, n, colors, speed = 560, o = {}) {
+    n = Math.round(n * QTY);
+    for (let i = 0; i < n; i++) {
+      const a = o.angle != null ? o.angle + rand(-o.spread, o.spread) : rand(0, Math.PI * 2);
+      const v = speed * rand(0.35, 1);
+      add({ t: 'spark', x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, g: o.g ?? 260, drag: o.drag ?? 2.4, life: rand(0.45, 1.1), color: pick(colors), w: rand(1.2, 2.8) });
+    }
+  }
+  function coins(x, y, n, { speed = 640, angle = -Math.PI / 2, spread = Math.PI * 0.55, r = [8, 15], g: grav = 1500 } = {}) {
+    n = Math.round(n * QTY);
+    for (let i = 0; i < n; i++) {
+      const a = angle + rand(-spread, spread);
+      const v = speed * rand(0.55, 1.1);
+      add({ t: 'coin', x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, g: grav, r: rand(r[0], r[1]), rot: rand(-0.4, 0.4), vr: rand(-2, 2), ph: rand(0, 6), vph: rand(7, 16), life: 2.6, fade: 0.5 });
+    }
+  }
+  /* Падающие сверху частицы темы: лепестки или конфетти её цветов. */
+  function shower(n, colors) {
+    n = Math.round(n * QTY);
+    for (let i = 0; i < n; i++) {
+      const base = { x: rand(0, W), y: -20 + rand(-60, 0), vx: rand(-40, 40), vy: rand(30, 120), g: 90, term: rand(70, 130), rot: rand(0, 6), vr: rand(-3, 3), ph: rand(0, 6), vph: rand(3, 7), sw: rand(0, 6), life: rand(3.6, 5.4), fade: 0.8 };
+      add(accent.petals ? { ...base, t: 'petal', r: rand(6, 11) } : { ...base, t: 'conf', r: rand(3, 5), color: pick(colors) });
+    }
+  }
+  function burst(x, y, n, colors) {
+    n = Math.round(n * QTY);
+    for (let i = 0; i < n; i++) {
+      const a = rand(0, Math.PI * 2), v = rand(150, 520);
+      const base = { x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 120, g: 160, drag: 1.6, term: rand(70, 130), rot: rand(0, 6), vr: rand(-4, 4), ph: rand(0, 6), vph: rand(3, 8), sw: rand(0, 6), life: rand(2.6, 4), fade: 0.8 };
+      add(accent.petals ? { ...base, t: 'petal', r: rand(6, 11) } : { ...base, t: 'conf', r: rand(3, 5), color: pick(colors) });
+    }
+  }
+  function bokeh(n, colors) {
+    n = Math.round(n * QTY);
+    for (let i = 0; i < n; i++) {
+      add({ t: 'glow', x: rand(0, W), y: rand(H * 0.1, H * 0.9), vx: rand(-8, 8), vy: rand(-26, -6), r: rand(8, 26), color: pick(colors), a: rand(0.25, 0.6), life: rand(2.2, 4), fade: 1 });
+    }
+  }
+  function pull(x, y, n, colors, radius = 170) {
+    n = Math.round(n * QTY);
+    for (let i = 0; i < n; i++) {
+      const a = rand(0, Math.PI * 2), r = radius * rand(0.7, 1.2);
+      add({ t: 'pull', x: x + Math.cos(a) * r, y: y + Math.sin(a) * r, vx: -Math.sin(a) * 120, vy: Math.cos(a) * 120, tx: x, ty: y, drag: 1.2, life: 0.9, color: pick(colors), w: rand(1.2, 2.4) });
+    }
+  }
+  /** Монета по дуге в точку: на баланс или в счётчик серии. */
+  function flyCoin(x0, y0, x1, y1, delay, done) {
+    setTimeout(() => add({ t: 'fly', x0, y0, x1, y1, cx: (x0 + x1) / 2 + rand(-120, 120), cy: Math.min(y0, y1) - rand(60, 180), x: x0, y: y0, r: rand(8, 12), ph: rand(0, 6), vph: 14, life: rand(0.6, 0.85), done }), delay);
+  }
+
+  /* ---------- Экранные эффекты ---------- */
+
+  function flash(color, strength = 0.8, dur = 520) {
+    mount();
+    const f = el('div', 'mo-flash', top);
+    f.style.background = `radial-gradient(circle at 50% 40%, ${color}, transparent 75%)`;
+    anim(f, [{ opacity: strength }, { opacity: 0 }], { duration: dur, easing: E.out }).onfinish = () => f.remove();
+  }
+  function ring(x, y, color, scale = 4, dur = 700, delay = 0) {
+    mount();
+    const r = el('div', 'mo-ring', top);
+    r.style.left = `${x}px`; r.style.top = `${y}px`; r.style.setProperty('--c', color);
+    anim(r, [{ transform: 'scale(.1)', opacity: 1, borderWidth: '8px' }, { transform: `scale(${scale})`, opacity: 0, borderWidth: '1px' }], { duration: dur, delay, easing: E.out }).onfinish = () => r.remove();
+  }
+  function slash(y, color = '#ffd34d', angle = -22) {
+    if (!accent.slash) return;
+    mount();
+    const s = el('div', 'mo-slash', top);
+    s.style.top = `${y}px`; s.style.setProperty('--c', color); s.style.rotate = `${angle}deg`;
+    play('sndSlash');
+    anim(s, [{ transform: 'scaleX(0)', opacity: 1 }, { transform: 'scaleX(1)', opacity: 1, offset: 0.35 }, { transform: 'scaleX(1) scaleY(.2)', opacity: 0 }], { duration: 420, easing: E.out }).onfinish = () => s.remove();
+  }
+  /* Тряска затухает по экспоненте: ровная тряска читается как сбой экрана,
+     а не как удар. Через свойство translate - transform у экрана свой. */
+  function shake(power = 10, dur = 520) {
+    if (REDUCED) return;
+    const target = document.getElementById('opener');
+    if (!target || target.hidden) return;
+    const frames = [];
+    for (let i = 0; i <= 12; i++) {
+      const k = Math.pow(1 - i / 12, 2) * power;
+      frames.push({ translate: i === 12 ? '0 0' : `${rand(-k, k).toFixed(1)}px ${rand(-k, k).toFixed(1)}px` });
+    }
+    target.animate(frames, { duration: dur, easing: 'linear' });
+  }
+  function impact(x, y, color, power = 1) {
+    flash(color, 0.75 * power);
+    ring(x, y, color, 4.5);
+    ring(x, y, '#ffffff', 3, 600, 90);
+    sparks(x, y, 90 * power, ['#ffffff', color, '#ffd34d'], 760);
+    shake(12 * power, 560);
+    play('sndBoom');
+    haptic('heavy');
+  }
+  function floatText(text, x, y, { muted = false, color = '#9dffcf', to = null, dur = 900, size = 0 } = {}) {
+    mount();
+    const f = el('div', `mo-float${muted ? ' is-muted' : ''}`, top);
+    f.textContent = text;
+    f.style.left = `${x}px`; f.style.top = `${y}px`; f.style.setProperty('--c', color);
+    if (size) f.style.fontSize = `${size}px`;
+    const kf = to
+      ? [{ transform: 'translate(0,0) scale(.6)', opacity: 0 }, { transform: 'translate(0,-26px) scale(1.15)', opacity: 1, offset: 0.25 }, { transform: `translate(${to.x - x}px, ${to.y - y}px) scale(.6)`, opacity: 0.9 }]
+      : [{ transform: 'translate(0,6px) scale(.6)', opacity: 0 }, { transform: 'translate(0,-20px) scale(1.1)', opacity: 1, offset: 0.3 }, { transform: 'translate(0,-40px) scale(1)', opacity: 0 }];
+    anim(f, kf, { duration: dur, easing: to ? E.inout : E.out }).onfinish = () => f.remove();
+    return f;
+  }
+
+  /* ---------- Карточка выигрыша ---------- */
+
+  function heroCard(item) {
+    const d = document.createElement('div');
+    d.className = 'mo-hero';
+    const skin = item.skin || {};
+    d.dataset.family = skin.family || 'slate';
+    d.dataset.material = skin.material || 'matte';
+    d.style.setProperty('--tc', tierColor(item.tier));
+    // Форма режет грани, а не саму карточку: clip-path на элементе с
+    // preserve-3d схлопывает его в плоскость, и оборот в воздухе пропадает.
+    const shape = skin.shape || 'card';
+    d.innerHTML = `
+      <div class="mo-hero-glow"></div>
+      <div class="mo-face mo-front" data-shape="${shape}">
+        <div class="mo-hero-spot"></div>
+        <div class="mo-hero-foil"></div>
+        <div class="mo-hero-art">${artFor(item)}</div>
+        <div class="mo-hero-name"></div>
+        <div class="mo-hero-sheen"></div>
+      </div>
+      <div class="mo-face mo-back" data-shape="${shape}"><b class="mo-metal">LB</b></div>`;
+    d.querySelector('.mo-hero-name').textContent = item.name;
+    return d;
+  }
+
+  /** Надпись ступени влетает по буквам. */
+  function stampLabel(label, word) {
+    const w = document.createElement('div');
+    w.className = 'mo-word';
+    w.innerHTML = [...word].map((ch) => `<span class="mo-metal">${ch === ' ' ? NB : ch}</span>`).join('');
+    label.append(w);
+    [...w.children].forEach((sp, i) => {
+      // fill: backwards - после входа фильтр возвращается к теням металла из
+      // CSS. С forwards на буквах навсегда остался бы blur(0), и объём надписи
+      // пропадал бы ровно в момент, когда её читают.
+      anim(sp, [
+        { transform: 'translateY(30px) scale(2.2) rotateX(-80deg)', opacity: 0, filter: 'blur(6px)' },
+        { transform: 'none', opacity: 1, filter: 'blur(0)' },
+      ], { duration: 560, delay: i * 38, easing: E.back, fill: 'backwards' });
+    });
+  }
+
+  const levelOf = (m) => {
+    let lv = -1;
+    MOTION_LEVELS.forEach((L, i) => { if (m >= L.at) lv = i; });
+    return lv;
+  };
+
+  /* ---------- Выигрыш ---------- */
+
+  /**
+   * Показ выигрыша по множителю.
+   *
+   * @param {object} item    предмет из ответа сервера (value, tier, skin, art)
+   * @param {object} o
+   * @param {Element} [o.tile]   плитка ленты, с которой срывается карточка
+   * @param {number} o.price      цена кейса
+   * @param {string} [o.theme]    тема кейса - акцент удара
+   * @param {boolean} [o.inSeries] внутри серии фриспинов: всё короче
+   * @param {boolean} [o.auto]     автооткрытие: без захвата экрана надолго
+   * @param {Element} [o.collectTo] куда летят монеты при сборе
+   */
+  async function win(item, o) {
+    mount();
+    accent = ACCENTS[o.theme] || {};
+    const value = item.value || 0;
+    if (!value || !o.price) return;
+    const m = value / o.price;
+    const tb = o.tile ? box(o.tile) : { cx: W / 2, cy: H * 0.45, x: W / 2 - 52, y: H * 0.45 - 66, w: 104, h: 132 };
+
+    if (m < 1) {
+      // Возврат меньше ставки: подсветка и сумма, без единой искры.
+      if (!o.inSeries) { floatText(money(value), tb.cx, tb.y - 4, { muted: true, dur: 1200 }); play('sndSoft'); }
+      return;
+    }
+    if (m < MOTION_NICE_AT) {
+      if (!o.inSeries) floatText(`+${money(value)}`, tb.cx, tb.y - 4, { dur: 1100 });
+      sparks(tb.cx, tb.y + 10, 18, ['#9dffcf', '#ffffff'], 300, { angle: -Math.PI / 2, spread: 1.1 });
+      play('sndChime');
+      return;
+    }
+    if (levelOf(m) < 0 || (o.auto && levelOf(m) < 1)) {
+      await lift(item, o.tile, tb, o);
+      return;
+    }
+    await bigWin(item, o.tile, tb, m, o);
+  }
+
+  /* ×4…×12: карточка приподнимается прямо в ленте. Это хороший прокрут, но
+     ещё не событие, и экран у игрока не забирается. */
+  async function lift(item, tile, tb, o) {
+    const color = tierColor(item.tier);
+    const wrap = el('div', 'mo-lift');
+    wrap.style.left = `${tb.cx}px`; wrap.style.top = `${tb.cy}px`;
+    const card = heroCard(item);
+    card.style.setProperty('--cut', '10px');
+    wrap.append(card);
+    const s = tb.w / 196;
+    if (tile) tile.classList.add('mo-lifted');
+    anim(card, [
+      { transform: `scale(${s})` },
+      { transform: `translateY(-34px) scale(${s * 1.32}) rotateX(8deg)`, offset: 0.45 },
+      { transform: `translateY(-26px) scale(${s * 1.26})` },
+    ], { duration: 700, easing: E.back });
+    ring(tb.cx, tb.cy - 26, color, 2.4, 600);
+    sparks(tb.cx, tb.cy - 26, 40, ['#ffffff', color, '#ffd34d'], 420);
+    play('sndChime');
+    play('sndWhoosh');
+    haptic('medium');
+    await sleep(260);
+    floatText(`+${money(item.value)}`, tb.cx, tb.y - 54, { dur: 1700, color, size: 20 });
+    coins(tb.cx, tb.cy - 30, 14, { speed: 520 });
+    for (let i = 0; i < 6; i++) setTimeout(() => play('sndCoin'), i * 70);
+    await sleep(o.inSeries || o.auto ? 1000 : 1500);
+    anim(card, [{ transform: `translateY(-26px) scale(${s * 1.26})` }, { transform: `scale(${s})`, opacity: 0.6 }], { duration: 380, easing: E.inout });
+    await sleep(380);
+    wrap.remove();
+    if (tile) tile.classList.remove('mo-lifted');
+  }
+
+  /* ×12 и выше: захват экрана со ступенями BIG, MEGA, EPIC. */
+  async function bigWin(item, tile, tb, m, o) {
+    const finalLv = levelOf(m);
+    const color = tierColor(item.tier);
+
+    const wl = el('div', 'mo-wl');
+    wl.dataset.tier = 'big';
+    wl.innerHTML = `
+      <div class="mo-wl-dim"></div>
+      <div class="mo-tunnel">${Array.from({ length: 7 }, (_, i) => `<i style="--i:${i}"></i>`).join('')}</div>
+      <div class="mo-sky"><div class="mo-bloom"></div><div class="mo-rays"></div><div class="mo-rays b"></div></div>
+      <div class="mo-card-slot"></div>
+      <div class="mo-label"></div>
+      <div class="mo-amount"></div>
+      <div class="mo-sub">${xFmt(m)} к цене кейса</div>
+      <button class="mo-take" type="button">${o.inSeries ? 'Дальше' : 'Забрать'}</button>
+      <div class="mo-bar t"></div><div class="mo-bar b"></div>
+      <div class="mo-skip">нажмите, чтобы пропустить</div>`;
+    const sky = wl.querySelector('.mo-sky');
+    const slot = wl.querySelector('.mo-card-slot');
+    const label = wl.querySelector('.mo-label');
+    const amount = wl.querySelector('.mo-amount');
+
+    // 0. Сцена уходит назад: карточке есть куда выйти.
+    if (tile) tile.classList.add('mo-lifted');
+    recede(true);
+    anim(wl.querySelector('.mo-wl-dim'), [{ opacity: 0 }, { opacity: 1 }], { duration: 450, easing: E.out });
+    sky.style.opacity = '0';
+    amount.style.opacity = '0';
+    play('sndWhoosh');
+
+    // 1. Карточка срывается с ленты и делает оборот в воздухе.
+    const card = heroCard(item);
+    slot.append(card);
+    const fb = box(slot);
+    const s = tb.w / 196;
+    const dx = tb.cx - fb.cx, dy = tb.cy - fb.cy;
+    anim(card, [
+      { transform: `translate(${dx}px, ${dy}px) scale(${s}) rotateY(0deg)` },
+      { transform: `translate(${dx * 0.3}px, ${dy * 0.3 - 50}px) scale(${s + (1 - s) * 0.75}) rotateY(230deg) rotateZ(-6deg)`, offset: 0.6 },
+      { transform: 'translate(0, 0) scale(1) rotateY(360deg) rotateZ(0deg)' },
+    ], { duration: 980, easing: E.out });
+    emit(820, 18, () => { const b = box(card); sparks(b.cx, b.cy, 3, ['#ffffff', color], 160, { g: 0 }); });
+    await sleep(900);
+
+    // 2. Удар.
+    impact(fb.cx, fb.cy, MOTION_LEVELS[0].color, 1);
+    slash(fb.cy + 20, MOTION_LEVELS[0].color);
+    coins(fb.cx, fb.cy, 26, { speed: 760, spread: Math.PI * 0.6 });
+    burst(fb.cx, fb.cy, 26, ['#ffd34d', '#ff9a1f', '#fff6cf', color]);
+    anim(slot, [{ translate: '0 0' }, { translate: '0 -6px' }], { duration: 1600, easing: E.inout, iterations: Infinity, direction: 'alternate', delay: 300 });
+    anim(sky, [{ opacity: 0, transform: 'scale(.5)' }, { opacity: 1, transform: 'scale(1)' }], { duration: 800, easing: E.out });
+    const rays = [...wl.querySelectorAll('.mo-rays')].map((r, i) =>
+      r.animate([{ rotate: '0deg' }, { rotate: `${i ? -360 : 360}deg` }], { duration: i ? 46000 : 30000, iterations: Infinity }));
+    bokeh(14, ['#ffd34d', '#ff9a1f', '#fff6cf']);
+    stampLabel(label, MOTION_LEVELS[0].word);
+    anim(amount, [{ opacity: 0, transform: 'translateY(14px)' }, { opacity: 1, transform: 'none' }], { duration: 400, easing: E.out });
+    play('sndHit', 1);
+    await sleep(250);
+
+    // 3. Счёт. Множитель растёт по логарифму, а не линейно: иначе ступени
+    // проскакивали бы в первые доли секунды, а дальше тянулся один хвост.
+    const dur = o.auto ? 1600 : MOTION_LEVELS[finalLv].countMs;
+    let skip = false;
+    const onSkip = () => { skip = true; };
+    wl.addEventListener('pointerdown', onSkip);
+    play('sndRiser', dur / 1000);
+    const fountain = emit(dur, 60, () => coins(colX() + rand(-40, 40), H + 10, 1, { speed: 1250, spread: 0.32, r: [9, 14], g: 1500 }));
+    let lv = 0;
+    await new Promise((resolve) => {
+      const t0 = performance.now();
+      let lastCoin = 0;
+      const lnM = Math.log(m);
+      const fr = (now) => {
+        if (!wl.isConnected) return resolve();
+        const p = skip ? 1 : Math.min(1, (now - t0) / dur);
+        const e = p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
+        const cm = Math.exp(lnM * e);
+        // Округление обязательно: формат суммы приложения дробь не режет, и
+        // посреди счёта на экране стояли бы копейки.
+        amount.textContent = money(Math.round(o.price * cm - o.price * (1 - e)));
+        while (lv < finalLv && cm >= MOTION_LEVELS[lv + 1].at) { lv++; levelUp(wl, label, lv, rays, fb); }
+        if (now - lastCoin > 75 && !skip) { play('sndCoin'); lastCoin = now; }
+        if (p >= 1) resolve(); else requestAnimationFrame(fr);
+      };
+      requestAnimationFrame(fr);
+    });
+    wl.removeEventListener('pointerdown', onSkip);
+    stopEmit(fountain);
+    if (!wl.isConnected) return;
+
+    // 4. Итог: сумма встаёт на место с отдачей.
+    const L = MOTION_LEVELS[finalLv];
+    amount.textContent = money(item.value);
+    anim(amount, [{ transform: 'scale(1.35)', filter: 'brightness(2)' }, { transform: 'scale(1)', filter: 'brightness(1)' }], { duration: 600, easing: E.back });
+    const ab = box(amount);
+    ring(ab.cx, ab.cy, L.color, 3, 700);
+    sparks(ab.cx, ab.cy, 70, ['#ffffff', L.color], 620);
+    shower(40 + finalLv * 30, ['#ffd34d', L.color, '#ffffff', color]);
+    play('sndFanfare', L.pitch);
+    haptic('success');
+    anim(wl.querySelector('.mo-sub'), [{ opacity: 0, transform: 'translateY(8px)' }, { opacity: 1, transform: 'none' }], { duration: 500, delay: 200, easing: E.out });
+    anim(wl.querySelector('.mo-skip'), [{ opacity: 1 }, { opacity: 0 }], 300);
+    const take = wl.querySelector('.mo-take');
+    anim(take, [{ opacity: 0, transform: 'translateY(30px) scale(.9)' }, { opacity: 1, transform: 'none' }], { duration: 600, delay: 550, easing: E.back });
+    take.style.pointerEvents = 'auto';
+
+    // Окно не ждёт нажатия вечно: отвернувшийся игрок не должен найти
+    // приложение запертым, а автооткрытие - встать.
+    await new Promise((resolve) => {
+      take.addEventListener('click', resolve, { once: true });
+      setTimeout(resolve, o.inSeries || o.auto ? 2400 : 4200);
+    });
+    if (!wl.isConnected) return;
+
+    // 5. Сбор: монеты летят на баланс или в счётчик серии.
+    const target = o.collectTo ? box(o.collectTo) : { cx: W - 60, cy: 30 };
+    for (let i = 0; i < 20; i++) flyCoin(ab.cx + rand(-60, 60), ab.cy + rand(-8, 8), target.cx, target.cy, i * 30, () => play('sndCoin'));
+    play('sndWhoosh', false);
+    anim(wl, [{ opacity: 1 }, { opacity: 0 }], { duration: 500, delay: 250, easing: E.inout });
+    recede(false);
+    await sleep(760);
+    wl.remove();
+    if (tile) tile.classList.remove('mo-lifted');
+  }
+
+  /** Переход на следующую ступень посреди счёта. */
+  function levelUp(wl, label, lv, rays, fb) {
+    const L = MOTION_LEVELS[lv];
+    const old = label.querySelector('.mo-word:not(.out)');
+    if (old) {
+      old.classList.add('out');
+      anim(old, [{ transform: 'scale(1)', opacity: 1, filter: 'blur(0)' }, { transform: 'scale(1.6)', opacity: 0, filter: 'blur(10px)' }], { duration: 420, easing: E.out }).onfinish = () => old.remove();
+    }
+    wl.dataset.tier = L.key;
+    stampLabel(label, L.word);
+    flash(L.color, 0.9, 650);
+    ring(fb.cx, fb.cy, L.color, 5, 800);
+    slash(fb.cy - 30 + lv * 40, L.color, lv % 2 ? 24 : -22);
+    shake(12 + lv * 5, 620);
+    sparks(fb.cx, fb.cy, 110, ['#ffffff', L.color], 900);
+    coins(fb.cx, fb.cy, 30, { speed: 900, spread: Math.PI });
+    play('sndBoom');
+    play('sndHit', L.pitch);
+    haptic('heavy');
+    rays.forEach((a) => a.updatePlaybackRate(1 + lv * 1.6));
+    bokeh(10, [L.color, '#ffffff']);
+    if (L.key === 'epic') {
+      // Третья ступень меняет кадр целиком: кинорамка и световой тоннель.
+      wl.querySelectorAll('.mo-bar').forEach((b) => anim(b, [{ height: '0px' }, { height: '9%' }], { duration: 700, easing: E.out }));
+      anim(wl.querySelector('.mo-tunnel'), [{ opacity: 0 }, { opacity: 1 }], { duration: 600 });
+      emit(5200, 70, () => coins(rand(0, W), -20, 1, { speed: 120, angle: Math.PI / 2, spread: 0.3, g: 900 }));
+      shower(60, [L.color, '#ffffff', '#ffd34d']);
+    }
+  }
+
+  /* ---------- Фриспины ---------- */
+
+  const FS_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="#6e3c06" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 0 1-14 5.3"/><path d="M4 12a8 8 0 0 1 14-5.3"/><path d="M18 3v4h-4"/><path d="M6 21v-4h4"/></svg>';
+
+  /**
+   * Пролог серии: сгусток энергии, взрыв, эмблема, FREE SPINS, жетоны.
+   *
+   * @param {object} o
+   * @param {number} o.count       сколько прокрутов в серии на старте
+   * @param {Element} [o.origin]   откуда летит сгусток: кнопка покупки или плитка
+   * @param {string} o.emblem      рисунок эмблемы (svg)
+   * @param {string} [o.theme]
+   * @param {() => {pips: Element[], emblem: Element, onToken: (i:number)=>void}} o.prepare
+   *        открывает бонусный режим и отдаёт, куда садятся жетоны
+   */
+  async function purchase(o) {
+    mount();
+    accent = ACCENTS[o.theme] || {};
+    const count = o.count;
+    const cx = colX(), cy = H * 0.34;
+    // Откуда летит сгусток: элемент или заранее снятые координаты. Кнопку
+    // покупки прячут вместе с панелью кейса раньше, чем начнётся пролог, и
+    // у спрятанной прямоугольник нулевой - сгусток вылетел бы из угла.
+    let ob = null;
+    if (o.origin?.getBoundingClientRect) { const b = box(o.origin); if (b.w) ob = b; }
+    else if (o.origin && o.origin.cx != null) ob = o.origin;
+    ob ||= { cx, cy: H * 0.8 };
+
+    // 1. Сгусток летит в центр по дуге.
+    const orb = el('div', 'mo-orb', top);
+    orb.style.left = `${ob.cx}px`; orb.style.top = `${ob.cy}px`;
+    const dim = el('div', 'mo-dim');
+    anim(dim, [{ opacity: 0 }, { opacity: 1 }], { duration: 700, easing: E.out });
+    recede(true);
+    const to = (k) => `translate(${(cx - ob.cx) * k}px, ${(cy - ob.cy) * k}px)`;
+    anim(orb, [
+      { transform: 'translate(0,0) scale(.6)' },
+      { transform: `translate(${(cx - ob.cx) * 0.4 + 60}px, ${(cy - ob.cy) * 0.55}px) scale(1.4)`, offset: 0.5 },
+      { transform: `${to(1)} scale(2.2)` },
+    ], { duration: 560, easing: E.inout });
+    play('sndWhoosh');
+    emit(540, 16, () => { const b = box(orb); sparks(b.cx, b.cy, 3, ['#fff6cf', '#ffd34d', '#ff8a1f'], 140, { g: 60 }); });
+    await sleep(560);
+
+    // 2. Заряд: искры стягиваются к сгустку.
+    play('sndRiser', 0.7);
+    emit(620, 40, () => pull(cx, cy, 6, ['#fff6cf', '#ffd34d', '#c79cff']));
+    anim(orb, [
+      { transform: `${to(1)} scale(2.2)` },
+      { transform: `${to(1)} scale(3.6)`, offset: 0.4 },
+      { transform: `${to(1)} scale(2.8)`, offset: 0.6 },
+      { transform: `${to(1)} scale(5)` },
+    ], { duration: 700, easing: E.in });
+    haptic('medium');
+    await sleep(700);
+
+    // 3. Взрыв.
+    orb.remove();
+    impact(cx, cy, '#ffd34d', 1.2);
+    slash(cy + 10, '#ffd34d');
+    ring(cx, cy, '#c79cff', 6, 900, 120);
+    coins(cx, cy, 34, { speed: 900, spread: Math.PI });
+    burst(cx, cy, 30, ['#ffd34d', '#c79cff', '#7df9ff']);
+    bokeh(16, ['#ffd34d', '#c79cff', '#7df9ff']);
+
+    // 4. Эмблема, надпись, число.
+    const show = el('div', 'mo-fs-show');
+    show.innerHTML = `
+      <div class="mo-sky" style="top:29%"><div class="mo-bloom" style="background:radial-gradient(circle, rgba(255,190,70,.5), transparent 64%)"></div><div class="mo-rays" style="--c2:#ffd34d"></div><div class="mo-rays b" style="--c1:#fff6cf"></div></div>
+      <div class="mo-fs-emblem">${o.emblem || ''}</div>
+      <div class="mo-fs-title"><div></div><div></div></div>
+      <div class="mo-fs-count" style="opacity:0"><span class="mo-metal">${count}</span></div>
+      <div class="mo-fs-sub">бесплатных прокрутов</div>`;
+    const sky = show.querySelector('.mo-sky');
+    anim(sky, [{ opacity: 0, transform: 'scale(.4)' }, { opacity: 1, transform: 'scale(1)' }], { duration: 900, easing: E.out });
+    [...show.querySelectorAll('.mo-rays')].forEach((r, i) => r.animate([{ rotate: '0deg' }, { rotate: `${i ? -360 : 360}deg` }], { duration: i ? 40000 : 24000, iterations: Infinity }));
+    const emb = show.querySelector('.mo-fs-emblem');
+    anim(emb, [
+      { transform: 'perspective(600px) rotateY(90deg) scale(.4)', opacity: 0 },
+      { transform: 'perspective(600px) rotateY(-12deg) scale(1.08)', opacity: 1, offset: 0.6 },
+      { transform: 'perspective(600px) rotateY(0deg) scale(1)', opacity: 1 },
+    ], { duration: 800, easing: E.out });
+
+    const title = show.querySelector('.mo-fs-title');
+    [['FREE', -1], ['SPINS', 1]].forEach(([word, dir], wi) => {
+      const holder = title.children[wi];
+      holder.innerHTML = [...word].map((ch) => `<span class="mo-metal">${ch}</span>`).join('');
+      [...holder.children].forEach((sp, i) => {
+        const order = dir < 0 ? word.length - 1 - i : i;
+        anim(sp, [
+          { transform: `translateX(${dir * 160}px) skewX(${-dir * 24}deg) scale(1.3)`, opacity: 0, filter: 'blur(8px)' },
+          { transform: 'none', opacity: 1, filter: 'blur(0)' },
+        ], { duration: 620, delay: 120 + order * 45, easing: E.out, fill: 'backwards' });
+        // Блик пробегает по буквам волной, а не одним пятном.
+        anim(sp, [{ backgroundPosition: '0 0%' }, { backgroundPosition: '0 100%' }], { duration: 1400, delay: 900 + i * 60, easing: E.inout, iterations: 2, direction: 'alternate' });
+      });
+    });
+    play('sndWhoosh');
+    await sleep(420);
+
+    const num = show.querySelector('.mo-fs-count');
+    anim(num, [
+      { transform: 'translateY(-40px) scale(3)', opacity: 0, filter: 'blur(14px)' },
+      { transform: 'translateY(4px) scale(.94)', opacity: 1, filter: 'blur(0)', offset: 0.7 },
+      { transform: 'none', opacity: 1, filter: 'blur(0)' },
+      // Анимируется обёртка, а металл - на числе внутри: blur(0) с
+      // заполнением на самом числе стёр бы его тени объёма.
+    ], { duration: 520, easing: E.out });
+    await sleep(360);
+    const nb = box(num);
+    ring(nb.cx, nb.cy, '#ffd34d', 3.2, 600);
+    sparks(nb.cx, nb.cy + 30, 50, ['#ffffff', '#ffd34d'], 520, { angle: -Math.PI / 2, spread: 1.4 });
+    shake(9, 420);
+    play('sndBoom');
+    play('sndHit', count >= 20 ? 1.26 : 1);
+    anim(show.querySelector('.mo-fs-sub'), [{ opacity: 0, transform: 'translateY(10px)', letterSpacing: '.5em' }, { opacity: 1, transform: 'none', letterSpacing: '.16em' }], { duration: 700, easing: E.out });
+    await sleep(420);
+
+    // 5. Жетоны раздаются веером: по одному на прокрут. Видно поштучно, а не
+    // только цифрой.
+    const many = count > 20;
+    const perRow = Math.min(10, count);
+    const size = many ? 22 : 26;
+    const gap = many ? 4 : 6;
+    const rowsTop = H * 0.76;
+    const toks = [];
+    const step = many ? 28 : 46;
+    for (let i = 0; i < count; i++) {
+      const row = Math.floor(i / perRow), col = i % perRow;
+      const inRow = Math.min(perRow, count - row * perRow);
+      const x = cx + (col - (inRow - 1) / 2) * (size + gap);
+      const y = rowsTop + row * (size + gap) + Math.abs(col - (inRow - 1) / 2) * 1.6;
+      const t = el('div', 'mo-tok', top);
+      t.style.setProperty('--s', `${size}px`);
+      t.style.left = `${x}px`; t.style.top = `${y}px`;
+      t.innerHTML = FS_ICON;
+      anim(t, [
+        { transform: `translate(${cx - x}px, ${nb.cy - y}px) scale(.2) rotate(-180deg)`, opacity: 0 },
+        { transform: 'translate(0, -8px) scale(1.15) rotate(0deg)', opacity: 1, offset: 0.75 },
+        { transform: 'none', opacity: 1 },
+      ], { duration: 520, delay: i * step, easing: E.out });
+      setTimeout(() => play('sndDeal', i), i * step + 300);
+      toks.push(t);
+    }
+    await sleep(count * step + 900);
+
+    // 6. Бонусный режим: показ уезжает вверх, эмблема перелетает в шапку
+    // серии, жетоны садятся в свои ячейки.
+    const target = o.prepare();
+    const eb = box(emb);
+    const tb = target.emblem ? box(target.emblem) : null;
+    if (target.emblem) target.emblem.style.visibility = 'hidden';
+    if (tb && tb.w) {
+      anim(emb, [{ transform: 'none' }, { transform: `translate(${tb.cx - eb.cx}px, ${tb.cy - eb.cy}px) scale(${tb.w / eb.w})` }], { duration: 700, easing: E.inout });
+    } else {
+      anim(emb, [{ opacity: 1 }, { opacity: 0 }], 400);
+    }
+    [...show.children].filter((c) => c !== emb).forEach((c) => anim(c, [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateY(-50px) scale(.85)' }], { duration: 520, easing: E.in }));
+    anim(dim, [{ opacity: 1 }, { opacity: 0 }], { duration: 900, delay: 200, easing: E.inout });
+    recede(false);
+    play('sndWhoosh', false);
+    await sleep(350);
+    const tstep = many ? 22 : 38;
+    toks.forEach((t, i) => {
+      const pip = target.pips[i];
+      const b = box(t);
+      const hb = pip ? box(pip) : (tb || { cx, cy: 80 });
+      anim(t, [
+        { transform: 'none', opacity: 1 },
+        { transform: `translate(${(hb.cx - b.cx) * 0.4 + rand(-40, 40)}px, ${(hb.cy - b.cy) * 0.5 - 40}px) scale(1.1)`, opacity: 1, offset: 0.45 },
+        { transform: `translate(${hb.cx - b.cx}px, ${hb.cy - b.cy}px) scale(.3)`, opacity: 0.2 },
+      ], { duration: 560, delay: i * tstep, easing: E.inout });
+      setTimeout(() => { target.onToken?.(i); t.remove(); }, i * tstep + 540);
+    });
+    await sleep(count * tstep + 700);
+    if (target.emblem) target.emblem.style.visibility = '';
+    show.remove();
+    dim.remove();
+  }
+
+  /** Ретриггер: новые жетоны вылетают из плитки в новые ячейки серии. */
+  function retrigger(tile, pips, onToken) {
+    mount();
+    const b = box(tile);
+    flash('#ff7a3a', 0.6);
+    ring(b.cx, b.cy, '#ff7a3a', 3.4, 700);
+    sparks(b.cx, b.cy, 70, ['#ffffff', '#ffb36a', '#ff7a3a'], 620);
+    play('sndFanfare', 1.12);
+    haptic('success');
+    floatText(`+${pips.length} FS`, b.cx, b.y - 10, { color: '#ff7a3a', dur: 1200 });
+    pips.forEach((pip, k) => {
+      const t = el('div', 'mo-tok', top);
+      t.innerHTML = FS_ICON;
+      t.style.left = `${b.cx}px`; t.style.top = `${b.cy}px`;
+      const hb = box(pip);
+      anim(t, [
+        { transform: 'scale(.3)', opacity: 0 },
+        { transform: `translate(${rand(-90, 90)}px, ${rand(-80, -30)}px) scale(1.2)`, opacity: 1, offset: 0.35 },
+        { transform: `translate(${hb.cx - b.cx}px, ${hb.cy - b.cy}px) scale(.3)`, opacity: 0.3 },
+      ], { duration: 900, delay: k * 60, easing: E.inout }).onfinish = () => t.remove();
+      setTimeout(() => { onToken?.(k); play('sndDeal', k + 6); }, k * 60 + 880);
+    });
+    return sleep(pips.length * 60 + 1000);
+  }
+
+  /** Сумма прокрута вылетает из плитки и по дуге падает в счётчик серии. */
+  function payout(text, tile, target, color) {
+    mount();
+    const b = box(tile), t = box(target);
+    floatText(text, b.cx, b.y, { to: { x: t.cx, y: t.cy }, dur: 750, color });
+  }
+
+  /**
+   * Итог серии. Празднуется только окупившаяся серия: салют за минус учит
+   * игрока, что минус это успех, и это уже не оформление, а обман.
+   */
+  function seriesEnd(totalEl, ratio) {
+    mount();
+    if (!(ratio >= 1)) { play('sndSoft'); return; }
+    const tb = box(totalEl);
+    const big = ratio >= 2.5;
+    impact(tb.cx, tb.cy, '#ffd34d', big ? 1.1 : 0.7);
+    coins(tb.cx, tb.cy, big ? 40 : 18, { speed: 820, spread: Math.PI * 0.7 });
+    shower(big ? 80 : 36, ['#ffd34d', '#ff9a1f', '#ffffff']);
+    play('sndFanfare', big ? 1.26 : 1);
+  }
+
+  /** Снять всё: игрок закрыл окно кейса посреди показа. */
+  function reset() {
+    recede(false);
+    if (!root) return;
+    layer.innerHTML = '';
+    top.innerHTML = '';
+    P.length = 0;
+    EM.length = 0;
+    g.clearRect(0, 0, W, H);
+    document.querySelectorAll('.mo-lifted').forEach((t) => t.classList.remove('mo-lifted'));
+  }
+
+  return { win, purchase, retrigger, payout, seriesEnd, reset, recede, levelOf };
 }
 
 
@@ -24851,6 +26150,7 @@ function createSlot(deps) {
 
 
 
+
 const tg = window.Telegram?.WebApp;
 const BEELINE_LOGO_SRC = window.__BEELINE_SRC || 'data:image/webp;base64,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';
 
@@ -25041,6 +26341,30 @@ function buildMoneyRain() {
   layer.innerHTML = html;
 }
 
+/*
+ * Показ выигрыша и фриспинов (public/motion.js). Создаётся при первом
+ * обращении: в момент разбора модуля часть того, что ему передаётся, ещё не
+ * объявлена, а обращение к const до объявления роняет весь клиент.
+ */
+let motionInstance = null;
+function motion() {
+  return motionInstance ||= createMotion({
+    money,
+    artFor: (item) => tileArt(item, tierColor(item.tier)),
+    tierColor,
+    haptic,
+    snd: {
+      sndWhoosh, sndBoom, sndSlash, sndRiser, sndHit, sndFanfare, sndCoin, sndDeal,
+      sndChime, sndSoft,
+    },
+  });
+}
+
+/** Плитка ленты, на которой остановился прокрут: с неё срывается карточка. */
+function winnerTile(reelIndex = 0) {
+  return document.querySelectorAll('#reels .reel')[reelIndex]?.children[WINNER_INDEX] || null;
+}
+
 /* ============================================================
    ПРАЗДНИЧНЫЕ ЭФФЕКТЫ
    ============================================================ */
@@ -25073,34 +26397,6 @@ function fxAdd(node, lifeMs) {
 
 const fxPick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
-/** Салют: несколько залпов искр из случайных точек верхней половины экрана. */
-function fxFirework({ bursts = 4, palette = 'gold' } = {}) {
-  const colors = FX_PALETTES[palette] || FX_PALETTES.gold;
-
-  for (let b = 0; b < bursts; b++) {
-    setTimeout(() => {
-      const cx = 15 + Math.random() * 70;
-      const cy = 18 + Math.random() * 34;
-      const count = 16 + Math.floor(Math.random() * 10);
-      const color = fxPick(colors);
-
-      for (let i = 0; i < count; i++) {
-        const angle = (i / count) * Math.PI * 2 + Math.random() * 0.3;
-        const dist = 70 + Math.random() * 90;
-        const el = document.createElement('span');
-        el.className = 'fx-spark';
-        el.style.left = `${cx}%`;
-        el.style.top = `${cy}%`;
-        el.style.setProperty('--fx-color', color);
-        el.style.setProperty('--fx-x', `${Math.cos(angle) * dist}px`);
-        el.style.setProperty('--fx-y', `${Math.sin(angle) * dist}px`);
-        el.style.setProperty('--fx-dur', `${0.9 + Math.random() * 0.5}s`);
-        fxAdd(el, 1600);
-      }
-    }, b * 190 + Math.random() * 80);
-  }
-}
-
 /** Конфетти: падает сверху, дольше салюта - под длинные моменты. */
 function fxConfetti({ count = 60, palette = 'neon' } = {}) {
   const colors = FX_PALETTES[palette] || FX_PALETTES.neon;
@@ -25119,14 +26415,6 @@ function fxConfetti({ count = 60, palette = 'neon' } = {}) {
   }
 }
 
-/** Вспышка на весь экран. Короткая, только чтобы отметить момент. */
-function fxFlash(color = 'rgba(255, 214, 10, 0.45)') {
-  const el = document.createElement('div');
-  el.className = 'fx-flash';
-  el.style.setProperty('--fx-color', color);
-  fxAdd(el, 800);
-}
-
 /** Крупная надпись поверх экрана. */
 function fxShout(text, sub = '', color = '#ffd60a', hold = 0) {
   const el = document.createElement('div');
@@ -25140,96 +26428,19 @@ function fxShout(text, sub = '', color = '#ffd60a', hold = 0) {
 }
 
 /**
- * Празднование покупки серии.
+ * Празднование приза колеса фортуны.
  *
- * Вынесено отдельно от остальных поводов, потому что это единственное место,
- * где эффект не сопровождает событие, а занимает экран сам: игрок только что
- * заплатил заметные деньги, и ему нужно отдать за них зрелище, прежде чем
- * поедет первая лента. Отсюда и длительность - около двух с половиной секунд.
- */
-const PURCHASE_FX_MS = 2600;
-
-function fxPurchase(count) {
-  fxShout('FREE SPINS', `${count} прокрутов`, '#ffd60a', 1200);
-
-  // Салют идёт волнами, а не одним залпом: один залп в начале отгремел бы за
-  // полсекунды, и дальше надпись висела бы на пустом экране.
-  const waves = [
-    { at: 0,    bursts: 3, palette: 'gold' },
-    { at: 620,  bursts: 2, palette: 'neon' },
-    { at: 1180, bursts: 3, palette: 'fire' },
-    { at: 1760, bursts: 2, palette: 'green' },
-    { at: 2180, bursts: 3, palette: 'gold' },
-  ];
-  for (const w of waves) {
-    setTimeout(() => {
-      fxFirework({ bursts: w.bursts, palette: w.palette });
-      sndFirework(w.bursts);
-      haptic('light');
-    }, w.at);
-  }
-
-  fxFlash('rgba(255, 214, 10, 0.42)');
-  setTimeout(() => fxFlash('rgba(160, 32, 255, 0.3)'), 1180);
-  setTimeout(() => fxConfetti({ count: 70, palette: 'gold' }), 320);
-  setTimeout(() => fxShout('ПОЕХАЛИ', 'серия начинается', '#00ff9d'), 1750);
-}
-
-/**
- * Празднование по поводу.
- *
- * Каждый повод звучит и выглядит по-своему: покупка - золото и фанфары,
- * ретриггер - огонь и дребезг, крупный выигрыш - масштаб зависит от того,
- * насколько он крупный. Один общий эффект на всё быстро приедается.
+ * Выигрыши кейсов и фриспинов показывает public/motion.js: там сила показа
+ * считается от множителя к цене кейса. У приза колеса цены прокрута нет,
+ * множитель считать не от чего, поэтому здесь остался прежний салют.
  */
 function celebrate(kind, payload = {}) {
-  if (kind === 'purchase') {
-    sndPurchase();
-    fxPurchase(payload.count);
-    haptic('success');
-
-  } else if (kind === 'retrigger') {
-    sndRetrigger();
-    fxFlash('rgba(255, 107, 53, 0.45)');
-    fxFirework({ bursts: 2, palette: 'fire' });
-    fxShout('+' + payload.added, 'ещё прокруты!', '#ff6b35');
-    haptic('success');
-
-  } else if (kind === 'jackpot') {
-    // Самый крупный повод: длинная тема, конфетти и салют вместе.
-    sndJackpot();
-    fxFlash('rgba(255, 214, 10, 0.6)');
-    fxConfetti({ count: 90, palette: 'gold' });
-    fxFirework({ bursts: 6, palette: 'gold' });
-    fxShout('ДЖЕКПОТ', payload.text || '', '#ffd60a');
-    haptic('success');
-
-  } else if (kind === 'bigwin') {
+  if (kind === 'bigwin') {
     sndFirework(3);
     sndBigWin();
     fxConfetti({ count: 55, palette: 'neon' });
     fxShout(payload.text || 'КРУПНЫЙ ВЫИГРЫШ', payload.sub || '', '#00ff9d');
     haptic('success');
-
-  } else if (kind === 'win') {
-    // Скромный повод: без надписей и конфетти, только искры.
-    sndFirework(2);
-    fxFirework({ bursts: 2, palette: 'green' });
-    haptic('light');
-  }
-}
-
-/**
- * Выбирает силу празднования по множителю выигрыша.
- * Пороги подобраны так, чтобы «джекпот» не срабатывал каждую минуту.
- */
-function celebrateWin(multiplier, value) {
-  if (multiplier >= 50) {
-    celebrate('jackpot', { text: money(value) });
-  } else if (multiplier >= 12) {
-    celebrate('bigwin', { text: money(value), sub: `×${Math.round(multiplier)}` });
-  } else if (multiplier >= 4) {
-    celebrate('win');
   }
 }
 
@@ -26186,9 +27397,29 @@ async function startOpening(caseId, count = 1) {
   sndLand();
   haptic('medium');
 
+  /*
+   * Показ выигрыша - с плитки, на которой встала лента, и до экрана
+   * результата: карточка срывается именно с того места, куда смотрит игрок.
+   * В пачке событие - лучший предмет, показывается только он.
+   */
+  let bestIdx = 0;
+  opened.forEach((o, i) => { if ((o.item.value || 0) > (opened[bestIdx].item.value || 0)) bestIdx = i; });
+  const best = opened[bestIdx].item;
+  if (best.kind !== 'perk' || best.value) {
+    await motion().win(best, {
+      tile: winnerTile(bestIdx), price: c.price, theme: c.theme,
+      collectTo: document.getElementById('openerBalance'),
+    });
+  }
+
   // Фриспины проигрываются до итогового экрана: сначала игрок видит, сколько
-  // они принесли, и только потом — общий результат прокрута.
-  for (const g of collectFreeSpins(data)) await runFreeSpins(g, c);
+  // они принесли, и только потом — общий результат прокрута. Итог серии
+  // сравнивается с ценой открытия: за неё игрок и получил серию.
+  for (const g of collectFreeSpins(data)) {
+    // Плитка, на которой выпала серия: из неё летит сгусток пролога.
+    const fromIdx = opened.findIndex((o) => (o.granted || []).includes(g));
+    await runFreeSpins(g, c, { cost: c.price, origin: winnerTile(Math.max(0, fromIdx)) });
+  }
 
   if (count > 1) showBatchResult(data, c);
   else showCaseResult(data, c);
@@ -26450,6 +27681,13 @@ async function buyFreeSpins(caseId, count) {
     return;
   }
 
+  // Кнопку пачки прячут вместе с панелью кейса, а сгусток пролога вылетает
+  // именно из неё - поэтому её место снимается до того, как она исчезнет.
+  const btnRect = document.querySelector(`#fsBuyRow [data-fs="${count}"]`)?.getBoundingClientRect();
+  const origin = btnRect && btnRect.width
+    ? { cx: btnRect.left + btnRect.width / 2, cy: btnRect.top + btnRect.height / 2 }
+    : null;
+
   document.getElementById('result').hidden = true;
   document.getElementById('gamble').hidden = true;
   document.getElementById('gambleStartBtn').hidden = true;
@@ -26465,12 +27703,10 @@ async function buyFreeSpins(caseId, count) {
   // 18 000 выглядела бы списанием на 9 000.
   previewBalance(state.user.balance - data.cost);
 
-  // Покупка - событие, за которое игрок заплатил: отмечаем её отдельно и
-  // даём празднованию отыграть целиком, прежде чем поедет первая лента.
-  celebrate('purchase', { count });
-  await sleep(PURCHASE_FX_MS);
-
-  await runFreeSpins(data.grant, c);
+  // Покупка - событие, за которое игрок заплатил: пролог серии отыгрывает
+  // целиком, прежде чем поедет первая лента (runFreeSpins). Итог серии
+  // сравнивается с ценой пачки.
+  await runFreeSpins(data.grant, c, { cost: data.cost, origin });
 
   // Настоящее значение с сервера - на случай, если анимация где-то разошлась.
   applyUser(data.user);
@@ -26610,7 +27846,9 @@ async function runAutoOpen(caseId, times) {
     // Держим лог коротким: панель не должна расти вниз на всю серию.
     while (logEl.children.length > 12) logEl.lastElementChild.remove();
 
-    celebrateWin(data.item.multiplier, data.item.value);
+    // В автооткрытии показ короче и сам уступает следующему прокруту:
+    // смысл режима в том, чтобы игрок не жал кнопки.
+    await motion().win(data.item, { tile: winnerTile(0), price: c.price, theme: c.theme, auto: true });
 
     if (i < times - 1 && !state.autoStop) await sleep(AUTO_PAUSE_MS);
   }
@@ -26668,25 +27906,76 @@ function collectFreeSpins(data) {
  * Исход каждого прокрута уже посчитан сервером и лежит в ответе — здесь только
  * анимация. Сумма копится на экране крупными цифрами: это и есть смысл режима,
  * поэтому она набирается на глазах, а не появляется готовой в конце.
+ *
+ * Пролог (сгусток, взрыв, FREE SPINS, жетоны в ячейки) играется у купленной и
+ * у выпавшей серии, но не в автооткрытии и не при доигрывании: там серию уже
+ * видели или смотрят мельком.
+ *
+ * @param {object} opts
+ * @param {number} [opts.cost]    чем заплачено за серию: цена пачки или цена
+ *                                открытия, в котором она выпала. По ней итог
+ *                                решает, праздновать ли (см. seriesVerdict)
+ * @param {Element|object} [opts.origin] откуда летит сгусток пролога
  */
-function runFreeSpins(grant, caseData, { auto = false, replay = false } = {}) {
+async function runFreeSpins(grant, caseData, { auto = false, replay = false, cost = 0, origin = null } = {}) {
   const box = document.getElementById('freespins');
   const reel = document.getElementById('fsReel');
   const totalEl = document.getElementById('fsTotal');
   const leftEl = document.getElementById('fsLeft');
   const logEl = document.getElementById('fsLog');
   const collectBtn = document.getElementById('fsCollect');
+  const pipsEl = document.getElementById('fsPips');
+  const verdictEl = document.getElementById('fsVerdict');
 
-  document.getElementById('result').hidden = true;
-  document.getElementById('batchSummary').hidden = true;
-  // Серия может начаться и с непрокрученного кейса - купленными фриспинами
-  // или доигрыванием прошлой серии на входе. Сцена с кейсом тогда осталась бы
-  // висеть над барабаном фриспинов.
-  document.getElementById('caseStage').hidden = true;
-  box.hidden = false;
-  collectBtn.hidden = true;
-  logEl.innerHTML = '';
-  totalEl.textContent = money(0);
+  /*
+   * Ячеек столько, сколько прокрутов игрок увидит. На старте это число без
+   * ретриггеров; серия, упёршаяся в потолок, прокрутов меньше, чем обещано, и
+   * лишних ячеек, которые так и не погаснут, быть не должно.
+   */
+  const added = grant.spins.reduce((n, sp) => n + (sp.added || 0), 0);
+  const startCount = Math.max(1, Math.min(grant.spins.length, (grant.count || grant.spins.length) - added));
+  let shown = startCount;
+
+  const withIntro = !auto && !replay;
+  const open = (filled) => {
+    document.getElementById('result').hidden = true;
+    document.getElementById('batchSummary').hidden = true;
+    // Серия может начаться и с непрокрученного кейса - купленными фриспинами
+    // или доигрыванием прошлой серии на входе. Сцена с кейсом тогда осталась
+    // бы висеть над барабаном фриспинов.
+    document.getElementById('caseStage').hidden = true;
+    box.hidden = false;
+    collectBtn.hidden = true;
+    logEl.innerHTML = '';
+    verdictEl.innerHTML = '';
+    verdictEl.className = 'fs-verdict';
+    totalEl.textContent = money(0);
+    leftEl.textContent = `0 из ${shown}`;
+    document.getElementById('opener').classList.add('is-bonus');
+    document.getElementById('fsEmblem').innerHTML = itemArtHd(`perk/fs/${startCount}`) || '';
+    pipsEl.innerHTML = Array.from({ length: startCount }, () => `<i class="fs-pip${filled ? ' full' : ''}"></i>`).join('');
+    return {
+      pips: [...pipsEl.children],
+      emblem: document.getElementById('fsEmblem'),
+      onToken: (i) => {
+        const pip = pipsEl.children[i];
+        if (!pip) return;
+        pip.classList.add('full', 'pop');
+        leftEl.textContent = `0 из ${i + 1}`;
+      },
+    };
+  };
+
+  if (withIntro) {
+    await motion().purchase({
+      count: startCount, origin, theme: caseData.theme,
+      emblem: itemArtHd(`perk/fs/${startCount}`) || '',
+      prepare: () => open(false),
+    });
+    leftEl.textContent = `0 из ${shown}`;
+  } else {
+    open(true);
+  }
 
   const SPIN_LEN = 26;
   const SPIN_WIN = 20;
@@ -26694,16 +27983,22 @@ function runFreeSpins(grant, caseData, { auto = false, replay = false } = {}) {
      же: к предмету лента подходит ползком, а не гаснет на полном ходу. */
   const SPIN_MS = 2300;
 
-  const filler = caseData.items.filter((it) => it.kind === 'item');
-  const pickFiller = () => filler[Math.floor(Math.random() * filler.length)];
+  // Лента серии - по настоящим вероятностям кейса, как и основная. Раньше
+  // плитки брались равномерно, и предмет за 184 000 мелькал в ней так же
+  // часто, как филлер: игрок читает по ленте свои шансы, и это была ложь.
+  const pickFiller = () => weightedSample(caseData.items);
 
   let acc = 0;
 
   const runOne = (i) => new Promise((done) => {
     const spin = grant.spins[i];
     // Длина серии растёт по ходу: перезапуск добавляет прокруты, поэтому
-    // знаменатель берётся из фактического числа, а не из начального обещания.
-    leftEl.textContent = `${i + 1} из ${grant.spins.length}`;
+    // знаменатель берётся из показанного числа, а не из начального обещания.
+    leftEl.textContent = `${i + 1} из ${shown}`;
+    [...pipsEl.children].forEach((pip, k) => {
+      pip.classList.toggle('spent', k < i);
+      pip.classList.toggle('is-current', k === i);
+    });
 
     const strip = [];
     for (let k = 0; k < SPIN_LEN; k++) strip.push(k === SPIN_WIN ? spin : pickFiller());
@@ -26734,20 +28029,14 @@ function runFreeSpins(grant, caseData, { auto = false, replay = false } = {}) {
         reel.style.transform = `translateX(${-target}px)`;
       }, SPIN_MS + 20);
 
-      setTimeout(() => {
+      setTimeout(async () => {
         sndLand();
-        acc += spin.value;
-        totalEl.textContent = money(acc);
+        const tile = reel.children[SPIN_WIN];
         // Баланс растёт вместе с суммой серии: игрок видит, что выигрыш
         // капает по ходу, а не появляется одним прыжком в конце.
         // При доигрывании сохранённой серии баланс не трогаем: деньги за неё
         // зачислены ещё в тот раз, и второй раз их прибавлять нельзя.
         if (spin.value > 0 && !replay) previewBalance(state.user.balance + spin.value);
-        // Перезапуск анимации: без сброса класса подряд идущие прибавки
-        // не «подпрыгивают».
-        totalEl.classList.remove('bump');
-        void totalEl.offsetWidth;
-        totalEl.classList.add('bump');
 
         // Удвоитель внутри серии её прокруты не удваивает - он откладывается
         // до платного открытия, и подпись говорит именно это.
@@ -26760,53 +28049,96 @@ function runFreeSpins(grant, caseData, { auto = false, replay = false } = {}) {
           `style="--tier-color:${tierColor(spin.tier)}">${label}</span>`);
 
         if (spin.added) {
-          leftEl.textContent = `${i + 1} из ${grant.spins.length}`;
-          celebrate('retrigger', { added: spin.added });
+          // Ретриггер: новые жетоны вылетают из плитки в новые ячейки.
+          const fresh = Math.max(0, Math.min(spin.added, grant.spins.length - shown));
+          pipsEl.insertAdjacentHTML('beforeend', '<i class="fs-pip"></i>'.repeat(fresh));
+          const newPips = [...pipsEl.children].slice(pipsEl.children.length - fresh);
+          shown += fresh;
+          leftEl.textContent = `${i + 1} из ${shown}`;
+          if (newPips.length && tile) {
+            await motion().retrigger(tile, newPips, (k) => newPips[k].classList.add('full', 'pop'));
+          } else {
+            sndRetrigger();
+          }
         } else {
-          // Крупный прокрут внутри серии тоже стоит отметить, но тише.
-          if (spin.value >= caseData.price * 8) celebrate('win');
+          // Крупный прокрут внутри серии: тот же показ, что у открытия, но
+          // короче и без ожидания нажатия.
+          if (tile && spin.value >= caseData.price * MOTION_NICE_AT) {
+            await motion().win(spin, { tile, price: caseData.price, theme: caseData.theme, inSeries: true, auto, collectTo: totalEl });
+          }
+          if (spin.value > 0 && tile) motion().payout(`+${money(spin.value)}`, tile, totalEl, tierColor(spin.tier));
           haptic('light');
         }
-        setTimeout(done, 320);
+
+        // Сумма прибавляется, когда до счётчика долетела её копия, а не раньше.
+        setTimeout(() => {
+          acc += spin.value;
+          totalEl.textContent = money(acc);
+          // Перезапуск анимации: без сброса класса подряд идущие прибавки
+          // не «подпрыгивают».
+          totalEl.classList.remove('bump');
+          void totalEl.offsetWidth;
+          totalEl.classList.add('bump');
+          if (spin.value > 0) sndCoin();
+        }, spin.value > 0 ? 700 : 0);
+        setTimeout(done, spin.value > 0 ? 760 : 320);
       }, SPIN_MS + SETTLE_MS + 40);
     });
   });
 
-  return (async () => {
-    for (let i = 0; i < grant.spins.length; i++) await runOne(i);
+  for (let i = 0; i < grant.spins.length; i++) await runOne(i);
+  [...pipsEl.children].forEach((pip) => { pip.classList.remove('is-current'); pip.classList.add('spent'); });
 
-    // Итог серии: если она отбилась с запасом, это отдельный повод.
-    if (!replay && grant.total >= caseData.price * 12) {
-      celebrate('bigwin', { text: money(grant.total), sub: 'за серию' });
-    } else {
-      sndBigWin();
-      haptic('success');
-    }
-    collectBtn.hidden = false;
-    collectBtn.textContent = `ЗАБРАТЬ ${money(grant.total)}`;
+  // Итог серии честный: празднуется только окупившаяся. Доигрывание итог не
+  // сравнивает - цена той покупки здесь неизвестна.
+  const ratio = cost > 0 ? grant.total / cost : 0;
+  if (cost > 0 && !replay) {
+    verdictEl.className = `fs-verdict${ratio >= 1 ? '' : ' is-quiet'}`;
+    verdictEl.innerHTML = ratio >= 1
+      ? `<em>${seriesRatio(ratio)}</em> к цене ${esc(money(cost))}`
+      : `Серия вернула <em>${Math.round(ratio * 100)}%</em> цены ${esc(money(cost))}`;
+    if (!auto) motion().seriesEnd(totalEl, ratio);
+  } else {
+    sndCollect();
+  }
+  haptic(ratio >= 1 ? 'success' : 'light');
+  collectBtn.hidden = false;
+  collectBtn.textContent = `ЗАБРАТЬ ${money(grant.total)}`;
 
-    // Серию досмотрели - сервер может её забыть.
-    const ack = () => { api('/api/freespins/ack').catch(() => {}); };
+  // Серию досмотрели - сервер может её забыть.
+  const ack = () => { api('/api/freespins/ack').catch(() => {}); };
+  const finish = () => {
+    sndCollect();
+    box.hidden = true;
+    endBonusMode();
+    ack();
+  };
 
-    // В серии автооткрытий забираем сами: смысл режима в том, чтобы игрок не
-    // жал кнопки. Паузу всё же держим - сумму надо успеть прочитать.
-    if (auto) {
-      await new Promise((done) => setTimeout(done, 1500));
-      sndCollect();
-      box.hidden = true;
-      ack();
-      return;
-    }
+  // В серии автооткрытий забираем сами: смысл режима в том, чтобы игрок не
+  // жал кнопки. Паузу всё же держим - сумму надо успеть прочитать.
+  if (auto) {
+    await sleep(1500);
+    finish();
+    return;
+  }
 
-    await new Promise((done) => {
-      collectBtn.addEventListener('click', () => {
-        sndCollect();
-        box.hidden = true;
-        ack();
-        done();
-      }, { once: true });
-    });
-  })();
+  await new Promise((done) => {
+    collectBtn.addEventListener('click', () => { finish(); done(); }, { once: true });
+  });
+}
+
+/** Множитель итога серии: ×1,4 или ×12. */
+function seriesRatio(r) {
+  return `×${r >= 10 ? Math.round(r) : r.toFixed(1).replace('.', ',')}`;
+}
+
+/** Выйти из бонусного режима окна кейса: фон темы возвращается. */
+function endBonusMode() {
+  document.getElementById('opener')?.classList.remove('is-bonus');
+  const pips = document.getElementById('fsPips');
+  if (pips) pips.innerHTML = '';
+  const emblem = document.getElementById('fsEmblem');
+  if (emblem) emblem.innerHTML = '';
 }
 
 /** Итог пачки: список выпавшего и суммарный результат. */
@@ -26850,8 +28182,7 @@ function showBatchResult(data, caseData) {
   // Выпадения пачки тоже идут в витрину.
   setTimeout(pollFeed, 400);
 
-  // В пачке ориентируемся на лучший предмет: именно он и есть событие.
-  setTimeout(() => celebrateWin(best.item.multiplier, best.item.value), 220);
+  // Показ лучшего предмета уже прошёл в startOpening, на ленте.
 
   document.getElementById('batchClose').addEventListener('click', returnToCaseIdle);
   document.getElementById('batchAgain').addEventListener('click', () =>
@@ -26916,8 +28247,8 @@ function showCaseResult(data, caseData) {
   if (data.net > 0) { setTimeout(sndCollect, 260); haptic('success'); }
   else { setTimeout(sndLose, 200); haptic('light'); }
 
-  // Празднуем по множителю: чем крупнее, тем заметнее эффект.
-  setTimeout(() => celebrateWin(item.multiplier, item.value), 220);
+  // Показ выигрыша уже прошёл в startOpening, с плитки ленты: здесь
+  // только итог.
 
   // Рискнуть можно только тем, что реально выиграно на этом прокруте.
   const gambleBtn = document.getElementById('gambleStartBtn');
@@ -26992,6 +28323,9 @@ async function loadCaseHistory(caseTitle) {
 }
 
 function closeOpener() {
+  // Показ, оставшийся висеть поверх закрытого кейса, перекрыл бы весь экран.
+  motion().reset();
+  endBonusMode();
   document.getElementById('opener').hidden = true;
   document.body.classList.remove('case-open');
   document.getElementById('gamble').hidden = true;

@@ -25,8 +25,11 @@ import { createSlot } from './slots.js';
 import {
   sndTick, sndSpinStart, sndLand, sndReveal,
   sndBigWin, sndCollect, sndLose, sndFlip, sndBet, sndCrash, sndClimb,
-  sndPurchase, sndRetrigger, sndFirework, sndJackpot,
+  sndRetrigger, sndFirework,
+  sndWhoosh, sndBoom, sndSlash, sndRiser, sndHit, sndFanfare, sndCoin, sndDeal,
+  sndChime, sndSoft,
 } from './sounds.js';
+import { createMotion, MOTION_NICE_AT } from './motion.js';
 
 const tg = window.Telegram?.WebApp;
 const BEELINE_LOGO_SRC = window.__BEELINE_SRC || '/assets/banks/beeline.webp';
@@ -218,6 +221,30 @@ function buildMoneyRain() {
   layer.innerHTML = html;
 }
 
+/*
+ * Показ выигрыша и фриспинов (public/motion.js). Создаётся при первом
+ * обращении: в момент разбора модуля часть того, что ему передаётся, ещё не
+ * объявлена, а обращение к const до объявления роняет весь клиент.
+ */
+let motionInstance = null;
+function motion() {
+  return motionInstance ||= createMotion({
+    money,
+    artFor: (item) => tileArt(item, tierColor(item.tier)),
+    tierColor,
+    haptic,
+    snd: {
+      sndWhoosh, sndBoom, sndSlash, sndRiser, sndHit, sndFanfare, sndCoin, sndDeal,
+      sndChime, sndSoft,
+    },
+  });
+}
+
+/** Плитка ленты, на которой остановился прокрут: с неё срывается карточка. */
+function winnerTile(reelIndex = 0) {
+  return document.querySelectorAll('#reels .reel')[reelIndex]?.children[WINNER_INDEX] || null;
+}
+
 /* ============================================================
    ПРАЗДНИЧНЫЕ ЭФФЕКТЫ
    ============================================================ */
@@ -250,34 +277,6 @@ function fxAdd(node, lifeMs) {
 
 const fxPick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
-/** Салют: несколько залпов искр из случайных точек верхней половины экрана. */
-function fxFirework({ bursts = 4, palette = 'gold' } = {}) {
-  const colors = FX_PALETTES[palette] || FX_PALETTES.gold;
-
-  for (let b = 0; b < bursts; b++) {
-    setTimeout(() => {
-      const cx = 15 + Math.random() * 70;
-      const cy = 18 + Math.random() * 34;
-      const count = 16 + Math.floor(Math.random() * 10);
-      const color = fxPick(colors);
-
-      for (let i = 0; i < count; i++) {
-        const angle = (i / count) * Math.PI * 2 + Math.random() * 0.3;
-        const dist = 70 + Math.random() * 90;
-        const el = document.createElement('span');
-        el.className = 'fx-spark';
-        el.style.left = `${cx}%`;
-        el.style.top = `${cy}%`;
-        el.style.setProperty('--fx-color', color);
-        el.style.setProperty('--fx-x', `${Math.cos(angle) * dist}px`);
-        el.style.setProperty('--fx-y', `${Math.sin(angle) * dist}px`);
-        el.style.setProperty('--fx-dur', `${0.9 + Math.random() * 0.5}s`);
-        fxAdd(el, 1600);
-      }
-    }, b * 190 + Math.random() * 80);
-  }
-}
-
 /** Конфетти: падает сверху, дольше салюта - под длинные моменты. */
 function fxConfetti({ count = 60, palette = 'neon' } = {}) {
   const colors = FX_PALETTES[palette] || FX_PALETTES.neon;
@@ -296,14 +295,6 @@ function fxConfetti({ count = 60, palette = 'neon' } = {}) {
   }
 }
 
-/** Вспышка на весь экран. Короткая, только чтобы отметить момент. */
-function fxFlash(color = 'rgba(255, 214, 10, 0.45)') {
-  const el = document.createElement('div');
-  el.className = 'fx-flash';
-  el.style.setProperty('--fx-color', color);
-  fxAdd(el, 800);
-}
-
 /** Крупная надпись поверх экрана. */
 function fxShout(text, sub = '', color = '#ffd60a', hold = 0) {
   const el = document.createElement('div');
@@ -317,96 +308,19 @@ function fxShout(text, sub = '', color = '#ffd60a', hold = 0) {
 }
 
 /**
- * Празднование покупки серии.
+ * Празднование приза колеса фортуны.
  *
- * Вынесено отдельно от остальных поводов, потому что это единственное место,
- * где эффект не сопровождает событие, а занимает экран сам: игрок только что
- * заплатил заметные деньги, и ему нужно отдать за них зрелище, прежде чем
- * поедет первая лента. Отсюда и длительность - около двух с половиной секунд.
- */
-const PURCHASE_FX_MS = 2600;
-
-function fxPurchase(count) {
-  fxShout('FREE SPINS', `${count} прокрутов`, '#ffd60a', 1200);
-
-  // Салют идёт волнами, а не одним залпом: один залп в начале отгремел бы за
-  // полсекунды, и дальше надпись висела бы на пустом экране.
-  const waves = [
-    { at: 0,    bursts: 3, palette: 'gold' },
-    { at: 620,  bursts: 2, palette: 'neon' },
-    { at: 1180, bursts: 3, palette: 'fire' },
-    { at: 1760, bursts: 2, palette: 'green' },
-    { at: 2180, bursts: 3, palette: 'gold' },
-  ];
-  for (const w of waves) {
-    setTimeout(() => {
-      fxFirework({ bursts: w.bursts, palette: w.palette });
-      sndFirework(w.bursts);
-      haptic('light');
-    }, w.at);
-  }
-
-  fxFlash('rgba(255, 214, 10, 0.42)');
-  setTimeout(() => fxFlash('rgba(160, 32, 255, 0.3)'), 1180);
-  setTimeout(() => fxConfetti({ count: 70, palette: 'gold' }), 320);
-  setTimeout(() => fxShout('ПОЕХАЛИ', 'серия начинается', '#00ff9d'), 1750);
-}
-
-/**
- * Празднование по поводу.
- *
- * Каждый повод звучит и выглядит по-своему: покупка - золото и фанфары,
- * ретриггер - огонь и дребезг, крупный выигрыш - масштаб зависит от того,
- * насколько он крупный. Один общий эффект на всё быстро приедается.
+ * Выигрыши кейсов и фриспинов показывает public/motion.js: там сила показа
+ * считается от множителя к цене кейса. У приза колеса цены прокрута нет,
+ * множитель считать не от чего, поэтому здесь остался прежний салют.
  */
 function celebrate(kind, payload = {}) {
-  if (kind === 'purchase') {
-    sndPurchase();
-    fxPurchase(payload.count);
-    haptic('success');
-
-  } else if (kind === 'retrigger') {
-    sndRetrigger();
-    fxFlash('rgba(255, 107, 53, 0.45)');
-    fxFirework({ bursts: 2, palette: 'fire' });
-    fxShout('+' + payload.added, 'ещё прокруты!', '#ff6b35');
-    haptic('success');
-
-  } else if (kind === 'jackpot') {
-    // Самый крупный повод: длинная тема, конфетти и салют вместе.
-    sndJackpot();
-    fxFlash('rgba(255, 214, 10, 0.6)');
-    fxConfetti({ count: 90, palette: 'gold' });
-    fxFirework({ bursts: 6, palette: 'gold' });
-    fxShout('ДЖЕКПОТ', payload.text || '', '#ffd60a');
-    haptic('success');
-
-  } else if (kind === 'bigwin') {
+  if (kind === 'bigwin') {
     sndFirework(3);
     sndBigWin();
     fxConfetti({ count: 55, palette: 'neon' });
     fxShout(payload.text || 'КРУПНЫЙ ВЫИГРЫШ', payload.sub || '', '#00ff9d');
     haptic('success');
-
-  } else if (kind === 'win') {
-    // Скромный повод: без надписей и конфетти, только искры.
-    sndFirework(2);
-    fxFirework({ bursts: 2, palette: 'green' });
-    haptic('light');
-  }
-}
-
-/**
- * Выбирает силу празднования по множителю выигрыша.
- * Пороги подобраны так, чтобы «джекпот» не срабатывал каждую минуту.
- */
-function celebrateWin(multiplier, value) {
-  if (multiplier >= 50) {
-    celebrate('jackpot', { text: money(value) });
-  } else if (multiplier >= 12) {
-    celebrate('bigwin', { text: money(value), sub: `×${Math.round(multiplier)}` });
-  } else if (multiplier >= 4) {
-    celebrate('win');
   }
 }
 
@@ -1363,9 +1277,29 @@ async function startOpening(caseId, count = 1) {
   sndLand();
   haptic('medium');
 
+  /*
+   * Показ выигрыша - с плитки, на которой встала лента, и до экрана
+   * результата: карточка срывается именно с того места, куда смотрит игрок.
+   * В пачке событие - лучший предмет, показывается только он.
+   */
+  let bestIdx = 0;
+  opened.forEach((o, i) => { if ((o.item.value || 0) > (opened[bestIdx].item.value || 0)) bestIdx = i; });
+  const best = opened[bestIdx].item;
+  if (best.kind !== 'perk' || best.value) {
+    await motion().win(best, {
+      tile: winnerTile(bestIdx), price: c.price, theme: c.theme,
+      collectTo: document.getElementById('openerBalance'),
+    });
+  }
+
   // Фриспины проигрываются до итогового экрана: сначала игрок видит, сколько
-  // они принесли, и только потом — общий результат прокрута.
-  for (const g of collectFreeSpins(data)) await runFreeSpins(g, c);
+  // они принесли, и только потом — общий результат прокрута. Итог серии
+  // сравнивается с ценой открытия: за неё игрок и получил серию.
+  for (const g of collectFreeSpins(data)) {
+    // Плитка, на которой выпала серия: из неё летит сгусток пролога.
+    const fromIdx = opened.findIndex((o) => (o.granted || []).includes(g));
+    await runFreeSpins(g, c, { cost: c.price, origin: winnerTile(Math.max(0, fromIdx)) });
+  }
 
   if (count > 1) showBatchResult(data, c);
   else showCaseResult(data, c);
@@ -1627,6 +1561,13 @@ async function buyFreeSpins(caseId, count) {
     return;
   }
 
+  // Кнопку пачки прячут вместе с панелью кейса, а сгусток пролога вылетает
+  // именно из неё - поэтому её место снимается до того, как она исчезнет.
+  const btnRect = document.querySelector(`#fsBuyRow [data-fs="${count}"]`)?.getBoundingClientRect();
+  const origin = btnRect && btnRect.width
+    ? { cx: btnRect.left + btnRect.width / 2, cy: btnRect.top + btnRect.height / 2 }
+    : null;
+
   document.getElementById('result').hidden = true;
   document.getElementById('gamble').hidden = true;
   document.getElementById('gambleStartBtn').hidden = true;
@@ -1642,12 +1583,10 @@ async function buyFreeSpins(caseId, count) {
   // 18 000 выглядела бы списанием на 9 000.
   previewBalance(state.user.balance - data.cost);
 
-  // Покупка - событие, за которое игрок заплатил: отмечаем её отдельно и
-  // даём празднованию отыграть целиком, прежде чем поедет первая лента.
-  celebrate('purchase', { count });
-  await sleep(PURCHASE_FX_MS);
-
-  await runFreeSpins(data.grant, c);
+  // Покупка - событие, за которое игрок заплатил: пролог серии отыгрывает
+  // целиком, прежде чем поедет первая лента (runFreeSpins). Итог серии
+  // сравнивается с ценой пачки.
+  await runFreeSpins(data.grant, c, { cost: data.cost, origin });
 
   // Настоящее значение с сервера - на случай, если анимация где-то разошлась.
   applyUser(data.user);
@@ -1787,7 +1726,9 @@ async function runAutoOpen(caseId, times) {
     // Держим лог коротким: панель не должна расти вниз на всю серию.
     while (logEl.children.length > 12) logEl.lastElementChild.remove();
 
-    celebrateWin(data.item.multiplier, data.item.value);
+    // В автооткрытии показ короче и сам уступает следующему прокруту:
+    // смысл режима в том, чтобы игрок не жал кнопки.
+    await motion().win(data.item, { tile: winnerTile(0), price: c.price, theme: c.theme, auto: true });
 
     if (i < times - 1 && !state.autoStop) await sleep(AUTO_PAUSE_MS);
   }
@@ -1845,25 +1786,76 @@ function collectFreeSpins(data) {
  * Исход каждого прокрута уже посчитан сервером и лежит в ответе — здесь только
  * анимация. Сумма копится на экране крупными цифрами: это и есть смысл режима,
  * поэтому она набирается на глазах, а не появляется готовой в конце.
+ *
+ * Пролог (сгусток, взрыв, FREE SPINS, жетоны в ячейки) играется у купленной и
+ * у выпавшей серии, но не в автооткрытии и не при доигрывании: там серию уже
+ * видели или смотрят мельком.
+ *
+ * @param {object} opts
+ * @param {number} [opts.cost]    чем заплачено за серию: цена пачки или цена
+ *                                открытия, в котором она выпала. По ней итог
+ *                                решает, праздновать ли (см. seriesVerdict)
+ * @param {Element|object} [opts.origin] откуда летит сгусток пролога
  */
-function runFreeSpins(grant, caseData, { auto = false, replay = false } = {}) {
+async function runFreeSpins(grant, caseData, { auto = false, replay = false, cost = 0, origin = null } = {}) {
   const box = document.getElementById('freespins');
   const reel = document.getElementById('fsReel');
   const totalEl = document.getElementById('fsTotal');
   const leftEl = document.getElementById('fsLeft');
   const logEl = document.getElementById('fsLog');
   const collectBtn = document.getElementById('fsCollect');
+  const pipsEl = document.getElementById('fsPips');
+  const verdictEl = document.getElementById('fsVerdict');
 
-  document.getElementById('result').hidden = true;
-  document.getElementById('batchSummary').hidden = true;
-  // Серия может начаться и с непрокрученного кейса - купленными фриспинами
-  // или доигрыванием прошлой серии на входе. Сцена с кейсом тогда осталась бы
-  // висеть над барабаном фриспинов.
-  document.getElementById('caseStage').hidden = true;
-  box.hidden = false;
-  collectBtn.hidden = true;
-  logEl.innerHTML = '';
-  totalEl.textContent = money(0);
+  /*
+   * Ячеек столько, сколько прокрутов игрок увидит. На старте это число без
+   * ретриггеров; серия, упёршаяся в потолок, прокрутов меньше, чем обещано, и
+   * лишних ячеек, которые так и не погаснут, быть не должно.
+   */
+  const added = grant.spins.reduce((n, sp) => n + (sp.added || 0), 0);
+  const startCount = Math.max(1, Math.min(grant.spins.length, (grant.count || grant.spins.length) - added));
+  let shown = startCount;
+
+  const withIntro = !auto && !replay;
+  const open = (filled) => {
+    document.getElementById('result').hidden = true;
+    document.getElementById('batchSummary').hidden = true;
+    // Серия может начаться и с непрокрученного кейса - купленными фриспинами
+    // или доигрыванием прошлой серии на входе. Сцена с кейсом тогда осталась
+    // бы висеть над барабаном фриспинов.
+    document.getElementById('caseStage').hidden = true;
+    box.hidden = false;
+    collectBtn.hidden = true;
+    logEl.innerHTML = '';
+    verdictEl.innerHTML = '';
+    verdictEl.className = 'fs-verdict';
+    totalEl.textContent = money(0);
+    leftEl.textContent = `0 из ${shown}`;
+    document.getElementById('opener').classList.add('is-bonus');
+    document.getElementById('fsEmblem').innerHTML = itemArtHd(`perk/fs/${startCount}`) || '';
+    pipsEl.innerHTML = Array.from({ length: startCount }, () => `<i class="fs-pip${filled ? ' full' : ''}"></i>`).join('');
+    return {
+      pips: [...pipsEl.children],
+      emblem: document.getElementById('fsEmblem'),
+      onToken: (i) => {
+        const pip = pipsEl.children[i];
+        if (!pip) return;
+        pip.classList.add('full', 'pop');
+        leftEl.textContent = `0 из ${i + 1}`;
+      },
+    };
+  };
+
+  if (withIntro) {
+    await motion().purchase({
+      count: startCount, origin, theme: caseData.theme,
+      emblem: itemArtHd(`perk/fs/${startCount}`) || '',
+      prepare: () => open(false),
+    });
+    leftEl.textContent = `0 из ${shown}`;
+  } else {
+    open(true);
+  }
 
   const SPIN_LEN = 26;
   const SPIN_WIN = 20;
@@ -1871,16 +1863,22 @@ function runFreeSpins(grant, caseData, { auto = false, replay = false } = {}) {
      же: к предмету лента подходит ползком, а не гаснет на полном ходу. */
   const SPIN_MS = 2300;
 
-  const filler = caseData.items.filter((it) => it.kind === 'item');
-  const pickFiller = () => filler[Math.floor(Math.random() * filler.length)];
+  // Лента серии - по настоящим вероятностям кейса, как и основная. Раньше
+  // плитки брались равномерно, и предмет за 184 000 мелькал в ней так же
+  // часто, как филлер: игрок читает по ленте свои шансы, и это была ложь.
+  const pickFiller = () => weightedSample(caseData.items);
 
   let acc = 0;
 
   const runOne = (i) => new Promise((done) => {
     const spin = grant.spins[i];
     // Длина серии растёт по ходу: перезапуск добавляет прокруты, поэтому
-    // знаменатель берётся из фактического числа, а не из начального обещания.
-    leftEl.textContent = `${i + 1} из ${grant.spins.length}`;
+    // знаменатель берётся из показанного числа, а не из начального обещания.
+    leftEl.textContent = `${i + 1} из ${shown}`;
+    [...pipsEl.children].forEach((pip, k) => {
+      pip.classList.toggle('spent', k < i);
+      pip.classList.toggle('is-current', k === i);
+    });
 
     const strip = [];
     for (let k = 0; k < SPIN_LEN; k++) strip.push(k === SPIN_WIN ? spin : pickFiller());
@@ -1911,20 +1909,14 @@ function runFreeSpins(grant, caseData, { auto = false, replay = false } = {}) {
         reel.style.transform = `translateX(${-target}px)`;
       }, SPIN_MS + 20);
 
-      setTimeout(() => {
+      setTimeout(async () => {
         sndLand();
-        acc += spin.value;
-        totalEl.textContent = money(acc);
+        const tile = reel.children[SPIN_WIN];
         // Баланс растёт вместе с суммой серии: игрок видит, что выигрыш
         // капает по ходу, а не появляется одним прыжком в конце.
         // При доигрывании сохранённой серии баланс не трогаем: деньги за неё
         // зачислены ещё в тот раз, и второй раз их прибавлять нельзя.
         if (spin.value > 0 && !replay) previewBalance(state.user.balance + spin.value);
-        // Перезапуск анимации: без сброса класса подряд идущие прибавки
-        // не «подпрыгивают».
-        totalEl.classList.remove('bump');
-        void totalEl.offsetWidth;
-        totalEl.classList.add('bump');
 
         // Удвоитель внутри серии её прокруты не удваивает - он откладывается
         // до платного открытия, и подпись говорит именно это.
@@ -1937,53 +1929,96 @@ function runFreeSpins(grant, caseData, { auto = false, replay = false } = {}) {
           `style="--tier-color:${tierColor(spin.tier)}">${label}</span>`);
 
         if (spin.added) {
-          leftEl.textContent = `${i + 1} из ${grant.spins.length}`;
-          celebrate('retrigger', { added: spin.added });
+          // Ретриггер: новые жетоны вылетают из плитки в новые ячейки.
+          const fresh = Math.max(0, Math.min(spin.added, grant.spins.length - shown));
+          pipsEl.insertAdjacentHTML('beforeend', '<i class="fs-pip"></i>'.repeat(fresh));
+          const newPips = [...pipsEl.children].slice(pipsEl.children.length - fresh);
+          shown += fresh;
+          leftEl.textContent = `${i + 1} из ${shown}`;
+          if (newPips.length && tile) {
+            await motion().retrigger(tile, newPips, (k) => newPips[k].classList.add('full', 'pop'));
+          } else {
+            sndRetrigger();
+          }
         } else {
-          // Крупный прокрут внутри серии тоже стоит отметить, но тише.
-          if (spin.value >= caseData.price * 8) celebrate('win');
+          // Крупный прокрут внутри серии: тот же показ, что у открытия, но
+          // короче и без ожидания нажатия.
+          if (tile && spin.value >= caseData.price * MOTION_NICE_AT) {
+            await motion().win(spin, { tile, price: caseData.price, theme: caseData.theme, inSeries: true, auto, collectTo: totalEl });
+          }
+          if (spin.value > 0 && tile) motion().payout(`+${money(spin.value)}`, tile, totalEl, tierColor(spin.tier));
           haptic('light');
         }
-        setTimeout(done, 320);
+
+        // Сумма прибавляется, когда до счётчика долетела её копия, а не раньше.
+        setTimeout(() => {
+          acc += spin.value;
+          totalEl.textContent = money(acc);
+          // Перезапуск анимации: без сброса класса подряд идущие прибавки
+          // не «подпрыгивают».
+          totalEl.classList.remove('bump');
+          void totalEl.offsetWidth;
+          totalEl.classList.add('bump');
+          if (spin.value > 0) sndCoin();
+        }, spin.value > 0 ? 700 : 0);
+        setTimeout(done, spin.value > 0 ? 760 : 320);
       }, SPIN_MS + SETTLE_MS + 40);
     });
   });
 
-  return (async () => {
-    for (let i = 0; i < grant.spins.length; i++) await runOne(i);
+  for (let i = 0; i < grant.spins.length; i++) await runOne(i);
+  [...pipsEl.children].forEach((pip) => { pip.classList.remove('is-current'); pip.classList.add('spent'); });
 
-    // Итог серии: если она отбилась с запасом, это отдельный повод.
-    if (!replay && grant.total >= caseData.price * 12) {
-      celebrate('bigwin', { text: money(grant.total), sub: 'за серию' });
-    } else {
-      sndBigWin();
-      haptic('success');
-    }
-    collectBtn.hidden = false;
-    collectBtn.textContent = `ЗАБРАТЬ ${money(grant.total)}`;
+  // Итог серии честный: празднуется только окупившаяся. Доигрывание итог не
+  // сравнивает - цена той покупки здесь неизвестна.
+  const ratio = cost > 0 ? grant.total / cost : 0;
+  if (cost > 0 && !replay) {
+    verdictEl.className = `fs-verdict${ratio >= 1 ? '' : ' is-quiet'}`;
+    verdictEl.innerHTML = ratio >= 1
+      ? `<em>${seriesRatio(ratio)}</em> к цене ${esc(money(cost))}`
+      : `Серия вернула <em>${Math.round(ratio * 100)}%</em> цены ${esc(money(cost))}`;
+    if (!auto) motion().seriesEnd(totalEl, ratio);
+  } else {
+    sndCollect();
+  }
+  haptic(ratio >= 1 ? 'success' : 'light');
+  collectBtn.hidden = false;
+  collectBtn.textContent = `ЗАБРАТЬ ${money(grant.total)}`;
 
-    // Серию досмотрели - сервер может её забыть.
-    const ack = () => { api('/api/freespins/ack').catch(() => {}); };
+  // Серию досмотрели - сервер может её забыть.
+  const ack = () => { api('/api/freespins/ack').catch(() => {}); };
+  const finish = () => {
+    sndCollect();
+    box.hidden = true;
+    endBonusMode();
+    ack();
+  };
 
-    // В серии автооткрытий забираем сами: смысл режима в том, чтобы игрок не
-    // жал кнопки. Паузу всё же держим - сумму надо успеть прочитать.
-    if (auto) {
-      await new Promise((done) => setTimeout(done, 1500));
-      sndCollect();
-      box.hidden = true;
-      ack();
-      return;
-    }
+  // В серии автооткрытий забираем сами: смысл режима в том, чтобы игрок не
+  // жал кнопки. Паузу всё же держим - сумму надо успеть прочитать.
+  if (auto) {
+    await sleep(1500);
+    finish();
+    return;
+  }
 
-    await new Promise((done) => {
-      collectBtn.addEventListener('click', () => {
-        sndCollect();
-        box.hidden = true;
-        ack();
-        done();
-      }, { once: true });
-    });
-  })();
+  await new Promise((done) => {
+    collectBtn.addEventListener('click', () => { finish(); done(); }, { once: true });
+  });
+}
+
+/** Множитель итога серии: ×1,4 или ×12. */
+function seriesRatio(r) {
+  return `×${r >= 10 ? Math.round(r) : r.toFixed(1).replace('.', ',')}`;
+}
+
+/** Выйти из бонусного режима окна кейса: фон темы возвращается. */
+function endBonusMode() {
+  document.getElementById('opener')?.classList.remove('is-bonus');
+  const pips = document.getElementById('fsPips');
+  if (pips) pips.innerHTML = '';
+  const emblem = document.getElementById('fsEmblem');
+  if (emblem) emblem.innerHTML = '';
 }
 
 /** Итог пачки: список выпавшего и суммарный результат. */
@@ -2027,8 +2062,7 @@ function showBatchResult(data, caseData) {
   // Выпадения пачки тоже идут в витрину.
   setTimeout(pollFeed, 400);
 
-  // В пачке ориентируемся на лучший предмет: именно он и есть событие.
-  setTimeout(() => celebrateWin(best.item.multiplier, best.item.value), 220);
+  // Показ лучшего предмета уже прошёл в startOpening, на ленте.
 
   document.getElementById('batchClose').addEventListener('click', returnToCaseIdle);
   document.getElementById('batchAgain').addEventListener('click', () =>
@@ -2093,8 +2127,8 @@ function showCaseResult(data, caseData) {
   if (data.net > 0) { setTimeout(sndCollect, 260); haptic('success'); }
   else { setTimeout(sndLose, 200); haptic('light'); }
 
-  // Празднуем по множителю: чем крупнее, тем заметнее эффект.
-  setTimeout(() => celebrateWin(item.multiplier, item.value), 220);
+  // Показ выигрыша уже прошёл в startOpening, с плитки ленты: здесь
+  // только итог.
 
   // Рискнуть можно только тем, что реально выиграно на этом прокруте.
   const gambleBtn = document.getElementById('gambleStartBtn');
@@ -2169,6 +2203,9 @@ async function loadCaseHistory(caseTitle) {
 }
 
 function closeOpener() {
+  // Показ, оставшийся висеть поверх закрытого кейса, перекрыл бы весь экран.
+  motion().reset();
+  endBonusMode();
   document.getElementById('opener').hidden = true;
   document.body.classList.remove('case-open');
   document.getElementById('gamble').hidden = true;

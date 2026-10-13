@@ -644,6 +644,16 @@ async function openCaseAndVerify(caseId) {
       under,
       resultName: document.getElementById('resultName').textContent.trim(),
       resultValue: document.getElementById('resultValue').textContent.trim(),
+      // Показ выигрыша (public/motion.js) обязан за собой убрать: размытая
+      // сцена, бонусный фон или окно выигрыша поверх результата - это
+      // запертое приложение, а не оформление.
+      stuck: [
+        document.body.classList.contains('mo-receded') && 'сцена размыта',
+        document.getElementById('opener').classList.contains('is-bonus') && 'бонусный фон',
+        document.querySelector('.mo-wl') && 'окно выигрыша',
+        document.querySelector('.reel-tile.mo-lifted') && 'плитка спрятана',
+      ].filter(Boolean),
+      motionMounted: !!document.querySelector('.mo-root'),
     };
   });
 }
@@ -963,9 +973,13 @@ const cases = ['warmup_100', 'vault_1000', 'neon_500', 'allin_500', 'deck_400', 
 let mismatch = 0;
 let noTile = 0;
 let tooClose = 0;
+const stuckAfter = [];
+let motionSeen = false;
 
 for (const id of cases) {
   const r = await openCaseAndVerify(id);
+  if (r.stuck.length) stuckAfter.push(`${id}: ${r.stuck.join(', ')}`);
+  motionSeen ||= r.motionMounted;
   if (!r.under) { noTile++; continue; }
   // Фриспины денежной ценности не имеют: на плитке в этом месте пусто, а в
   // карточке результата стоит прочерк. Это одно и то же «денег нет», и
@@ -986,6 +1000,8 @@ for (const id of cases) {
 check(`лента совпадает с результатом на ${cases.length} кейсах`, mismatch === 0);
 check('лента: под маркером всегда есть плитка', noTile === 0, `пропусков ${noTile}`);
 check('лента: маркер не встаёт на границу плиток', tooClose === 0, `случаев ${tooClose}`);
+check('показ выигрыша подключён', motionSeen);
+check('показ выигрыша убирает за собой', stuckAfter.length === 0, stuckAfter.join('; '));
 
 /* ---------- Маркер: стрелки, а не полоска ---------- */
 

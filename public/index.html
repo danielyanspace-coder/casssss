@@ -660,6 +660,8 @@
     <div class="opener" id="opener" hidden>
     <!-- Тематический фон кейса: сюда уезжает его же обложка. -->
     <div class="opener-theme" id="openerTheme" aria-hidden="true"></div>
+    <!-- Фон бонусной серии: проявляется поверх темы, пока идут фриспины. -->
+    <div class="opener-bonus" aria-hidden="true"></div>
     <div class="opener-scroll">
       <div class="opener-inner">
 
@@ -726,12 +728,14 @@
         </div>
 
         <div class="freespins" id="freespins" hidden>
+          <div class="fs-emblem" id="fsEmblem" aria-hidden="true"></div>
           <div class="fs-head">
             <div class="fs-title">ФРИСПИНЫ</div>
             <div class="fs-left" id="fsLeft"></div>
           </div>
           <div class="fs-total" id="fsTotal">0 ₽</div>
           <div class="fs-sub">выигрыш с фриспинов</div>
+          <div class="fs-pips" id="fsPips" aria-hidden="true"></div>
           <div class="reel-wrap fs-reel-wrap">
             <div class="reel-marker"></div>
             <div class="reel-fade reel-fade-l"></div>
@@ -739,6 +743,7 @@
             <div class="reel" id="fsReel"></div>
           </div>
           <div class="fs-log" id="fsLog"></div>
+          <div class="fs-verdict" id="fsVerdict"></div>
           <button class="btn btn-primary btn-wide" id="fsCollect" hidden>ЗАБРАТЬ</button>
         </div>
 
