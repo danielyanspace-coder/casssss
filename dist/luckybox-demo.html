@@ -7190,14 +7190,20 @@ button.mg-cell:active { transform: scale(0.92); }
 .reel-tile.rw-skin[data-family="slate"] .tile-value,
 .reel-tile.rw-skin[data-family="prism"] .tile-value { color: #fff; }
 
-/* Шрифт подписи - часть семейства, а не украшение: в ленте соседние плитки
-   разных кейсов не бывают, зато разные кейсы ощущаются разными продуктами. */
-.rw-skin[data-family="circuit"] .tile-name,
-.rw-skin[data-family="paper"] .tile-name { font-family: ui-monospace, Menlo, monospace; }
+/* Шрифт подписи - часть семейства, а не украшение: разные кейсы должны
+   ощущаться разными продуктами.
+   Капс с разрядкой проверен на обеих поверхностях: плитка барабана шириной
+   138 точек, карточка сетки шире. На 144 плитках по всем восьми семействам
+   ни одно название не обрезается. Если плитку когда-нибудь сузят, проверять
+   надо именно это: одно слово шире плитки не переносится, оно обрезается. */
+.rw-skin[data-family="vault"] .drop-name,
+.rw-skin[data-family="signature"] .drop-name,
 .rw-skin[data-family="vault"] .tile-name,
-.rw-skin[data-family="signature"] .tile-name { letter-spacing: .09em; text-transform: uppercase; }
+.rw-skin[data-family="signature"] .tile-name { letter-spacing: .07em; text-transform: uppercase; }
+.rw-skin[data-family="felt"] .drop-name,
+.rw-skin[data-family="geode"] .drop-name,
 .rw-skin[data-family="felt"] .tile-name,
-.rw-skin[data-family="geode"] .tile-name { letter-spacing: .06em; }
+.rw-skin[data-family="geode"] .tile-name { letter-spacing: .05em; }
 
 /* ---------- Слой F. Анимация ----------
    Блик только на крупной карточке результата. В ленте он выключен намеренно:
