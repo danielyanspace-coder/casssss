@@ -26,7 +26,8 @@
     "test:slots": "node test/slots.mjs",
     "test:cards": "node test/cards.mjs",
     "test:art": "node test/art.mjs",
-    "demo:motion": "node tools/motion-demo.mjs"
+    "demo:motion": "node tools/motion-demo.mjs",
+    "demo:button": "node tools/open-button-demo.mjs"
   },
   "engines": {
     "node": ">=18"
