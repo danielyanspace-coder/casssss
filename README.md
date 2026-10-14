@@ -351,7 +351,7 @@ console.log(parseInt(h.slice(0,8),16) / 0x100000000);
 npm run demo
 ```
 
-Собирается один файл `dist/luckybox-demo.html` (~0.6 МБ) - открывается двойным
+Собирается один файл `dist/luckybox.html` (~0.6 МБ) - открывается двойным
 кликом, работает без интернета. Внутри всё: разметка, стили, иконки, обложки,
 постер и таблицы всех кейсов.
 
@@ -498,7 +498,7 @@ for i in 1 2 3 4; do curl -s -o /dev/null -w "%{http_code}\n" \
 проверяется наравне с рабочей версией:
 
 ```bash
-node test/ui.mjs "file:///путь/dist/luckybox-demo.html"
+node test/ui.mjs "file:///путь/dist/luckybox.html"
 ```
 
 ## Обложки и иконки

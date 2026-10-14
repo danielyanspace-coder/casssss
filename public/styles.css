@@ -7866,6 +7866,36 @@ body.mo-receded .opener-scroll { filter: blur(4px) saturate(.55); transform: sca
 @property --mo-fa { syntax: '<angle>'; inherits: false; initial-value: 0deg; }
 @keyframes moFoil { to { --mo-fa: 360deg; } }
 
+/* ---------- Просмотр предмета из состава ----------
+   Тот же оборот и та же карточка, что у выигрыша, но тише: лучи цвета
+   редкости и медленнее, вместо надписи WIN - редкость и стоимость готовым
+   числом. Это витрина, и путать её с начислением нельзя. */
+.mo-inspect { --c1: #fff; cursor: grab; touch-action: none; }
+.mo-inspect:active { cursor: grabbing; }
+.mo-inspect .mo-rays { opacity: 0.55; }
+.mo-inspect .mo-rays.b { opacity: 0.4; }
+.mo-spinner { position: absolute; left: 0; top: 0; width: 0; height: 0; transform-style: preserve-3d; }
+.mo-insp { position: absolute; left: 0; right: 0; top: 59%; text-align: center; opacity: 0; pointer-events: none; }
+.mo-insp-tier {
+  font-size: 11px; font-weight: 800; letter-spacing: 0.22em; text-transform: uppercase;
+  color: var(--c2);
+}
+.mo-insp-value {
+  margin-top: 8px;
+  font: 800 28px/1 'Unbounded', 'Manrope', system-ui, sans-serif; font-variant-numeric: tabular-nums;
+  color: #fff; text-shadow: 0 3px 0 rgba(0,0,0,.5);
+}
+.mo-insp-sub { margin-top: 8px; font-size: 12px; font-weight: 700; color: rgba(255,255,255,.6); }
+.mo-insp-close {
+  position: absolute; left: 50%; bottom: 8%; translate: -50% 0;
+  padding: 12px 28px; border: 0; border-radius: 14px; opacity: 0;
+  font: 800 14px 'Manrope', system-ui, sans-serif; color: #fff; cursor: pointer;
+  background: rgba(255,255,255,.1); box-shadow: inset 0 0 0 1px rgba(255,255,255,.2);
+}
+.drop-card { cursor: pointer; transition: transform 0.15s; }
+.drop-card:active { transform: scale(0.97); }
+.drop-card.mo-lifted { visibility: hidden; }
+
 /* ---------- Бонусный режим окна кейса ----------
    Фон темы и фон серии лежат слоями и меняются прозрачностью: смена фона
    одним переключением выглядела бы как перезагрузка экрана. */

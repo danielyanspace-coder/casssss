@@ -12,7 +12,7 @@
 export const SETTING_DEFS = [
   { key: 'maintenance', type: 'bool', value: '0', group: 'Режим',
     label: 'Технические работы',
-    hint: 'Игроки видят заглушку, сотрудники входят как обычно' },
+    hint: 'Игроки видят экран технических работ, сотрудники входят как обычно' },
   { key: 'registration_open', type: 'bool', value: '1', group: 'Режим',
     label: 'Регистрация новых игроков' },
   { key: 'payouts_open', type: 'bool', value: '1', group: 'Касса',

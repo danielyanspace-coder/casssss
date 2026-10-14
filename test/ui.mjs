@@ -1029,6 +1029,54 @@ check('лента: маркер не встаёт на границу плито
 check('показ выигрыша подключён', motionSeen);
 check('показ выигрыша убирает за собой', stuckAfter.length === 0, stuckAfter.join('; '));
 
+/* ---------- Просмотр предмета из состава ---------- */
+
+/*
+ * Нажатие на карточку состава показывает её крупно (inspect в motion.js).
+ * Это витрина, а не выигрыш: надписи WIN быть не должно, а стоимость обязана
+ * совпадать с карточкой в сетке. После закрытия ничего не висит поверх.
+ */
+{
+  await ensureOpenerClosed();
+  await page.evaluate(() => {
+    const card = [...document.querySelectorAll('.case-card')].find((c) => c.dataset.case === 'warmup_100');
+    card.scrollIntoView({ block: 'center' });
+    card.click();
+  });
+  await page.waitForSelector('#dropsGrid .drop-card:not(.is-showcase)', { state: 'visible', timeout: 10000 });
+  const gridValue = await page.evaluate(() => {
+    const card = document.querySelector('#dropsGrid .drop-card:not(.is-showcase)');
+    card.scrollIntoView({ block: 'center' });
+    return card.querySelector('.drop-value')?.textContent.trim() || '';
+  });
+  await page.waitForTimeout(300);
+  await page.click('#dropsGrid .drop-card:not(.is-showcase)');
+  await page.waitForTimeout(1400);
+  const shown = await page.evaluate(() => {
+    const box = document.querySelector('.mo-inspect');
+    return {
+      open: !!box,
+      text: box ? box.textContent : '',
+      value: box?.querySelector('.mo-insp-value')?.textContent.trim() || '',
+      card: !!box?.querySelector('.mo-hero'),
+    };
+  });
+  check('просмотр предмета: открывается по нажатию на карточку состава', shown.open && shown.card);
+  check('просмотр предмета: это не выигрыш, надписи WIN нет', !/WIN/.test(shown.text), shown.text.slice(0, 80));
+  check('просмотр предмета: стоимость совпадает с карточкой в составе',
+        shown.value.replace(/\s/g, '') === gridValue.replace(/\s/g, ''), `${shown.value} / ${gridValue}`);
+  await page.click('.mo-insp-close');
+  await page.waitForTimeout(900);
+  const after = await page.evaluate(() => ({
+    left: document.querySelectorAll('.mo-wl').length,
+    receded: document.body.classList.contains('mo-receded'),
+    lifted: document.querySelectorAll('.mo-lifted').length,
+  }));
+  check('просмотр предмета: после закрытия ничего не висит',
+        !after.left && !after.receded && !after.lifted, JSON.stringify(after));
+  await ensureOpenerClosed();
+}
+
 /* ---------- Маркер: стрелки, а не полоска ---------- */
 
 {

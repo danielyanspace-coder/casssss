@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-<title>LUCKYBOX - демо</title>
+<title>LUCKYBOX</title>
 <style>
 /* ============================================================
    LUCKYBOX — оформление
@@ -7873,6 +7873,36 @@ body.mo-receded .opener-scroll { filter: blur(4px) saturate(.55); transform: sca
 @property --mo-fa { syntax: '<angle>'; inherits: false; initial-value: 0deg; }
 @keyframes moFoil { to { --mo-fa: 360deg; } }
 
+/* ---------- Просмотр предмета из состава ----------
+   Тот же оборот и та же карточка, что у выигрыша, но тише: лучи цвета
+   редкости и медленнее, вместо надписи WIN - редкость и стоимость готовым
+   числом. Это витрина, и путать её с начислением нельзя. */
+.mo-inspect { --c1: #fff; cursor: grab; touch-action: none; }
+.mo-inspect:active { cursor: grabbing; }
+.mo-inspect .mo-rays { opacity: 0.55; }
+.mo-inspect .mo-rays.b { opacity: 0.4; }
+.mo-spinner { position: absolute; left: 0; top: 0; width: 0; height: 0; transform-style: preserve-3d; }
+.mo-insp { position: absolute; left: 0; right: 0; top: 59%; text-align: center; opacity: 0; pointer-events: none; }
+.mo-insp-tier {
+  font-size: 11px; font-weight: 800; letter-spacing: 0.22em; text-transform: uppercase;
+  color: var(--c2);
+}
+.mo-insp-value {
+  margin-top: 8px;
+  font: 800 28px/1 'Unbounded', 'Manrope', system-ui, sans-serif; font-variant-numeric: tabular-nums;
+  color: #fff; text-shadow: 0 3px 0 rgba(0,0,0,.5);
+}
+.mo-insp-sub { margin-top: 8px; font-size: 12px; font-weight: 700; color: rgba(255,255,255,.6); }
+.mo-insp-close {
+  position: absolute; left: 50%; bottom: 8%; translate: -50% 0;
+  padding: 12px 28px; border: 0; border-radius: 14px; opacity: 0;
+  font: 800 14px 'Manrope', system-ui, sans-serif; color: #fff; cursor: pointer;
+  background: rgba(255,255,255,.1); box-shadow: inset 0 0 0 1px rgba(255,255,255,.2);
+}
+.drop-card { cursor: pointer; transition: transform 0.15s; }
+.drop-card:active { transform: scale(0.97); }
+.drop-card.mo-lifted { visibility: hidden; }
+
 /* ---------- Бонусный режим окна кейса ----------
    Фон темы и фон серии лежат слоями и меняются прозрачностью: смена фона
    одним переключением выглядела бы как перезагрузка экрана. */
@@ -9801,7 +9831,7 @@ const DEMO_PERMISSION_DEFS = [{"id":"players.view","group":"players","label":"С
 const DEMO_PERMISSION_GROUPS = [{"id":"players","name":"Игроки"},{"id":"finance","name":"Финансы"},{"id":"promo","name":"Промо и партнёры"},{"id":"support","name":"Поддержка"},{"id":"risk","name":"Риск и контроль"},{"id":"system","name":"Система"}];
 const DEMO_PERMISSIONS = ["players.view","players.notes","players.balance","players.gift","players.block","players.limits","finance.payouts.view","finance.payouts.resolve","finance.payments.view","finance.settings","promo.view","promo.edit","partners.view","partners.edit","partners.pay","support.view","support.reply","risk.view","journal.view","reports.view","games.manage","settings.manage","staff.manage"];
 const DEMO_ROLES = [{"id":"owner","name":"Владелец","description":"Все права, включая сотрудников и реквизиты приёма платежей.","balanceCap":0,"permissions":["players.view","players.notes","players.balance","players.gift","players.block","players.limits","finance.payouts.view","finance.payouts.resolve","finance.payments.view","finance.settings","promo.view","promo.edit","partners.view","partners.edit","partners.pay","support.view","support.reply","risk.view","journal.view","reports.view","games.manage","settings.manage","staff.manage"]},{"id":"admin","name":"Администратор","description":"Всё, кроме управления сотрудниками и реквизитов приёма.","balanceCap":0,"permissions":["players.view","players.notes","players.balance","players.gift","players.block","players.limits","finance.payouts.view","finance.payouts.resolve","finance.payments.view","promo.view","promo.edit","partners.view","partners.edit","partners.pay","support.view","support.reply","risk.view","journal.view","reports.view","games.manage","settings.manage"]},{"id":"finance","name":"Финансист","description":"Выводы, платежи, отчёты. Игроков видит, но не правит.","balanceCap":0,"permissions":["players.view","players.notes","finance.payouts.view","finance.payouts.resolve","finance.payments.view","partners.view","partners.pay","reports.view","journal.view"]},{"id":"support","name":"Поддержка","description":"Обращения, карточка игрока, мелкие компенсации до 5 000.","balanceCap":5000,"permissions":["players.view","players.notes","players.balance","players.gift","players.limits","support.view","support.reply","promo.view"]},{"id":"risk","name":"Риск-менеджер","description":"Блокировки, лимиты, сигналы, проверка выводов до выплаты.","balanceCap":0,"permissions":["players.view","players.notes","players.block","players.limits","finance.payouts.view","risk.view","journal.view","reports.view"]},{"id":"marketing","name":"Маркетолог","description":"Промокоды, партнёры, воронка. К деньгам игроков не допущен.","balanceCap":0,"permissions":["players.view","promo.view","promo.edit","partners.view","partners.edit","reports.view"]},{"id":"analyst","name":"Аналитик","description":"Только чтение: отчёты, выводы, платежи, журнал.","balanceCap":0,"permissions":["players.view","finance.payouts.view","finance.payments.view","promo.view","partners.view","reports.view","journal.view"]}];
-const DEMO_SETTINGS = [{"key":"maintenance","type":"bool","value":"0","group":"Режим","label":"Технические работы","hint":"Игроки видят заглушку, сотрудники входят как обычно"},{"key":"registration_open","type":"bool","value":"1","group":"Режим","label":"Регистрация новых игроков"},{"key":"payouts_open","type":"bool","value":"1","group":"Касса","label":"Приём заявок на вывод"},{"key":"deposits_open","type":"bool","value":"1","group":"Касса","label":"Приём пополнений"},{"key":"min_payout","type":"int","value":"1000","group":"Касса","label":"Минимальная сумма вывода","hint":"Ноль вернёт значение из настроек сервера"},{"key":"games_cases","type":"bool","value":"1","group":"Игры","label":"Кейсы"},{"key":"games_crash","type":"bool","value":"1","group":"Игры","label":"Краш"},{"key":"games_roulette","type":"bool","value":"1","group":"Игры","label":"Рулетка"},{"key":"games_upgrade","type":"bool","value":"1","group":"Игры","label":"Апгрейд"},{"key":"games_mini","type":"bool","value":"1","group":"Игры","label":"Мини-игры"},{"key":"games_fortune","type":"bool","value":"1","group":"Игры","label":"Колесо фортуны"},{"key":"games_slots","type":"bool","value":"0","group":"Игры","label":"Слоты"}];
+const DEMO_SETTINGS = [{"key":"maintenance","type":"bool","value":"0","group":"Режим","label":"Технические работы","hint":"Игроки видят экран технических работ, сотрудники входят как обычно"},{"key":"registration_open","type":"bool","value":"1","group":"Режим","label":"Регистрация новых игроков"},{"key":"payouts_open","type":"bool","value":"1","group":"Касса","label":"Приём заявок на вывод"},{"key":"deposits_open","type":"bool","value":"1","group":"Касса","label":"Приём пополнений"},{"key":"min_payout","type":"int","value":"1000","group":"Касса","label":"Минимальная сумма вывода","hint":"Ноль вернёт значение из настроек сервера"},{"key":"games_cases","type":"bool","value":"1","group":"Игры","label":"Кейсы"},{"key":"games_crash","type":"bool","value":"1","group":"Игры","label":"Краш"},{"key":"games_roulette","type":"bool","value":"1","group":"Игры","label":"Рулетка"},{"key":"games_upgrade","type":"bool","value":"1","group":"Игры","label":"Апгрейд"},{"key":"games_mini","type":"bool","value":"1","group":"Игры","label":"Мини-игры"},{"key":"games_fortune","type":"bool","value":"1","group":"Игры","label":"Колесо фортуны"},{"key":"games_slots","type":"bool","value":"0","group":"Игры","label":"Слоты"}];
 
 /* Довесок к карточке игрока: деньги, лимиты, заметки, сутки. */
 function demoPlayerExtra(id, balance, spent) {
@@ -9952,12 +9982,14 @@ const randHex = (n) => {
 
 /* ---------- Хранилище ---------- */
 
-const STORE_KEY = 'luckybox-demo-v3';
+// v4: сменились имена вымышленных игроков и команды. Со старым ключом у
+// того, кто уже открывал сборку, остались бы прежние имена из хранилища.
+const STORE_KEY = 'luckybox-v4';
 
 function freshUser() {
   const serverSeed = randHex(32);
   return {
-    id: 1, username: 'demo', firstName: 'Гость',
+    id: 1, username: 'alex_rv', firstName: 'Алексей',
     balance: 5_000_000,
     serverSeed, serverSeedHash: sha256Hex(serverSeed),
     clientSeed: randHex(8), nonce: 0,
@@ -9984,11 +10016,11 @@ function freshUser() {
 function demoStaff() {
   const now = Date.now();
   const people = [
-    ['999000001', 'demo_owner', 'Вы', 'owner', null],
-    ['999000102', 'demo_finance', 'Марина', 'finance', 1],
-    ['999000103', 'demo_support', 'Илья', 'support', 1],
-    ['999000104', 'demo_risk', 'Артём', 'risk', 1],
-    ['999000105', 'demo_marketing', 'Ольга', 'marketing', 1],
+    ['999000001', 'luckybox_owner', 'Вы', 'owner', null],
+    ['999000102', 'marina_fin', 'Марина', 'finance', 1],
+    ['999000103', 'ilya_help', 'Илья', 'support', 1],
+    ['999000104', 'artem_risk', 'Артём', 'risk', 1],
+    ['999000105', 'olga_promo', 'Ольга', 'marketing', 1],
   ];
   return people.map(([tg_id, username, first_name, role, added_by], i) => ({
     user_id: i === 0 ? 1 : 900 + i,
@@ -10006,9 +10038,9 @@ function demoStaff() {
  */
 function demoPlayers() {
   const names = [
-    ['demo_kirill', 'Кирилл'], ['demo_anna', 'Анна'], ['demo_pavel', 'Павел'],
-    ['demo_sveta', 'Светлана'], ['demo_oleg', 'Олег'], ['demo_marina', 'Марина'],
-    ['demo_ivan', 'Иван'],
+    ['kirill_sm', 'Кирилл'], ['anna.vlad', 'Анна'], ['pavel_k88', 'Павел'],
+    ['sveta_lu', 'Светлана'], ['oleg_dn', 'Олег'], ['marina.pt', 'Марина'],
+    ['ivan_rk', 'Иван'],
   ];
   return names.map(([u, n], i) => {
     const spent = Math.round(20000 + Math.random() * 900000);
@@ -11081,7 +11113,7 @@ const routes = {
       { id: 411, tg_id: '388120774', username: 'nastya.k', status: 'PENDING',
         original_amount: 1500, payable_amount: 1523, bank: 'tbank',
         created_at: Date.now() - 40 * 60000, sms_message: null },
-      { id: 409, tg_id: '901233812', username: 'demo_player', status: 'MANUAL_REVIEW',
+      { id: 409, tg_id: '901233812', username: 'max_rybak', status: 'MANUAL_REVIEW',
         original_amount: 3000, payable_amount: 3061, bank: 'any',
         created_at: Date.now() - 3 * 3600000, sms_message: null },
       { id: 404, tg_id: '774100285', username: 'arteml', status: 'EXPIRED',
@@ -11092,7 +11124,7 @@ const routes = {
 
   'POST /api/admin/support': () => ({
     rows: [
-      { id: 18, tg_id: '901233812', username: 'demo_player', payable_amount: 3061,
+      { id: 18, tg_id: '901233812', username: 'max_rybak', payable_amount: 3061,
         payment_status: 'MANUAL_REVIEW', unread_admin: 2 },
       { id: 15, tg_id: '388120774', username: 'nastya.k', payable_amount: 1523,
         payment_status: 'PENDING', unread_admin: 0 },
@@ -13721,8 +13753,160 @@ function createMotion({ money, artFor, tierColor, snd, haptic = () => {} }) {
     play('sndFanfare', big ? 1.26 : 1);
   }
 
+  /* ---------- Просмотр предмета из состава ---------- */
+
+  /*
+   * Карточку из состава кейса можно рассмотреть: она вылетает из сетки тем
+   * же оборотом, что крупный выигрыш, и встаёт в центр. Но это витрина, а не
+   * выигрыш, и это должно быть видно сразу: ни надписи WIN, ни монет, ни
+   * счёта суммы, ни тряски. Цена стоит готовым числом с подписью «стоимость».
+   * Показ «как будто выиграл» на каждом нажатии обесценил бы настоящий
+   * выигрыш и путал бы игрока, что ему что-то начислено.
+   */
+  let inspecting = null;
+
+  async function inspect(item, o) {
+    mount();
+    if (inspecting) return;
+    accent = ACCENTS[o.theme] || {};
+    const color = tierColor(item.tier);
+    const tb = o.tile ? box(o.tile) : { cx: W / 2, cy: H * 0.6, w: 160 };
+    const value = item.value || 0;
+    const mult = value && o.price ? value / o.price : 0;
+
+    const wl = el('div', 'mo-wl mo-inspect');
+    wl.style.setProperty('--c2', color);
+    wl.style.setProperty('--glow', `color-mix(in srgb, ${color} 45%, transparent)`);
+    wl.innerHTML = `
+      <div class="mo-wl-dim"></div>
+      <div class="mo-sky"><div class="mo-bloom"></div><div class="mo-rays"></div><div class="mo-rays b"></div></div>
+      <div class="mo-card-slot"><div class="mo-spinner"></div></div>
+      <div class="mo-insp">
+        <div class="mo-insp-tier"></div>
+        <div class="mo-insp-value"></div>
+        <div class="mo-insp-sub"></div>
+      </div>
+      <button class="mo-insp-close" type="button">Закрыть</button>
+      <div class="mo-skip">потяните карточку, чтобы повернуть</div>`;
+    wl.querySelector('.mo-insp-tier').textContent = o.tierLabel || '';
+    wl.querySelector('.mo-insp-value').textContent = value ? money(value) : (item.perkLabel || '');
+    wl.querySelector('.mo-insp-sub').textContent = value
+      ? (mult ? `стоимость предмета · ${xFmt(mult)} к цене кейса` : 'стоимость предмета')
+      : 'бонус из этого кейса';
+    const slot = wl.querySelector('.mo-card-slot');
+    const spinner = wl.querySelector('.mo-spinner');
+    const info = wl.querySelector('.mo-insp');
+    const sky = wl.querySelector('.mo-sky');
+
+    if (o.tile) o.tile.classList.add('mo-lifted');
+    recede(true);
+    anim(wl.querySelector('.mo-wl-dim'), [{ opacity: 0 }, { opacity: 1 }], { duration: 420, easing: E.out });
+    play('sndWhoosh');
+
+    const card = heroCard(item);
+    spinner.append(card);
+    const fb = box(slot);
+    const s = tb.w / 196;
+    const dx = tb.cx - fb.cx, dy = tb.cy - fb.cy;
+    const fly = anim(card, [
+      { transform: `translate(${dx}px, ${dy}px) scale(${s}) rotateY(0deg)` },
+      { transform: `translate(${dx * 0.3}px, ${dy * 0.3 - 40}px) scale(${s + (1 - s) * 0.75}) rotateY(230deg)`, offset: 0.6 },
+      { transform: 'translate(0, 0) scale(1) rotateY(360deg)' },
+    ], { duration: 900, easing: E.out });
+    anim(sky, [{ opacity: 0, transform: 'scale(.5)' }, { opacity: 1, transform: 'scale(1)' }], { duration: 900, easing: E.out });
+    [...wl.querySelectorAll('.mo-rays')].forEach((r, i) =>
+      r.animate([{ rotate: '0deg' }, { rotate: `${i ? -360 : 360}deg` }], { duration: i ? 70000 : 50000, iterations: Infinity }));
+    anim(info, [{ opacity: 0, transform: 'translateY(16px)' }, { opacity: 1, transform: 'none' }], { duration: 500, delay: 650, easing: E.out });
+    anim(wl.querySelector('.mo-insp-close'), [{ opacity: 0, transform: 'translateY(20px)' }, { opacity: 1, transform: 'none' }], { duration: 500, delay: 800, easing: E.out });
+
+    // Посадка - тихая: волна в цвет редкости и пара искр, без удара и звона
+    // монет. Это остаётся языком настоящего выигрыша.
+    setTimeout(() => {
+      if (!wl.isConnected) return;
+      ring(fb.cx, fb.cy, color, 3, 800);
+      sparks(fb.cx, fb.cy, 26, ['#ffffff', color], 380, { g: 60 });
+      bokeh(8, [color, '#ffffff']);
+      play('sndChime');
+    }, 820);
+
+    /*
+     * Карточку можно крутить пальцем. Отпустили - она докручивается по
+     * инерции и встаёт лицом к игроку. В покое чуть покачивается, чтобы было
+     * видно, что она объёмная и живая.
+     */
+    let angle = 0, vel = 0, dragging = false, lastX = 0, raf = 0;
+    const t0 = performance.now();
+    const loop = (now) => {
+      if (!wl.isConnected) return;
+      if (!dragging) {
+        vel *= 0.94;
+        angle += vel;
+        if (Math.abs(vel) < 0.6) {
+          const face = Math.round(angle / 360) * 360;
+          angle += (face - angle) * 0.08;
+        }
+      }
+      const t = (now - t0) / 1000;
+      const sway = REDUCED ? 0 : Math.sin(t * 1.1) * 14;
+      const tilt = REDUCED ? 0 : Math.sin(t * 0.8) * 5;
+      spinner.style.transform = `rotateY(${angle + sway}deg) rotateX(${tilt}deg)`;
+      raf = requestAnimationFrame(loop);
+    };
+    setTimeout(() => { if (wl.isConnected) raf = requestAnimationFrame(loop); }, 900);
+
+    const onDown = (e) => {
+      if (e.target.closest('.mo-insp-close')) return;
+      dragging = true; lastX = e.clientX; vel = 0;
+      wl.setPointerCapture?.(e.pointerId);
+    };
+    const onMove = (e) => {
+      if (!dragging) return;
+      const d = e.clientX - lastX;
+      lastX = e.clientX;
+      angle += d * 0.6;
+      vel = d * 0.6;
+    };
+    const onUp = () => { dragging = false; };
+    wl.addEventListener('pointerdown', onDown);
+    wl.addEventListener('pointermove', onMove);
+    wl.addEventListener('pointerup', onUp);
+    wl.addEventListener('pointercancel', onUp);
+
+    await new Promise((resolve) => {
+      inspecting = resolve;
+      wl.querySelector('.mo-insp-close').addEventListener('click', resolve, { once: true });
+      // Нажатие мимо карточки тоже закрывает: окно просмотра не должно
+      // запирать экран кейса.
+      wl.querySelector('.mo-wl-dim').addEventListener('click', resolve, { once: true });
+    });
+    inspecting = null;
+    if (!wl.isConnected) return;
+
+    // Обратно - в своё место в сетке, тем же путём.
+    cancelAnimationFrame(raf);
+    fly.cancel();
+    const back = o.tile && o.tile.isConnected ? box(o.tile) : tb;
+    const fb2 = box(slot);
+    const bs = back.w / 196;
+    play('sndWhoosh', false);
+    anim(card, [
+      { transform: 'translate(0, 0) scale(1) rotateY(0deg)' },
+      { transform: `translate(${back.cx - fb2.cx}px, ${back.cy - fb2.cy}px) scale(${bs}) rotateY(-180deg)`, opacity: 0.6 },
+    ], { duration: 520, easing: E.inout });
+    anim(wl, [{ opacity: 1 }, { opacity: 0 }], { duration: 420, delay: 160, easing: E.inout });
+    recede(false);
+    await sleep(560);
+    wl.remove();
+    if (o.tile) o.tile.classList.remove('mo-lifted');
+  }
+
+  /** Закрыть просмотр снаружи: Esc или уход из кейса. */
+  function closeInspect() { inspecting?.(); }
+
   /** Снять всё: игрок закрыл окно кейса посреди показа. */
   function reset() {
+    inspecting?.();
+    inspecting = null;
     recede(false);
     if (!root) return;
     layer.innerHTML = '';
@@ -13733,7 +13917,7 @@ function createMotion({ money, artFor, tierColor, snd, haptic = () => {} }) {
     document.querySelectorAll('.mo-lifted').forEach((t) => t.classList.remove('mo-lifted'));
   }
 
-  return { win, purchase, retrigger, payout, seriesEnd, reset, recede, levelOf };
+  return { win, purchase, retrigger, payout, seriesEnd, reset, recede, levelOf, inspect, closeInspect };
 }
 
 
@@ -25009,7 +25193,9 @@ const icon = (name, cls = 'sl-ico') =>
    ============================================================ */
 
 const SETTINGS_KEY = 'luckybox.slot.settings';
-const DEFAULT_SETTINGS = { sound: true, music: false, animation: true, fast: false };
+// Музыки нет: выключатель, который ничего не выключает, убран из настроек.
+// Появятся файлы - вернуть ключ сюда и строку в settingsHtml.
+const DEFAULT_SETTINGS = { sound: true, animation: true, fast: false };
 
 function loadSettings() {
   try {
@@ -25944,14 +26130,12 @@ function createSlot(deps) {
     return `
       <h2 class="sl-modal-title">НАСТРОЙКИ</h2>
       ${row('sound', 'Звук', 'sound')}
-      ${row('music', 'Музыка', 'music')}
       ${row('animation', 'Анимация', 'spark')}
       ${row('fast', 'Быстрый прокрут', 'play')}
       <button class="sl-gold-btn sl-gold-btn-quiet" data-act="settings-reset">Сбросить</button>
       <p class="sl-modal-note">Выключенная анимация показывает результат сразу.
         На исход и на выплату это не влияет никак: результат решает сервер до
-        начала вращения. Музыки в игре пока нет - выключатель сохранится и
-        заработает вместе с ней.</p>`;
+        начала вращения.</p>`;
   }
 
   function buyHtml() {
@@ -26939,9 +27123,10 @@ function openCase(caseId) {
       <div class="drop-name"><span>${esc(c.showcase.name)}</span></div>
     </div>` : '';
 
-  const cards = c.items
+  const sortedItems = c.items
     .slice()
-    .sort((a, b) => (b.evValue ?? b.value) - (a.evValue ?? a.value))
+    .sort((a, b) => (b.evValue ?? b.value) - (a.evValue ?? a.value));
+  const cards = sortedItems
     .map((it) => {
       const color = tierColor(it.tier);
       const isPerk = it.kind === 'perk';
@@ -26953,6 +27138,30 @@ function openCase(caseId) {
     }).join('');
 
   document.getElementById('dropsGrid').innerHTML = showcaseCard + cards;
+
+  /*
+   * Нажатие на предмет в составе показывает его крупно: та же карточка, что
+   * вылетает при выигрыше, но без начисления и без надписи WIN (см. inspect
+   * в motion.js). Порядок карточек в сетке совпадает с sortedItems, витрина
+   * идёт первой.
+   */
+  const gridItems = [...(c.showcase ? [c.showcase] : []), ...sortedItems];
+  document.querySelectorAll('#dropsGrid .drop-card').forEach((card, i) => {
+    card.onclick = () => {
+      const it = gridItems[i];
+      if (!it) return;
+      // Витринный предмет не разыгрывается: множитель к цене кейса у него
+      // намекал бы, что его можно выиграть.
+      const isShowcase = !!c.showcase && i === 0;
+      haptic('light');
+      motion().inspect(it, {
+        tile: card, price: isShowcase ? 0 : c.price, theme: c.theme,
+        tierLabel: isShowcase ? 'витрина'
+          : it.kind === 'perk' ? (it.perkLabel || 'бонус')
+          : (state.config.tiers.find((t) => t.id === it.tier)?.label || ''),
+      });
+    };
+  });
   document.getElementById('dropsCount').textContent = `${c.items.length} предметов`;
 
   /*
@@ -27825,6 +28034,9 @@ function fitOpenBtn() {
   btn.classList.toggle('is-tight', cut);
 }
 addEventListener('resize', fitOpenBtn);
+// Просмотр предмета закрывается и с клавиатуры: на компьютере до кнопки
+// «Закрыть» тянуться мышью дальше, чем до Esc.
+addEventListener('keydown', (e) => { if (e.key === 'Escape') motion().closeInspect(); });
 // Дисплейный шрифт шире запасного: приехал позже замера - меряем заново.
 document.fonts?.ready.then(fitOpenBtn);
 
@@ -32597,18 +32809,11 @@ function startFooterCounters() {
 
 
 /*
- * Плашка с пояснением про демо убрана: она занимала первый экран и мешала
- * смотреть саму игру. Оговорки никуда не делись — они в шапке файла и в
- * README, а demoAdmin() и resetDemo() по-прежнему работают из консоли.
+ * Ни плашки, ни надписи в консоли про то, что это сборка без сервера: файл
+ * смотрят как продукт, и слово «демо» на вкладке или в консоли сразу
+ * читается как «ненастоящее». Оговорки - в README. demoAdmin() и
+ * resetDemo() по-прежнему работают из консоли для тех, кто о них знает.
  */
-console.info(
-  '%cLUCKYBOX - автономное демо',
-  'font-weight:700;color:#ff2e8a',
-  '\n· вся математика считается в браузере, прогресс хранится локально;'
-  + '\n· в рабочей версии исход считает сервер, серверный seed игроку недоступен;'
-  + '\n· игроки в админке выдуманы; панель: demoAdmin()'
-  + '\n· сбросить прогресс: resetDemo()',
-);
 })();
 </script>
 </body>

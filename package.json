@@ -27,7 +27,8 @@
     "test:cards": "node test/cards.mjs",
     "test:art": "node test/art.mjs",
     "demo:motion": "node tools/motion-demo.mjs",
-    "demo:button": "node tools/open-button-demo.mjs"
+    "demo:button": "node tools/open-button-demo.mjs",
+    "demo:admin": "DEMO_ADMIN=1 node build-standalone.mjs && cp dist/luckybox.html dist/luckybox-admin.html && node build-standalone.mjs"
   },
   "engines": {
     "node": ">=18"

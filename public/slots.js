@@ -125,7 +125,9 @@ const icon = (name, cls = 'sl-ico') =>
    ============================================================ */
 
 const SETTINGS_KEY = 'luckybox.slot.settings';
-const DEFAULT_SETTINGS = { sound: true, music: false, animation: true, fast: false };
+// Музыки нет: выключатель, который ничего не выключает, убран из настроек.
+// Появятся файлы - вернуть ключ сюда и строку в settingsHtml.
+const DEFAULT_SETTINGS = { sound: true, animation: true, fast: false };
 
 function loadSettings() {
   try {
@@ -1060,14 +1062,12 @@ export function createSlot(deps) {
     return `
       <h2 class="sl-modal-title">НАСТРОЙКИ</h2>
       ${row('sound', 'Звук', 'sound')}
-      ${row('music', 'Музыка', 'music')}
       ${row('animation', 'Анимация', 'spark')}
       ${row('fast', 'Быстрый прокрут', 'play')}
       <button class="sl-gold-btn sl-gold-btn-quiet" data-act="settings-reset">Сбросить</button>
       <p class="sl-modal-note">Выключенная анимация показывает результат сразу.
         На исход и на выплату это не влияет никак: результат решает сервер до
-        начала вращения. Музыки в игре пока нет - выключатель сохранится и
-        заработает вместе с ней.</p>`;
+        начала вращения.</p>`;
   }
 
   function buyHtml() {

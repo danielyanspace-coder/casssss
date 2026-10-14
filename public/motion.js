@@ -900,8 +900,160 @@ export function createMotion({ money, artFor, tierColor, snd, haptic = () => {} 
     play('sndFanfare', big ? 1.26 : 1);
   }
 
+  /* ---------- Просмотр предмета из состава ---------- */
+
+  /*
+   * Карточку из состава кейса можно рассмотреть: она вылетает из сетки тем
+   * же оборотом, что крупный выигрыш, и встаёт в центр. Но это витрина, а не
+   * выигрыш, и это должно быть видно сразу: ни надписи WIN, ни монет, ни
+   * счёта суммы, ни тряски. Цена стоит готовым числом с подписью «стоимость».
+   * Показ «как будто выиграл» на каждом нажатии обесценил бы настоящий
+   * выигрыш и путал бы игрока, что ему что-то начислено.
+   */
+  let inspecting = null;
+
+  async function inspect(item, o) {
+    mount();
+    if (inspecting) return;
+    accent = ACCENTS[o.theme] || {};
+    const color = tierColor(item.tier);
+    const tb = o.tile ? box(o.tile) : { cx: W / 2, cy: H * 0.6, w: 160 };
+    const value = item.value || 0;
+    const mult = value && o.price ? value / o.price : 0;
+
+    const wl = el('div', 'mo-wl mo-inspect');
+    wl.style.setProperty('--c2', color);
+    wl.style.setProperty('--glow', `color-mix(in srgb, ${color} 45%, transparent)`);
+    wl.innerHTML = `
+      <div class="mo-wl-dim"></div>
+      <div class="mo-sky"><div class="mo-bloom"></div><div class="mo-rays"></div><div class="mo-rays b"></div></div>
+      <div class="mo-card-slot"><div class="mo-spinner"></div></div>
+      <div class="mo-insp">
+        <div class="mo-insp-tier"></div>
+        <div class="mo-insp-value"></div>
+        <div class="mo-insp-sub"></div>
+      </div>
+      <button class="mo-insp-close" type="button">Закрыть</button>
+      <div class="mo-skip">потяните карточку, чтобы повернуть</div>`;
+    wl.querySelector('.mo-insp-tier').textContent = o.tierLabel || '';
+    wl.querySelector('.mo-insp-value').textContent = value ? money(value) : (item.perkLabel || '');
+    wl.querySelector('.mo-insp-sub').textContent = value
+      ? (mult ? `стоимость предмета · ${xFmt(mult)} к цене кейса` : 'стоимость предмета')
+      : 'бонус из этого кейса';
+    const slot = wl.querySelector('.mo-card-slot');
+    const spinner = wl.querySelector('.mo-spinner');
+    const info = wl.querySelector('.mo-insp');
+    const sky = wl.querySelector('.mo-sky');
+
+    if (o.tile) o.tile.classList.add('mo-lifted');
+    recede(true);
+    anim(wl.querySelector('.mo-wl-dim'), [{ opacity: 0 }, { opacity: 1 }], { duration: 420, easing: E.out });
+    play('sndWhoosh');
+
+    const card = heroCard(item);
+    spinner.append(card);
+    const fb = box(slot);
+    const s = tb.w / 196;
+    const dx = tb.cx - fb.cx, dy = tb.cy - fb.cy;
+    const fly = anim(card, [
+      { transform: `translate(${dx}px, ${dy}px) scale(${s}) rotateY(0deg)` },
+      { transform: `translate(${dx * 0.3}px, ${dy * 0.3 - 40}px) scale(${s + (1 - s) * 0.75}) rotateY(230deg)`, offset: 0.6 },
+      { transform: 'translate(0, 0) scale(1) rotateY(360deg)' },
+    ], { duration: 900, easing: E.out });
+    anim(sky, [{ opacity: 0, transform: 'scale(.5)' }, { opacity: 1, transform: 'scale(1)' }], { duration: 900, easing: E.out });
+    [...wl.querySelectorAll('.mo-rays')].forEach((r, i) =>
+      r.animate([{ rotate: '0deg' }, { rotate: `${i ? -360 : 360}deg` }], { duration: i ? 70000 : 50000, iterations: Infinity }));
+    anim(info, [{ opacity: 0, transform: 'translateY(16px)' }, { opacity: 1, transform: 'none' }], { duration: 500, delay: 650, easing: E.out });
+    anim(wl.querySelector('.mo-insp-close'), [{ opacity: 0, transform: 'translateY(20px)' }, { opacity: 1, transform: 'none' }], { duration: 500, delay: 800, easing: E.out });
+
+    // Посадка - тихая: волна в цвет редкости и пара искр, без удара и звона
+    // монет. Это остаётся языком настоящего выигрыша.
+    setTimeout(() => {
+      if (!wl.isConnected) return;
+      ring(fb.cx, fb.cy, color, 3, 800);
+      sparks(fb.cx, fb.cy, 26, ['#ffffff', color], 380, { g: 60 });
+      bokeh(8, [color, '#ffffff']);
+      play('sndChime');
+    }, 820);
+
+    /*
+     * Карточку можно крутить пальцем. Отпустили - она докручивается по
+     * инерции и встаёт лицом к игроку. В покое чуть покачивается, чтобы было
+     * видно, что она объёмная и живая.
+     */
+    let angle = 0, vel = 0, dragging = false, lastX = 0, raf = 0;
+    const t0 = performance.now();
+    const loop = (now) => {
+      if (!wl.isConnected) return;
+      if (!dragging) {
+        vel *= 0.94;
+        angle += vel;
+        if (Math.abs(vel) < 0.6) {
+          const face = Math.round(angle / 360) * 360;
+          angle += (face - angle) * 0.08;
+        }
+      }
+      const t = (now - t0) / 1000;
+      const sway = REDUCED ? 0 : Math.sin(t * 1.1) * 14;
+      const tilt = REDUCED ? 0 : Math.sin(t * 0.8) * 5;
+      spinner.style.transform = `rotateY(${angle + sway}deg) rotateX(${tilt}deg)`;
+      raf = requestAnimationFrame(loop);
+    };
+    setTimeout(() => { if (wl.isConnected) raf = requestAnimationFrame(loop); }, 900);
+
+    const onDown = (e) => {
+      if (e.target.closest('.mo-insp-close')) return;
+      dragging = true; lastX = e.clientX; vel = 0;
+      wl.setPointerCapture?.(e.pointerId);
+    };
+    const onMove = (e) => {
+      if (!dragging) return;
+      const d = e.clientX - lastX;
+      lastX = e.clientX;
+      angle += d * 0.6;
+      vel = d * 0.6;
+    };
+    const onUp = () => { dragging = false; };
+    wl.addEventListener('pointerdown', onDown);
+    wl.addEventListener('pointermove', onMove);
+    wl.addEventListener('pointerup', onUp);
+    wl.addEventListener('pointercancel', onUp);
+
+    await new Promise((resolve) => {
+      inspecting = resolve;
+      wl.querySelector('.mo-insp-close').addEventListener('click', resolve, { once: true });
+      // Нажатие мимо карточки тоже закрывает: окно просмотра не должно
+      // запирать экран кейса.
+      wl.querySelector('.mo-wl-dim').addEventListener('click', resolve, { once: true });
+    });
+    inspecting = null;
+    if (!wl.isConnected) return;
+
+    // Обратно - в своё место в сетке, тем же путём.
+    cancelAnimationFrame(raf);
+    fly.cancel();
+    const back = o.tile && o.tile.isConnected ? box(o.tile) : tb;
+    const fb2 = box(slot);
+    const bs = back.w / 196;
+    play('sndWhoosh', false);
+    anim(card, [
+      { transform: 'translate(0, 0) scale(1) rotateY(0deg)' },
+      { transform: `translate(${back.cx - fb2.cx}px, ${back.cy - fb2.cy}px) scale(${bs}) rotateY(-180deg)`, opacity: 0.6 },
+    ], { duration: 520, easing: E.inout });
+    anim(wl, [{ opacity: 1 }, { opacity: 0 }], { duration: 420, delay: 160, easing: E.inout });
+    recede(false);
+    await sleep(560);
+    wl.remove();
+    if (o.tile) o.tile.classList.remove('mo-lifted');
+  }
+
+  /** Закрыть просмотр снаружи: Esc или уход из кейса. */
+  function closeInspect() { inspecting?.(); }
+
   /** Снять всё: игрок закрыл окно кейса посреди показа. */
   function reset() {
+    inspecting?.();
+    inspecting = null;
     recede(false);
     if (!root) return;
     layer.innerHTML = '';
@@ -912,5 +1064,5 @@ export function createMotion({ money, artFor, tierColor, snd, haptic = () => {} 
     document.querySelectorAll('.mo-lifted').forEach((t) => t.classList.remove('mo-lifted'));
   }
 
-  return { win, purchase, retrigger, payout, seriesEnd, reset, recede, levelOf };
+  return { win, purchase, retrigger, payout, seriesEnd, reset, recede, levelOf, inspect, closeInspect };
 }

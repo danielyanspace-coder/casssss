@@ -532,12 +532,14 @@ const randHex = (n) => {
 
 /* ---------- Хранилище ---------- */
 
-const STORE_KEY = 'luckybox-demo-v3';
+// v4: сменились имена вымышленных игроков и команды. Со старым ключом у
+// того, кто уже открывал сборку, остались бы прежние имена из хранилища.
+const STORE_KEY = 'luckybox-v4';
 
 function freshUser() {
   const serverSeed = randHex(32);
   return {
-    id: 1, username: 'demo', firstName: 'Гость',
+    id: 1, username: 'alex_rv', firstName: 'Алексей',
     balance: 5_000_000,
     serverSeed, serverSeedHash: sha256Hex(serverSeed),
     clientSeed: randHex(8), nonce: 0,
@@ -564,11 +566,11 @@ function freshUser() {
 function demoStaff() {
   const now = Date.now();
   const people = [
-    ['999000001', 'demo_owner', 'Вы', 'owner', null],
-    ['999000102', 'demo_finance', 'Марина', 'finance', 1],
-    ['999000103', 'demo_support', 'Илья', 'support', 1],
-    ['999000104', 'demo_risk', 'Артём', 'risk', 1],
-    ['999000105', 'demo_marketing', 'Ольга', 'marketing', 1],
+    ['999000001', 'luckybox_owner', 'Вы', 'owner', null],
+    ['999000102', 'marina_fin', 'Марина', 'finance', 1],
+    ['999000103', 'ilya_help', 'Илья', 'support', 1],
+    ['999000104', 'artem_risk', 'Артём', 'risk', 1],
+    ['999000105', 'olga_promo', 'Ольга', 'marketing', 1],
   ];
   return people.map(([tg_id, username, first_name, role, added_by], i) => ({
     user_id: i === 0 ? 1 : 900 + i,
@@ -586,9 +588,9 @@ function demoStaff() {
  */
 function demoPlayers() {
   const names = [
-    ['demo_kirill', 'Кирилл'], ['demo_anna', 'Анна'], ['demo_pavel', 'Павел'],
-    ['demo_sveta', 'Светлана'], ['demo_oleg', 'Олег'], ['demo_marina', 'Марина'],
-    ['demo_ivan', 'Иван'],
+    ['kirill_sm', 'Кирилл'], ['anna.vlad', 'Анна'], ['pavel_k88', 'Павел'],
+    ['sveta_lu', 'Светлана'], ['oleg_dn', 'Олег'], ['marina.pt', 'Марина'],
+    ['ivan_rk', 'Иван'],
   ];
   return names.map(([u, n], i) => {
     const spent = Math.round(20000 + Math.random() * 900000);
@@ -1661,7 +1663,7 @@ const routes = {
       { id: 411, tg_id: '388120774', username: 'nastya.k', status: 'PENDING',
         original_amount: 1500, payable_amount: 1523, bank: 'tbank',
         created_at: Date.now() - 40 * 60000, sms_message: null },
-      { id: 409, tg_id: '901233812', username: 'demo_player', status: 'MANUAL_REVIEW',
+      { id: 409, tg_id: '901233812', username: 'max_rybak', status: 'MANUAL_REVIEW',
         original_amount: 3000, payable_amount: 3061, bank: 'any',
         created_at: Date.now() - 3 * 3600000, sms_message: null },
       { id: 404, tg_id: '774100285', username: 'arteml', status: 'EXPIRED',
@@ -1672,7 +1674,7 @@ const routes = {
 
   'POST /api/admin/support': () => ({
     rows: [
-      { id: 18, tg_id: '901233812', username: 'demo_player', payable_amount: 3061,
+      { id: 18, tg_id: '901233812', username: 'max_rybak', payable_amount: 3061,
         payment_status: 'MANUAL_REVIEW', unread_admin: 2 },
       { id: 15, tg_id: '388120774', username: 'nastya.k', payable_amount: 1523,
         payment_status: 'PENDING', unread_admin: 0 },
@@ -2365,7 +2367,7 @@ const page = `<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-<title>LUCKYBOX - демо</title>
+<title>LUCKYBOX</title>
 <style>
 ${css}
 
@@ -2430,18 +2432,11 @@ ${strip(slots)}
 ${strip(app)}
 
 /*
- * Плашка с пояснением про демо убрана: она занимала первый экран и мешала
- * смотреть саму игру. Оговорки никуда не делись — они в шапке файла и в
- * README, а demoAdmin() и resetDemo() по-прежнему работают из консоли.
+ * Ни плашки, ни надписи в консоли про то, что это сборка без сервера: файл
+ * смотрят как продукт, и слово «демо» на вкладке или в консоли сразу
+ * читается как «ненастоящее». Оговорки - в README. demoAdmin() и
+ * resetDemo() по-прежнему работают из консоли для тех, кто о них знает.
  */
-console.info(
-  '%cLUCKYBOX - автономное демо',
-  'font-weight:700;color:#ff2e8a',
-  '\\n· вся математика считается в браузере, прогресс хранится локально;'
-  + '\\n· в рабочей версии исход считает сервер, серверный seed игроку недоступен;'
-  + '\\n· игроки в админке выдуманы; панель: demoAdmin()'
-  + '\\n· сбросить прогресс: resetDemo()',
-);
 })();
 </script>
 </body>
@@ -2482,7 +2477,7 @@ if (clashes.length) {
 }
 
 mkdirSync(new URL('./dist/', import.meta.url), { recursive: true });
-const out = new URL('./dist/luckybox-demo.html', import.meta.url);
+const out = new URL('./dist/luckybox.html', import.meta.url);
 writeFileSync(out, page);
 
 console.log('Собрано:', out.pathname);

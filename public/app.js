@@ -751,9 +751,10 @@ function openCase(caseId) {
       <div class="drop-name"><span>${esc(c.showcase.name)}</span></div>
     </div>` : '';
 
-  const cards = c.items
+  const sortedItems = c.items
     .slice()
-    .sort((a, b) => (b.evValue ?? b.value) - (a.evValue ?? a.value))
+    .sort((a, b) => (b.evValue ?? b.value) - (a.evValue ?? a.value));
+  const cards = sortedItems
     .map((it) => {
       const color = tierColor(it.tier);
       const isPerk = it.kind === 'perk';
@@ -765,6 +766,30 @@ function openCase(caseId) {
     }).join('');
 
   document.getElementById('dropsGrid').innerHTML = showcaseCard + cards;
+
+  /*
+   * Нажатие на предмет в составе показывает его крупно: та же карточка, что
+   * вылетает при выигрыше, но без начисления и без надписи WIN (см. inspect
+   * в motion.js). Порядок карточек в сетке совпадает с sortedItems, витрина
+   * идёт первой.
+   */
+  const gridItems = [...(c.showcase ? [c.showcase] : []), ...sortedItems];
+  document.querySelectorAll('#dropsGrid .drop-card').forEach((card, i) => {
+    card.onclick = () => {
+      const it = gridItems[i];
+      if (!it) return;
+      // Витринный предмет не разыгрывается: множитель к цене кейса у него
+      // намекал бы, что его можно выиграть.
+      const isShowcase = !!c.showcase && i === 0;
+      haptic('light');
+      motion().inspect(it, {
+        tile: card, price: isShowcase ? 0 : c.price, theme: c.theme,
+        tierLabel: isShowcase ? 'витрина'
+          : it.kind === 'perk' ? (it.perkLabel || 'бонус')
+          : (state.config.tiers.find((t) => t.id === it.tier)?.label || ''),
+      });
+    };
+  });
   document.getElementById('dropsCount').textContent = `${c.items.length} предметов`;
 
   /*
@@ -1637,6 +1662,9 @@ function fitOpenBtn() {
   btn.classList.toggle('is-tight', cut);
 }
 addEventListener('resize', fitOpenBtn);
+// Просмотр предмета закрывается и с клавиатуры: на компьютере до кнопки
+// «Закрыть» тянуться мышью дальше, чем до Esc.
+addEventListener('keydown', (e) => { if (e.key === 'Escape') motion().closeInspect(); });
 // Дисплейный шрифт шире запасного: приехал позже замера - меряем заново.
 document.fonts?.ready.then(fitOpenBtn);
 
