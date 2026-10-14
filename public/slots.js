@@ -482,20 +482,27 @@ export function createSlot(deps) {
     const nodes = root()?.querySelectorAll('.sl-reel');
     if (!nodes?.length) return;
 
+    /*
+     * Барабан того же экрана обновляется НА МЕСТЕ, а не заменяется новым
+     * объектом. Пересчёт приходит по таймеру после изменения размера окна и
+     * может попасть посреди прокрута: анимация держит ссылку на старый объект,
+     * и с заменой она крутила бы барабан, которого уже нет в списке, - лента
+     * бралась как strips[-1], прокрут падал, а на экране оставалась не та
+     * сетка, что прислал сервер.
+     */
     ui.reels = Array.from(nodes).map((el, index) => {
       const strip = el.querySelector('.sl-strip');
       const cell = strip.firstElementChild?.getBoundingClientRect().height || 0;
       const old = ui.reels[index];
-      return {
-        el,
+      const reel = old && old.el === el ? old : { el, pos: old?.pos ?? 0, expanded: false };
+      return Object.assign(reel, {
         strip,
         cells: Array.from(strip.children),
         cell,
+        index,
         length: ui.slot.strips[index].length,
-        pos: old?.pos ?? 0,
         base: null,
-        expanded: false,
-      };
+      });
     });
     ui.reels.forEach(draw);
   }
@@ -513,7 +520,9 @@ export function createSlot(deps) {
 
     if (base !== reel.base) {
       reel.base = base;
-      const strip = ui.slot.strips[ui.reels.indexOf(reel)];
+      // Номер ленты хранится в самом барабане: поиск по списку ломался,
+      // когда барабан пересоздавали посреди прокрута.
+      const strip = ui.slot.strips[reel.index];
       const L = reel.length;
       for (let k = 0; k < reel.cells.length; k++) {
         const id = reel.expanded && k < ui.slot.rows

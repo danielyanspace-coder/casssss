@@ -1479,21 +1479,12 @@ function renderFreeSpinBuy(c, locked) {
   row.innerHTML = packs.map((p) => {
     const price = freeSpinPackPrice(c, p);
 
-    /*
-     * Цена одного прокрута и скидка к цене кейса - то, ради чего пачку и
-     * покупают. Без них блок читался как три непонятных ценника. Скидка
-     * считается от настоящих цен, а не берётся из лесенки: после округления
-     * цены пачки она бывает на процент выше заявленной.
-     */
-    const per = Math.round(price / p.count);
-    const off = Math.round((1 - price / (p.count * c.price)) * 100);
-
     return `<button class="fsbuy-btn${p.popular ? ' is-popular' : ''}" data-fs="${p.count}"
-        aria-label="${p.count} прокрутов за ${money(price)}, по ${money(per)} за прокрут"
+        aria-label="${p.count} прокрутов за ${money(price)}"
         ${price > state.user.balance ? 'disabled' : ''}>
-      <span class="fsbuy-top"><b class="fsbuy-count">${p.count}</b><span class="fsbuy-word">прокрутов</span></span>
+      <b class="fsbuy-count">${p.count}</b>
+      <span class="fsbuy-word">free spins</span>
       <span class="fsbuy-price">${money(price)}</span>
-      <span class="fsbuy-per">по ${money(per)}${off > 0 ? ` <em>−${off}%</em>` : ''}</span>
       ${p.popular ? '<span class="fsbuy-flag">Хит</span>' : ''}
     </button>`;
   }).join('');

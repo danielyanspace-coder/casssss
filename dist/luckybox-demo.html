@@ -2592,76 +2592,119 @@ select.seed-input {
 }
 
 /* ---------- Покупка фриспинов ----------
-   Заголовок говорит, что это и зачем: серия прокрутов дешевле, чем по
-   одному. Без него три плитки с ценами читались как непонятные ценники.
-   На плитке - число, цена пачки и цена одного прокрута со скидкой. */
-.fsbuy { margin-top: 18px; }
-.fsbuy-head {
-  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
-  margin-bottom: 12px;
-}
-.fsbuy-head b {
-  font-size: 10.5px; font-weight: 800; letter-spacing: 0.16em; text-transform: uppercase;
-  color: #ffd98a; white-space: nowrap;
-}
-.fsbuy-head span { font-size: 11px; font-weight: 600; color: var(--muted); text-align: right; }
+   Три плитки: число, FREE SPINS, цена. Объёмные, но тише золотой кнопки
+   «Открыть»: свет сверху, глянец на верхней половине, кромка снизу даёт
+   толщину, и при нажатии плитка проседает на неё. Цвет приглушённый и без
+   анимаций: пачки - дополнительное действие и не должны спорить с главным. */
+.fsbuy { margin-top: 18px; padding-top: 7px; }
 
-.fsbuy-row { display: flex; align-items: stretch; gap: 8px; }
+.fsbuy-row { display: flex; align-items: stretch; gap: 9px; }
 
 .fsbuy-btn {
   flex: 1;
   position: relative;
   display: flex; flex-direction: column; align-items: center; gap: 3px;
-  padding: 10px 6px 9px;
+  padding: 11px 6px 10px;
+  margin-bottom: 3px;
   border: 0;
   border-radius: 16px;
-  background: linear-gradient(180deg, rgba(150, 90, 255, 0.22), rgba(70, 30, 140, 0.3));
-  box-shadow: inset 0 0 0 1px rgba(190, 150, 255, 0.3);
+  background:
+    radial-gradient(120% 70% at 50% 0%, rgba(190, 150, 255, 0.26), transparent 62%),
+    linear-gradient(180deg, #2b1650 0%, #190a31 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    inset 0 0 0 1px rgba(170, 130, 255, 0.28),
+    inset 0 -12px 18px -12px rgba(0, 0, 0, 0.65),
+    0 3px 0 #10051f,
+    0 12px 20px -10px rgba(0, 0, 0, 0.7);
   color: var(--text);
   font-family: inherit;
   cursor: pointer;
   /* Без этого плитка не сожмётся уже своей цены, и у дорогих кейсов
      («2 639 974 ₽») третья вылезает за край. */
   min-width: 0;
-  transition: transform 0.12s, box-shadow 0.15s;
+  transition: transform 0.08s, box-shadow 0.08s;
 }
-.fsbuy-btn:not(:disabled):active { transform: scale(0.96); }
-.fsbuy-btn:disabled { opacity: 0.38; cursor: default; }
+/* Глянец: светлая верхняя половина, как у выпуклой поверхности. */
+.fsbuy-btn::before {
+  content: '';
+  position: absolute; left: 1px; right: 1px; top: 1px; height: 48%;
+  border-radius: 15px 15px 40% 40% / 15px 15px 12px 12px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0));
+  pointer-events: none;
+}
+.fsbuy-btn:not(:disabled):active {
+  transform: translateY(2px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    inset 0 0 0 1px rgba(170, 130, 255, 0.28),
+    inset 0 -12px 18px -12px rgba(0, 0, 0, 0.65),
+    0 1px 0 #10051f,
+    0 6px 12px -8px rgba(0, 0, 0, 0.7);
+}
+.fsbuy-btn:disabled { opacity: 0.4; cursor: default; }
 
-.fsbuy-top { display: flex; align-items: baseline; gap: 5px; }
+/* Число с тиснением: металл тот же, что у FREE SPINS в прологе серии. */
 .fsbuy-count {
-  font: 800 18px/1 'Unbounded', 'Manrope', system-ui, sans-serif;
-  background: linear-gradient(180deg, #fff, #ffd34d);
+  position: relative;
+  font: 800 20px/1 'Unbounded', 'Manrope', system-ui, sans-serif;
+  background: linear-gradient(180deg, #fffbe8 0%, #ffd34d 55%, #e39a24 100%);
   -webkit-background-clip: text; background-clip: text; color: transparent;
+  filter: drop-shadow(0 1px 0 rgba(110, 60, 6, 0.9)) drop-shadow(0 2px 4px rgba(0, 0, 0, 0.45));
 }
-.fsbuy-word { font-size: 10px; font-weight: 700; color: #cbbbe8; }
+.fsbuy-word {
+  position: relative;
+  font-size: 9px; font-weight: 800; letter-spacing: 0.14em;
+  color: #cdbdf0; text-transform: uppercase; white-space: nowrap;
+}
 .fsbuy-price {
+  position: relative;
   max-width: 100%;
   /* Цена растёт вместе с ценой кейса: у «Вершины» это семизначное число.
      Поэтому кегль привязан к ширине экрана, а не задан жёстко. */
-  font-size: clamp(10.5px, 3.3vw, 13px); font-weight: 800;
+  font-size: clamp(10.5px, 3.2vw, 12.5px); font-weight: 800;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
 }
-.fsbuy-per {
-  max-width: 100%;
-  font-size: clamp(9px, 2.6vw, 10px); font-weight: 700; color: var(--muted);
-  font-variant-numeric: tabular-nums; white-space: nowrap;
-}
-.fsbuy-per em { font-style: normal; color: #8fe8b8; }
 
-/* Выделенная ступень: золотая рамка и плашка в углу. Пометку задаёт сервер -
-   она про лесенку скидок, а не про вёрстку. */
-.fsbuy-btn.is-popular { box-shadow: inset 0 0 0 1.5px #ffd34d, 0 0 18px rgba(255, 211, 77, 0.2); }
+/* Выделенная ступень: золотой кант и тёплый свет сверху. Пометку задаёт
+   сервер - она про лесенку скидок, а не про вёрстку. */
+.fsbuy-btn.is-popular {
+  background:
+    radial-gradient(120% 70% at 50% 0%, rgba(255, 211, 77, 0.2), transparent 62%),
+    linear-gradient(180deg, #2f1a46 0%, #1b0b2c 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 245, 200, 0.35),
+    inset 0 0 0 1.5px #ffd34d,
+    inset 0 -12px 18px -12px rgba(0, 0, 0, 0.65),
+    0 3px 0 #3a2306,
+    0 12px 22px -10px rgba(255, 190, 60, 0.35);
+}
+.fsbuy-btn.is-popular:not(:disabled):active {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 245, 200, 0.35),
+    inset 0 0 0 1.5px #ffd34d,
+    inset 0 -12px 18px -12px rgba(0, 0, 0, 0.65),
+    0 1px 0 #3a2306,
+    0 6px 12px -8px rgba(255, 190, 60, 0.3);
+}
 .fsbuy-flag {
-  position: absolute; top: -7px; right: 8px;
+  position: absolute; top: -7px; right: 8px; z-index: 1;
   padding: 2px 6px; border-radius: 6px;
   font-size: 8.5px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase;
-  color: #2a1300; background: #ffd34d;
+  color: #2a1300;
+  background: linear-gradient(180deg, #ffe58a, #ffc93a);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
 }
-/* Тема кейса красит рамку обычных плиток, выделенная остаётся золотой. */
+/* Тема кейса красит кант обычных плиток, выделенная остаётся золотой. */
 .opener.is-themed .fsbuy-btn:not(.is-popular) {
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--case-a) 50%, transparent);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    inset 0 0 0 1px color-mix(in srgb, var(--case-a) 45%, transparent),
+    inset 0 -12px 18px -12px rgba(0, 0, 0, 0.65),
+    0 3px 0 #10051f,
+    0 12px 20px -10px rgba(0, 0, 0, 0.7);
 }
 
 /* ---------- Управление открытием ----------
@@ -8592,7 +8635,6 @@ body.mo-receded .opener-scroll { filter: blur(4px) saturate(.55); transform: sca
           <div class="auto-row" id="autoRow"></div>
           <!-- Покупка фриспинов: серия прокрутов сразу. -->
           <div class="fsbuy" id="fsBuy" aria-label="Купить серию фриспинов" hidden>
-            <div class="fsbuy-head"><b>Free spins</b><span>серия прокрутов дешевле, чем по одному</span></div>
             <div class="fsbuy-row" id="fsBuyRow"></div>
           </div>
 
@@ -25320,20 +25362,27 @@ function createSlot(deps) {
     const nodes = root()?.querySelectorAll('.sl-reel');
     if (!nodes?.length) return;
 
+    /*
+     * Барабан того же экрана обновляется НА МЕСТЕ, а не заменяется новым
+     * объектом. Пересчёт приходит по таймеру после изменения размера окна и
+     * может попасть посреди прокрута: анимация держит ссылку на старый объект,
+     * и с заменой она крутила бы барабан, которого уже нет в списке, - лента
+     * бралась как strips[-1], прокрут падал, а на экране оставалась не та
+     * сетка, что прислал сервер.
+     */
     ui.reels = Array.from(nodes).map((el, index) => {
       const strip = el.querySelector('.sl-strip');
       const cell = strip.firstElementChild?.getBoundingClientRect().height || 0;
       const old = ui.reels[index];
-      return {
-        el,
+      const reel = old && old.el === el ? old : { el, pos: old?.pos ?? 0, expanded: false };
+      return Object.assign(reel, {
         strip,
         cells: Array.from(strip.children),
         cell,
+        index,
         length: ui.slot.strips[index].length,
-        pos: old?.pos ?? 0,
         base: null,
-        expanded: false,
-      };
+      });
     });
     ui.reels.forEach(draw);
   }
@@ -25351,7 +25400,9 @@ function createSlot(deps) {
 
     if (base !== reel.base) {
       reel.base = base;
-      const strip = ui.slot.strips[ui.reels.indexOf(reel)];
+      // Номер ленты хранится в самом барабане: поиск по списку ломался,
+      // когда барабан пересоздавали посреди прокрута.
+      const strip = ui.slot.strips[reel.index];
       const L = reel.length;
       for (let k = 0; k < reel.cells.length; k++) {
         const id = reel.expanded && k < ui.slot.rows
@@ -27612,21 +27663,12 @@ function renderFreeSpinBuy(c, locked) {
   row.innerHTML = packs.map((p) => {
     const price = freeSpinPackPrice(c, p);
 
-    /*
-     * Цена одного прокрута и скидка к цене кейса - то, ради чего пачку и
-     * покупают. Без них блок читался как три непонятных ценника. Скидка
-     * считается от настоящих цен, а не берётся из лесенки: после округления
-     * цены пачки она бывает на процент выше заявленной.
-     */
-    const per = Math.round(price / p.count);
-    const off = Math.round((1 - price / (p.count * c.price)) * 100);
-
     return `<button class="fsbuy-btn${p.popular ? ' is-popular' : ''}" data-fs="${p.count}"
-        aria-label="${p.count} прокрутов за ${money(price)}, по ${money(per)} за прокрут"
+        aria-label="${p.count} прокрутов за ${money(price)}"
         ${price > state.user.balance ? 'disabled' : ''}>
-      <span class="fsbuy-top"><b class="fsbuy-count">${p.count}</b><span class="fsbuy-word">прокрутов</span></span>
+      <b class="fsbuy-count">${p.count}</b>
+      <span class="fsbuy-word">free spins</span>
       <span class="fsbuy-price">${money(price)}</span>
-      <span class="fsbuy-per">по ${money(per)}${off > 0 ? ` <em>−${off}%</em>` : ''}</span>
       ${p.popular ? '<span class="fsbuy-flag">Хит</span>' : ''}
     </button>`;
   }).join('');
