@@ -767,53 +767,83 @@ function openCase(caseId) {
   document.getElementById('dropsGrid').innerHTML = showcaseCard + cards;
   document.getElementById('dropsCount').textContent = `${c.items.length} предметов`;
 
-  document.getElementById('countRow').innerHTML =
-    [1, 2, 3, 4, 5].slice(0, state.config.maxBatch || 5).map((k) =>
-      `<button class="count-btn ${k === 1 ? 'active' : ''}" data-count="${k}">×${k}</button>`).join('');
+  /*
+   * Управление открытием - одной строкой: икс кнопками «−» и «+», золотая
+   * кнопка с ценой отдельной плашкой и переключатель авто. Раньше это были
+   * три ряда: пять плашек иксов, шесть плашек авто и розовая кнопка, где цена
+   * читалась последней словом капсом. Заказчик выбрал вариант «Пульт» из
+   * демо (tools/open-button-demo.html).
+   */
+  const maxCount = state.config.maxBatch || 5;
+  const countVal = document.getElementById('countVal');
+  const openAct = document.getElementById('openAct');
+  const openSub = document.getElementById('openSub');
+  const openPrice = document.getElementById('openPrice');
+  const autoToggle = document.getElementById('autoToggle');
+  const autoBadge = document.getElementById('autoBadge');
 
   document.getElementById('autoRow').innerHTML =
     '<span class="auto-row-label">Авто</span>' +
-    AUTO_COUNTS.map((k) => `<button class="auto-btn ${k === 0 ? 'active' : ''}"
-      data-auto="${k}">${k === 0 ? 'выкл' : k}</button>`).join('');
+    AUTO_COUNTS.map((k) => `<button class="auto-btn" data-auto="${k}" aria-pressed="false">${k}</button>`).join('');
 
   renderFreeSpinBuy(c, locked);
 
   const openBtn = document.getElementById('doOpenBtn');
   let count = 1;
   let auto = 0;
+  // Число авто, к которому вернётся переключатель: выключил и включил снова -
+  // получил то же, что выбирал, а не сброс на десять.
+  let autoLast = AUTO_COUNTS[0];
 
   const refresh = () => {
+    countVal.textContent = `×${auto ? 1 : count}`;
+    document.getElementById('countRow').classList.toggle('is-off', !!auto);
+    autoToggle.classList.toggle('active', !!auto);
+    autoToggle.setAttribute('aria-pressed', String(!!auto));
+    autoBadge.textContent = auto ? String(auto) : '';
+    document.querySelectorAll('#autoRow .auto-btn').forEach((b) => {
+      const on = Number(b.dataset.auto) === auto;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-pressed', String(on));
+    });
+
     if (locked) {
-      openBtn.textContent = `ОТКРОЕТСЯ ${locked.toUpperCase()}`;
+      openAct.textContent = `Откроется ${locked}`;
+      openSub.textContent = '';
+      openPrice.hidden = true;
       openBtn.disabled = true;
+      fitOpenBtn();
       return;
     }
+    openPrice.hidden = false;
 
-    // Автооткрытие крутит кейс по одному, поэтому выбор пачки в этом режиме
-    // не имеет смысла - строку количества гасим, чтобы не обещать лишнего.
-    document.getElementById('countRow').style.opacity = auto ? '0.35' : '';
-    document.getElementById('countRow').style.pointerEvents = auto ? 'none' : '';
-
+    // Автооткрытие крутит кейс по одному. На кнопке полная сумма серии, а
+    // не «10 раз подряд»: игрок видит, на сколько он соглашается.
     if (auto) {
-      openBtn.textContent = `ОТКРЫТЬ ${auto} РАЗ ПОДРЯД`;
+      openAct.textContent = `Открыть ${auto} раз`;
+      openSub.textContent = `по ${money(c.price)}`;
+      openPrice.textContent = money(auto * c.price);
       openBtn.disabled = !freeCount && c.price > state.user.balance;
+      fitOpenBtn();
       return;
     }
 
     // Ваучеры покрывают первые открытия пачки, остальное платное.
     const paid = Math.max(0, count - freeCount);
-    openBtn.textContent = paid === 0
-      ? `ОТКРЫТЬ БЕСПЛАТНО ×${count}`
-      : `ОТКРЫТЬ ЗА ${money(paid * c.price)}`;
+    openAct.textContent = paid === 0 ? 'Открыть бесплатно' : 'Открыть';
+    openSub.textContent = count > 1 ? `${count} ${plural(count, 'кейс', 'кейса', 'кейсов')} сразу` : 'один кейс';
+    openPrice.textContent = paid === 0 ? `×${count}` : money(paid * c.price);
     openBtn.disabled = paid * c.price > state.user.balance;
+    fitOpenBtn();
   };
   refresh();
 
-  document.querySelectorAll('#countRow .count-btn').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      count = Number(btn.dataset.count);
-      document.querySelectorAll('#countRow .count-btn').forEach((b) => b.classList.remove('active'));
-      btn.classList.add('active');
+  document.querySelectorAll('#countRow [data-step]').forEach((btn) => {
+    btn.onclick = () => {
+      if (auto) return;
+      const next = Math.min(maxCount, Math.max(1, count + Number(btn.dataset.step)));
+      if (next === count) return;
+      count = next;
       haptic('light');
       // Выбранный икс виден сразу, до нажатия «Открыть», а не выясняется
       // после списания: у обычного кейса перерисовываются барабаны, у кейса с
@@ -821,23 +851,24 @@ function openCase(caseId) {
       if (hasRitual(c)) renderCaseStage(c, count);
       else renderIdleReel(c, count);
       refresh();
-    });
+    };
   });
 
+  const setAuto = (k) => {
+    auto = k;
+    if (k) autoLast = k;
+    haptic('light');
+    // Автооткрытие крутит по одному кейсу, поэтому и на экране снова один.
+    if (hasRitual(c)) renderCaseStage(c, auto ? 1 : count);
+    else renderIdleReel(c, auto ? 1 : count);
+    refresh();
+  };
+  // Повторное нажатие на выбранное число выключает авто: отдельной плашки
+  // «выкл» больше нет, а переключатель справа делает то же одним касанием.
   document.querySelectorAll('#autoRow .auto-btn').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      auto = Number(btn.dataset.auto);
-      document.querySelectorAll('#autoRow .auto-btn').forEach((b) => b.classList.remove('active'));
-      btn.classList.add('active');
-      haptic('light');
-      // Автооткрытие крутит по одному кейсу, поэтому и на экране снова один.
-      if (auto) {
-        if (hasRitual(c)) renderCaseStage(c, 1);
-        else renderIdleReel(c, 1);
-      }
-      refresh();
-    });
+    btn.onclick = () => setAuto(Number(btn.dataset.auto) === auto ? 0 : Number(btn.dataset.auto));
   });
+  autoToggle.onclick = () => setAuto(auto ? 0 : autoLast);
 
   openBtn.onclick = () => (auto ? runAutoOpen(c.id, auto) : startOpening(c.id, count));
 
@@ -855,6 +886,8 @@ function openCase(caseId) {
   window.scrollTo({ top: 0 });
   document.querySelector('.opener-scroll').scrollTop = 0;
   updateOpenerBalance();
+  // Замер кнопки - только у показанного окна: у скрытого ширина нулевая.
+  fitOpenBtn();
   loadCaseHistory(c.name);
   resumePendingSpins(c);
 }
@@ -1446,12 +1479,21 @@ function renderFreeSpinBuy(c, locked) {
   row.innerHTML = packs.map((p) => {
     const price = freeSpinPackPrice(c, p);
 
+    /*
+     * Цена одного прокрута и скидка к цене кейса - то, ради чего пачку и
+     * покупают. Без них блок читался как три непонятных ценника. Скидка
+     * считается от настоящих цен, а не берётся из лесенки: после округления
+     * цены пачки она бывает на процент выше заявленной.
+     */
+    const per = Math.round(price / p.count);
+    const off = Math.round((1 - price / (p.count * c.price)) * 100);
+
     return `<button class="fsbuy-btn${p.popular ? ' is-popular' : ''}" data-fs="${p.count}"
-        aria-label="${p.count} прокрутов за ${money(price)}"
+        aria-label="${p.count} прокрутов за ${money(price)}, по ${money(per)} за прокрут"
         ${price > state.user.balance ? 'disabled' : ''}>
-      <b class="fsbuy-count">${p.count}</b>
-      <span class="fsbuy-word">free spins</span>
+      <span class="fsbuy-top"><b class="fsbuy-count">${p.count}</b><span class="fsbuy-word">прокрутов</span></span>
       <span class="fsbuy-price">${money(price)}</span>
+      <span class="fsbuy-per">по ${money(per)}${off > 0 ? ` <em>−${off}%</em>` : ''}</span>
       ${p.popular ? '<span class="fsbuy-flag">Хит</span>' : ''}
     </button>`;
   }).join('');
@@ -1587,12 +1629,36 @@ async function buyFreeSpins(caseId, count) {
   });
 }
 
+/**
+ * Цена под надписью, если в строку они не влезают.
+ *
+ * Решить это шириной экрана нельзя: на одном и том же телефоне «1 499 ₽»
+ * помещается рядом с «Открыть» свободно, а «4 999 950 ₽» за пятьдесят
+ * открытий дорогого кейса сжимает надпись до «О…». Поэтому кнопка меряет
+ * сама себя: надпись обрезалась - цена переезжает вниз.
+ */
+function fitOpenBtn() {
+  const btn = document.getElementById('doOpenBtn');
+  if (!btn || !btn.offsetParent) return;
+  btn.classList.remove('is-tight');
+  const cut = [document.getElementById('openAct'), document.getElementById('openSub')]
+    .some((el) => el && el.scrollWidth > el.clientWidth + 1);
+  btn.classList.toggle('is-tight', cut);
+}
+addEventListener('resize', fitOpenBtn);
+// Дисплейный шрифт шире запасного: приехал позже замера - меряем заново.
+document.fonts?.ready.then(fitOpenBtn);
+
 /* ============================================================
    АВТООТКРЫТИЕ
    ============================================================ */
 
-/** Сколько прокрутов подряд можно заказать. Ноль - режим выключен. */
-const AUTO_COUNTS = [0, 10, 25, 50, 100];
+/**
+ * Сколько прокрутов подряд можно заказать. Сотни нет по просьбе заказчика:
+ * четыре плашки рядом с подписью «Авто» не влезали в строку, а сто открытий
+ * подряд - это не удобство, а уход в ленту на десять минут.
+ */
+const AUTO_COUNTS = [10, 25, 50];
 
 /**
  * Прокрут в серии короче обычного.

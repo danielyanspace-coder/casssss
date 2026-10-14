@@ -669,7 +669,6 @@ main { position: relative; z-index: 2; padding: 18px; }
 .item-value { font-size: 16px; font-weight: 900; font-variant-numeric: tabular-nums; color: var(--tier-color); }
 .item-chance { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
 
-.sheet-open-btn { width: 100%; margin-top: 18px; padding: 19px; font-size: 18px; }
 
 /* ---------- Экран открытия ---------- */
 
@@ -2340,28 +2339,6 @@ select.seed-input {
 
 /* ---------- Мультиоткрытие и звук ---------- */
 
-.count-row { display: flex; gap: 8px; margin-top: 16px; }
-
-.count-btn {
-  flex: 1;
-  padding: 12px 0;
-  border-radius: 12px;
-  border: 2px solid var(--line);
-  background: var(--card);
-  color: var(--muted);
-  font-family: inherit;
-  font-size: 15px;
-  font-weight: 900;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-.count-btn.active {
-  background: linear-gradient(135deg, var(--pink), var(--violet));
-  border-color: var(--magenta);
-  color: #fff;
-  box-shadow: 0 4px 18px rgba(255, 46, 138, 0.2);
-}
-
 /* ---------- Промокоды и партнёрский экран ---------- */
 
 /* Блок собран по присланному макету. Рамка сделана вёрсткой, а не вырезана из
@@ -2607,26 +2584,32 @@ select.seed-input {
   .fx-shout small { font-size: 15px; }
 }
 
-/* ---------- Покупка фриспинов ---------- */
-
-/* Три компактные плитки в ряд, как в демо анимации, которое выбрал заказчик.
-   Прежний блок был собран вокруг картинки-макета и занимал больше места,
-   чем лента кейса. Число прокрутов - металлом, тем же, что в прологе серии:
-   игрок узнаёт его, когда после покупки оно вылетает в центр экрана. */
-/* Отступ сверху - под плашку «Хит», она выступает над плиткой. */
-.fsbuy { margin-top: 12px; padding-top: 7px; }
+/* ---------- Покупка фриспинов ----------
+   Заголовок говорит, что это и зачем: серия прокрутов дешевле, чем по
+   одному. Без него три плитки с ценами читались как непонятные ценники.
+   На плитке - число, цена пачки и цена одного прокрута со скидкой. */
+.fsbuy { margin-top: 18px; }
+.fsbuy-head {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+  margin-bottom: 12px;
+}
+.fsbuy-head b {
+  font-size: 10.5px; font-weight: 800; letter-spacing: 0.16em; text-transform: uppercase;
+  color: #ffd98a; white-space: nowrap;
+}
+.fsbuy-head span { font-size: 11px; font-weight: 600; color: var(--muted); text-align: right; }
 
 .fsbuy-row { display: flex; align-items: stretch; gap: 8px; }
 
 .fsbuy-btn {
   flex: 1;
   position: relative;
-  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
   padding: 10px 6px 9px;
   border: 0;
   border-radius: 16px;
-  background: linear-gradient(180deg, rgba(150, 90, 255, 0.28), rgba(70, 30, 140, 0.35));
-  box-shadow: inset 0 0 0 1px rgba(190, 150, 255, 0.35);
+  background: linear-gradient(180deg, rgba(150, 90, 255, 0.22), rgba(70, 30, 140, 0.3));
+  box-shadow: inset 0 0 0 1px rgba(190, 150, 255, 0.3);
   color: var(--text);
   font-family: inherit;
   cursor: pointer;
@@ -2638,27 +2621,31 @@ select.seed-input {
 .fsbuy-btn:not(:disabled):active { transform: scale(0.96); }
 .fsbuy-btn:disabled { opacity: 0.38; cursor: default; }
 
+.fsbuy-top { display: flex; align-items: baseline; gap: 5px; }
 .fsbuy-count {
   font: 800 18px/1 'Unbounded', 'Manrope', system-ui, sans-serif;
   background: linear-gradient(180deg, #fff, #ffd34d);
   -webkit-background-clip: text; background-clip: text; color: transparent;
 }
-.fsbuy-word {
-  font-size: 9px; font-weight: 800; letter-spacing: 0.14em;
-  color: #d9c8ff; text-transform: uppercase; white-space: nowrap;
-}
+.fsbuy-word { font-size: 10px; font-weight: 700; color: #cbbbe8; }
 .fsbuy-price {
   max-width: 100%;
   /* Цена растёт вместе с ценой кейса: у «Вершины» это семизначное число.
      Поэтому кегль привязан к ширине экрана, а не задан жёстко. */
-  font-size: clamp(9.5px, 3vw, 11.5px); font-weight: 800;
+  font-size: clamp(10.5px, 3.3vw, 13px); font-weight: 800;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+.fsbuy-per {
+  max-width: 100%;
+  font-size: clamp(9px, 2.6vw, 10px); font-weight: 700; color: var(--muted);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.fsbuy-per em { font-style: normal; color: #8fe8b8; }
 
 /* Выделенная ступень: золотая рамка и плашка в углу. Пометку задаёт сервер -
    она про лесенку скидок, а не про вёрстку. */
-.fsbuy-btn.is-popular { box-shadow: inset 0 0 0 1.5px #ffd34d, 0 0 18px rgba(255, 211, 77, 0.25); }
+.fsbuy-btn.is-popular { box-shadow: inset 0 0 0 1.5px #ffd34d, 0 0 18px rgba(255, 211, 77, 0.2); }
 .fsbuy-flag {
   position: absolute; top: -7px; right: 8px;
   padding: 2px 6px; border-radius: 6px;
@@ -2667,8 +2654,132 @@ select.seed-input {
 }
 /* Тема кейса красит рамку обычных плиток, выделенная остаётся золотой. */
 .opener.is-themed .fsbuy-btn:not(.is-popular) {
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--case-a) 55%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--case-a) 50%, transparent);
 }
+
+/* ---------- Управление открытием ----------
+   Одна строка: икс, золотая кнопка с ценой, переключатель авто. Громкая на
+   экране одна кнопка, остальное тихое: когда выбранный икс залит тем же
+   цветом, что и «Открыть», глаз прыгает между двумя одинаково яркими
+   пятнами. Металл кнопки тот же, что у FREE SPINS и BIG WIN: она начинает
+   историю, которую заканчивает экран выигрыша. */
+.open-bar { display: flex; gap: 8px; margin-top: 16px; align-items: stretch; }
+
+.open-stepper {
+  flex: none;
+  display: flex; align-items: center;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+  transition: opacity 0.2s;
+}
+/* Автооткрытие крутит по одному кейсу: икс гаснет, чтобы не обещать пачку. */
+.open-stepper.is-off { opacity: 0.35; pointer-events: none; }
+.step-btn {
+  width: 32px; min-height: 54px; height: 100%;
+  border: 0; background: none; color: #d9c8ff;
+  font-family: inherit; font-size: 20px; font-weight: 800; line-height: 1; cursor: pointer;
+}
+.step-btn:active { color: #fff; }
+.step-val {
+  min-width: 28px; text-align: center;
+  font: 800 15px/1 'Unbounded', 'Manrope', system-ui, sans-serif; color: #ffe9a0;
+}
+
+.open-cta {
+  flex: 1; min-width: 0;
+  position: relative; overflow: hidden;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 11px 9px 11px 15px;
+  border: 0; border-radius: 18px;
+  color: #3a1d00; font-family: inherit; cursor: pointer;
+  background: linear-gradient(180deg, #fff3c4 0%, #ffd34d 38%, #e8a024 62%, #ffcf5a 100%);
+  /* Нижняя кромка даёт толщину, и нажатие её «съедает»: кнопка
+     проваливается, как настоящая. */
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), inset 0 -2px 0 rgba(120, 60, 0, 0.35),
+    0 5px 0 #8a4f08, 0 14px 30px -8px rgba(255, 170, 40, 0.5);
+  transition: transform 0.08s, box-shadow 0.08s;
+  margin-bottom: 5px;
+}
+.open-cta:not(:disabled):active {
+  transform: translateY(4px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), inset 0 -2px 0 rgba(120, 60, 0, 0.35),
+    0 1px 0 #8a4f08, 0 8px 18px -8px rgba(255, 170, 40, 0.45);
+}
+.open-cta:disabled { filter: grayscale(0.85) brightness(0.6); cursor: default; }
+/* Блик раз в четыре секунды: притягивает взгляд, но не мигает. */
+.open-cta::after {
+  content: ''; position: absolute; inset: 0; translate: -130% 0; pointer-events: none;
+  background: linear-gradient(105deg, transparent 35%, rgba(255, 255, 255, 0.7) 50%, transparent 65%);
+  animation: openSheen 4s cubic-bezier(0.65, 0, 0.35, 1) infinite 1.2s;
+}
+.open-cta:disabled::after { animation: none; }
+@keyframes openSheen { 0%, 70% { translate: -130% 0; } 100% { translate: 130% 0; } }
+.open-act {
+  min-width: 0;
+  display: flex; flex-direction: column; align-items: flex-start;
+  font: 800 15px/1 'Unbounded', 'Manrope', system-ui, sans-serif;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+.open-act > span, .open-act small { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.open-act small {
+  margin-top: 4px;
+  font: 700 10px/1.1 'Manrope', system-ui, sans-serif; letter-spacing: 0.06em; text-transform: uppercase;
+  opacity: 0.75; text-shadow: none;
+}
+/* Цена - отдельной плашкой: это деньги игрока, и читаться они должны
+   первыми, а не последним словом фразы капсом. */
+.open-price {
+  flex: none;
+  padding: 8px 9px; border-radius: 12px;
+  background: #2a1405; color: #ffd34d;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.5), 0 1px 0 rgba(255, 255, 255, 0.5);
+  font: 800 clamp(11px, 3.3vw, 13px)/1 'Unbounded', 'Manrope', system-ui, sans-serif;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.open-price[hidden] { display: none; }
+/* Надпись не влезла рядом с ценой (см. fitOpenBtn): цена переезжает под неё,
+   и обе строки читаются целиком. */
+.open-cta.is-tight { flex-direction: column; align-items: stretch; justify-content: center; gap: 7px; padding: 10px 10px 11px; }
+.open-cta.is-tight .open-act { align-items: center; text-align: center; }
+.open-cta.is-tight .open-price { text-align: center; }
+
+.open-auto {
+  flex: none; width: 52px;
+  display: grid; place-items: center; align-content: center; gap: 1px;
+  border: 0; border-radius: 16px;
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+  color: #d9c8ff; cursor: pointer;
+  transition: background 0.15s, box-shadow 0.15s, color 0.15s;
+}
+.open-auto svg { width: 22px; height: 22px; }
+.open-auto small { font-size: 9px; font-weight: 800; line-height: 1; }
+.open-auto small:empty { display: none; }
+.open-auto.active { background: rgba(107, 189, 204, 0.16); box-shadow: inset 0 0 0 1.5px var(--cyan); color: #bff4ff; }
+
+/* Подпись «Авто» слева: без неё три числа под кнопкой не говорили, что
+   они такое. Повторное нажатие на выбранное число выключает авто. */
+.auto-row { display: flex; gap: 6px; margin-top: 8px; align-items: center; }
+.auto-row-label {
+  flex: 0 0 auto; padding: 0 4px 0 2px;
+  font-size: 11px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--muted);
+}
+.auto-btn {
+  flex: 1;
+  padding: 9px 0;
+  border: 0; border-radius: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  color: #b9add0;
+  font-family: inherit; font-size: 13px; font-weight: 800;
+  cursor: pointer;
+  transition: background 0.15s, box-shadow 0.15s, color 0.15s;
+}
+.auto-btn.active { background: rgba(107, 189, 204, 0.14); box-shadow: inset 0 0 0 1.5px var(--cyan); color: #bff4ff; }
+
+@media (prefers-reduced-motion: reduce) { .open-cta::after { animation: none; } }
 
 /* ---------- Подтверждение покупки ---------- */
 
@@ -2888,34 +2999,6 @@ select.seed-input {
 /* Ряд авто идёт отдельной строкой под количеством: это не «сколько кейсов за
    один прокрут», а «сколько прокрутов подряд», и смешивать их в одну строку
    значило бы предлагать выбрать одно вместо другого. */
-.auto-row { display: flex; gap: 8px; margin-top: 8px; align-items: center; }
-
-.auto-row-label {
-  font-size: 11px; font-weight: 800; color: var(--muted);
-  letter-spacing: 0.06em; text-transform: uppercase;
-  flex: 0 0 auto; padding-right: 2px;
-}
-
-.auto-btn {
-  flex: 1;
-  padding: 9px 0;
-  border-radius: 10px;
-  border: 2px solid var(--line);
-  background: var(--card);
-  color: var(--muted);
-  font-family: inherit;
-  font-size: 13px;
-  font-weight: 900;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-.auto-btn.active {
-  background: linear-gradient(135deg, var(--cyan), var(--violet));
-  border-color: var(--cyan);
-  color: #06121c;
-  box-shadow: 0 4px 18px rgba(0, 212, 255, 0.16);
-}
-
 .auto-panel {
   margin-top: 16px;
   padding: 16px;
@@ -5361,7 +5444,9 @@ select.seed-input {
 
   /* На мониторе три плитки во всю колонку растянулись бы в полосу: ряд
      ограничен шириной, при которой плитки остаются плитками. */
-  .fsbuy-row { max-width: 440px; margin: 0 auto; }
+  /* Управление и пачки одной ширины: золотая полоса во всю колонку над
+     узким рядом пачек выглядела как два разных экрана. */
+  .open-bar, .auto-row, .fsbuy { max-width: 460px; margin-left: auto; margin-right: auto; }
 
   /* Состав кейса по четыре в ряд: по два он растягивался на пол-экрана,
      и до конца списка приходилось листать втрое дольше нужного. */
@@ -5373,7 +5458,6 @@ select.seed-input {
   }
 
   /* Выбор количества и автооткрытий в один ряд каждый - места хватает. */
-  .count-row, .auto-row { flex-wrap: nowrap; }
 
   /* ---------- Игры и разделы в одну колонку ---------- */
 

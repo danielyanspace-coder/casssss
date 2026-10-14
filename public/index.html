@@ -710,11 +710,26 @@
         </div>
 
         <div class="case-panel" id="casePanel">
-          <div class="count-row" id="countRow"></div>
+          <!-- Управление открытием одной строкой: икс, кнопка с ценой, авто. -->
+          <div class="open-bar">
+            <div class="open-stepper" id="countRow">
+              <button class="step-btn" data-step="-1" aria-label="Меньше кейсов">&minus;</button>
+              <b class="step-val" id="countVal">&times;1</b>
+              <button class="step-btn" data-step="1" aria-label="Больше кейсов">+</button>
+            </div>
+            <button class="open-cta" id="doOpenBtn">
+              <span class="open-act"><span id="openAct">Открыть</span><small id="openSub"></small></span>
+              <span class="open-price" id="openPrice"></span>
+            </button>
+            <button class="open-auto" id="autoToggle" aria-label="Автооткрытие" aria-pressed="false">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12a8 8 0 0 1-14 5.3"/><path d="M4 12a8 8 0 0 1 14-5.3"/><path d="M18 3v4h-4"/><path d="M6 21v-4h4"/></svg>
+              <small id="autoBadge"></small>
+            </button>
+          </div>
           <div class="auto-row" id="autoRow"></div>
-          <button class="btn btn-primary sheet-open-btn" id="doOpenBtn"></button>
           <!-- Покупка фриспинов: серия прокрутов сразу. -->
           <div class="fsbuy" id="fsBuy" aria-label="Купить серию фриспинов" hidden>
+            <div class="fsbuy-head"><b>Free spins</b><span>серия прокрутов дешевле, чем по одному</span></div>
             <div class="fsbuy-row" id="fsBuyRow"></div>
           </div>
 

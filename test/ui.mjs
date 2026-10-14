@@ -889,8 +889,23 @@ async function openCaseAndVerify(caseId) {
    * Иксы должны быть видны до списания: раньше их смысл выяснялся уже после
    * оплаты. У кейса с обрядом это не барабаны, а сами кейсы на сцене.
    */
+  /*
+   * Икс выбирается кнопками «−» и «+» (панель «Пульт»): плашек ×1…×5 больше
+   * нет. Доводим счётчик до нужного числа и сверяем его с подписью.
+   */
+  const setCount = async (n) => {
+    for (let guard = 0; guard < 10; guard++) {
+      const cur = await page.evaluate(() => Number(document.getElementById('countVal').textContent.replace(/\D/g, '')));
+      if (cur === n) return cur;
+      await page.click(`#countRow [data-step="${cur < n ? 1 : -1}"]`);
+      await page.waitForTimeout(120);
+    }
+    return null;
+  };
+
   for (const n of [3, 5]) {
-    await page.click(`#countRow .count-btn[data-count="${n}"]`);
+    const got = await setCount(n);
+    check(`икс: кнопки «−» и «+» доводят до ×${n}`, got === n, `стоит ×${got}`);
     await page.waitForTimeout(200);
     const st = await stageState();
     check(`обряд: ×${n} ставит на сцену ${n} кейсов`, st.кейсов === n, `их ${st.кейсов}`);
@@ -905,7 +920,7 @@ async function openCaseAndVerify(caseId) {
           `${st.высотаСцены} против ${высотаОдного}`);
   }
 
-  await page.click('#countRow .count-btn[data-count="1"]');
+  await setCount(1);
   await page.waitForTimeout(200);
   await page.click('#doOpenBtn');
 
