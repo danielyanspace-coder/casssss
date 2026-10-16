@@ -868,7 +868,7 @@ async function openCaseAndVerify(caseId) {
       reelsHidden: document.getElementById('reels').hidden,
       кейсов: arts.length,
       загрузились: arts.every((a) => a.complete && a.naturalWidth > 0),
-      // Кейсы не должны вылезать за ряд: при ×3 они обязаны сжаться.
+      // Кейсы не должны вылезать за ряд: при ×2 они обязаны сжаться.
       влезли: arts.every((a) => {
         const row = document.getElementById('caseStageRow').getBoundingClientRect();
         const r = a.getBoundingClientRect();
@@ -903,8 +903,8 @@ async function openCaseAndVerify(caseId) {
     return null;
   };
 
-  // Потолок пачки - три: «+» на ×3 дальше не ведёт.
-  for (const n of [2, 3]) {
+  // Потолок пачки - два: «+» на ×2 дальше не ведёт.
+  for (const n of [2]) {
     const got = await setCount(n);
     check(`икс: кнопки «−» и «+» доводят до ×${n}`, got === n, `стоит ×${got}`);
     await page.waitForTimeout(200);
@@ -1152,14 +1152,14 @@ check('показ выигрыша убирает за собой', stuckAfter.l
   await page.keyboard.press('Escape');
   await page.waitForTimeout(900);
 
-  // Потолок пачки: «+» дальше ×3 не ведёт.
+  // Потолок пачки: «+» дальше ×2 не ведёт.
   await page.evaluate(() => document.getElementById('countRow').scrollIntoView({ block: 'center' }));
   for (let i = 0; i < 5; i++) {
     await page.click('#countRow [data-step="1"]');
     await page.waitForTimeout(80);
   }
   const top = await page.evaluate(() => document.getElementById('countVal').textContent.replace(/\D/g, ''));
-  check('пачка: не больше трёх кейсов за раз', top === '3', `стоит ×${top}`);
+  check('пачка: не больше двух кейсов за раз', top === '2', `стоит ×${top}`);
   for (let i = 0; i < 3; i++) {
     await page.click('#countRow [data-step="-1"]');
     await page.waitForTimeout(80);

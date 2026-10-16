@@ -14,7 +14,7 @@ import {
   markF1, markITF, markGambling, markWorldGame,
   iconSlot,
 } from './icons.js';
-import { caseCover, porschePhotoSrc, caseArtSrc } from './covers.js';
+import { caseCover, porschePhotoSrc, caseArtSrc, caseStageSrc } from './covers.js';
 import { itemArt, itemArtMaterial } from './item-art.js';
 import { itemArt64 } from './item-art64.js';
 import { itemArtHd } from './item-art-hd.js';
@@ -31,6 +31,7 @@ import {
   sndShuffle, sndCardDrop, sndHeartbeat, sndAceWin, sndStamp, sndBurn, sndPurchase,
 } from './sounds.js';
 import { createMotion, MOTION_NICE_AT } from './motion.js';
+import { medalSvg } from './medals.js';
 
 const tg = window.Telegram?.WebApp;
 const BEELINE_LOGO_SRC = window.__BEELINE_SRC || '/assets/banks/beeline.webp';
@@ -348,6 +349,11 @@ function renderPerkBar() {
 
   // Удвоители копятся по кейсам: у одного игрока их может быть несколько и на
   // разные кейсы. Показываем каждый кейс отдельной плашкой со счётчиком.
+  // Награда медали «Десятикратный» ждёт выигрыша - видно её там же, где
+  // удвоители: это того же рода плюшка, только сильнее.
+  if (state.user.x10?.state === 'ready') {
+    chips.push(`<span class="perk-chip is-x10">×10 медаль · кейсы до ${money(state.user.x10.ceiling)}</span>`);
+  }
   for (const p of state.user.x2Perks || []) {
     // Удвоитель с колеса фортуны не привязан к кейсу и лежит под ключом «*».
     // Подписывать его названием кейса нельзя: он работает в любом.
@@ -541,45 +547,53 @@ function showFirstDepositChest(amount, bonus) {
  * отметка о том, что уже случилось, а не награда с деньгами.
  */
 const MEDALS = [
-  { id: 'r1', icon: '1', title: 'Первый раунд', hint: 'сыграть первый раз', goal: 1, of: (s) => s.rounds },
-  { id: 'r10', icon: '10', title: 'Разогрев', hint: '10 раундов', goal: 10, of: (s) => s.rounds },
-  { id: 'r100', icon: '100', title: 'Завсегдатай', hint: '100 раундов', goal: 100, of: (s) => s.rounds },
-  { id: 'r500', icon: '500', title: 'Ветеран', hint: '500 раундов', goal: 500, of: (s) => s.rounds },
-  { id: 'r1000', icon: '1K', title: 'Легенда зала', hint: '1000 раундов', goal: 1000, of: (s) => s.rounds },
-  { id: 'x10', icon: '×10', title: 'Удачный удар', hint: 'выигрыш ×10 к ставке', goal: 10, of: (s) => s.bestMultiplier },
-  { id: 'x50', icon: '×50', title: 'Молния', hint: 'выигрыш ×50 к ставке', goal: 50, of: (s) => s.bestMultiplier },
-  { id: 'x100', icon: '×100', title: 'Звезда вечера', hint: 'выигрыш ×100 к ставке', goal: 100, of: (s) => s.bestMultiplier },
+  { id: 'r1', title: 'Первый раунд', hint: 'сыграть первый раз', goal: 1, of: (u) => u.stats.rounds },
+  { id: 'r10', title: 'Разогрев', hint: '10 раундов в любых играх', goal: 10, of: (u) => u.stats.rounds },
+  { id: 'r100', title: 'Завсегдатай', hint: '100 раундов', goal: 100, of: (u) => u.stats.rounds },
+  { id: 'r500', title: 'Ветеран', hint: '500 раундов', goal: 500, of: (u) => u.stats.rounds },
+  /*
+   * Единственная медаль с деньгами: ×10 к следующему денежному выигрышу в
+   * кейсе. Порог, потолки и расчёт - на сервере (x10Rules в server/db.js),
+   * здесь только показ: сколько открыто и в каком состоянии награда.
+   */
+  { id: 'c1000', title: 'Десятикратный', reward: true,
+    hint: (u) => `${fmt(u.x10?.need || 1000)} платных открытий кейсов: ×10 к следующему выигрышу`,
+    goal: (u) => u.x10?.need || 1000, of: (u) => u.caseOpens || 0,
+    done: (u) => (u.x10?.state || 'none') !== 'none' },
+  { id: 'r5000', title: 'Легенда зала', hint: '5000 раундов', goal: 5000, of: (u) => u.stats.rounds },
+  { id: 'x10', title: 'Удачный удар', hint: 'выигрыш ×10 к ставке', goal: 10, of: (u) => u.stats.bestMultiplier },
+  { id: 'x50', title: 'Молния', hint: 'выигрыш ×50 к ставке', goal: 50, of: (u) => u.stats.bestMultiplier },
+  { id: 'x100', title: 'Звезда вечера', hint: 'выигрыш ×100 к ставке', goal: 100, of: (u) => u.stats.bestMultiplier },
 ];
 
-const MEDALS_SEEN_KEY = 'lb-medals-v1';
+const MEDALS_SEEN_KEY = 'lb-medals-v2';
 
-const medalEarned = (m, stats) => (m.of(stats || {}) || 0) >= m.goal;
+const medalGoal = (m, u) => (typeof m.goal === 'function' ? m.goal(u) : m.goal);
+const medalHint = (m, u) => (typeof m.hint === 'function' ? m.hint(u) : m.hint);
+const medalEarned = (m, u) => (m.done ? m.done(u) : (m.of(u) || 0) >= medalGoal(m, u));
 
-function medalSvg(m) {
-  return `<svg viewBox="0 0 64 80" aria-hidden="true">
-    <path d="M18 2h12l6 22H24zM46 2H34l-6 22h12z" fill="#7c3aed"/><path d="M18 2h6l8 22h-6zM40 2h6l-6 22h-6z" fill="#c9a8ff" opacity=".5"/>
-    <circle cx="32" cy="50" r="26" fill="url(#mdGold)"/>
-    <circle cx="32" cy="50" r="20" fill="none" stroke="#8a4f08" stroke-width="1.6" opacity=".6"/>
-    <text x="32" y="${m.icon.length > 3 ? 55 : 57}" text-anchor="middle" font-family="Unbounded,Manrope,sans-serif" font-weight="800"
-      font-size="${m.icon.length > 3 ? 13 : m.icon.length > 2 ? 15 : 19}" fill="#5a3006">${m.icon}</text>
-  </svg>`;
+/** Подпись награды «Десятикратного»: готова, использована или в пути. */
+function medalRewardNote(u) {
+  const x = u.x10 || {};
+  if (x.state === 'ready') return `готово: ×10 к следующему выигрышу в кейсе до ${money(x.ceiling)}`;
+  if (x.state === 'used') return 'награда получена';
+  return `${fmt(u.caseOpens || 0)} из ${fmt(x.need || 1000)}`;
 }
 
-/** Сетка медалей в «Бонусах»: полученные золотом, остальные с прогрессом. */
+/** Сетка медалей в «Бонусах»: полученные в цвете, остальные с прогрессом. */
 function renderMedals() {
   const grid = document.getElementById('medalGrid');
-  if (!grid || !state.user) return;
-  const stats = state.user.stats || {};
-  const got = MEDALS.filter((m) => medalEarned(m, stats)).length;
+  const u = state.user;
+  if (!grid || !u?.stats) return;
+  const got = MEDALS.filter((m) => medalEarned(m, u)).length;
   document.getElementById('medalCount').textContent = `${got} из ${MEDALS.length}`;
-  grid.innerHTML = `<svg width="0" height="0" style="position:absolute"><defs>
-      <radialGradient id="mdGold" cx=".38" cy=".3" r=".8"><stop offset="0" stop-color="#fffbe6"/><stop offset=".45" stop-color="#ffd34d"/><stop offset="1" stop-color="#c8781a"/></radialGradient>
-    </defs></svg>` + MEDALS.map((m) => {
-    const done = medalEarned(m, stats);
-    const pct = Math.min(100, Math.round(((m.of(stats) || 0) / m.goal) * 100));
-    return `<div class="medal${done ? ' is-done' : ''}" data-medal="${m.id}">
-      <div class="medal-art">${medalSvg(m)}</div>
-      <b>${m.title}</b><small>${m.hint}</small>
+  grid.innerHTML = MEDALS.map((m) => {
+    const done = medalEarned(m, u);
+    const pct = Math.min(100, Math.round(((m.of(u) || 0) / medalGoal(m, u)) * 100));
+    return `<div class="medal${done ? ' is-done' : ''}${m.reward ? ' is-reward' : ''}" data-medal="${m.id}">
+      <div class="medal-art">${medalSvg(m.id)}</div>
+      <b>${m.title}</b><small>${esc(medalHint(m, u))}</small>
+      ${m.reward ? `<em class="medal-note">${esc(medalRewardNote(u))}</em>` : ''}
       ${done ? '' : `<span class="medal-bar"><i style="width:${pct}%"></i></span>`}
     </div>`;
   }).join('');
@@ -591,7 +605,7 @@ function renderMedals() {
  * молча, иначе старый игрок получил бы салют из восьми медалей сразу.
  */
 function checkMedals(user) {
-  const earned = MEDALS.filter((m) => medalEarned(m, user.stats)).map((m) => m.id);
+  const earned = MEDALS.filter((m) => medalEarned(m, user)).map((m) => m.id);
   let seen = null;
   try { seen = JSON.parse(localStorage.getItem(MEDALS_SEEN_KEY) || 'null'); } catch { /* приватный режим */ }
   try { localStorage.setItem(MEDALS_SEEN_KEY, JSON.stringify(earned)); } catch { /* приватный режим */ }
@@ -607,11 +621,9 @@ function showMedal(m) {
   if (document.querySelector('.medal-scene')) return;
   const scene = document.createElement('div');
   scene.className = 'medal-scene';
-  scene.innerHTML = `<svg width="0" height="0" style="position:absolute"><defs>
-      <radialGradient id="mdGold" cx=".38" cy=".3" r=".8"><stop offset="0" stop-color="#fffbe6"/><stop offset=".45" stop-color="#ffd34d"/><stop offset="1" stop-color="#c8781a"/></radialGradient>
-    </defs></svg>
-    <div class="medal-fly">${medalSvg(m)}</div>
-    <div class="medal-cap"><small>новая медаль</small><b>${m.title}</b><span>${m.hint}</span></div>`;
+  scene.innerHTML = `
+    <div class="medal-fly">${medalSvg(m.id)}</div>
+    <div class="medal-cap"><small>новая медаль</small><b>${m.title}</b><span>${esc(m.reward ? medalRewardNote(state.user) : medalHint(m, state.user))}</span></div>`;
   document.body.append(scene);
   requestAnimationFrame(() => scene.classList.add('is-in'));
   sndChime();
@@ -1089,7 +1101,7 @@ function openCase(caseId) {
    * читалась последней словом капсом. Заказчик выбрал вариант «Пульт» из
    * демо (tools/open-button-demo.html).
    */
-  const maxCount = state.config.maxBatch || 3;
+  const maxCount = state.config.maxBatch || 2;
   const countVal = document.getElementById('countVal');
   const openAct = document.getElementById('openAct');
   const openSub = document.getElementById('openSub');
@@ -1270,7 +1282,7 @@ const RITUAL_EXIT_MS = 260;
 /**
  * Ставит кейсы на сцену и убирает ленту.
  *
- * Кейсов ровно столько, сколько откроется: выбрал ×3 - и на сцене стоят три.
+ * Кейсов ровно столько, сколько откроется: выбрал ×2 - и на сцене стоят два.
  * Это то же правило, что было у лент до обряда: сколько иксов, столько и
  * барабанов. Без него иксы на экране кейса с обрядом ничего не меняли, и что
  * они значат, приходилось выяснять уже на своих деньгах.
@@ -1279,7 +1291,9 @@ function renderCaseStage(c, count = 1) {
   const stage = document.getElementById('caseStage');
   const row = document.getElementById('caseStageRow');
   const reels = document.getElementById('reels');
-  const src = caseArtSrc(c);
+  // На сцене обложка крупная и одна: ей нужен свой, крупный файл, а не
+  // обложка полки, растянутая вдвое.
+  const src = caseStageSrc(c);
 
   /*
    * От четырёх кейсов раскладываем в два ряда. В одну строку четыре широкие
@@ -1387,8 +1401,8 @@ function playRitual(c, count = 1) {
 /**
  * Лента до первого прокрута.
  *
- * Барабанов рисуется столько же, сколько кейсов открывают: выбрал ×3 - и
- * сразу видно три барабана. Раньше их число менялось только после нажатия
+ * Барабанов рисуется столько же, сколько кейсов открывают: выбрал ×2 - и
+ * сразу видно два барабана. Раньше их число менялось только после нажатия
  * «Открыть», и что означают эти иксы, приходилось выяснять на своих деньгах.
  */
 function renderIdleReel(c, count = 1) {
@@ -1681,14 +1695,18 @@ async function startOpening(caseId, count = 1, { again = false } = {}) {
  * ответов его нет, и тогда плитка остаётся как была.
  */
 function reelItem(o) {
-  return o.x2Applied && o.item.baseValue != null ? { ...o.item, value: o.item.baseValue } : o.item;
+  return (o.x2Applied || o.x10Applied) && o.item.baseValue != null
+    ? { ...o.item, value: o.item.baseValue } : o.item;
 }
 
 /** Печать ×2 на всех плитках, где сработал удвоитель. Ждёт самую долгую. */
 async function playDoublers(opened) {
   const jobs = opened
-    .map((o, i) => (o.x2Applied && o.item.baseValue != null && o.item.value > o.item.baseValue
-      ? motion().doubler(winnerTile(i), { from: o.item.baseValue, to: o.item.value })
+    .map((o, i) => ((o.x2Applied || o.x10Applied) && o.item.baseValue != null && o.item.value > o.item.baseValue
+      ? motion().doubler(winnerTile(i), {
+        from: o.item.baseValue, to: o.item.value,
+        label: o.x10Applied ? '×10' : '×2', sub: o.x10Applied ? 'медаль' : 'удвоитель',
+      })
       : null))
     .filter(Boolean);
   if (jobs.length) await Promise.all(jobs);
@@ -2193,8 +2211,8 @@ function collectFreeSpins(data) {
 /**
  * Несколько серий одного открытия - одна общая серия.
  *
- * В пачке фриспины могут выпасть на двух или трёх лентах сразу. Показывать их
- * тремя сериями подряд значит трижды проиграть пролог и трижды подвести итог:
+ * В пачке фриспины могут выпасть на обеих лентах сразу. Показывать их
+ * двумя сериями подряд значит дважды проиграть пролог и дважды подвести итог:
  * событие, которое случается раз на сотни пачек, растворялось в повторе.
  * Общая серия - одно событие («двойная серия»), один счёт и один итог.
  *
@@ -2279,7 +2297,7 @@ async function runFreeSpins(grant, caseData, { auto = false, replay = false, cos
     // бы висеть над барабаном фриспинов.
     document.getElementById('caseStage').hidden = true;
     box.hidden = false;
-    // После пачки серия стоит под тремя лентами, за нижним краем телефона.
+    // После пачки серия стоит под двумя лентами, за нижним краем телефона.
     // Прокручиваем, только если она не видна: у одиночного открытия экран
     // прыгал бы без нужды.
     if (box.getBoundingClientRect().bottom > innerHeight) box.scrollIntoView({ block: 'start' });
@@ -2496,7 +2514,7 @@ function showBatchResult(data, caseData) {
         const rowValue = o.item.value + (fs?.total || 0);
         const rowName = fs ? `${esc(o.item.name)} + ${fs.spins.length} фриспинов` : esc(o.item.name);
         return `<div class="mini-row" style="--tier-color:${tierColor(o.item.tier)}">
-        <span class="mini-name">${rowName}${o.x2Applied ? ' (×2)' : ''}</span>
+        <span class="mini-name">${rowName}${o.x10Applied ? ' (×10)' : o.x2Applied ? ' (×2)' : ''}</span>
         <span class="mini-val">${money(rowValue)}</span>
       </div>`;
       }).join('')}
@@ -2511,7 +2529,7 @@ function showBatchResult(data, caseData) {
   `;
   box.hidden = false;
   setAgainButton(document.getElementById('batchAgain'), caseData, data.count);
-  // Три полноразмерные ленты занимают почти весь экран телефона, и итог
+  // Две полноразмерные ленты занимают большую часть экрана телефона, и итог
   // пачки оказывается под ними. Подводим к нему, если он не виден.
   if (box.getBoundingClientRect().top > innerHeight * 0.7) {
     box.scrollIntoView({ block: 'center', behavior: 'smooth' });
@@ -2558,6 +2576,10 @@ function showCaseResult(data, caseData) {
   if (data.x2Applied) {
     const extra = item.baseValue != null ? item.value - item.baseValue : 0;
     parts.push(extra > 0 ? `удвоитель ×2: +${fmt(extra)}` : 'удвоитель применён');
+  }
+  if (data.x10Applied) {
+    const extra = item.baseValue != null ? item.value - item.baseValue : 0;
+    parts.push(`медаль ×10: +${fmt(extra)}`);
   }
 
   // Удвоителей за один прокрут может прийти несколько: сам предмет плюс те,
@@ -2690,8 +2712,9 @@ const HISTORY_LOAD = 60;
  * повторяются, поэтому имени хватает, чтобы найти рисунок и оформление.
  */
 function historyItem(c, h) {
-  const x2 = / \(×2\)$/.test(h.subtitle || '');
-  const name = (h.subtitle || '').replace(/ \(×2\)$/, '');
+  const mark = (h.subtitle || '').match(/ \(×(2|10)\)$/);
+  const x2 = mark ? `×${mark[1]}` : '';
+  const name = (h.subtitle || '').replace(/ \(×(2|10)\)$/, '');
   const own = c?.items.find((it) => it.name === name);
   const fs = name.match(/^(\d+) фриспинов$/);
   const base = own || {
@@ -2706,7 +2729,7 @@ function inspectHistory(c, item, tile) {
   haptic('light');
   motion().inspect(item, {
     tile, price: c?.price || 0, theme: c?.theme,
-    tierLabel: item.x2 ? 'ваше выпадение · ×2' : 'ваше выпадение',
+    tierLabel: item.x2 ? `ваше выпадение · ${item.x2}` : 'ваше выпадение',
     valueNote: 'выпало вам',
   });
 }
@@ -2748,7 +2771,7 @@ async function loadCaseHistory(caseTitle) {
   if (!idle) {
     box.innerHTML = head(history.length) + items.slice(0, 8).map((it, i) =>
       `<button class="mini-row" data-i="${i}" style="--tier-color:${tierColor(it.tier)}">
-        <span class="mini-name">${esc(it.name)}${it.x2 ? ' <em>×2</em>' : ''}</span>
+        <span class="mini-name">${esc(it.name)}${it.x2 ? ` <em>${it.x2}</em>` : ''}</span>
         <span class="mini-val">${money(it.value)}</span>
       </button>`).join('');
     box.querySelectorAll('.mini-row').forEach((row) => {
@@ -2782,7 +2805,7 @@ async function loadCaseHistory(caseTitle) {
       <div class="drop-ico">${tileArt(it, color)}</div>
       <div class="drop-name"><span>${esc(it.name)}</span></div>
       <div class="drop-value">${money(it.value)}</div>
-      ${it.x2 ? '<span class="hist-x2">×2</span>' : ''}
+      ${it.x2 ? `<span class="hist-x2">${it.x2}</span>` : ''}
     </button>`;
   };
 
@@ -3816,10 +3839,7 @@ async function spinRoulette() {
 }
 
 document.getElementById('rouletteSpinBtn').addEventListener('click', spinRoulette);
-// Колесо крутится и нажатием на само колесо: палец уже там, куда смотрит глаз.
-document.getElementById('rouletteStage').addEventListener('click', () => {
-  if (!document.getElementById('rouletteSpinBtn').disabled) spinRoulette();
-});
+
 
 /* ============================================================
    ЧЕСТНОСТЬ

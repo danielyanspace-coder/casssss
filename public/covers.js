@@ -289,6 +289,20 @@ export function caseArtSrc(caseData) {
   return name && name !== 'porsche' && caseData.artAspect ? artSrc(name) : null;
 }
 
+/**
+ * Крупная обложка для сцены открытого кейса (tools/case-covers.mjs --stage).
+ *
+ * На сцене кейс стоит один и крупно, и обложка полки там растягивалась больше
+ * чем вдвое. Крупный файл тянется только для открытого кейса, по одному.
+ */
+export function caseStageSrc(caseData) {
+  const base = caseArtSrc(caseData);
+  if (!base) return null;
+  const inlined = typeof window !== 'undefined' && window.__STAGE_ART;
+  if (inlined) return inlined[caseData.art] || base;
+  return `/assets/covers/stage/${caseData.art}.webp`;
+}
+
 /** Автономная сборка складывает все обложки в один объект с data-URI. */
 function artSrc(name) {
   const inlined = typeof window !== 'undefined' && window.__COVER_ART;

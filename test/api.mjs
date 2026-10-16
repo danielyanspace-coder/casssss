@@ -349,18 +349,18 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
   const c = config.cases.find((x) => x.id === 'neon_500');
   const before = (await post('/api/me')).data.user;
 
-  const r = await post('/api/open', { caseId: c.id, count: 3 });
+  const r = await post('/api/open', { caseId: c.id, count: 2 });
   check('пачка: открыто ровно столько, сколько просили',
-        r.data.count === 3 && r.data.opened?.length === 3, `count ${r.data.count}`);
+        r.data.count === 2 && r.data.opened?.length === 2, `count ${r.data.count}`);
 
-  // Пачка ограничена тремя: три ленты помещаются на экран телефона в полный
-  // размер. Просьба о большем не отклоняется, а урезается до потолка.
+  // Пачка ограничена двумя (решение заказчика). Просьба о большем не
+  // отклоняется, а урезается до потолка.
   const over = await post('/api/open', { caseId: c.id, count: 5 });
-  check('пачка: больше трёх за раз не открывается',
-        over.data.count === 3 && over.data.opened?.length === 3, `count ${over.data.count}`);
-  check('пачка: конфиг сообщает потолок', config.maxBatch === 3, `maxBatch ${config.maxBatch}`);
+  check('пачка: больше двух за раз не открывается',
+        over.data.count === 2 && over.data.opened?.length === 2, `count ${over.data.count}`);
+  check('пачка: конфиг сообщает потолок', config.maxBatch === 2, `maxBatch ${config.maxBatch}`);
 
-  // Любое из трёх открытий могло выдать серию фриспинов - она начисляется тем
+  // Любое из двух открытий могло выдать серию фриспинов - она начисляется тем
   // же ответом и должна попадать в totalWon наравне с обычным предметом,
   // иначе выигрыш остальных кейсов пачки на экране выглядел бы пропавшим.
   const fsTotal = r.data.opened.reduce((s, o) =>
@@ -373,7 +373,7 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
         `${r.data.balance} vs ${expectedBalance}`);
 
   const tooMany = await post('/api/open', { caseId: c.id, count: 99 });
-  check('пачка: количество ограничено сверху', tooMany.data.count <= 3, `count ${tooMany.data.count}`);
+  check('пачка: количество ограничено сверху', tooMany.data.count <= 2, `count ${tooMany.data.count}`);
 }
 
 /* ---------- 9c. Округление номиналов ---------- */
@@ -913,7 +913,7 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
   // Отыгрываем ставками и проверяем, что вывод открылся.
   let guard = 0;
   while ((await post('/api/me')).data.user.wagerRequired > 0 && guard++ < 200) {
-    await post('/api/open', { caseId: 'warmup_100', count: 3 });
+    await post('/api/open', { caseId: 'warmup_100', count: 2 });
   }
   check('ставки гасят отыгрыш',
         (await post('/api/me')).data.user.wagerRequired === 0);

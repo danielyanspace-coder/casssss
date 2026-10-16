@@ -913,12 +913,14 @@ export function createMotion({ money, artFor, tierColor, snd, haptic = () => {} 
    * Сумма на плитке в конце обязана совпасть с выплатой: по ней сверяется
    * лента с результатом.
    */
-  async function doubler(tile, { from, to }) {
+  async function doubler(tile, { from, to, label = '×2', sub = 'удвоитель' }) {
     mount();
     const valueEl = tile.querySelector('.tile-value');
     const b = box(tile);
     const stamp = el('div', 'mo-x2', top);
-    stamp.innerHTML = '<b class="mo-metal">×2</b><small>удвоитель</small>';
+    // Та же печать служит и медали «Десятикратный»: меняются только надпись и
+    // подпись, удар и счёт суммы те же.
+    stamp.innerHTML = `<b class="mo-metal">${label}</b><small>${sub}</small>`;
     stamp.style.left = `${b.cx}px`;
     stamp.style.top = `${b.cy}px`;
     tile.classList.add('mo-x2-tile');

@@ -103,6 +103,7 @@ import {
   adminListPartners,
   adminPayPartner,
   savePendingSpins,
+  x10Rules,
   getPendingSpins,
   clearPendingSpins,
   trackEvent, funnelStats, eventTotals, CLIENT_EVENTS,
@@ -305,6 +306,14 @@ function publicUser(user) {
     wagerRequired: user.wager_required || 0,
     // По нему клиент решает, показывать ли предложение первого пополнения.
     depositsCount: user.deposits_count || 0,
+    // Медаль «Десятикратный»: сколько платных открытий сделано, сколько надо,
+    // и состояние награды (none / ready / used) с потолком цены кейса.
+    caseOpens: user.case_opens || 0,
+    x10: {
+      need: x10Rules().opens,
+      state: ['none', 'ready', 'used'][user.x10_state || 0],
+      ceiling: user.x10_ceiling || 0,
+    },
     isPartner: Boolean(getPartnerByTgId(user.tg_id)),
     stats: {
       rounds: user.total_rounds,
@@ -492,11 +501,11 @@ function mergeFreeSpinGrants(grants) {
 /**
  * Сколько одинаковых кейсов можно открыть за раз.
  *
- * Три, а не пять: три ленты помещаются на экран телефона в полный размер, и
- * выигрыш в пачке читается так же, как одиночный. Пять лент приходилось
- * сжимать втрое, и предмет на них было не разглядеть.
+ * Два - решение заказчика. Сначала было пять, но пять лент приходилось
+ * сжимать втрое, и предмет на них было не разглядеть; потом три, теперь две:
+ * обе ленты в полный размер и целиком на экране телефона вместе с итогом.
  */
-const MAX_BATCH = 3;
+const MAX_BATCH = 2;
 
 app.post('/api/open', auth, limits.play, gameGate('cases'), (req, res) => {
   const caseData = getCase(req.body?.caseId);
@@ -558,6 +567,7 @@ app.post('/api/open', auth, limits.play, gameGate('cases'), (req, res) => {
     })),
     free: result.free,
     x2Applied: result.x2Applied,
+    x10Applied: result.x10Applied,
     net: result.totalPayout - (result.free ? 0 : caseData.price),
     fair: { roll: result.roll, nonce: result.nonce },
   }));

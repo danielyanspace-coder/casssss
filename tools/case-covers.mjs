@@ -131,8 +131,22 @@ const MAP = {
   'Самородок.png': 'nugget',
 };
 
+/**
+ * Второй набор - для сцены кейса: node tools/case-covers.mjs --stage.
+ *
+ * На полке обложка занимает около 200 CSS-px, а на экране открытого кейса
+ * она одна и крупно: 236 точек высоты на телефоне (около 700 пикселей при
+ * тройной плотности) и 300 на компьютере. Обложка полки там растягивалась
+ * больше чем вдвое и мылилась. Держать крупный набор для всех полок
+ * незачем - браузер тянет его только для открытого кейса, по одному файлу.
+ */
+const STAGE = process.argv.includes('--stage');
+
 /** Длинная сторона результата. Обоснование - в шапке файла. */
-const MAX_SIDE = 520;
+const MAX_SIDE = STAGE ? 820 : 520;
+
+/** Качество WebP: у сцены оно выше, там на картинку смотрят в упор. */
+const QUALITY = STAGE ? 0.86 : 0.82;
 
 /** Порог альфы, ниже которого пиксель считается фоном при обрезке полей. */
 const ALPHA_FLOOR = 8;
@@ -179,7 +193,7 @@ const FAR_MIN_SHARE = 0.04;
 /** Ниже этой насыщенности точка не участвует в подборе: серое тона не даёт. */
 const SAT_FLOOR = 0.34;
 
-const OUT_DIR = new URL('../public/assets/covers/', import.meta.url);
+const OUT_DIR = new URL(STAGE ? '../public/assets/covers/stage/' : '../public/assets/covers/', import.meta.url);
 mkdirSync(OUT_DIR, { recursive: true });
 
 const browser = await chromium.launch({
@@ -208,7 +222,7 @@ for (const [file, name] of Object.entries(MAP)) {
   const dataUri = 'data:image/png;base64,' + readFileSync(src).toString('base64');
 
   const out = await page.evaluate(async ({
-    dataUri, MAX_SIDE, ALPHA_FLOOR, PADDING, SAT_FLOOR, BINS,
+    dataUri, MAX_SIDE, QUALITY, ALPHA_FLOOR, PADDING, SAT_FLOOR, BINS,
     CHECKER_MAX_CHROMA, CHECKER_MIN_LUMA,
   }) => {
     const img = new Image();
@@ -349,14 +363,14 @@ for (const [file, name] of Object.entries(MAP)) {
     }
 
     return {
-      base64: canvas.toDataURL("image/webp", 0.82).split(',')[1],
+      base64: canvas.toDataURL('image/webp', QUALITY).split(',')[1],
       src: [img.width, img.height],
       trimmed: [cw, ch],
       final: [canvas.width, canvas.height],
       hues: weight,
     };
   }, {
-    dataUri, MAX_SIDE, ALPHA_FLOOR, PADDING, SAT_FLOOR, BINS: HUE_BINS,
+    dataUri, MAX_SIDE, QUALITY, ALPHA_FLOOR, PADDING, SAT_FLOOR, BINS: HUE_BINS,
     CHECKER_MAX_CHROMA, CHECKER_MIN_LUMA,
   });
 
@@ -376,6 +390,13 @@ for (const [file, name] of Object.entries(MAP)) {
 }
 
 await browser.close();
+
+// Пропорции и тона берутся из основного набора: сцена режется теми же
+// полями, и второй art.json был бы копией, которая однажды разойдётся.
+if (STAGE) {
+  console.log(`\nСцена: ${Object.keys(MAP).length} обложек, ${(total / 1024 / 1024).toFixed(2)} МБ`);
+  process.exit(0);
+}
 
 /* ---------- Выбор тонов свечения ---------- */
 

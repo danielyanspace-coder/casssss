@@ -118,5 +118,57 @@ r = playCaseRound(user.id, c, scripted([cash]), scripted([zero]));
 check('баланс после удвоенного выигрыша', getUserById(user.id).balance,
   afterX2 - c.price + cash.value * 2);
 
+/*
+ * 11. Медаль «Десятикратный» (x10Rules в server/db.js).
+ *
+ * Порог в тесте пять открытий, а не тысяча: проверяется логика, а не
+ * терпение. Игрок каждый раз новый - награда одна на аккаунт, и у прошлого
+ * прогона она уже потрачена.
+ */
+{
+  process.env.X10_MEDAL_OPENS = '5';
+  process.env.X10_MEDAL_CAP = '50';
+  const u = getOrCreateUser({ id: 7_700_000 + (Date.now() % 1_000_000), username: 'x10audit', first_name: 'Аудит' });
+  adminAdjustBalance(u.id, u.id, 5_000_000, 'аудит');
+  const state = () => getUserById(u.id);
+
+  let got = [];
+  for (let i = 0; i < 4; i++) got = playCaseRound(u.id, c, scripted([zero]), scripted([zero])).granted;
+  check('×10: до порога награды нет', [state().x10_state, got.some((g) => g.type === 'x10')], [0, false]);
+  got = playCaseRound(u.id, c, scripted([zero]), scripted([zero])).granted;
+  check('×10: на пятом платном открытии выдана', got.find((g) => g.type === 'x10')?.ceiling, c.price);
+  check('×10: ждёт выигрыша', state().x10_state, 1);
+
+  // Кейс дороже средней цены открытий - награда не тратится и ждёт.
+  const pricey = getCase('depo_20000');
+  const priceyCash = pricey.items.find((i) => i.kind === 'item' && i.value > 0);
+  let rr = playCaseRound(u.id, pricey, scripted([priceyCash]), scripted([priceyCash]));
+  check('×10: на кейсе дороже потолка не срабатывает', [rr.x10Applied, rr.payout, state().x10_state],
+    [false, priceyCash.value, 1]);
+
+  // Удвоитель при этом не тратится: ×10 и ×2 не складываются.
+  playCaseRound(u.id, c, scripted([x2Item]), scripted([zero]));
+  const x2Before = getX2Perks(u.id).find((p) => p.case_id === c.id)?.count || 0;
+  rr = playCaseRound(u.id, c, scripted([cash]), scripted([zero]));
+  check('×10: выигрыш умножен на десять', [rr.x10Applied, rr.payout],
+    [true, Math.min(cash.value * 10, cash.value + 50 * c.price)]);
+  check('×10: удвоитель на этом открытии не потрачен',
+    getX2Perks(u.id).find((p) => p.case_id === c.id)?.count || 0, x2Before);
+  check('×10: награда одна', state().x10_state, 2);
+  rr = playCaseRound(u.id, c, scripted([cash]), scripted([zero]));
+  check('×10: второй раз не срабатывает', rr.x10Applied, false);
+
+  // Потолок доплаты: при потолке в одну цену кейса ×10 превращается в +цену.
+  process.env.X10_MEDAL_CAP = '1';
+  const u2 = getOrCreateUser({ id: 7_800_000 + (Date.now() % 1_000_000), username: 'x10cap', first_name: 'Аудит' });
+  adminAdjustBalance(u2.id, u2.id, 5_000_000, 'аудит');
+  for (let i = 0; i < 5; i++) playCaseRound(u2.id, c, scripted([zero]), scripted([zero]));
+  const top = c.items.filter((i) => i.kind === 'item').reduce((a, b) => (b.value > a.value ? b : a));
+  rr = playCaseRound(u2.id, c, scripted([top]), scripted([zero]));
+  check('×10: доплата не выше потолка', rr.payout, top.value + Math.min(top.value * 9, c.price));
+  delete process.env.X10_MEDAL_OPENS;
+  delete process.env.X10_MEDAL_CAP;
+}
+
 console.log(failed ? `\nПРОВАЛЕНО: ${failed}` : '\nВсе комбинации сходятся.');
 process.exit(failed ? 1 : 0);
