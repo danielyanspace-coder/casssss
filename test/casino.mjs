@@ -243,6 +243,7 @@ const call = (list) => casinoWallet(list, { currency: 'RUB' });
     { id: 'Sloter-sports-betby', name: 'Betby' },
     { id: 'Sloter-mini-spribe', name: 'Spribe Gaming' },
     { id: 'Sloter-slot-Relax', name: 'Relax' },
+    { id: 'NovaPlay-evolution-sp', name: 'Evolution' },
   ];
   const raw = [
     g('1', 'Zeta Slot', 'Sloter-slot-pragmatic'),
@@ -254,8 +255,10 @@ const call = (list) => casinoWallet(list, { currency: 'RUB' });
     g('7', 'Aviator', 'Sloter-mini-spribe'),
     g('8', 'Money Train 2', 'Sloter-slot-relax', { imgVertical: null }),
     g('9', 'No Picture', 'Sloter-slot-pragmatic', { img: null, imgVertical: null }),
+    g('10', 'Crazy Time', 'NovaPlay-evolution-sp', { gameType: 1, imgVertical: null }),
   ];
-  const allowed = new Set(['sloter-slot-pragmatic', 'sloter-mini-spribe', 'sloter-slot-relax', 'sloter-sports-betby']);
+  const allowed = new Set(['sloter-slot-pragmatic', 'sloter-mini-spribe', 'sloter-slot-relax', 'sloter-sports-betby',
+    'novaplay-evolution-sp']);
   const c = buildCatalog(raw, providers, allowed);
   const ids = new Set(c.games.map((x) => x.id));
   check('каталог: провайдер вне списка партнёра не попадает', !ids.has('5'));
@@ -263,7 +266,11 @@ const call = (list) => casinoWallet(list, { currency: 'RUB' });
   check('каталог: слоты без настраиваемой отдачи (NovaPlay) не попадают', !ids.has('3') && !ids.has('4'));
   check('каталог: игра без картинки не попадает', !ids.has('9'));
   check('каталог: регистр в списке провайдеров не важен', ids.has('8'));
-  check('каталог: у всех слотов отдача наша', c.games.every((x) => x.rtp_mode === 'operator'));
+  check('каталог: у всех слотов отдача наша', c.games.filter((x) => x.kind !== 'live').every((x) => x.rtp_mode === 'operator'));
+  const live = c.games.find((x) => x.id === '10');
+  check('каталог: живой стол NovaPlay проходит, хотя источник другой', live?.kind === 'live');
+  check('каталог: у живого стола отдача провайдера, не наша', live?.rtp_mode === 'provider');
+  check('каталог: живые столы - своя вкладка у провайдера', c.providers.some((p) => p.id === 'evolution-live' && p.kind === 'live'));
   check('каталог: Spribe - быстрые игры', c.games.find((x) => x.id === '7')?.kind === 'fast');
   const order = c.games.slice().sort((a, b) => a.seed_rank - b.seed_rank).map((x) => x.name);
   check('каталог: хиты впереди', order[0] === 'Gates of Olympus' && order.indexOf('Zeta Slot') > order.indexOf('Money Train 2'),
@@ -272,8 +279,8 @@ const call = (list) => casinoWallet(list, { currency: 'RUB' });
 
   // Снимок в репозитории собран тем же правилом.
   const snap = JSON.parse(readFileSync(new URL('../server/casino-catalog.json', import.meta.url), 'utf8'));
-  check('снимок: только слоты и быстрые игры с нашей отдачей',
-        snap.games.every((x) => x.rtp_mode === 'operator' && x.kind !== 'live'));
+  check('снимок: у слотов и быстрых игр наша отдача, у живых столов - провайдера',
+        snap.games.every((x) => (x.kind === 'live' ? x.rtp_mode === 'provider' : x.rtp_mode === 'operator')));
   check('снимок: игр больше пяти тысяч', snap.games.length > 5000, String(snap.games.length));
   // По провайдеру, а не по названию: «Sports...» бывает и у обычного слота.
   check('снимок: без спорта', !snap.games.some((x) => /sport/i.test(x.provider_id)));

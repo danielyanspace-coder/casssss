@@ -95,9 +95,10 @@ const RTP_SOURCE = 'Sloter';
  * прислан партнёром (октябрь 2026); сверка без учёта регистра - в нём
  * «Sloter-slot-Belatra», а в каталоге «Sloter-slot-belatra».
  *
- * Живого казино (NovaPlay: Evolution, Pragmatic Play Live) в списке нет,
- * поэтому и вкладки нет. Откроет партнёр - дописать id сюда или в
- * CASINO_PROVIDERS в окружении, код вкладки уже готов.
+ * Живое казино (NovaPlay: Pragmatic Play Live и Evolution) партнёр открыл
+ * отдельно: «We have also casino live, Ppl + evolution». У живых столов
+ * отдачу задаёт провайдер, наша настройка к ним не применяется, и лобби
+ * пишет «по правилам провайдера», а не наше число.
  */
 const DEFAULT_PROVIDERS = [
   'Sloter-slot-3oaks', 'Sloter-slot-amatic', 'Sloter-slot-amigo', 'Sloter-slot-amusnet',
@@ -109,6 +110,7 @@ const DEFAULT_PROVIDERS = [
   'Sloter-mini-spribe', 'Sloter-slot-igt', 'Sloter-slot-fazi', 'Sloter-slot-zitro',
   'Sloter-slot-merkur', 'Sloter-slot-yggdrasil', 'Sloter-slot-tomhorn', 'Sloter-slot-platipus',
   'Sloter-slot-Belatra', 'Sloter-slot-Relax',
+  'NovaPlay-pragmatic-play-live-np', 'NovaPlay-evolution-sp',
 ];
 
 export function allowedProviders() {

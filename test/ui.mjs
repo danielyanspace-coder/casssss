@@ -1768,7 +1768,13 @@ check('честность: личная статистика убрана', fair
   check('казино: первым идёт хит', lobby.first === 'Gates of Olympus', lobby.first);
   check('казино: вкладки слотов и быстрых игр', lobby.tabs.some((t) => t.startsWith('Слоты')) && lobby.tabs.some((t) => t.startsWith('Быстрые')),
         lobby.tabs.join(' / '));
-  check('казино: вкладки живого казино нет', !lobby.tabs.some((t) => t.startsWith('Живое')));
+  // Вкладка живого казино есть ровно тогда, когда агрегатор отдаёт живые
+  // столы: пустая вкладка хуже отсутствующей.
+  const liveCount = await page.evaluate(() => fetch('/api/casino/lobby', { method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Telegram-Init-Data': '' }, body: '{}' })
+    .then((r) => r.json()).then((d) => d.counts?.live || 0).catch(() => 0));
+  check('казино: вкладка живого казино только когда есть живые столы',
+        lobby.tabs.some((t) => t.startsWith('Живое')) === liveCount > 0, `столов ${liveCount}`);
   check('казино: полоса провайдеров', lobby.providers > 20, String(lobby.providers));
   check('казино: отдача в шапке из настройки', lobby.rtp === '70%', lobby.rtp);
 

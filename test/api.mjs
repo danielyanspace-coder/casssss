@@ -1177,7 +1177,11 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
   const lobby = await post('/api/casino/lobby');
   check('казино: лобби отдаётся', lobby.status === 200, `статус ${lobby.status}`);
   check('казино: слотов больше пяти тысяч', lobby.data.counts?.slots > 5000, String(lobby.data.counts?.slots));
-  check('казино: живого казино нет (нет в списке партнёра)', !lobby.data.counts?.live);
+  // Живые столы показываются, только когда агрегатор их отдаёт агенту:
+  // в списке разрешённых они есть, а открывает их партнёр.
+  const liveProviders = (lobby.data.providers || []).filter((p) => p.kind === 'live');
+  check('казино: живые столы и их провайдеры сходятся',
+        (lobby.data.counts?.live || 0) === liveProviders.reduce((a, p) => a + p.count, 0));
   check('казино: Pragmatic Play в провайдерах', (lobby.data.providers || []).some((p) => p.id === 'pragmatic-play'));
   check('казино: спорта среди провайдеров нет', !(lobby.data.providers || []).some((p) => /sport|betby/i.test(p.id)));
 
