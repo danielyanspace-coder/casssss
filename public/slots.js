@@ -1160,6 +1160,18 @@ export function createSlot(deps) {
     const box = root();
     if (!box) return;
 
+    // Кнопка прокрута новая при каждой отрисовке, а корень - один и тот же.
+    // Слушатели корня вешаются один раз: раньше они копились с каждой
+    // открытой игрой, и во второй игре «+» поднимал ставку на два шага.
+    document.getElementById('slotSpin')?.addEventListener('click', () => {
+      snd('buttonClick');
+      haptic('medium');
+      if (ui.auto !== 0) { ui.auto = 0; updateAuto(); return; }
+      spin();
+    });
+    if (box.dataset.bound) return;
+    box.dataset.bound = '1';
+
     box.addEventListener('click', (e) => {
       if (e.target.id === 'slotModal') { closeModal(); return; }
       const btn = e.target.closest('[data-act]');
@@ -1204,13 +1216,6 @@ export function createSlot(deps) {
       ui.settings[opt] = e.target.checked;
       saveSettings(ui.settings);
       syncSound();
-    });
-
-    document.getElementById('slotSpin')?.addEventListener('click', () => {
-      snd('buttonClick');
-      haptic('medium');
-      if (ui.auto !== 0) { ui.auto = 0; updateAuto(); return; }
-      spin();
     });
 
     // Пересчёт высоты ячейки: на повороте телефона и в полноэкранном режиме

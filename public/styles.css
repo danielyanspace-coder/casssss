@@ -476,15 +476,37 @@ main { position: relative; z-index: 2; padding: 18px; }
 
 /* ---------- Краш ---------- */
 
+/* Сцена краша - открытый космос: туманность, звёзды на холсте позади
+   кривой и частицы на холсте впереди (createCrashFx в app.js). */
 .crash-stage {
   position: relative;
-  height: 260px;
-  border-radius: var(--radius);
+  height: 270px;
+  border-radius: 22px;
   background:
-    radial-gradient(ellipse at 50% 100%, rgba(160, 32, 255, 0.3), transparent 70%),
-    linear-gradient(180deg, var(--bg-soft), #0a0215);
-  border: 2px solid var(--line);
+    radial-gradient(60% 70% at 85% 10%, rgba(255, 46, 138, 0.22), transparent 70%),
+    radial-gradient(70% 80% at 10% 100%, rgba(80, 40, 220, 0.35), transparent 70%),
+    radial-gradient(ellipse at 50% 100%, rgba(160, 32, 255, 0.25), transparent 70%),
+    linear-gradient(180deg, #120428, #05010c);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 20px 40px -24px #000;
   overflow: hidden;
+}
+.crash-stars, .crash-fx { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.crash-fx { z-index: 3; }
+.crash-flash { position: absolute; inset: 0; pointer-events: none; opacity: 0; z-index: 4; }
+.crash-flash.is-boom { background: radial-gradient(circle at 60% 40%, rgba(255, 90, 40, 0.75), rgba(255, 20, 60, 0.2) 50%, transparent 75%); animation: crFlash 0.7s ease-out; }
+.crash-flash.is-win { background: radial-gradient(circle at 50% 40%, rgba(255, 211, 77, 0.55), transparent 70%); animation: crFlash 0.7s ease-out; }
+@keyframes crFlash { from { opacity: 1; } to { opacity: 0; } }
+/* Надпись рубежа: вылетает из-под числа, растёт и гаснет. */
+.crash-mile {
+  position: absolute; left: 50%; top: 118px; z-index: 5; pointer-events: none;
+  font: 800 38px/1 'Unbounded', 'Manrope', system-ui, sans-serif; color: #fff;
+  text-shadow: 0 0 18px var(--c), 0 0 40px var(--c), 0 2px 0 rgba(0, 0, 0, 0.5);
+  animation: crMile 1.25s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@keyframes crMile {
+  0% { opacity: 0; transform: translate(-50%, 10px) scale(0.4); }
+  20% { opacity: 1; transform: translate(-50%, 0) scale(1.25); }
+  100% { opacity: 0; transform: translate(-50%, -40px) scale(1); }
 }
 
 .crash-graph { position: absolute; inset: 0; width: 100%; height: 100%; }
@@ -503,13 +525,15 @@ main { position: relative; z-index: 2; padding: 18px; }
 }
 
 .crash-multiplier {
-  font-size: 54px;
-  font-weight: 900;
+  font: 800 52px/1 'Unbounded', 'Manrope', system-ui, sans-serif;
   font-variant-numeric: tabular-nums;
-  line-height: 1;
   color: var(--cyan);
+  text-shadow: 0 0 24px currentColor, 0 3px 0 rgba(0, 0, 0, 0.45);
   transition: color 0.3s;
+  position: relative; z-index: 2;
 }
+.crash-multiplier.is-pulse { animation: crPulse 0.5s cubic-bezier(0.2, 1.6, 0.4, 1); }
+@keyframes crPulse { 40% { transform: scale(1.22); } }
 .crash-multiplier.busted { color: var(--red); animation: shake 0.45s; }
 .crash-multiplier.cashed { color: var(--green); }
 @keyframes shake {
@@ -524,15 +548,21 @@ main { position: relative; z-index: 2; padding: 18px; }
 .crash-status.win { color: var(--green); }
 .crash-status.lose { color: var(--red); }
 
+/* Ракета стоит на старте и в полёте; transform ставит drawCrashGraph. */
 .crash-rocket {
-  position: absolute;
-  font-size: 30px;
-  left: 0; bottom: 0;
-  opacity: 0;
+  position: absolute; left: 0; top: 0; z-index: 2;
+  width: 70px; height: 30px;
+  transform-origin: 35px 15px;
+  opacity: 0.85;
   transition: opacity 0.2s;
-  filter: drop-shadow(0 0 12px -6px var(--pink));
+  filter: drop-shadow(0 0 10px rgba(255, 46, 138, 0.6));
 }
+.crash-rocket svg { width: 100%; height: 100%; overflow: visible; display: block; }
+.crash-rocket .cr-flame { transform-origin: 15px 16px; opacity: 0.35; }
 .crash-rocket.flying { opacity: 1; }
+.crash-rocket.flying .cr-flame { opacity: 1; animation: crFlame 0.09s steps(2) infinite; }
+@keyframes crFlame { 50% { transform: scaleX(1.35) scaleY(0.85); } }
+.crash-rocket.gone { opacity: 0; transition: opacity 0.05s; }
 
 .crash-recent { display: flex; gap: 7px; margin-top: 14px; overflow-x: auto; scrollbar-width: none; }
 .crash-recent::-webkit-scrollbar { display: none; }
@@ -556,31 +586,144 @@ main { position: relative; z-index: 2; padding: 18px; }
 
 /* ---------- Рулетка ---------- */
 
-.roulette-wrap { height: 120px; }
-
-.roulette-tile {
-  flex: 0 0 84px;
-  width: 84px;
-  border-radius: 14px;
-  display: grid;
-  place-items: center;
-  font-size: 30px;
-  font-weight: 900;
-  border: 2px solid rgba(255, 255, 255, 0.18);
+/* Колесо: золотой обод с лампами, лунки по краю, сектора, шар и самоцвет
+   сверху. Размеры - доли ширины, поэтому колесо одинаково собрано на любом
+   экране; радиусы желоба и лунок продублированы в app.js (ROUL_TRACK_R,
+   ROUL_POCKET_R) и обязаны совпадать с отступом .rw-wheel. */
+/* На телефоне колесо не шире 300 точек: крупнее, и кнопка «Крутить» уходит
+   за нижний край экрана. Само колесо тоже крутит по нажатию. */
+.rw-stage {
+  position: relative;
+  width: min(78vw, 300px); margin: 0 auto;
+  padding-top: 18px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 }
-.roulette-tile.red { background: linear-gradient(160deg, #ff4d6d, #c1121f); color: #fff; box-shadow: inset 0 0 22px rgba(0,0,0,0.35); }
-.roulette-tile.black { background: linear-gradient(160deg, #3a2a55, #16091f); color: #cbb6e8; box-shadow: inset 0 0 22px rgba(0,0,0,0.5); }
-.roulette-tile.green { background: linear-gradient(160deg, #00ff9d, #009e63); color: #04241a; box-shadow: 0 0 26px rgba(0, 255, 157, 0.28); }
+@media (min-width: 1024px) { .rw-stage { width: 380px; } }
+.rw-aura {
+  position: absolute; inset: 4% -6% -4%; border-radius: 50%;
+  background: radial-gradient(circle, rgba(160, 60, 255, 0.35), transparent 65%);
+  filter: blur(14px); pointer-events: none;
+}
+.rw-stage.is-spinning .rw-aura { animation: rwAura 1.2s ease-in-out infinite; }
+@keyframes rwAura { 50% { opacity: 0.6; transform: scale(1.04); } }
+.rw-stage.is-landed.is-red .rw-aura { background: radial-gradient(circle, rgba(255, 60, 90, 0.4), transparent 65%); }
+.rw-stage.is-landed.is-green .rw-aura { background: radial-gradient(circle, rgba(25, 240, 160, 0.45), transparent 65%); }
+.rw-stage.is-landed.is-black .rw-aura { background: radial-gradient(circle, rgba(201, 168, 255, 0.35), transparent 65%); }
+
+.rw-wrap { position: relative; aspect-ratio: 1; }
+/* Обод - чаша: золото снаружи, тёмный желоб внутри, по которому катится шар. */
+.rw-rim {
+  position: absolute; inset: 0; border-radius: 50%;
+  background:
+    radial-gradient(circle closest-side, transparent 83.5%, #1a0a10 84%, #2b1408 88%, #120706 91.5%, transparent 92%),
+    conic-gradient(from 20deg, #fff3c4, #c8781a, #ffe58a, #8a4f08, #ffd34d, #c8781a, #fff3c4, #8a4f08, #fff3c4);
+  box-shadow: 0 0 0 2px #3a1d00, 0 20px 40px -12px rgba(0, 0, 0, 0.9), 0 0 50px -10px rgba(255, 190, 60, 0.45),
+    inset 0 0 0 3px rgba(255, 255, 255, 0.25);
+}
+.rw-rim i {
+  position: absolute; left: 50%; top: 50%; width: 3.4%; aspect-ratio: 1; margin: -1.7% 0 0 -1.7%; border-radius: 50%;
+  transform: rotate(var(--a)) translateY(-1410%);
+  background: radial-gradient(circle at 40% 35%, #fffbe6, #ffd34d 55%, #c8781a);
+  box-shadow: 0 0 6px 1px rgba(255, 220, 120, 0.7);
+  opacity: 0.55;
+}
+/* Лампы бегут по кругу во время прокрута и мигают золотом на выигрыше. */
+.rw-stage.is-spinning .rw-rim i { animation: rwBulb 0.9s linear infinite; animation-delay: calc(var(--i) * -45ms); }
+@keyframes rwBulb { 0%, 70% { opacity: 0.35; } 80% { opacity: 1; box-shadow: 0 0 12px 3px #ffe58a; } }
+.rw-stage.is-won .rw-rim i { animation: rwBlink 0.5s steps(2) 6; animation-delay: calc(var(--i) % 2 * 0.25s); }
+@keyframes rwBlink { 50% { opacity: 1; box-shadow: 0 0 14px 4px #ffe58a; } }
+
+.rw-wheel { position: absolute; inset: 8%; border-radius: 50%; will-change: transform; }
+.rw-wheel svg { width: 100%; height: 100%; display: block; filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.8)); }
+.rw-frets path { stroke: #ffd34d; stroke-width: 1.6; opacity: 0.85; }
+.rw-hl { fill: #fff; opacity: 0; mix-blend-mode: overlay; transition: opacity 0.3s; }
+.rw-stage.is-landed .rw-hl { animation: rwHl 1.2s ease-in-out 3; }
+@keyframes rwHl { 50% { opacity: 0.55; } }
+/* Во время прокрута метки смазываются: колесо быстрое, и чёткие метки на нём
+   читались бы как остановленный кадр. */
+.rw-stage.is-spinning .rw-mark { opacity: 0.75; }
+
+/* Ступица: золотой купол с гранями. */
+.rw-hub {
+  position: absolute; left: 50%; top: 50%; width: 30%; aspect-ratio: 1; margin: -15% 0 0 -15%; border-radius: 50%;
+  background: radial-gradient(circle at 38% 30%, #fffbe6, #ffd34d 30%, #c8781a 62%, #5a3006);
+  box-shadow: 0 0 0 3px #2b1408, 0 0 0 5px #e8a024, 0 10px 22px rgba(0, 0, 0, 0.7), inset 0 -6px 12px rgba(90, 40, 0, 0.6);
+  display: grid; place-items: center;
+}
+.rw-hub span {
+  width: 42%; aspect-ratio: 1; border-radius: 50%;
+  background: radial-gradient(circle at 40% 30%, #6a3cbf, #24104a 70%);
+  box-shadow: inset 0 0 0 2px rgba(255, 211, 77, 0.7), 0 0 14px rgba(160, 80, 255, 0.6);
+}
+
+/* Шар: стоит в центре колеса и уезжает на радиус поворотом (см. placeRouletteBall). */
+.rw-ball {
+  position: absolute; left: 50%; top: 50%; width: 5.4%; aspect-ratio: 1; margin: -2.7% 0 0 -2.7%;
+  border-radius: 50%;
+  background: radial-gradient(circle at 34% 30%, #ffffff, #e9e6f2 35%, #a7a0b8 75%, #6d6680);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.7), 0 0 10px rgba(255, 255, 255, 0.35);
+  z-index: 2;
+}
+
+/* Самоцвет сверху: указывает на лунку, под которой сел шар. */
+.rw-pointer {
+  position: absolute; left: 50%; top: 4px; width: 30px; height: 38px; margin-left: -15px; z-index: 3;
+  background: linear-gradient(160deg, #fff3c4, #ffd34d 40%, #c8781a);
+  clip-path: polygon(50% 100%, 0 30%, 18% 0, 82% 0, 100% 30%);
+  filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.7)) drop-shadow(0 0 10px rgba(255, 200, 60, 0.6));
+}
+.rw-pointer::after {
+  content: ''; position: absolute; inset: 6px 7px 12px;
+  background: radial-gradient(circle at 40% 30%, #ff9ab0, #c1121f 70%);
+  clip-path: polygon(50% 100%, 0 30%, 18% 0, 82% 0, 100% 30%);
+}
+.rw-stage.is-landed.is-green .rw-pointer::after { background: radial-gradient(circle at 40% 30%, #b6ffe0, #00a36a 70%); }
+.rw-stage.is-landed.is-black .rw-pointer::after { background: radial-gradient(circle at 40% 30%, #e5d4ff, #5b2bb0 70%); }
+
+/* Световой столб из выигравшей лунки вверх. */
+.rw-beam {
+  position: absolute; left: 50%; top: -60px; width: 70px; height: 150px; margin-left: -35px; z-index: 2;
+  background: linear-gradient(0deg, var(--beam, #ff3b5c), transparent);
+  -webkit-mask: linear-gradient(90deg, transparent, #000 35%, #000 65%, transparent);
+  mask: linear-gradient(90deg, transparent, #000 35%, #000 65%, transparent);
+  opacity: 0; transform: scaleY(0); transform-origin: 50% 100%;
+  pointer-events: none; filter: blur(2px);
+}
+.rw-stage.is-landed .rw-beam { animation: rwBeam 1.8s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.rw-stage.is-landed.is-won .rw-beam { animation-duration: 2.6s; }
+.rw-stage.is-green { --beam: #19f0a0; }
+.rw-stage.is-black { --beam: #c9a8ff; }
+@keyframes rwBeam {
+  0% { opacity: 0; transform: scaleY(0); }
+  25% { opacity: 0.85; transform: scaleY(1); }
+  100% { opacity: 0; transform: scaleY(1.1); }
+}
+
+.fx-burst { position: absolute; inset: 0; pointer-events: none; z-index: 4; }
+.fx-burst i {
+  position: absolute; width: var(--s); height: var(--s); margin: calc(var(--s) / -2) 0 0 calc(var(--s) / -2);
+  border-radius: 50%; background: var(--c); box-shadow: 0 0 10px 2px var(--c);
+  animation: fxBurst 1s cubic-bezier(0.2, 0.7, 0.3, 1) both var(--d);
+}
+@keyframes fxBurst { to { transform: translate(var(--dx), var(--dy)) scale(0.2); opacity: 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .rw-stage.is-spinning .rw-rim i, .rw-stage.is-won .rw-rim i, .rw-stage.is-spinning .rw-aura { animation: none; }
+}
 
 .roulette-result {
   text-align: center;
   min-height: 40px;
   margin-top: 14px;
-  font-size: 20px;
-  font-weight: 900;
 }
-.roulette-result.win { color: var(--green); }
-.roulette-result.lose { color: var(--muted); }
+.roulette-result b { display: inline-block; font: 800 20px/1.2 'Unbounded', 'Manrope', system-ui, sans-serif; animation: pop 0.45s cubic-bezier(0.2, 1.4, 0.4, 1); }
+.roulette-result.win b {
+  background: linear-gradient(180deg, #fff8dc, #ffd34d 55%, #e8a024);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  filter: drop-shadow(0 0 14px rgba(255, 211, 77, 0.4));
+}
+.roulette-result.lose b { color: var(--muted); }
 
 .color-picker { display: flex; gap: 10px; margin-top: 18px; }
 
@@ -605,6 +748,19 @@ main { position: relative; z-index: 2; padding: 18px; }
 .color-btn.black { background: linear-gradient(160deg, #3a2a55, #16091f); color: #cbb6e8; }
 .color-btn.green { background: linear-gradient(160deg, #00ff9d, #009e63); color: #04241a; flex: 0.7; }
 .color-btn.selected { border-color: var(--gold); box-shadow: 0 0 28px -13px var(--gold); transform: scale(1.05); }
+/* Фишки ставки: глянец сверху и кромка снизу, как у остальных объёмных
+   плашек. Выбранная приподнята и обведена золотом. */
+.color-btn {
+  position: relative; overflow: hidden;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3), inset 0 -3px 0 rgba(0, 0, 0, 0.3), 0 6px 14px -8px #000;
+}
+.color-btn::before {
+  content: ''; position: absolute; inset: 0 0 55%; border-radius: inherit;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.22), transparent);
+  pointer-events: none;
+}
+.color-btn span { font-family: 'Unbounded', 'Manrope', system-ui, sans-serif; font-weight: 800; }
+.color-btn.selected { transform: translateY(-3px) scale(1.04); box-shadow: 0 0 0 2px var(--gold), 0 10px 26px -10px var(--gold), inset 0 1px 0 rgba(255, 255, 255, 0.3); }
 
 /* ---------- Шторка кейса ---------- */
 
@@ -1343,7 +1499,6 @@ main { position: relative; z-index: 2; padding: 18px; }
 [data-ico] { display: inline-block; line-height: 0; }
 
 .balance-ico[data-ico] { width: 18px; height: 18px; }
-.crash-rocket[data-ico] { width: 30px; height: 30px; }
 .history-ico[data-ico] { width: 26px; height: 26px; }
 .tier-ico { width: 100%; height: 100%; }
 
@@ -2017,7 +2172,6 @@ select.seed-input {
   padding: 2px 7px; border-radius: 6px; vertical-align: middle;
   background: linear-gradient(135deg, var(--gold), var(--orange)); color: #2a1400;
 }
-.roulette-tile .ico { width: 34px; height: 34px; }
 .tile-value .ico { width: 18px; height: 18px; margin: 0 auto; }
 
 /* ============================================================
@@ -2795,6 +2949,35 @@ div.mini-row { cursor: default; }
   border-color: var(--cyan);
   box-shadow: 0 0 20px -4px rgba(0, 212, 255, 0.28);
 }
+
+/* Механические плашки: поле ввода прозрачное поверх них. Пока пусто, видна
+   подсказка поля; с первой буквой текст поля прячется, и читаются плашки. */
+.promo-field { position: relative; flex: 1; min-width: 0; display: flex; }
+.promo-field .promo-input { width: 100%; position: relative; z-index: 1; background: transparent; caret-color: transparent; }
+.promo-field .promo-input:not(:placeholder-shown) { color: transparent; }
+.promo-flaps {
+  position: absolute; inset: 0; z-index: 0;
+  display: flex; align-items: center; justify-content: center; gap: 3px;
+  padding: 6px 12px; border-radius: 999px;
+  background: linear-gradient(180deg, #1a1424, #0d0716);
+}
+.promo-flaps.is-empty .flap { opacity: 0; }
+.flap {
+  position: relative; flex: 1; max-width: 26px; height: 100%; min-height: 30px;
+  border-radius: 5px; perspective: 120px;
+  background: linear-gradient(180deg, #2a1e3c 0 49%, #1a1128 51% 100%);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08), 0 2px 0 rgba(0, 0, 0, 0.5);
+  display: grid; place-items: center;
+  transition: opacity 0.2s;
+}
+/* Линия сгиба посередине, как у настоящей перекидной плашки. */
+.flap::after { content: ''; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: rgba(0, 0, 0, 0.6); }
+.flap b { font: 800 15px/1 'JetBrains Mono', ui-monospace, Menlo, monospace; color: #ffe58a; text-shadow: 0 0 8px rgba(255, 211, 77, 0.5); }
+.flap.is-flip b { animation: flapIn 0.32s cubic-bezier(0.3, 1.4, 0.5, 1); }
+@keyframes flapIn { from { transform: rotateX(-90deg); opacity: 0.2; } }
+.flap.is-cursor { box-shadow: inset 0 0 0 1.5px var(--cyan), 0 0 10px -2px var(--cyan); }
+.promo-flaps.is-bad { animation: gShake 0.42s cubic-bezier(0.36, 0.07, 0.19, 0.97); }
+.promo-flaps.is-bad .flap b { color: #ff8aa0; }
 
 .promo-btn {
   flex: 0 0 auto;
@@ -5013,7 +5196,7 @@ div.mini-row { cursor: default; }
   aspect-ratio: 1;
 }
 
-.upg-ring { width: 100%; height: 100%; display: block; }
+.upg-ring { width: 100%; height: 100%; display: block; overflow: visible; }
 
 /* Подложка под кольцом - свечение, а не заливка, иначе центр глушит цифры. */
 .upg-halo {
@@ -5049,10 +5232,45 @@ div.mini-row { cursor: default; }
   filter: drop-shadow(0 0 8px rgba(255, 214, 10, 0.8));
 }
 
-.upg-needle.is-spinning {
-  /* Долгий выкат: быстрый старт, длинное затухание к результату. */
-  transition: transform 3.4s cubic-bezier(0.12, 0.72, 0.12, 1);
+/* Прокрут ведёт upgSpin в app.js кадр за кадром: зарядка, рывок, шлейф и
+   замедленный финал. Классы на .upg-stage отвечают только за свет. */
+.upg-stage { transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1), filter 0.5s; }
+.upg-stage::before {
+  content: ''; position: absolute; inset: -12%; border-radius: 50%; pointer-events: none;
+  background: radial-gradient(circle, rgba(160, 32, 255, 0.35), transparent 62%);
+  opacity: 0; transition: opacity 0.4s;
 }
+.upg-stage.is-charging::before { opacity: 1; animation: upgCharge 0.25s ease-in-out infinite alternate; }
+@keyframes upgCharge { to { transform: scale(1.06); opacity: 0.7; } }
+.upg-stage.is-charging .upg-halo { stroke: rgba(255, 211, 77, 0.35); }
+.upg-stage.is-spinning::before { opacity: 0.7; }
+/* Стоп-кадр: последние градусы сцена приближается, а края темнеют. */
+.upg-stage.is-slowmo { transform: scale(1.07); }
+.upg-stage.is-slowmo::before { opacity: 1; background: radial-gradient(circle, transparent 40%, rgba(5, 0, 12, 0.6) 70%); }
+.upg-trail {
+  fill: none; stroke: #ffd60a; stroke-width: 22; stroke-linecap: butt; opacity: 0.35;
+  mix-blend-mode: screen; pointer-events: none;
+}
+.upg-stage.is-won .upg-arc { stroke: #ffd34d; filter: drop-shadow(0 0 14px #ffd34d); animation: upgWin 0.5s ease-in-out 3; }
+@keyframes upgWin { 50% { stroke-width: 30; } }
+.upg-stage.is-won::before { opacity: 1; background: radial-gradient(circle, rgba(255, 211, 77, 0.45), transparent 62%); }
+.upg-stage.is-won .upg-target {
+  background: linear-gradient(180deg, #fff8dc, #ffd34d 55%, #e8a024);
+  -webkit-background-clip: text; background-clip: text;
+  animation: pop 0.5s cubic-bezier(0.2, 1.4, 0.4, 1);
+}
+.upg-crack path {
+  fill: none; stroke: #ff5d7a; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round;
+  stroke-dasharray: 80; stroke-dashoffset: 80; opacity: 0;
+  filter: drop-shadow(0 0 4px #ff2e5a);
+}
+.upg-stage.is-lost .upg-crack path { opacity: 1; animation: upgCrack 0.45s ease-out forwards; }
+.upg-stage.is-lost .upg-crack path:nth-child(2) { animation-delay: 0.08s; }
+.upg-stage.is-lost .upg-crack path:nth-child(3) { animation-delay: 0.14s; }
+.upg-stage.is-lost .upg-crack path:nth-child(4) { animation-delay: 0.2s; }
+@keyframes upgCrack { to { stroke-dashoffset: 0; } }
+.upg-stage.is-lost .upg-needle { filter: drop-shadow(0 0 8px rgba(255, 60, 90, 0.8)); }
+.upg-stage.is-lost .upg-arc { opacity: 0.45; }
 
 .upg-needle-tip { fill: var(--gold); }
 
@@ -5092,9 +5310,15 @@ div.mini-row { cursor: default; }
   margin: 6px 0 2px;
   text-align: center;
   font-size: 15px; font-weight: 900;
+  display: flex; align-items: baseline; justify-content: center; gap: 8px;
 }
-.upg-outcome.win  { color: var(--green); }
-.upg-outcome.lose { color: var(--muted); }
+.upg-outcome b { font: 800 15px/1.2 'Unbounded', 'Manrope', system-ui, sans-serif; animation: pop 0.4s cubic-bezier(0.2, 1.4, 0.4, 1); }
+.upg-outcome span { font-size: 12.5px; color: var(--muted); }
+.upg-outcome.win b {
+  background: linear-gradient(180deg, #fff8dc, #ffd34d 55%, #e8a024);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.upg-outcome.lose b { color: #ff8aa0; }
 
 .upg-picker {
   display: grid;
@@ -8491,6 +8715,219 @@ body.mo-receded .opener-scroll { filter: blur(4px) saturate(.55); transform: sca
 @media (prefers-reduced-motion: reduce) {
   .mo-take::after, .mo-hero-sheen, .opener-bonus::before, .opener.is-bonus .fs-emblem { animation: none; }
 }
+
+/* ============================================================
+   ЖИВОЙ ГЛАВНЫЙ ЭКРАН И ПОПОЛНЕНИЕ
+   ============================================================ */
+
+/* Обложки на полках дышат вразнобой (фаза - от имени кейса, см.
+   caseCardHtml): едва заметный подъём и рост, без поворотов. Доступные по
+   балансу раз в несколько секунд вспыхивают бликом. Анимируются только
+   transform и filter картинки: это не трогает раскладку полки. */
+.shelf-row .case-card.has-art .cover-art {
+  animation: caseBreath 5.5s ease-in-out infinite;
+  animation-delay: var(--breath, 0s);
+  transition: transform 0.25s cubic-bezier(0.2, 1.4, 0.4, 1);
+}
+.shelf-row .case-card.has-art.can-afford .cover-art {
+  animation: caseBreath 5.5s ease-in-out infinite, caseGlint 9s ease-in-out infinite;
+  animation-delay: var(--breath, 0s), var(--glint, 0s);
+}
+@keyframes caseBreath {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-4px) scale(1.022); }
+}
+@keyframes caseGlint {
+  0%, 90%, 100% { filter: none; }
+  94% { filter: brightness(1.35) saturate(1.25) drop-shadow(0 0 12px var(--art-glow, rgba(255, 210, 90, 0.6))); }
+}
+/* Под пальцем и курсором кейс приподнимается и разгорается ореолом. */
+.shelf-row .case-card.has-art:hover .case-cover::before,
+.shelf-row .case-card.has-art:active .case-cover::before { opacity: 1; transform: scale(1.08); }
+.shelf-row .case-card.has-art .case-cover::before { transition: opacity 0.25s, transform 0.25s; }
+/* Подъём - у слота, а не у картинки: у картинки transform занят дыханием. */
+.shelf-row .case-card.has-art .case-cover { transition: transform 0.3s cubic-bezier(0.2, 1.4, 0.4, 1); }
+.shelf-row .case-card.has-art:active .case-cover { transform: translateY(-6px) scale(1.03); }
+@media (hover: hover) {
+  .shelf-row .case-card.has-art:hover .case-cover { transform: translateY(-8px) scale(1.04); }
+}
+.case-cover > .fx-burst { z-index: 3; }
+@media (prefers-reduced-motion: reduce) {
+  .shelf-row .case-card.has-art .cover-art { animation: none; }
+}
+
+/* Монеты пополнения летят поверх всего. */
+.coin-shower { position: fixed; inset: 0; z-index: 120; pointer-events: none; }
+.coin-fly { position: absolute; width: 26px; height: 26px; margin: -13px 0 0 -13px; filter: drop-shadow(0 0 8px rgba(255, 200, 60, 0.8)); }
+.coin-fly svg { width: 100%; height: 100%; }
+
+/* Сундук первого пополнения. */
+.chest-scene { position: fixed; inset: 0; z-index: 110; display: grid; place-items: center; padding: 16px; }
+.chest-dim { position: absolute; inset: 0; background: radial-gradient(circle at 50% 40%, rgba(40, 10, 70, 0.8), rgba(4, 0, 10, 0.94)); opacity: 0; transition: opacity 0.4s; }
+.chest-rays {
+  position: absolute; left: 50%; top: 40%; width: 720px; height: 720px; margin: -360px 0 0 -360px; border-radius: 50%;
+  background: repeating-conic-gradient(rgba(255, 211, 77, 0.22) 0deg 6deg, transparent 6deg 20deg);
+  -webkit-mask: radial-gradient(circle, #000 10%, transparent 62%); mask: radial-gradient(circle, #000 10%, transparent 62%);
+  opacity: 0; transform: scale(0.4); transition: opacity 0.8s 0.6s, transform 1.2s 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: fscSpin 40s linear infinite;
+}
+.chest-body { position: relative; text-align: center; display: flex; flex-direction: column; align-items: center; }
+.chest { width: 190px; transform: translateY(40px) scale(0.6); opacity: 0; transition: transform 0.6s cubic-bezier(0.2, 1.4, 0.4, 1), opacity 0.3s; }
+.chest svg { width: 100%; display: block; overflow: visible; filter: drop-shadow(0 20px 26px rgba(0, 0, 0, 0.7)); }
+.chest-lid { transform-origin: 80px 60px; transform-box: view-box; transition: transform 0.5s cubic-bezier(0.3, 1.6, 0.5, 1) 0.6s; }
+.chest-glow { opacity: 0; transition: opacity 0.4s 0.7s; }
+.chest-eyebrow, .chest-sum, .chest-note, .chest-go { opacity: 0; transform: translateY(14px); transition: opacity 0.5s, transform 0.6s cubic-bezier(0.16, 1, 0.3, 1); }
+.chest-eyebrow { margin-top: 18px; font-size: 11px; font-weight: 800; letter-spacing: 0.24em; text-transform: uppercase; color: #c9a8ff; }
+.chest-sum {
+  margin-top: 6px; font: 800 40px/1.1 'Unbounded', 'Manrope', system-ui, sans-serif;
+  background: linear-gradient(180deg, #fff8dc 10%, #ffd34d 55%, #d98a12 92%);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  filter: drop-shadow(0 2px 0 rgba(90, 30, 0, 0.6)) drop-shadow(0 0 20px rgba(255, 190, 60, 0.35));
+}
+.chest-note { margin-top: 6px; color: #d4c8ea; font-size: 14px; }
+.chest-go { margin-top: 20px; min-width: 200px; justify-content: center; }
+.chest-scene.is-in .chest-dim { opacity: 1; }
+.chest-scene.is-in .chest-rays { opacity: 1; transform: scale(1); }
+.chest-scene.is-in .chest { opacity: 1; transform: none; }
+.chest-scene.is-in .chest-lid { transform: translateY(-14px) rotate(-28deg); }
+.chest-scene.is-in .chest-glow { opacity: 1; }
+.chest-scene.is-in .chest-eyebrow { opacity: 1; transform: none; transition-delay: 0.9s; }
+.chest-scene.is-in .chest-sum { opacity: 1; transform: none; transition-delay: 1s; }
+.chest-scene.is-in .chest-note { opacity: 1; transform: none; transition-delay: 1.1s; }
+.chest-scene.is-in .chest-go { opacity: 1; transform: none; transition-delay: 1.25s; }
+.chest-scene.is-out { opacity: 0; transition: opacity 0.24s; }
+
+/* Колесо фортуны: клин под указателем на торможении и итоговый сектор. */
+.fortune-hl {
+  position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none;
+  will-change: transform; overflow: visible;
+}
+.fortune-hl path { fill: rgba(255, 246, 207, 0.32); stroke: #ffe58a; stroke-width: 0.8; opacity: 0; mix-blend-mode: screen; }
+.fortune-hl.is-on path { opacity: 1; }
+.fortune-hl.is-blink path { animation: fortuneBlink 0.35s ease-out; }
+@keyframes fortuneBlink { from { fill: rgba(255, 255, 255, 0.7); } }
+.fortune-hl.is-final path { fill: rgba(255, 211, 77, 0.35); animation: fortuneFinal 0.6s ease-in-out 4 alternate; }
+@keyframes fortuneFinal { to { fill: rgba(255, 246, 207, 0.6); filter: drop-shadow(0 0 4px #ffd34d); } }
+
+/* ---------- Подарок по промокоду ---------- */
+.gift-scene { position: fixed; inset: 0; z-index: 110; display: grid; place-items: center; padding: 16px; cursor: pointer; }
+.gift-body { position: relative; text-align: center; display: flex; flex-direction: column; align-items: center; }
+.gift { width: 180px; transform: translateY(40px) scale(0.6); opacity: 0; transition: transform 0.6s cubic-bezier(0.2, 1.4, 0.4, 1), opacity 0.3s; }
+.gift svg { width: 100%; display: block; overflow: visible; filter: drop-shadow(0 20px 26px rgba(0, 0, 0, 0.7)); }
+.gift-bow { transform-origin: 80px 44px; transform-box: view-box; transition: transform 0.4s cubic-bezier(0.6, 0, 0.8, 0.4) 0.45s, opacity 0.3s 0.6s; }
+.gift-lid { transform-origin: 80px 58px; transform-box: view-box; transition: transform 0.6s cubic-bezier(0.2, 1.3, 0.4, 1) 0.75s; }
+.gift-glow { opacity: 0; transition: opacity 0.4s 0.85s; }
+.gift-text { margin-top: 8px; max-width: 320px; font: 800 18px/1.35 'Unbounded', 'Manrope', system-ui, sans-serif; color: #fff;
+  opacity: 0; transform: translateY(14px); transition: opacity 0.5s 1.1s, transform 0.6s 1.1s cubic-bezier(0.16, 1, 0.3, 1); }
+.gift-scene.is-in .chest-dim { opacity: 1; }
+.gift-scene.is-in .chest-rays { opacity: 1; transform: scale(1); }
+.gift-scene.is-in .gift { opacity: 1; transform: none; }
+.gift-scene.is-in .gift-bow { transform: scale(1.6) translateY(-10px); opacity: 0; }
+.gift-scene.is-in .gift-lid { transform: translateY(-44px) rotate(-14deg); }
+.gift-scene.is-in .gift-glow { opacity: 1; }
+.gift-scene.is-in .chest-eyebrow { opacity: 1; transform: none; transition-delay: 1s; }
+.gift-scene.is-in .gift-text { opacity: 1; transform: none; }
+.gift-scene.is-out { opacity: 0; transition: opacity 0.24s; }
+
+/* ---------- Конверт заявки на вывод ---------- */
+.env-scene { position: fixed; inset: 0; z-index: 110; display: grid; place-items: center; pointer-events: none; }
+.env { position: relative; width: 220px; height: 140px; transform: scale(0.6); opacity: 0; transition: transform 0.45s cubic-bezier(0.2, 1.4, 0.4, 1), opacity 0.25s; }
+.env-back, .env-front, .env-flap { position: absolute; left: 0; right: 0; }
+.env-back { inset: 0; border-radius: 10px; background: linear-gradient(180deg, #3b1a6e, #24104a); box-shadow: 0 20px 40px rgba(0, 0, 0, 0.7); }
+.env-front { bottom: 0; height: 100%; border-radius: 10px; z-index: 3;
+  background: linear-gradient(160deg, #4a2585, #2c1452);
+  clip-path: polygon(0 30%, 50% 70%, 100% 30%, 100% 100%, 0 100%); }
+.env-flap { top: 0; height: 60%; z-index: 4; transform-origin: 50% 0; transform: rotateX(180deg);
+  background: linear-gradient(180deg, #5b2bb0, #3b1a6e); clip-path: polygon(0 0, 100% 0, 50% 100%);
+  transition: transform 0.35s cubic-bezier(0.6, 0, 0.4, 1) 0.6s; }
+.env-letter { position: absolute; left: 14px; right: 14px; top: 10px; height: 110px; z-index: 2; border-radius: 6px;
+  background: linear-gradient(180deg, #fffbe6, #f2e3b8); color: #3a1d00; text-align: center; padding-top: 16px;
+  transform: translateY(-80px); transition: transform 0.45s cubic-bezier(0.3, 1.2, 0.5, 1) 0.15s; }
+.env-letter small { display: block; font-size: 9px; font-weight: 800; letter-spacing: 0.16em; text-transform: uppercase; opacity: 0.7; }
+.env-letter b { display: block; margin-top: 6px; font: 800 20px/1 'Unbounded', 'Manrope', system-ui, sans-serif; }
+.env-seal { position: absolute; left: 50%; top: 52%; z-index: 5; width: 44px; height: 44px; margin: -22px 0 0 -22px; border-radius: 50%;
+  display: grid; place-items: center; font: 800 13px/1 'Unbounded', 'Manrope', system-ui, sans-serif; color: #5a3006;
+  background: radial-gradient(circle at 38% 30%, #fffbe6, #ffd34d 45%, #c8781a);
+  box-shadow: 0 0 0 3px rgba(138, 79, 8, 0.5), 0 6px 14px rgba(0, 0, 0, 0.6);
+  opacity: 0; transform: scale(2.6); }
+.env-caption { position: absolute; top: calc(50% + 100px); font: 800 15px/1 'Unbounded', 'Manrope', system-ui, sans-serif; color: #fff;
+  opacity: 0; transition: opacity 0.3s 0.95s; text-shadow: 0 2px 10px rgba(0, 0, 0, 0.7); }
+.env-scene.is-in .env { transform: none; opacity: 1; }
+.env-scene.is-in .env-letter { transform: translateY(0); }
+.env-scene.is-in .env-flap { transform: rotateX(0deg); }
+.env-scene.is-in .env-seal { animation: envSeal 0.35s cubic-bezier(0.2, 1.6, 0.4, 1) 0.9s forwards; }
+@keyframes envSeal { to { opacity: 1; transform: scale(1); } }
+.env-scene.is-in .env-caption { opacity: 1; }
+.env-scene.is-gone .env { transition: transform 0.7s cubic-bezier(0.6, 0, 0.8, 0.3), opacity 0.7s; transform: translate(140px, -320px) rotate(-18deg) scale(0.3); opacity: 0; }
+.env-scene.is-gone .env-caption { opacity: 0; transition: opacity 0.3s; }
+
+/* Печать выплаченной заявки: золотая, на новой - с ударом. */
+.payout-row { position: relative; }
+.payout-seal {
+  position: absolute; right: 12px; bottom: 12px; width: 34px; height: 34px; border-radius: 50%;
+  display: grid; place-items: center; font: 900 16px/1 'Manrope', sans-serif; color: #5a3006;
+  background: radial-gradient(circle at 38% 30%, #fffbe6, #ffd34d 45%, #c8781a);
+  box-shadow: 0 0 0 2px rgba(138, 79, 8, 0.45), 0 4px 10px rgba(0, 0, 0, 0.5);
+  rotate: -12deg;
+}
+.payout-seal.is-new { animation: envSeal 0.45s cubic-bezier(0.2, 1.6, 0.4, 1) 0.3s both, sealGlow 1.2s ease-in-out 0.8s 2; }
+@keyframes sealGlow { 50% { box-shadow: 0 0 0 2px rgba(138, 79, 8, 0.45), 0 0 24px 6px rgba(255, 211, 77, 0.7); } }
+
+/* ---------- Медали ---------- */
+.medal-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 18px; }
+@media (min-width: 560px) { .medal-grid { grid-template-columns: repeat(8, 1fr); } }
+.medal {
+  display: flex; flex-direction: column; align-items: center; text-align: center; gap: 3px;
+  padding: 10px 4px 9px; border-radius: 14px;
+  background: rgba(255, 255, 255, 0.035); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07);
+}
+.medal-art { width: 40px; }
+.medal-art svg { width: 100%; display: block; }
+.medal:not(.is-done) .medal-art { filter: grayscale(1) brightness(0.5); opacity: 0.6; }
+.medal.is-done { background: radial-gradient(90% 70% at 50% 20%, rgba(255, 211, 77, 0.14), transparent 70%), rgba(255, 255, 255, 0.035);
+  box-shadow: inset 0 0 0 1px rgba(255, 211, 77, 0.3); }
+.medal b { font-size: 10.5px; line-height: 1.15; color: #fff; }
+.medal small { font-size: 9px; line-height: 1.2; color: var(--muted); }
+.medal-bar { width: 80%; height: 3px; border-radius: 2px; background: rgba(255, 255, 255, 0.1); overflow: hidden; margin-top: 2px; }
+.medal-bar i { display: block; height: 100%; background: linear-gradient(90deg, #a855f7, #ffd34d); }
+
+.medal-scene { position: fixed; inset: 0; z-index: 112; pointer-events: none; }
+.medal-scene::before { content: ''; position: absolute; inset: 0; background: radial-gradient(circle at 50% 42%, rgba(30, 8, 50, 0.6), rgba(4, 0, 10, 0.75)); opacity: 0; transition: opacity 0.35s; }
+.medal-fly { position: absolute; left: 50%; top: 40%; width: 120px; transform: translate(-50%, -50%); }
+.medal-fly svg { width: 100%; display: block; filter: drop-shadow(0 0 26px rgba(255, 211, 77, 0.6)) drop-shadow(0 16px 20px rgba(0, 0, 0, 0.6)); }
+.medal-scene.is-in::before { opacity: 1; }
+.medal-scene.is-in .medal-fly svg { animation: medalDrop 1.1s cubic-bezier(0.2, 1.3, 0.4, 1) both; }
+@keyframes medalDrop {
+  0% { transform: translateY(-260px) rotateY(0deg) scale(0.6); opacity: 0; }
+  50% { transform: translateY(10px) rotateY(540deg) scale(1.05); opacity: 1; }
+  100% { transform: none; }
+}
+.medal-cap { position: absolute; left: 0; right: 0; top: calc(40% + 90px); text-align: center; opacity: 0; transform: translateY(12px); transition: opacity 0.4s 0.7s, transform 0.5s 0.7s; }
+.medal-cap small { display: block; font-size: 10.5px; font-weight: 800; letter-spacing: 0.24em; text-transform: uppercase; color: #c9a8ff; }
+.medal-cap b { display: block; margin: 6px 0 4px; font: 800 24px/1.1 'Unbounded', 'Manrope', system-ui, sans-serif;
+  background: linear-gradient(180deg, #fff8dc 10%, #ffd34d 55%, #d98a12 92%); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.medal-cap span { color: #d4c8ea; font-size: 13px; }
+.medal-scene.is-in .medal-cap { opacity: 1; transform: none; }
+.medal-scene.is-out::before, .medal-scene.is-out .medal-cap { opacity: 0; transition: opacity 0.3s; }
+
+/* ---------- Заглушки загрузки ---------- */
+/* Мерцающие силуэты вместо пустоты: видно, что здесь сейчас что-то будет,
+   и экран не прыгает, когда оно приходит. */
+.skel {
+  display: block; border-radius: 14px;
+  background: linear-gradient(100deg, rgba(255, 255, 255, 0.04) 30%, rgba(255, 255, 255, 0.1) 50%, rgba(255, 255, 255, 0.04) 70%) 0 0 / 300% 100%;
+  animation: skel 1.4s ease-in-out infinite;
+}
+@keyframes skel { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+.skel-feed { flex: 0 0 150px; height: 64px; }
+.skel-shelf { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 24px 0; }
+.skel-title { width: 180px; height: 22px; }
+.skel-row { display: flex; flex-wrap: wrap; justify-content: center; gap: 14px; width: 100%; }
+.skel-case { flex: 0 0 calc(50% - 7px); aspect-ratio: 1 / 1.1; border-radius: 22px; }
+@media (min-width: 1024px) { .skel-case { flex-basis: calc(33.3% - 10px); } }
+.skel-line { height: 58px; margin-bottom: 8px; }
+.skel-hist { flex: 0 0 calc((100% - (var(--hist-cols) - 1) * var(--hist-gap)) / var(--hist-cols)); aspect-ratio: 3 / 4; }
+@media (prefers-reduced-motion: reduce) { .skel { animation: none; } }
 
 /* ============================================================
    КОМПЬЮТЕР: ЧЁТКОСТЬ ВМЕСТО ДЫМКИ

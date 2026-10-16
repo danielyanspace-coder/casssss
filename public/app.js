@@ -9,7 +9,7 @@
 import {
   iconCases, iconCrash, iconRoulette, iconHistory, iconFair, iconAdmin,
   iconCoin, iconX2, iconGift, iconBolt, iconSearch, iconPlus, iconMinus,
-  iconBlock, iconBack, iconTier, iconStar, iconRouletteMark,
+  iconBlock, iconBack, iconTier, iconStar,
   iconGrid, iconKey, iconPeople, iconMail, iconTelegram,
   markF1, markITF, markGambling, markWorldGame,
   iconSlot,
@@ -28,7 +28,7 @@ import {
   sndRetrigger, sndFirework,
   sndWhoosh, sndBoom, sndSlash, sndRiser, sndHit, sndFanfare, sndCoin, sndDeal,
   sndChime, sndSoft,
-  sndShuffle, sndCardDrop, sndHeartbeat, sndAceWin, sndStamp, sndBurn,
+  sndShuffle, sndCardDrop, sndHeartbeat, sndAceWin, sndStamp, sndBurn, sndPurchase,
 } from './sounds.js';
 import { createMotion, MOTION_NICE_AT } from './motion.js';
 
@@ -373,8 +373,285 @@ function renderPerkBar() {
   });
 }
 
+/** Как часто одна карточка может выпустить искры: не чаще раза в полсекунды. */
+const CARD_SPARK_GAP_MS = 500;
+
+/**
+ * Кейс на полке приподнимается под пальцем или курсором, и вокруг него
+ * вспыхивают искры в тон обложки. Слушатель один на полку, а не на каждую
+ * карточку: полки перерисовываются после каждого раунда.
+ */
+function wireCaseCardFx(list) {
+  if (!list || list.dataset.fx) return;
+  list.dataset.fx = '1';
+  const fire = (e) => {
+    const card = e.target.closest?.('.case-card.has-art');
+    if (!card || !list.contains(card)) return;
+    const now = performance.now();
+    if (now - (Number(card.dataset.spark) || 0) < CARD_SPARK_GAP_MS) return;
+    card.dataset.spark = String(now);
+    const c = state.config.cases.find((x) => x.id === card.dataset.case);
+    const [h1, h2] = c?.artGlow || [275, 300];
+    const cover = card.querySelector('.case-cover');
+    if (!cover) return;
+    const b = cover.getBoundingClientRect();
+    sparkBurst(cover, b.width / 2, b.height * 0.55, {
+      n: 16, dist: [b.width * 0.3, b.width * 0.55], size: 5,
+      colors: [`hsl(${h1} 95% 65%)`, `hsl(${h2} 90% 70%)`, '#fff6cf'],
+    });
+  };
+  list.addEventListener('pointerover', (e) => { if (e.pointerType === 'mouse') fire(e); });
+  list.addEventListener('pointerdown', fire);
+}
+
+/** Сколько монет летит в баланс при пополнении. */
+const DEPOSIT_COINS = 14;
+
+/**
+ * Пополнение: монеты летят в баланс, и сумма в шапке досчитывается до новой.
+ * Первое пополнение - отдельная сцена с сундуком: это начало игры, и оно
+ * заслуживает больше, чем строку в истории.
+ */
+function celebrateDeposit(before, after) {
+  const gained = Math.max(0, after.balance - before.balance);
+  const chip = document.getElementById('balanceChip');
+  const target = chip?.offsetParent ? chip : document.getElementById('openerBalance');
+  setTimeout(() => {
+    coinShower(target, DEPOSIT_COINS);
+    countBalance(before.balance, after.balance);
+    sndCoin();
+  }, 60);
+  if (!before.depositsCount) {
+    const bonus = (after.wagerRequired || 0) > (before.wagerRequired || 0);
+    setTimeout(() => showFirstDepositChest(gained, bonus), 900);
+  }
+}
+
+/** Монеты из середины экрана в баланс по дугам, каждая со своей задержкой. */
+function coinShower(toEl, n) {
+  if (!toEl) return;
+  const t = toEl.getBoundingClientRect();
+  const layer = document.createElement('div');
+  layer.className = 'coin-shower';
+  document.body.append(layer);
+  for (let i = 0; i < n; i++) {
+    const coin = document.createElement('span');
+    coin.className = 'coin-fly';
+    coin.innerHTML = iconCoin();
+    const x0 = innerWidth / 2 + (Math.random() - 0.5) * 160;
+    const y0 = innerHeight * 0.55 + (Math.random() - 0.5) * 120;
+    coin.style.left = `${x0}px`;
+    coin.style.top = `${y0}px`;
+    layer.append(coin);
+    const dx = t.left + t.width / 2 - x0, dy = t.top + t.height / 2 - y0;
+    coin.animate([
+      { transform: 'translate(0, 0) scale(0.2) rotate(0deg)', opacity: 0 },
+      { transform: `translate(${dx * 0.2 + (Math.random() - 0.5) * 120}px, ${dy * 0.2 - 80}px) scale(1.1) rotate(200deg)`, opacity: 1, offset: 0.35 },
+      { transform: `translate(${dx}px, ${dy}px) scale(0.5) rotate(540deg)`, opacity: 0.9 },
+    ], { duration: 900, delay: i * 55, easing: 'cubic-bezier(.65,0,.35,1)', fill: 'both' });
+    setTimeout(() => { sndCoin(); }, 900 + i * 55);
+  }
+  setTimeout(() => {
+    layer.remove();
+    toEl.classList.remove('bump');
+    void toEl.offsetWidth;
+    toEl.classList.add('bump');
+  }, 900 + n * 55 + 100);
+}
+
+/** Сумма в шапке бежит от старой к новой, а не меняется скачком. */
+function countBalance(from, to) {
+  const el = document.getElementById('balanceValue');
+  if (!el || from === to) return;
+  const t0 = performance.now();
+  const COUNT_MS = 1400;
+  const frame = (now) => {
+    const k = Math.min(1, (now - t0) / COUNT_MS);
+    // Сюда могли успеть прийти новые числа: тогда счёт уступает настоящему.
+    if (state.user.balance !== to) return;
+    el.innerHTML = moneyRich(Math.round(from + (to - from) * (1 - Math.pow(1 - k, 3))));
+    if (k < 1) requestAnimationFrame(frame);
+  };
+  requestAnimationFrame(frame);
+}
+
+/** Сцена первого пополнения закрывается сама: ничто не ждёт нажатия вечно. */
+const FIRST_DEPOSIT_SCENE_MS = 6500;
+
+/**
+ * Сундук первого пополнения: крышка откидывается, из него бьёт свет и
+ * летят монеты, под ним - сумма на балансе. Бонус называется, только если
+ * сервер его действительно начислил (вырос отыгрыш): обещать то, чего нет,
+ * эта сцена не должна.
+ */
+function showFirstDepositChest(amount, bonus) {
+  const scene = document.createElement('div');
+  scene.className = 'chest-scene';
+  scene.innerHTML = `
+    <div class="chest-dim"></div>
+    <div class="chest-rays"></div>
+    <div class="chest-body">
+      <div class="chest">
+        <svg viewBox="0 0 160 130" aria-hidden="true">
+          <defs>
+            <linearGradient id="chWood" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5b2bb0"/><stop offset="1" stop-color="#24104a"/></linearGradient>
+            <linearGradient id="chGold" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff3c4"/><stop offset=".5" stop-color="#e8a024"/><stop offset="1" stop-color="#ffd34d"/></linearGradient>
+            <radialGradient id="chLight" cx=".5" cy="1" r="1"><stop offset="0" stop-color="#fff6cf"/><stop offset=".5" stop-color="#ffd34d" stop-opacity=".6"/><stop offset="1" stop-color="#ffd34d" stop-opacity="0"/></radialGradient>
+          </defs>
+          <ellipse class="chest-glow" cx="80" cy="62" rx="62" ry="30" fill="url(#chLight)"/>
+          <rect x="16" y="60" width="128" height="62" rx="8" fill="url(#chWood)" stroke="url(#chGold)" stroke-width="4"/>
+          <rect x="16" y="78" width="128" height="8" fill="url(#chGold)"/>
+          <rect x="68" y="70" width="24" height="26" rx="4" fill="url(#chGold)"/>
+          <circle cx="80" cy="82" r="4" fill="#24104a"/>
+          <g class="chest-lid">
+            <path d="M16 60 V44 C16 22 46 12 80 12 C114 12 144 22 144 44 V60 Z" fill="url(#chWood)" stroke="url(#chGold)" stroke-width="4"/>
+            <path d="M16 50 H144" stroke="url(#chGold)" stroke-width="6"/>
+          </g>
+        </svg>
+      </div>
+      <div class="chest-eyebrow">первое пополнение</div>
+      <div class="chest-sum">+${money(amount)}</div>
+      <div class="chest-note">${bonus ? 'Бонус за первое пополнение уже внутри' : 'Деньги на балансе, удачи в игре'}</div>
+      <button class="open-cta chest-go" type="button"><span class="open-act"><span>Играть</span><small>к кейсам</small></span></button>
+    </div>`;
+  document.body.append(scene);
+  requestAnimationFrame(() => scene.classList.add('is-in'));
+  sndPurchase();
+  setTimeout(() => {
+    if (!scene.isConnected) return;
+    const c = scene.querySelector('.chest').getBoundingClientRect();
+    sparkBurst(scene, c.left + c.width / 2, c.top + c.height * 0.45,
+      { n: 40, colors: ['#ffd34d', '#fff6cf', '#ff7a3a'], dist: [90, 220], size: 8 });
+    sndFanfare();
+    haptic('success');
+  }, 700);
+  const close = () => {
+    if (!scene.isConnected) return;
+    scene.classList.add('is-out');
+    setTimeout(() => scene.remove(), 260);
+  };
+  scene.querySelector('.chest-go').onclick = () => { close(); switchView('cases'); };
+  scene.querySelector('.chest-dim').onclick = close;
+  setTimeout(close, FIRST_DEPOSIT_SCENE_MS);
+}
+
+/**
+ * Медали за рубежи. Считаются из статистики, которую сервер и так присылает,
+ * поэтому подделать их нечем и хранить на сервере нечего: медаль - это
+ * отметка о том, что уже случилось, а не награда с деньгами.
+ */
+const MEDALS = [
+  { id: 'r1', icon: '1', title: 'Первый раунд', hint: 'сыграть первый раз', goal: 1, of: (s) => s.rounds },
+  { id: 'r10', icon: '10', title: 'Разогрев', hint: '10 раундов', goal: 10, of: (s) => s.rounds },
+  { id: 'r100', icon: '100', title: 'Завсегдатай', hint: '100 раундов', goal: 100, of: (s) => s.rounds },
+  { id: 'r500', icon: '500', title: 'Ветеран', hint: '500 раундов', goal: 500, of: (s) => s.rounds },
+  { id: 'r1000', icon: '1K', title: 'Легенда зала', hint: '1000 раундов', goal: 1000, of: (s) => s.rounds },
+  { id: 'x10', icon: '×10', title: 'Удачный удар', hint: 'выигрыш ×10 к ставке', goal: 10, of: (s) => s.bestMultiplier },
+  { id: 'x50', icon: '×50', title: 'Молния', hint: 'выигрыш ×50 к ставке', goal: 50, of: (s) => s.bestMultiplier },
+  { id: 'x100', icon: '×100', title: 'Звезда вечера', hint: 'выигрыш ×100 к ставке', goal: 100, of: (s) => s.bestMultiplier },
+];
+
+const MEDALS_SEEN_KEY = 'lb-medals-v1';
+
+const medalEarned = (m, stats) => (m.of(stats || {}) || 0) >= m.goal;
+
+function medalSvg(m) {
+  return `<svg viewBox="0 0 64 80" aria-hidden="true">
+    <path d="M18 2h12l6 22H24zM46 2H34l-6 22h12z" fill="#7c3aed"/><path d="M18 2h6l8 22h-6zM40 2h6l-6 22h-6z" fill="#c9a8ff" opacity=".5"/>
+    <circle cx="32" cy="50" r="26" fill="url(#mdGold)"/>
+    <circle cx="32" cy="50" r="20" fill="none" stroke="#8a4f08" stroke-width="1.6" opacity=".6"/>
+    <text x="32" y="${m.icon.length > 3 ? 55 : 57}" text-anchor="middle" font-family="Unbounded,Manrope,sans-serif" font-weight="800"
+      font-size="${m.icon.length > 3 ? 13 : m.icon.length > 2 ? 15 : 19}" fill="#5a3006">${m.icon}</text>
+  </svg>`;
+}
+
+/** Сетка медалей в «Бонусах»: полученные золотом, остальные с прогрессом. */
+function renderMedals() {
+  const grid = document.getElementById('medalGrid');
+  if (!grid || !state.user) return;
+  const stats = state.user.stats || {};
+  const got = MEDALS.filter((m) => medalEarned(m, stats)).length;
+  document.getElementById('medalCount').textContent = `${got} из ${MEDALS.length}`;
+  grid.innerHTML = `<svg width="0" height="0" style="position:absolute"><defs>
+      <radialGradient id="mdGold" cx=".38" cy=".3" r=".8"><stop offset="0" stop-color="#fffbe6"/><stop offset=".45" stop-color="#ffd34d"/><stop offset="1" stop-color="#c8781a"/></radialGradient>
+    </defs></svg>` + MEDALS.map((m) => {
+    const done = medalEarned(m, stats);
+    const pct = Math.min(100, Math.round(((m.of(stats) || 0) / m.goal) * 100));
+    return `<div class="medal${done ? ' is-done' : ''}" data-medal="${m.id}">
+      <div class="medal-art">${medalSvg(m)}</div>
+      <b>${m.title}</b><small>${m.hint}</small>
+      ${done ? '' : `<span class="medal-bar"><i style="width:${pct}%"></i></span>`}
+    </div>`;
+  }).join('');
+}
+
+/**
+ * Новые медали после раунда. Увиденные хранятся на устройстве: это
+ * удобство, а не учёт. На первом заходе всё уже полученное отмечается
+ * молча, иначе старый игрок получил бы салют из восьми медалей сразу.
+ */
+function checkMedals(user) {
+  const earned = MEDALS.filter((m) => medalEarned(m, user.stats)).map((m) => m.id);
+  let seen = null;
+  try { seen = JSON.parse(localStorage.getItem(MEDALS_SEEN_KEY) || 'null'); } catch { /* приватный режим */ }
+  try { localStorage.setItem(MEDALS_SEEN_KEY, JSON.stringify(earned)); } catch { /* приватный режим */ }
+  if (!seen) return;
+  const fresh = MEDALS.filter((m) => earned.includes(m.id) && !seen.includes(m.id));
+  // Если медалей сразу несколько, показываем старшую: две сцены подряд
+  // посреди игры - уже помеха.
+  if (fresh.length) setTimeout(() => showMedal(fresh[fresh.length - 1]), 1600);
+}
+
+/** Сцена медали: падает, поворачивается и улетает в «Бонусы». */
+function showMedal(m) {
+  if (document.querySelector('.medal-scene')) return;
+  const scene = document.createElement('div');
+  scene.className = 'medal-scene';
+  scene.innerHTML = `<svg width="0" height="0" style="position:absolute"><defs>
+      <radialGradient id="mdGold" cx=".38" cy=".3" r=".8"><stop offset="0" stop-color="#fffbe6"/><stop offset=".45" stop-color="#ffd34d"/><stop offset="1" stop-color="#c8781a"/></radialGradient>
+    </defs></svg>
+    <div class="medal-fly">${medalSvg(m)}</div>
+    <div class="medal-cap"><small>новая медаль</small><b>${m.title}</b><span>${m.hint}</span></div>`;
+  document.body.append(scene);
+  requestAnimationFrame(() => scene.classList.add('is-in'));
+  sndChime();
+  setTimeout(() => sndStamp(), 500);
+  haptic('success');
+
+  // Улетает туда, где медали живут: в «Бонусы» бокового меню на компьютере и
+  // в кнопку меню на телефоне.
+  setTimeout(() => {
+    if (!scene.isConnected) return;
+    const fly = scene.querySelector('.medal-fly');
+    const to = document.querySelector('#sideNav .side-item[data-view="bonuses"]')?.offsetParent
+      ? document.querySelector('#sideNav .side-item[data-view="bonuses"]')
+      : document.getElementById('menuBtn');
+    const a = fly.getBoundingClientRect();
+    const b = to?.getBoundingClientRect();
+    scene.classList.add('is-out');
+    if (b) {
+      fly.animate([
+        { transform: 'translate(-50%, -50%) scale(1)' },
+        { transform: `translate(calc(-50% + ${b.left + b.width / 2 - (a.left + a.width / 2)}px), calc(-50% + ${b.top + b.height / 2 - (a.top + a.height / 2)}px)) scale(0.15)`, opacity: 0.6 },
+      ], { duration: 700, easing: 'cubic-bezier(.65,0,.35,1)', fill: 'forwards' });
+      setTimeout(() => {
+        to.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.18)' }, { transform: 'scale(1)' }], { duration: 360 });
+        sndCoin();
+      }, 680);
+    }
+    setTimeout(() => scene.remove(), 760);
+  }, 2600);
+}
+
 function applyUser(user) {
+  const before = state.user;
   state.user = user;
+  // Пополнение узнаём по счётчику пополнений, а не по росту баланса: баланс
+  // растёт и от выигрыша, а праздновать выигрыш как взнос нельзя.
+  if (before && user && user.depositsCount > (before.depositsCount || 0)) {
+    celebrateDeposit(before, user);
+  }
+  if (user?.stats) checkMedals(user);
   renderBalance();
   renderCases();
   renderMenu();
@@ -463,9 +740,19 @@ function caseCardHtml(c, vouchers, artAspect = null) {
       + `;--art-glow-far:hsl(${c.artGlow[1]} 90% 60% / 0.42)`
     : '';
 
-  return `<div class="case-card ${hasArt ? 'has-art' : ''} ${freeCount ? 'free-ready' : ''} ${locked ? 'locked' : ''}"
+  /*
+   * Обложки «дышат» вразнобой: задержка - от имени кейса, а не случайная,
+   * чтобы при перерисовке полки кейс не дёргался в другую фазу. Доступные по
+   * балансу изредка вспыхивают бликом: видно, что можно открыть прямо сейчас.
+   */
+  let h = 0;
+  for (let i = 0; i < c.id.length; i++) h = (h * 31 + c.id.charCodeAt(i)) >>> 0;
+  const breath = `;--breath:${-((h % 5500) / 1000).toFixed(2)}s;--glint:${-((h % 9000) / 1000).toFixed(2)}s`;
+  const afford = !locked && (freeCount > 0 || c.price <= (state.user?.balance || 0));
+
+  return `<div class="case-card ${hasArt ? 'has-art' : ''} ${freeCount ? 'free-ready' : ''} ${locked ? 'locked' : ''} ${afford ? 'can-afford' : ''}"
       data-case="${c.id}" style="--cat-color:${color}${
-        artAspect ? `;--art-ar:${artAspect}` : ''}${glow}">
+        artAspect ? `;--art-ar:${artAspect}` : ''}${glow}${breath}">
     <div class="case-cover">
       ${caseCover(c)}
       ${hasArt ? '' : `<div class="cover-badges">${badge}</div>
@@ -614,6 +901,7 @@ function renderCases() {
   }
 
   root.innerHTML = blocks.join('');
+  wireCaseCardFx(root);
 
   // Слот сезонного кейса лежит вне списка полок, поэтому перебираем оба места.
   [root, slot].filter(Boolean).forEach((box) => {
@@ -674,6 +962,7 @@ function renderBonuses() {
     })
     .join('');
 
+  wireCaseCardFx(list);
   list.querySelectorAll('.case-card').forEach((card) => {
     card.addEventListener('click', () => openCase(card.dataset.case));
   });
@@ -2433,10 +2722,13 @@ function inspectHistory(c, item, tile) {
  */
 async function loadCaseHistory(caseTitle) {
   const box = document.getElementById('openerHistory');
+  if (!box.children.length) {
+    box.innerHTML = '<div class="hist-grid"><span class="skel skel-hist"></span><span class="skel skel-hist"></span><span class="skel skel-hist"></span></div>';
+  }
   let history;
   try {
     ({ history } = await api('/api/history', { caseTitle, limit: HISTORY_LOAD }));
-  } catch { return; }
+  } catch { box.innerHTML = ''; return; }
 
   const c = state.config.cases.find((x) => x.name === caseTitle);
   const idle = !document.getElementById('casePanel').hidden;
@@ -2863,18 +3155,193 @@ function drawCrashGraph(elapsedMs, multiplier) {
   crashEl.area().setAttribute('points',
     `0,${GRAPH_H} ${line} ${((elapsedMs / xMax) * GRAPH_W).toFixed(1)},${GRAPH_H}`);
 
-  const last = points[points.length - 1].split(',');
+  // Ракета летит по концу кривой носом по касательной; координаты из
+  // системы графика переводятся в точки сцены.
   const stage = document.getElementById('crashStage');
+  const toPx = (pt) => {
+    const [x, y] = pt.split(',').map(Number);
+    return [(x / GRAPH_W) * stage.clientWidth, (y / GRAPH_H) * stage.clientHeight];
+  };
+  const [x, y] = toPx(points[points.length - 1]);
+  const [px, py] = toPx(points[points.length - 3] || points[0]);
+  const angle = Math.atan2(y - py, x - px) || 0;
   crashEl.rocket().style.transform =
-    `translate(${(Number(last[0]) / GRAPH_W) * stage.clientWidth - 15}px, ` +
-    `${(Number(last[1]) / GRAPH_H) * stage.clientHeight - stage.clientHeight - 15}px)`;
+    `translate(${(x - 35).toFixed(1)}px, ${(y - 15).toFixed(1)}px) rotate(${angle.toFixed(3)}rad)`;
+  crashFx().fly(x, y, angle, multiplier);
 }
 
 function resetCrashGraph() {
   crashEl.line().setAttribute('points', '');
   crashEl.area().setAttribute('points', '');
-  crashEl.rocket().classList.remove('flying');
-  crashEl.rocket().style.transform = 'translate(0, -15px)';
+  crashEl.rocket().classList.remove('flying', 'gone');
+  const stage = document.getElementById('crashStage');
+  crashEl.rocket().style.transform = `translate(-4px, ${stage.clientHeight - 30}px) rotate(-0.5rad)`;
+  crashFx().reset();
+}
+
+/** Рубежи множителя: на каждом вспышка, звук и надпись. */
+const CRASH_MILESTONES = [2, 5, 10, 25, 50, 100];
+
+/**
+ * Эффекты краша: звёзды, шлейф, рубежи, взрыв и золото.
+ *
+ * Два холста: звёзды позади кривой и частицы впереди неё. Звёзды летят
+ * навстречу ракете тем быстрее, чем выше множитель, - скорость видна
+ * всем экраном, а не только числом. Частиц немного и живут они меньше
+ * секунды: сцена должна оставаться лёгкой во встроенном браузере Telegram.
+ *
+ * Цикл крутится, только пока раздел краша на экране: на спрятанном холсте
+ * рисовать незачем.
+ */
+function createCrashFx(stage) {
+  const back = document.createElement('canvas');
+  const front = document.createElement('canvas');
+  back.className = 'crash-stars';
+  front.className = 'crash-fx';
+  stage.prepend(back);
+  stage.append(front);
+  const bg = back.getContext('2d');
+  const fg = front.getContext('2d');
+  let W = 0, H = 0, raf = 0, last = 0;
+  let speed = 0.4;
+  let rocket = null;
+  const P = [];
+  const stars = Array.from({ length: 70 }, () => ({ x: Math.random(), y: Math.random(), z: 0.25 + Math.random() * 0.75 }));
+
+  const fit = () => {
+    const dpr = Math.min(2, devicePixelRatio || 1);
+    W = stage.clientWidth; H = stage.clientHeight;
+    for (const c of [back, front]) { c.width = W * dpr; c.height = H * dpr; }
+    bg.setTransform(dpr, 0, 0, dpr, 0, 0);
+    fg.setTransform(dpr, 0, 0, dpr, 0, 0);
+  };
+  const add = (p) => { P.push({ age: 0, drag: 0.9, g: 0, ...p }); wake(); };
+
+  function frame(now) {
+    const dt = Math.min(0.05, (now - last) / 1000 || 0.016);
+    last = now;
+    if (!stage.offsetParent) { raf = 0; return; }
+    if (W !== stage.clientWidth || H !== stage.clientHeight) fit();
+
+    bg.clearRect(0, 0, W, H);
+    for (const s of stars) {
+      s.x -= speed * s.z * dt * 0.35;
+      s.y += speed * s.z * dt * 0.12;
+      if (s.x < 0) { s.x = 1; s.y = Math.random(); }
+      if (s.y > 1) { s.y = 0; s.x = Math.random(); }
+      const len = 1 + speed * s.z * 10;
+      bg.strokeStyle = `rgba(220, 200, 255, ${0.25 + s.z * 0.5})`;
+      bg.lineWidth = s.z * 1.6;
+      bg.beginPath();
+      bg.moveTo(s.x * W, s.y * H);
+      bg.lineTo(s.x * W + len, s.y * H - len * 0.34);
+      bg.stroke();
+    }
+
+    // Шлейф: из сопла летят искры назад и в стороны.
+    if (rocket) {
+      const n = 2 + Math.min(4, Math.floor(speed));
+      for (let i = 0; i < n; i++) {
+        const back = rocket.angle + Math.PI + (Math.random() - 0.5) * 0.6;
+        const v = 60 + Math.random() * 120;
+        P.push({ age: 0, life: 0.35 + Math.random() * 0.4, drag: 0.92, g: 0,
+          x: rocket.x - Math.cos(rocket.angle) * 22, y: rocket.y - Math.sin(rocket.angle) * 22,
+          vx: Math.cos(back) * v, vy: Math.sin(back) * v, size: 2 + Math.random() * 3,
+          color: Math.random() < 0.5 ? '#ffd34d' : (Math.random() < 0.5 ? '#ff7a3a' : '#ff2e8a') });
+      }
+    }
+
+    fg.clearRect(0, 0, W, H);
+    fg.globalCompositeOperation = 'lighter';
+    for (let i = P.length - 1; i >= 0; i--) {
+      const p = P[i];
+      p.age += dt;
+      if (p.age >= p.life) { P.splice(i, 1); continue; }
+      p.vx *= Math.pow(p.drag, dt * 60);
+      p.vy = p.vy * Math.pow(p.drag, dt * 60) + p.g * dt;
+      p.x += p.vx * dt; p.y += p.vy * dt;
+      const k = 1 - p.age / p.life;
+      if (p.ring) {
+        fg.strokeStyle = p.color; fg.globalAlpha = k; fg.lineWidth = 3 * k + 0.5;
+        fg.beginPath(); fg.arc(p.x, p.y, p.ring * (1 - k * k) + 6, 0, Math.PI * 2); fg.stroke();
+      } else {
+        fg.fillStyle = p.color; fg.globalAlpha = k;
+        fg.beginPath(); fg.arc(p.x, p.y, p.size * (0.4 + k * 0.6), 0, Math.PI * 2); fg.fill();
+      }
+    }
+    fg.globalAlpha = 1;
+    fg.globalCompositeOperation = 'source-over';
+
+    raf = requestAnimationFrame(frame);
+  }
+  function wake() {
+    if (!raf && stage.offsetParent) { fit(); last = performance.now(); raf = requestAnimationFrame(frame); }
+  }
+
+  return {
+    wake,
+    fly(x, y, angle, m) { rocket = { x, y, angle }; speed = 0.8 + Math.log(m) * 2.2; wake(); },
+    reset() { rocket = null; speed = 0.4; P.length = 0; wake(); },
+    milestone(x, y, color) {
+      add({ x, y, vx: 0, vy: 0, life: 0.7, ring: 70, color });
+      add({ x, y, vx: 0, vy: 0, life: 0.9, ring: 120, color: '#ffffff' });
+      for (let i = 0; i < 26; i++) {
+        const a = Math.random() * Math.PI * 2, v = 120 + Math.random() * 200;
+        add({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 0.7, size: 2.5, color: i % 2 ? color : '#ffffff' });
+      }
+    },
+    explode(x, y) {
+      rocket = null;
+      speed = 0.2;
+      add({ x, y, vx: 0, vy: 0, life: 0.8, ring: 140, color: '#ff5d2e' });
+      for (let i = 0; i < 70; i++) {
+        const a = Math.random() * Math.PI * 2, v = 80 + Math.random() * 320;
+        add({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 0.6 + Math.random() * 0.9, g: 320, drag: 0.95,
+          size: 1.5 + Math.random() * 4, color: ['#ffd34d', '#ff7a3a', '#ff2e8a', '#ffffff', '#6c4bb4'][i % 5] });
+      }
+    },
+    cashout(x, y) {
+      add({ x, y, vx: 0, vy: 0, life: 0.8, ring: 110, color: '#7dffb3' });
+      for (let i = 0; i < 40; i++) {
+        const a = -Math.PI / 2 + (Math.random() - 0.5) * 2.2, v = 160 + Math.random() * 260;
+        add({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 1 + Math.random() * 0.6, g: 520, drag: 0.97,
+          size: 3 + Math.random() * 3, color: i % 3 ? '#ffd34d' : '#fff6cf' });
+      }
+    },
+  };
+}
+
+let crashFxInst = null;
+/** Эффекты краша создаются при первом обращении: сцена к этому времени есть. */
+function crashFx() {
+  return (crashFxInst ||= createCrashFx(document.getElementById('crashStage')));
+}
+
+/** Где сейчас ракета в координатах сцены. */
+function crashRocketPoint() {
+  const st = document.getElementById('crashStage').getBoundingClientRect();
+  const r = crashEl.rocket().getBoundingClientRect();
+  return [r.left + r.width / 2 - st.left, r.top + r.height / 2 - st.top];
+}
+
+/** Рубеж множителя: вспышка от ракеты, надпись, звук, лёгкая тряска сцены. */
+function crashMilestone(m) {
+  const stage = document.getElementById('crashStage');
+  const [x, y] = crashRocketPoint();
+  const color = m >= 10 ? '#ffd34d' : m >= 5 ? '#ff2e8a' : '#6bbdcc';
+  crashFx().milestone(x, y, color);
+  const tag = document.createElement('div');
+  tag.className = 'crash-mile';
+  tag.style.setProperty('--c', color);
+  tag.textContent = `×${m}`;
+  stage.append(tag);
+  setTimeout(() => tag.remove(), 1300);
+  crashEl.multiplier().classList.remove('is-pulse');
+  void crashEl.multiplier().offsetWidth;
+  crashEl.multiplier().classList.add('is-pulse');
+  stage.animate([{ translate: '0 0' }, { translate: '0 3px' }, { translate: '0 -2px' }, { translate: '0 0' }], { duration: 260 });
+  if (m >= 10) { sndHit(m >= 50 ? 1.26 : 1.12); sndChime(); } else sndChime();
+  haptic(m >= 10 ? 'heavy' : 'medium');
 }
 
 function crashColorFor(m) {
@@ -2933,6 +3400,13 @@ function runCrashLoop() {
 
   crashEl.multiplier().textContent = `${m.toFixed(2)}x`;
   crashEl.multiplier().style.color = crashColorFor(m);
+  if (m >= (round.nextMile ?? CRASH_MILESTONES[0])) {
+    const passed = CRASH_MILESTONES.filter((v) => v <= m).pop();
+    round.nextMile = CRASH_MILESTONES.find((v) => v > m) ?? Infinity;
+    // Отрисовка ракеты идёт ниже: рубеж показываем со следующего кадра,
+    // когда она уже стоит на новом месте.
+    requestAnimationFrame(() => crashMilestone(passed));
+  }
   crashEl.btn().textContent = `ЗАБРАТЬ ${fmt(Math.floor(round.bet * m))}`;
   drawCrashGraph(elapsed, m);
 
@@ -2991,13 +3465,20 @@ function finishCrash(data) {
   const mult = crashEl.multiplier();
   const status = crashEl.status();
 
+  const [rx, ry] = crashRocketPoint();
+  const flash = document.getElementById('crashFlash');
   if (data.status === 'cashed') {
     mult.textContent = `${data.cashedAt.toFixed(2)}x`;
     mult.className = 'crash-multiplier cashed';
     mult.style.color = '';
     status.className = 'crash-status win';
     status.textContent = `Забрали ${money(data.payout)} · взорвалось на ${data.crashPoint.toFixed(2)}x`;
+    // Золото сыплется из ракеты: забрал - значит выпрыгнул с добычей.
+    crashFx().cashout(rx, ry);
+    flash.className = 'crash-flash is-win';
     sndCollect();
+    sndCoin();
+    setTimeout(sndCoin, 120);
     haptic('success');
   } else {
     mult.textContent = `${data.crashPoint.toFixed(2)}x`;
@@ -3005,12 +3486,22 @@ function finishCrash(data) {
     mult.style.color = '';
     status.className = 'crash-status lose';
     status.textContent = `Взорвалось. Ставка ${money(round.bet)} потеряна`;
+    // Ракета разлетается обломками, сцену встряхивает, вспышка красная.
+    crashFx().explode(rx, ry);
+    crashEl.rocket().classList.add('gone');
+    flash.className = 'crash-flash is-boom';
+    document.getElementById('crashStage').animate([
+      { translate: '0 0' }, { translate: '-9px 4px' }, { translate: '8px -5px' },
+      { translate: '-5px 3px' }, { translate: '3px -1px' }, { translate: '0 0' },
+    ], { duration: 520, easing: 'ease-out' });
     sndCrash();
+    sndBoom();
     haptic('error');
   }
+  setTimeout(() => { flash.className = 'crash-flash'; }, 700);
   pushRecent('crash', data.crashPoint);
 
-  crashEl.rocket().classList.remove('flying');
+  if (data.status === 'cashed') crashEl.rocket().classList.remove('flying');
   crashEl.btn().classList.remove('cashout');
   crashEl.btn().textContent = 'ПОСТАВИТЬ';
 
@@ -3044,8 +3535,35 @@ function pushRecent(game, value) {
    РУЛЕТКА
    ============================================================ */
 
-const ROUL_LOOPS = 6;
-const ROUL_WINNER_LOOP = 4;
+/** Сколько крутится колесо рулетки. */
+const ROUL_SPIN_MS = 6400;
+
+/**
+ * Доля прокрута, к которой шар садится в лунку. Дальше он едет вместе с
+ * колесом: шар, катящийся до самой остановки колеса, выглядит пущенным по
+ * льду, а не по дереву.
+ */
+const ROUL_BALL_SETTLE = 0.8;
+
+/** Сколько оборотов шар делает навстречу колесу. */
+const ROUL_BALL_TURNS = 7;
+
+/** Сколько полных оборотов колесо делает за прокрут, не меньше. */
+const ROUL_WHEEL_TURNS = 3;
+
+/*
+ * Радиусы - доли радиуса всего колеса, вместе с ободом. Они повторяют
+ * вёрстку: колесо с секторами вписано в обод с отступом 8% (.rw-wheel), лунки -
+ * внешнее кольцо секторов. Поменяли отступ в стилях - поменяйте и здесь, иначе
+ * шар поедет мимо желоба.
+ */
+const ROUL_TRACK_R = 0.885;
+const ROUL_POCKET_R = 0.755;
+
+/** Ламп на ободе: бегут по кругу во время прокрута. */
+const ROUL_BULBS = 20;
+
+const rw = { angle: 0, ballAngle: 0, built: '' };
 
 function renderColorPicker() {
   const picker = document.getElementById('colorPicker');
@@ -3063,21 +3581,180 @@ function renderColorPicker() {
   });
 }
 
-function renderRouletteReel(offsetTiles = 0) {
-  const wheel = state.config.roulette.wheel;
-  const reel = document.getElementById('rouletteReel');
-  // Метки секторов - собственные SVG, а не типографские символы: так они
-  // одинаково выглядят на всех платформах и красятся под цвет сектора.
 
-  let html = '';
-  for (let i = 0; i < wheel.length * ROUL_LOOPS; i++) {
-    const color = wheel[i % wheel.length];
-    html += `<div class="roulette-tile ${color}">${iconRouletteMark(color)}</div>`;
+/** Координата точки на окружности: угол по часовой от верха, SVG-оси. */
+function rwPoint(r, deg) {
+  const a = (deg * Math.PI) / 180;
+  return `${(150 + r * Math.sin(a)).toFixed(2)} ${(150 - r * Math.cos(a)).toFixed(2)}`;
+}
+
+/** Путь сектора между радиусами r0 и r1. */
+function rwSector(r0, r1, from, to) {
+  return `M${rwPoint(r1, from)} A${r1} ${r1} 0 0 1 ${rwPoint(r1, to)} ` +
+    `L${rwPoint(r0, to)} A${r0} ${r0} 0 0 0 ${rwPoint(r0, from)}Z`;
+}
+
+/**
+ * Колесо рулетки.
+ *
+ * Прежняя рулетка была лентой плиток, как кейс, и ничем не отличалась от него
+ * на экране. Теперь это колесо: золотой обод с лампами, лунки по краю,
+ * сектора с метками и шар, который бежит навстречу колесу и падает в лунку.
+ *
+ * Сектора равные, потому что и шансы равные: 1/15 у каждого. Колесо
+ * рисуется один раз и только поворачивается, перерисовка - лишь если сервер
+ * прислал другое колесо.
+ */
+function renderRouletteWheel() {
+  const wheel = state.config.roulette.wheel;
+  const key = wheel.join(',');
+  const host = document.getElementById('rouletteWheel');
+  if (!host) return;
+
+  if (rw.built !== key) {
+    const seg = 360 / wheel.length;
+    const fill = { red: 'url(#rwRed)', black: 'url(#rwBlack)', green: 'url(#rwGreen)' };
+    const pocket = { red: '#8f0f22', black: '#120720', green: '#00744a' };
+    const sectors = wheel.map((color, i) => {
+      const from = i * seg, to = (i + 1) * seg, mid = from + seg / 2;
+      const [mx, my] = rwPoint(92, mid).split(' ');
+      return `<path d="${rwSector(52, 118, from, to)}" fill="${fill[color]}"/>
+        <path d="${rwSector(118, 150, from, to)}" fill="${pocket[color]}"/>
+        <g class="rw-mark" data-color="${color}" data-sector="${i}"
+           transform="translate(${mx} ${my}) rotate(${mid})">${rouletteMarkSvg(color)}</g>`;
+    }).join('');
+    const frets = wheel.map((_, i) =>
+      `<path d="M${rwPoint(118, i * seg)} L${rwPoint(150, i * seg)}" />`).join('');
+    host.innerHTML = `<svg viewBox="0 0 300 300" aria-hidden="true">
+      <defs>
+        <radialGradient id="rwRed" cx="150" cy="150" r="118" gradientUnits="userSpaceOnUse">
+          <stop offset=".45" stop-color="#7a0716"/><stop offset="1" stop-color="#ff3b5c"/></radialGradient>
+        <radialGradient id="rwBlack" cx="150" cy="150" r="118" gradientUnits="userSpaceOnUse">
+          <stop offset=".45" stop-color="#0c0418"/><stop offset="1" stop-color="#3a2462"/></radialGradient>
+        <radialGradient id="rwGreen" cx="150" cy="150" r="118" gradientUnits="userSpaceOnUse">
+          <stop offset=".45" stop-color="#00593a"/><stop offset="1" stop-color="#19f0a0"/></radialGradient>
+        <linearGradient id="rwGold" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#fff3c4"/><stop offset=".5" stop-color="#e8a024"/><stop offset="1" stop-color="#ffd34d"/></linearGradient>
+      </defs>
+      ${sectors}
+      <path class="rw-hl" id="rouletteHl" d="" />
+      <g class="rw-frets">${frets}</g>
+      <circle cx="150" cy="150" r="118" fill="none" stroke="url(#rwGold)" stroke-width="2.4"/>
+      <circle cx="150" cy="150" r="149" fill="none" stroke="url(#rwGold)" stroke-width="2"/>
+      <circle cx="150" cy="150" r="52" fill="none" stroke="url(#rwGold)" stroke-width="2.4"/>
+    </svg>`;
+
+    document.getElementById('rouletteRim').innerHTML = Array.from({ length: ROUL_BULBS }, (_, i) =>
+      `<i style="--a:${(i * 360) / ROUL_BULBS}deg; --i:${i}"></i>`).join('');
+    rw.built = key;
   }
-  reel.innerHTML = html;
-  reel.style.transition = 'none';
-  const { step } = measureReel(reel);
-  reel.style.transform = `translateX(${-offsetTiles * step}px)`;
+
+  host.style.transform = `rotate(${rw.angle}deg)`;
+  placeRouletteBall(rw.ballAngle, ROUL_POCKET_R);
+}
+
+/** Метка сектора: ромб, квадрат или звезда, как и прежде на плитках. */
+function rouletteMarkSvg(color) {
+  if (color === 'green') return '<path d="M0 -11 3.2 -3.4 11 -3.4 4.8 1.6 7 9.4 0 4.8 -7 9.4 -4.8 1.6 -11 -3.4 -3.2 -3.4Z" fill="#eafff5"/>';
+  if (color === 'red') return '<path d="M0 -10 8 0 0 10 -8 0Z" fill="#fff" opacity=".92"/>';
+  return '<rect x="-7" y="-7" width="14" height="14" rx="2.5" fill="#cbb6e8" opacity=".85"/>';
+}
+
+function placeRouletteBall(angle, radiusK) {
+  const wrap = document.querySelector('#rouletteStage .rw-wrap');
+  const ball = document.getElementById('rouletteBall');
+  if (!wrap || !ball) return;
+  const R = wrap.clientWidth / 2;
+  ball.style.transform = `rotate(${angle}deg) translateY(${(-radiusK * R).toFixed(1)}px)`;
+}
+
+const easeOutQuart = (k) => 1 - Math.pow(1 - k, 4);
+const easeOutCubic = (k) => 1 - Math.pow(1 - k, 3);
+
+/**
+ * Прокрут: колесо по часовой, шар навстречу.
+ *
+ * Исход решён сервером (data.slot), здесь только движение к нему. Колесо
+ * доворачивает выпавший сектор под самоцвет сверху, шар катится по желобу,
+ * теряет скорость, прыгает по лункам и садится ровно в этот сектор. В конце
+ * шар стоит в лунке, а лунка - под самоцветом: остановка и есть результат.
+ */
+function spinRouletteWheel(slot) {
+  const wheel = state.config.roulette.wheel;
+  const seg = 360 / wheel.length;
+  const mid = (slot + 0.5) * seg;
+  // Колесо встаёт не точно серединой сектора под самоцвет: так живее, а
+  // разброс держим в середине сектора, чтобы лунка не читалась соседней.
+  const jitter = (Math.random() - 0.5) * seg * 0.45;
+  const w0 = rw.angle;
+  let wEnd = -mid + jitter;
+  wEnd += 360 * Math.ceil((w0 + ROUL_WHEEL_TURNS * 360 - wEnd) / 360);
+
+  const hostWheel = document.getElementById('rouletteWheel');
+  const stage = document.getElementById('rouletteStage');
+  stage.className = 'rw-stage is-spinning';
+  document.getElementById('rouletteHl').setAttribute('d', rwSector(52, 150, slot * seg, (slot + 1) * seg));
+
+  return new Promise((done) => {
+    const started = performance.now();
+    let lastFret = null;
+    let lastTick = 0;
+    const frame = (now) => {
+      const k = Math.min(1, (now - started) / ROUL_SPIN_MS);
+      const W = w0 + (wEnd - w0) * easeOutQuart(k);
+      const kb = Math.min(1, k / ROUL_BALL_SETTLE);
+      let rel = ROUL_BALL_TURNS * 360 * (1 - easeOutCubic(kb));
+
+      // Последние сорок процентов пути шар падает из желоба в лунки и
+      // прыгает по ним: радиус скачет вниз-вверх, угол качается между
+      // соседними лунками, и оба затухают к посадке.
+      const drop = Math.max(0, Math.min(1, (kb - 0.6) / 0.4));
+      let radius = ROUL_TRACK_R;
+      if (drop > 0) {
+        const hop = Math.abs(Math.sin(drop * Math.PI * 4)) * (1 - drop);
+        radius = ROUL_TRACK_R + (ROUL_POCKET_R - ROUL_TRACK_R) * drop + hop * 0.06;
+        rel += Math.sin(drop * Math.PI * 5) * seg * 0.55 * (1 - drop);
+      }
+
+      hostWheel.style.transform = `rotate(${W}deg)`;
+      const ballAngle = W + mid + rel;
+      placeRouletteBall(ballAngle, radius);
+
+      // Щелчок на каждой лунке, которую шар проходит относительно колеса.
+      const fret = Math.floor(rel / seg);
+      if (lastFret !== null && fret !== lastFret && now - lastTick > 45) {
+        sndTick(1 + (1 - k) * 0.4);
+        lastTick = now;
+        if (drop > 0) haptic('light');
+      }
+      lastFret = fret;
+
+      if (k < 1) requestAnimationFrame(frame);
+      else {
+        rw.angle = ((W % 360) + 360) % 360;
+        rw.ballAngle = ((ballAngle % 360) + 360) % 360;
+        hostWheel.style.transform = `rotate(${rw.angle}deg)`;
+        placeRouletteBall(rw.ballAngle, ROUL_POCKET_R);
+        done();
+      }
+    };
+    requestAnimationFrame(frame);
+  });
+}
+
+/** Искры из точки: общий мелкий эффект для игр. Узлы с переменными, не холст. */
+function sparkBurst(host, x, y, { n = 24, colors = ['#ffe58a', '#ffffff'], dist = [60, 140], size = 6 } = {}) {
+  const layer = document.createElement('div');
+  layer.className = 'fx-burst';
+  layer.innerHTML = Array.from({ length: n }, (_, i) => {
+    const a = (i / n) * Math.PI * 2 + Math.random() * 0.4;
+    const d = dist[0] + Math.random() * (dist[1] - dist[0]);
+    const c = colors[i % colors.length];
+    return `<i style="left:${x}px;top:${y}px;--dx:${(Math.cos(a) * d).toFixed(0)}px;--dy:${(Math.sin(a) * d).toFixed(0)}px;
+      --c:${c};--s:${(size * (0.6 + Math.random() * 0.8)).toFixed(1)}px;--d:${(Math.random() * 120).toFixed(0)}ms"></i>`;
+  }).join('');
+  host.append(layer);
+  setTimeout(() => layer.remove(), 1400);
 }
 
 async function spinRoulette() {
@@ -3105,49 +3782,44 @@ async function spinRoulette() {
     return;
   }
 
-  const reel = document.getElementById('rouletteReel');
-  const wheelLen = state.config.roulette.wheel.length;
-
-  renderRouletteReel(0);
-  void reel.offsetWidth;
-
-  const winnerIndex = ROUL_WINNER_LOOP * wheelLen + data.slot;
-  const viewport = reel.parentElement.clientWidth;
-  const { tileW, step } = measureReel(reel);
-  const jitter = (Math.random() - 0.5) * (tileW * 0.45);
-  const target = winnerIndex * step + tileW / 2 - viewport / 2 + jitter;
-
-  requestAnimationFrame(() => {
-    reel.style.transition = 'transform 5.4s cubic-bezier(0.32, 0, 0.1, 1)';
-    reel.style.transform = `translateX(${-target}px)`;
-  });
-
   sndSpinStart();
   sndBet();
   haptic('medium');
-  const timers = [800, 1600, 2300, 2900, 3400, 3900, 4300, 4700, 5000, 5200]
-    .map((t) => setTimeout(() => { haptic('light'); sndTick(); }, t));
+  await spinRouletteWheel(data.slot);
 
-  setTimeout(() => {
-    timers.forEach(clearTimeout);
-    const box = document.getElementById('rouletteResult');
-    const label = state.config.roulette.colors.find((c) => c.id === data.landed)?.label;
-    box.textContent = data.won ? `${label} - забрали ${money(data.payout)}` : `${label} - мимо`;
-    box.className = `roulette-result ${data.won ? 'win' : 'lose'}`;
+  const stage = document.getElementById('rouletteStage');
+  stage.className = `rw-stage is-landed is-${data.landed}${data.won ? ' is-won' : ''}`;
+  const box = document.getElementById('rouletteResult');
+  const label = state.config.roulette.colors.find((c) => c.id === data.landed)?.label;
+  box.innerHTML = data.won
+    ? `<b>${label} - забрали ${money(data.payout)}</b>`
+    : `<b>${label} - мимо</b>`;
+  box.className = `roulette-result ${data.won ? 'win' : 'lose'} is-${data.landed}`;
 
-    pushRecent('roulette', data.landed);
-    applyUser(data.user);
-    sndLand();
-    if (data.won) { sndReveal(data.landed === 'green' ? 'unique' : 'epic'); sndCollect(); }
-    else sndLose();
-    haptic(data.won ? 'success' : 'error');
+  pushRecent('roulette', data.landed);
+  applyUser(data.user);
+  sndLand();
+  if (data.won) {
+    // Свет бьёт столбом из выигравшей лунки, из неё же летят искры.
+    const pointer = document.getElementById('roulettePointer').getBoundingClientRect();
+    const host = stage.getBoundingClientRect();
+    const colors = { red: ['#ff6b85', '#ffe58a', '#fff'], black: ['#c9a8ff', '#ffe58a', '#fff'], green: ['#19f0a0', '#ffe58a', '#fff'] }[data.landed];
+    sparkBurst(stage, pointer.left + pointer.width / 2 - host.left, pointer.bottom - host.top + 18,
+      { n: data.landed === 'green' ? 44 : 28, colors, dist: [50, data.landed === 'green' ? 190 : 130] });
+    sndReveal(data.landed === 'green' ? 'unique' : 'epic');
+    if (data.landed === 'green') sndFanfare(1.12); else sndCollect();
+  } else sndLose();
+  haptic(data.won ? 'success' : 'error');
 
-    state.busy = false;
-    document.getElementById('rouletteSpinBtn').disabled = false;
-  }, 5550);
+  state.busy = false;
+  document.getElementById('rouletteSpinBtn').disabled = false;
 }
 
 document.getElementById('rouletteSpinBtn').addEventListener('click', spinRoulette);
+// Колесо крутится и нажатием на само колесо: палец уже там, куда смотрит глаз.
+document.getElementById('rouletteStage').addEventListener('click', () => {
+  if (!document.getElementById('rouletteSpinBtn').disabled) spinRoulette();
+});
 
 /* ============================================================
    ЧЕСТНОСТЬ
@@ -4714,13 +5386,14 @@ function switchView(name) {
       if (deposit.hidden && withdraw.hidden) deposit.hidden = false;
     }
   }
-  if (name === 'roulette') renderRouletteReel(2);
+  if (name === 'roulette') renderRouletteWheel();
+  if (name === 'crash') { if (!state.crash) resetCrashGraph(); crashFx().wake(); }
   if (name === 'mini') { mini.close(); mini.renderShelf(); }
   if (name === 'slots') slot.openShelf();
   else slot.close();
   if (name === 'admin') initAdminPanel();
   if (name === 'cases') loadFreeCase();
-  if (name === 'bonuses') { renderBonuses(); loadPromoState(); }
+  if (name === 'bonuses') { renderBonuses(); renderMedals(); loadPromoState(); }
   if (name === 'freemoney') openFreeMoney();
   if (name === 'partner') loadPartner();
   if (name === 'upgrade') {
@@ -5060,6 +5733,11 @@ function renderDepositOffer() {
 
 async function loadWallet() {
   let w;
+  // Пока касса грузится, на месте списков мерцают силуэты строк.
+  for (const id of ['depositList', 'payoutList']) {
+    const el = document.getElementById(id);
+    if (el && !el.children.length) el.innerHTML = '<span class="skel skel-line"></span>'.repeat(3);
+  }
   try { w = await api('/api/wallet'); }
   catch (err) { toast(err.message); return; }
 
@@ -5136,6 +5814,46 @@ function payoutRequisites(p, { full = false } = {}) {
   return `${full ? 'СБП<br>' : 'СБП · '}${esc(p.phone || '')} · ${esc(p.bank || '')}`;
 }
 
+/** Где хранится, какие выплаты игрок уже видел выплаченными. */
+const PAID_SEEN_KEY = 'lb-paid-seen-v1';
+
+/**
+ * Заявка уходит конвертом: письмо с суммой ложится внутрь, клапан
+ * закрывается, сверху падает золотая печать, и конверт улетает. Это
+ * подтверждение, а не ожидание: интерфейс за ним не заперт.
+ */
+function sendPayoutEnvelope(amount) {
+  const scene = document.createElement('div');
+  scene.className = 'env-scene';
+  scene.innerHTML = `
+    <div class="env">
+      <div class="env-letter"><small>заявка на вывод</small><b>${money(amount)}</b></div>
+      <div class="env-back"></div>
+      <div class="env-front"></div>
+      <div class="env-flap"></div>
+      <div class="env-seal">LB</div>
+    </div>
+    <div class="env-caption">Заявка отправлена</div>`;
+  document.body.append(scene);
+  requestAnimationFrame(() => scene.classList.add('is-in'));
+  sndWhoosh(true);
+  setTimeout(() => { sndStamp(); haptic('medium'); }, 900);
+  setTimeout(() => { scene.classList.add('is-gone'); sndWhoosh(false); }, 1700);
+  setTimeout(() => scene.remove(), 2500);
+}
+
+/** Выплаченные заявки, которые игрок ещё не видел такими. */
+function freshPaidIds(payouts) {
+  const paid = payouts.filter((p) => p.status === 'paid').map((p) => String(p.id));
+  let seen = null;
+  try { seen = JSON.parse(localStorage.getItem(PAID_SEEN_KEY) || 'null'); } catch { /* приватный режим */ }
+  // Первый заход: всё прошлое считаем увиденным, иначе печати застучат по
+  // всей истории разом.
+  const fresh = seen ? paid.filter((id) => !seen.includes(id)) : [];
+  try { localStorage.setItem(PAID_SEEN_KEY, JSON.stringify(paid)); } catch { /* приватный режим */ }
+  return new Set(fresh);
+}
+
 function renderPayoutList(payouts) {
   const box = document.getElementById('payoutList');
   if (!payouts.length) {
@@ -5143,8 +5861,14 @@ function renderPayoutList(payouts) {
     return;
   }
 
+  // Новая выплата получает золотую печать с ударом: деньги пришли, и это
+  // видно сразу, а не мелким словом в статусе.
+  const fresh = freshPaidIds(payouts);
+  if (fresh.size) setTimeout(() => { sndStamp(); sndCollect(); haptic('success'); }, 350);
+
   box.innerHTML = payouts.map((p) => `
     <div class="payout-row ${p.status}">
+      ${p.status === 'paid' ? `<span class="payout-seal${fresh.has(String(p.id)) ? ' is-new' : ''}" aria-hidden="true">✓</span>` : ''}
       <div class="payout-head">
         <b>${money(p.amount)}</b>
         <span class="payout-status ${p.status}">${STATUS_LABEL[p.status] || p.status}</span>
@@ -5627,8 +6351,7 @@ document.getElementById('withdrawSubmit').addEventListener('click', async () => 
     document.getElementById('withdrawCard').value = '';
     const addr = document.getElementById('withdrawAddress');
     if (addr) addr.value = '';
-    toast(`Заявка на ${money(amount)} создана`);
-    sndBet();
+    sendPayoutEnvelope(amount);
     haptic('success');
     loadWallet();
   } catch (err) { toast(err.message); haptic('error'); }
@@ -5701,6 +6424,7 @@ function pushFeedCard(drop, animate = true) {
   if (!track) return;
 
   feedDrops.set(String(drop.id), drop);
+  track.querySelectorAll('.skel').forEach((el) => el.remove());
   track.insertAdjacentHTML('afterbegin', feedCardHtml(drop));
   if (!animate) track.firstElementChild.classList.remove('is-new');
 
@@ -5981,19 +6705,120 @@ async function applyPromo() {
     box.className = 'promo-result';
     box.hidden = false;
     input.value = '';
+    renderPromoFlaps();
     applyUser(data.user);
     renderBonuses();
     loadPromoState();
-    sndCollect();
+    showGiftReveal(code.toUpperCase(), promoResultText(data.result));
     haptic('success');
   } catch (err) {
     box.textContent = err.message;
     box.className = 'promo-result bad';
     box.hidden = false;
+    const flaps = document.getElementById('promoFlaps');
+    flaps.classList.remove('is-bad');
+    void flaps.offsetWidth;
+    flaps.classList.add('is-bad');
+    sndLose();
     haptic('error');
   }
 
   btn.disabled = false;
+}
+
+/**
+ * Механические плашки кода. Плашек столько, сколько букв, и не меньше
+ * восьми: пустые ждут ввода. Перерисовывается только изменившаяся плашка -
+ * она и переворачивается, остальные стоят.
+ */
+const PROMO_MIN_FLAPS = 8;
+
+function renderPromoFlaps() {
+  const box = document.getElementById('promoFlaps');
+  const value = document.getElementById('promoInput').value.toUpperCase();
+  const n = Math.max(PROMO_MIN_FLAPS, value.length);
+  while (box.children.length < n) box.insertAdjacentHTML('beforeend', '<span class="flap"><b></b></span>');
+  while (box.children.length > n) box.lastElementChild.remove();
+  [...box.children].forEach((flap, i) => {
+    const ch = value[i] || '';
+    const b = flap.firstElementChild;
+    // Курсор - подсвеченная следующая плашка: настоящий курсор поля
+    // спрятан, он стоял бы не над той буквой.
+    flap.classList.toggle('is-cursor', i === value.length);
+    if (b.textContent === ch) return;
+    b.textContent = ch;
+    flap.classList.toggle('is-set', !!ch);
+    flap.classList.remove('is-flip');
+    void flap.offsetWidth;
+    if (ch) flap.classList.add('is-flip');
+  });
+  box.classList.toggle('is-empty', !value);
+  box.style.setProperty('--n', n);
+}
+
+document.getElementById('promoInput').addEventListener('input', (e) => {
+  renderPromoFlaps();
+  if (e.inputType !== 'deleteContentBackward') sndTick(1.3);
+});
+renderPromoFlaps();
+
+/** Подарок по промокоду закрывается сам: ничто не ждёт нажатия вечно. */
+const GIFT_SCENE_MS = 5200;
+
+/**
+ * Подарок: лента развязывается, крышка взлетает, из коробки бьёт свет и
+ * выходит то, что дал код. Текст - тот же, что строка под полем: сцена не
+ * обещает больше, чем начислено.
+ */
+function showGiftReveal(code, text) {
+  const scene = document.createElement('div');
+  scene.className = 'gift-scene';
+  scene.innerHTML = `
+    <div class="chest-dim"></div>
+    <div class="chest-rays"></div>
+    <div class="gift-body">
+      <div class="gift">
+        <svg viewBox="0 0 160 150" aria-hidden="true">
+          <defs>
+            <linearGradient id="gfBox" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#a855f7"/><stop offset="1" stop-color="#4a1d96"/></linearGradient>
+            <linearGradient id="gfGold" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff3c4"/><stop offset=".5" stop-color="#e8a024"/><stop offset="1" stop-color="#ffd34d"/></linearGradient>
+            <radialGradient id="gfLight" cx=".5" cy="1" r="1"><stop offset="0" stop-color="#fff6cf"/><stop offset=".5" stop-color="#ffd34d" stop-opacity=".6"/><stop offset="1" stop-color="#ffd34d" stop-opacity="0"/></radialGradient>
+          </defs>
+          <ellipse class="gift-glow" cx="80" cy="66" rx="66" ry="36" fill="url(#gfLight)"/>
+          <rect x="24" y="66" width="112" height="76" rx="8" fill="url(#gfBox)"/>
+          <rect x="72" y="66" width="16" height="76" fill="url(#gfGold)"/>
+          <g class="gift-lid">
+            <rect x="16" y="46" width="128" height="24" rx="6" fill="url(#gfBox)" stroke="#2a0d55" stroke-width="2"/>
+            <rect x="72" y="46" width="16" height="24" fill="url(#gfGold)"/>
+            <g class="gift-bow">
+              <path d="M80 46c-10-22-38-26-38-10 0 12 22 12 38 10z" fill="url(#gfGold)"/>
+              <path d="M80 46c10-22 38-26 38-10 0 12-22 12-38 10z" fill="url(#gfGold)"/>
+              <circle cx="80" cy="44" r="7" fill="#ffd34d"/>
+            </g>
+          </g>
+        </svg>
+      </div>
+      <div class="chest-eyebrow">промокод ${esc(code)}</div>
+      <div class="gift-text">${esc(text)}</div>
+    </div>`;
+  document.body.append(scene);
+  requestAnimationFrame(() => scene.classList.add('is-in'));
+  sndPurchase();
+  setTimeout(() => {
+    if (!scene.isConnected) return;
+    const g = scene.querySelector('.gift').getBoundingClientRect();
+    sparkBurst(scene, g.left + g.width / 2, g.top + g.height * 0.4,
+      { n: 36, colors: ['#ffd34d', '#c9a8ff', '#fff6cf'], dist: [80, 200], size: 7 });
+    sndChime();
+    sndCollect();
+  }, 900);
+  const close = () => {
+    if (!scene.isConnected) return;
+    scene.classList.add('is-out');
+    setTimeout(() => scene.remove(), 260);
+  };
+  scene.onclick = close;
+  setTimeout(close, GIFT_SCENE_MS);
 }
 
 document.getElementById('promoBtn').addEventListener('click', applyPromo);
@@ -6219,7 +7044,6 @@ document.getElementById('upgradeBtn').addEventListener('click', async () => {
     return;
   }
 
-  applyUser(data.user);
   arc.style.strokeDasharray = `${(data.chance * UPG_CIRC).toFixed(2)} ${UPG_CIRC.toFixed(2)}`;
 
   // Стрелка всегда крутится вперёд: копим абсолютный угол, а не задаём его
@@ -6230,31 +7054,134 @@ document.getElementById('upgradeBtn').addEventListener('click', async () => {
   const delta = wanted - currentMod + (wanted < currentMod ? 360 : 0);
   state.upgradeAngle = current + UPG_TURNS * 360 + delta;
 
-  needle.classList.add('is-spinning');
-  needle.style.transform = `rotate(${state.upgradeAngle.toFixed(3)}deg)`;
-
-  sndSpinStart();
+  // Ставка уходит с баланса сразу, итог приходит после остановки стрелки.
+  previewBalance(state.user.balance - stake);
+  const stage = document.getElementById('upgStage');
+  stage.className = 'upg-stage is-charging';
   sndBet();
+  sndRiser(UPG_CHARGE_MS / 1000);
   haptic('medium');
+  await upgCharge(needle, current);
 
-  setTimeout(() => {
-    if (data.won) {
-      outcome.textContent = `Забрали ${money(data.target)}`;
-      outcome.className = 'upg-outcome win';
-      sndBigWin();
-      sndCollect();
-      haptic('success');
-    } else {
-      outcome.textContent = 'Мимо сектора';
-      outcome.className = 'upg-outcome lose';
-      sndLose();
-      haptic('error');
-    }
-    state.busy = false;
-    btn.disabled = false;
-    renderUpgradeStage();
-  }, 3500);
+  stage.className = 'upg-stage is-spinning';
+  sndSpinStart();
+  await upgSpin(needle, current, state.upgradeAngle, stage);
+
+  // Баланс показываем после остановки: раньше итог был виден в шапке до
+  // того, как стрелка доехала.
+  applyUser(data.user);
+  if (data.won) {
+    stage.className = 'upg-stage is-won';
+    outcome.innerHTML = `<b>Апгрейд удался</b><span>забрали ${money(data.target)}</span>`;
+    outcome.className = 'upg-outcome win';
+    const box = stage.getBoundingClientRect();
+    sparkBurst(stage, box.width / 2, box.height / 2,
+      { n: 40, colors: ['#ffe58a', '#ffffff', '#ff2e8a', '#00f0ff'], dist: [80, 190], size: 7 });
+    upgCountTo(stake, data.target);
+    sndAceWin();
+    sndCollect();
+    haptic('success');
+  } else {
+    stage.className = 'upg-stage is-lost';
+    outcome.innerHTML = '<b>Мимо сектора</b><span>ставка сгорела</span>';
+    outcome.className = 'upg-outcome lose';
+    stage.animate([{ translate: '0 0' }, { translate: '-7px 0' }, { translate: '6px 0' },
+      { translate: '-3px 0' }, { translate: '0 0' }], { duration: 420, easing: 'ease-out' });
+    sndBurn();
+    haptic('error');
+  }
+  state.busy = false;
+  btn.disabled = false;
+  setTimeout(() => { if (!state.busy) renderUpgradeStage(); }, 1800);
 });
+
+/** Зарядка перед прокрутом. */
+const UPG_CHARGE_MS = 800;
+
+/** Прокрут стрелки. Последняя треть - замедленная съёмка. */
+const UPG_SPIN_MS = 3800;
+
+/** Длина шлейфа на полной скорости, градусов. */
+const UPG_TRAIL_MAX = 140;
+
+/**
+ * Зарядка: стрелка дрожит на месте всё сильнее, кольцо разгорается. Исход
+ * уже решён сервером; зарядка - это вдох перед прокрутом, а не расчёт.
+ */
+function upgCharge(needle, angle) {
+  return new Promise((done) => {
+    const t0 = performance.now();
+    const frame = (now) => {
+      const k = Math.min(1, (now - t0) / UPG_CHARGE_MS);
+      const shake = Math.sin(now / 22) * 4 * k;
+      // Перед рывком стрелка чуть отходит назад, как пружина.
+      needle.style.transform = `rotate(${(angle - 10 * k * k + shake).toFixed(3)}deg)`;
+      if (k < 1) requestAnimationFrame(frame); else done();
+    };
+    requestAnimationFrame(frame);
+  });
+}
+
+/**
+ * Прокрут с затуханием. Кривая - степень 4.2: стрелка срывается почти
+ * мгновенно, а последние градусы ползёт; на этой части сцена приближается и
+ * темнеет (класс is-slowmo), как стоп-кадр в кино. В конце в transform стоит
+ * ровно итоговый угол: по нему тест сверяет стрелку с сектором.
+ */
+function upgSpin(needle, from, to, stage) {
+  const trail = document.getElementById('upgTrail');
+  const r = UPG_RADIUS;
+  const pt = (deg) => {
+    const a = (deg * Math.PI) / 180;
+    return `${(130 + r * Math.sin(a)).toFixed(2)} ${(130 - r * Math.cos(a)).toFixed(2)}`;
+  };
+  return new Promise((done) => {
+    const t0 = performance.now();
+    let lastTick = Math.floor(from / 10);
+    let prev = from;
+    let slow = false;
+    let beat = false;
+    const frame = (now) => {
+      const k = Math.min(1, (now - t0) / UPG_SPIN_MS);
+      const e = 1 - Math.pow(1 - k, 4.2);
+      const angle = from + (to - from) * e;
+      needle.style.transform = `rotate(${angle.toFixed(3)}deg)`;
+
+      const speed = angle - prev;
+      prev = angle;
+      const len = Math.min(UPG_TRAIL_MAX, speed * 9);
+      trail.setAttribute('d', len > 1.5
+        ? `M${pt(angle - len)} A${r} ${r} 0 ${len > 180 ? 1 : 0} 1 ${pt(angle)}` : '');
+
+      const tick = Math.floor(angle / 10);
+      if (tick !== lastTick) { lastTick = tick; sndTick(1 + speed / 40); }
+
+      if (!slow && to - angle < 40) { slow = true; stage.classList.add('is-slowmo'); }
+      if (!beat && to - angle < 8) { beat = true; sndHeartbeat(); haptic('medium'); }
+
+      if (k < 1) requestAnimationFrame(frame);
+      else {
+        needle.style.transform = `rotate(${to.toFixed(3)}deg)`;
+        trail.setAttribute('d', '');
+        done();
+      }
+    };
+    requestAnimationFrame(frame);
+  });
+}
+
+/** Счёт цели: сумма в центре кольца бежит от ставки до выигрыша. */
+function upgCountTo(from, to) {
+  const el = document.getElementById('upgTarget');
+  const t0 = performance.now();
+  const COUNT_MS = 900;
+  const frame = (now) => {
+    const k = Math.min(1, (now - t0) / COUNT_MS);
+    el.textContent = money(Math.round(from + (to - from) * (1 - Math.pow(1 - k, 3))));
+    if (k < 1) requestAnimationFrame(frame);
+  };
+  requestAnimationFrame(frame);
+}
 
 /* ============================================================
    ПОДВАЛ И ПРАВОВЫЕ ДОКУМЕНТЫ
@@ -6465,7 +7392,7 @@ async function init() {
     state.config = config;
     state.user = me.user;
     renderColorPicker();
-    renderRouletteReel(2);
+    renderRouletteWheel();
     applyUser(me.user);
     renderFair();
 
@@ -6679,6 +7606,7 @@ async function spinFortune() {
   wheel.style.transition = `transform ${SPIN_MS}ms cubic-bezier(0.16, 0.84, 0.24, 1)`;
   wheel.style.transform = `rotate(${state.fortune.angle}deg)`;
   sndSpinStart();
+  fortuneHighlight(wheel, SPIN_MS, res.prize.segment);
 
   await sleep(SPIN_MS + 120);
 
@@ -6689,6 +7617,73 @@ async function spinFortune() {
 
   showFortuneWin(res.prize);
   loadFortune();
+}
+
+/** С какого момента прокрута сектора под указателем начинают подсвечиваться. */
+const FORTUNE_HL_FROM = 0.55;
+
+/** Радиус секторов колеса, доля стороны картинки (по золотому ободу). */
+const FORTUNE_HL_R = 0.46;
+
+/**
+ * Подсветка секторов на торможении.
+ *
+ * Когда колесо замедляется, сектор под указателем загорается, и каждый
+ * следующий - со щелчком: последние секунды читаются как перебор вариантов,
+ * а не как просто замирающая картинка. Клин рисуется в координатах колеса и
+ * поворачивается вместе с ним; какой сектор под указателем, считается из
+ * настоящего поворота картинки, а не из расписания.
+ */
+function fortuneHighlight(wheel, spinMs, winner) {
+  const box = wheel.parentElement;
+  let ov = box.querySelector('.fortune-hl');
+  if (!ov) {
+    ov = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    ov.setAttribute('viewBox', '-50 -50 100 100');
+    ov.setAttribute('class', 'fortune-hl');
+    ov.innerHTML = '<path/>';
+    box.insertBefore(ov, wheel.nextSibling);
+  }
+  const path = ov.querySelector('path');
+  const { startDeg, segmentDeg } = state.fortune.data.wheel;
+  const r = FORTUNE_HL_R * 100;
+  const wedge = (i) => {
+    const a0 = ((startDeg + segmentDeg * i) * Math.PI) / 180;
+    const a1 = ((startDeg + segmentDeg * (i + 1)) * Math.PI) / 180;
+    return `M0 0 L${(Math.cos(a0) * r).toFixed(2)} ${(Math.sin(a0) * r).toFixed(2)} ` +
+      `A${r} ${r} 0 0 1 ${(Math.cos(a1) * r).toFixed(2)} ${(Math.sin(a1) * r).toFixed(2)}Z`;
+  };
+  ov.classList.remove('is-final');
+  ov.style.transition = wheel.style.transition;
+  ov.style.transform = wheel.style.transform;
+  const t0 = performance.now();
+  let shown = -1;
+  const frame = (now) => {
+    const k = (now - t0) / spinMs;
+    if (k >= 1) {
+      path.setAttribute('d', wedge(winner));
+      ov.classList.add('is-final', 'is-on');
+      return;
+    }
+    if (k >= FORTUNE_HL_FROM) {
+      const m = new DOMMatrixReadOnly(getComputedStyle(wheel).transform);
+      const rot = (Math.atan2(m.b, m.a) * 180) / Math.PI;
+      const under = ((-rot % 360) + 360) % 360;
+      const idx = Math.floor((((under - startDeg) % 360) + 360) % 360 / segmentDeg);
+      if (idx !== shown) {
+        shown = idx;
+        path.setAttribute('d', wedge(idx));
+        ov.classList.add('is-on');
+        ov.classList.remove('is-blink');
+        void ov.getBoundingClientRect();
+        ov.classList.add('is-blink');
+        sndTick(1.2);
+        haptic('light');
+      }
+    }
+    requestAnimationFrame(frame);
+  };
+  requestAnimationFrame(frame);
 }
 
 /** Окно выигрыша: крупно что выпало и одна строка о том, что с этим делать. */

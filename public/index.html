@@ -127,7 +127,7 @@
             <span class="feed-live" aria-hidden="true"></span>
             <span class="feed-title">Выигрывают сейчас</span>
           </div>
-          <div class="feed-track" id="feedTrack"></div>
+          <div class="feed-track" id="feedTrack"><span class="skel skel-feed"></span><span class="skel skel-feed"></span><span class="skel skel-feed"></span></div>
         </div>
 
         <!-- Пара выровнена по верху и по низу: ширины делятся между картинками
@@ -156,7 +156,13 @@
         <span class="free-case-go">Забрать</span>
       </button>
 
-      <div class="shelves" id="caseShelves"></div>
+      <!-- Пока грузится конфиг, на месте полки мерцают силуэты кейсов, а не
+           пустое поле: так видно, что сейчас здесь что-то появится. -->
+      <div class="shelves" id="caseShelves">
+        <div class="skel-shelf"><span class="skel skel-title"></span>
+          <div class="skel-row"><span class="skel skel-case"></span><span class="skel skel-case"></span><span class="skel skel-case"></span><span class="skel skel-case"></span></div>
+        </div>
+      </div>
 
     </section>
 
@@ -167,7 +173,7 @@
         <p class="game-sub">Ставка против цели. Указатель встал в ваш сектор - цель ваша.</p>
       </div>
 
-      <div class="upg-stage">
+      <div class="upg-stage" id="upgStage">
         <svg class="upg-ring" id="upgRing" viewBox="0 0 260 260" aria-hidden="true">
           <defs>
             <linearGradient id="upgArcGrad" x1="0" y1="0" x2="1" y2="1">
@@ -190,6 +196,15 @@
           <circle class="upg-arc" id="upgArc" cx="130" cy="130" r="104"
                   transform="rotate(-90 130 130)" filter="url(#upgGlow)"/>
           <g class="upg-ticks" id="upgTicks"></g>
+          <!-- Шлейф за стрелкой: длина дуги - скорость, к остановке он гаснет. -->
+          <path class="upg-trail" id="upgTrail" d=""/>
+          <!-- Трещины на проигрыше: прорисовываются штрихом поверх кольца. -->
+          <g class="upg-crack" id="upgCrack">
+            <path d="M130 22 L138 48 L126 64 L141 86"/>
+            <path d="M232 112 L206 122 L214 140 L190 152"/>
+            <path d="M58 206 L80 190 L74 172 L96 160"/>
+            <path d="M198 214 L184 196 L196 182 L176 170"/>
+          </g>
 
           <!-- Указатель едет по самому кольцу, а не выходит из центра:
                стрелка из центра перечёркивала бы сумму цели. -->
@@ -253,7 +268,26 @@
           <div class="crash-status" id="crashStatus">Сделайте ставку</div>
         </div>
 
-        <div class="crash-rocket" id="crashRocket" data-ico="bolt"></div>
+        <!-- Ракета нарисована здесь, а не значком: у неё пламя, которое
+             дрожит отдельно от корпуса, и она поворачивается по кривой. -->
+        <div class="crash-rocket" id="crashRocket">
+          <svg viewBox="-10 0 74 32" aria-hidden="true">
+            <defs>
+              <linearGradient id="crBody" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" stop-color="#ffffff"/><stop offset=".5" stop-color="#d9c8ff"/><stop offset="1" stop-color="#6c4bb4"/>
+              </linearGradient>
+              <radialGradient id="crFlame" cx="1" cy=".5" r="1">
+                <stop offset="0" stop-color="#fff6cf"/><stop offset=".35" stop-color="#ffd34d"/><stop offset=".75" stop-color="#ff5d2e"/><stop offset="1" stop-color="#ff2e8a" stop-opacity="0"/>
+              </radialGradient>
+            </defs>
+            <path class="cr-flame" d="M15 16C8 9.5 1 13-9 16 1 19 8 22.5 15 16Z" fill="url(#crFlame)"/>
+            <path d="M19 9 12 1.5h9l8 7.5zM19 23l-7 7.5h9l8-7.5z" fill="#ff2e8a"/>
+            <path d="M14 9h26c10 0 17 3.6 22 7-5 3.4-12 7-22 7H14z" fill="url(#crBody)"/>
+            <circle cx="42" cy="16" r="4.2" fill="#24104a" stroke="#ffd34d" stroke-width="1.6"/>
+            <circle cx="40.8" cy="14.6" r="1.3" fill="#fff" opacity=".8"/>
+          </svg>
+        </div>
+        <div class="crash-flash" id="crashFlash" aria-hidden="true"></div>
       </div>
 
       <div class="crash-recent" id="crashRecent"></div>
@@ -284,11 +318,20 @@
         <p class="game-sub">15 секторов: 7 красных, 7 чёрных, 1 зелёный.</p>
       </div>
 
-      <div class="reel-wrap roulette-wrap">
-        <div class="reel-marker"></div>
-        <div class="reel-fade reel-fade-l"></div>
-        <div class="reel-fade reel-fade-r"></div>
-        <div class="reel" id="rouletteReel"></div>
+      <!-- Колесо с шаром. Сектора равные: у каждого шанс 1/15, и угол
+           сектора равен его вероятности, как у колеса мини-игр. Шар
+           останавливается в секторе, который решил сервер; колесо
+           приводит этот сектор под самоцвет сверху. -->
+      <div class="rw-stage" id="rouletteStage">
+        <div class="rw-aura" aria-hidden="true"></div>
+        <div class="rw-beam" id="rouletteBeam" aria-hidden="true"></div>
+        <div class="rw-wrap">
+          <div class="rw-rim" id="rouletteRim" aria-hidden="true"></div>
+          <div class="rw-wheel" id="rouletteWheel"></div>
+          <div class="rw-ball" id="rouletteBall" aria-hidden="true"></div>
+          <div class="rw-hub" aria-hidden="true"><span></span></div>
+        </div>
+        <div class="rw-pointer" id="roulettePointer" aria-hidden="true"></div>
       </div>
 
       <div class="roulette-result" id="rouletteResult"></div>
@@ -620,8 +663,14 @@
       <div class="promo-card">
         <span class="promo-title">ПРОМОКОД</span>
         <div class="promo-form">
-          <input class="promo-input" id="promoInput" maxlength="32" placeholder="ВВЕДИТЕ КОД"
-                 autocapitalize="characters" autocomplete="off" spellcheck="false">
+          <!-- Под полем ввода - механические плашки: каждая буква
+               переворачивается, как на табло вокзала. Само поле прозрачное
+               поверх них, поэтому ввод, вставка и курсор работают как обычно. -->
+          <div class="promo-field">
+            <div class="promo-flaps" id="promoFlaps" aria-hidden="true"></div>
+            <input class="promo-input" id="promoInput" maxlength="32" placeholder="ВВЕДИТЕ КОД"
+                   autocapitalize="characters" autocomplete="off" spellcheck="false">
+          </div>
           <button class="promo-btn" id="promoBtn">Применить</button>
         </div>
         <div class="promo-result" id="promoResult" hidden></div>
@@ -630,6 +679,9 @@
       <div class="wager-note" id="wagerNote" hidden></div>
 
       <div class="perk-bar" id="bonusPerks" hidden></div>
+
+      <div class="sec-head"><span class="sec-title">Ваши медали</span><span class="sec-chip" id="medalCount"></span></div>
+      <div class="medal-grid" id="medalGrid"></div>
 
       <h2 class="section-title" id="bonusCasesTitle">Выигранные кейсы</h2>
       <div class="shelf-row" id="bonusList"></div>

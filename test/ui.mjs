@@ -1237,20 +1237,34 @@ for (let i = 0; i < 3; i++) {
     { timeout: 25000 });
   await page.waitForTimeout(300);
 
+  /*
+   * Колесо: под самоцветом сверху обязана стоять метка того цвета, что в
+   * итоге, и шар обязан лежать в той же лунке. Сверяем по ближайшей к
+   * самоцвету метке и по ближайшей к шару - геометрией, а не по состоянию
+   * кода: проверяется то, что видит игрок.
+   */
   const r = await page.evaluate(() => {
-    const wrap = document.querySelector('.roulette-wrap');
-    const box = wrap.getBoundingClientRect();
-    const marker = box.left + box.width / 2;
-    let color = null;
-    for (const tile of document.querySelectorAll('#rouletteReel .roulette-tile')) {
-      const t = tile.getBoundingClientRect();
-      if (marker >= t.left && marker <= t.right) {
-        color = [...tile.classList].find((c) => c !== 'roulette-tile');
-        break;
-      }
-    }
-    return { color, text: document.getElementById('rouletteResult').textContent.trim() };
+    const center = (el) => { const b = el.getBoundingClientRect(); return [b.left + b.width / 2, b.top + b.height / 2]; };
+    const marks = [...document.querySelectorAll('#rouletteWheel .rw-mark')];
+    const nearest = (x, y) => marks.reduce((best, m) => {
+      const [mx, my] = center(m);
+      const d = Math.hypot(mx - x, my - y);
+      return !best || d < best.d ? { d, m } : best;
+    }, null).m;
+    const p = document.getElementById('roulettePointer').getBoundingClientRect();
+    const underPointer = nearest(p.left + p.width / 2, p.bottom);
+    const [bx, by] = center(document.getElementById('rouletteBall'));
+    const underBall = nearest(bx, by);
+    return {
+      color: underPointer.dataset.color,
+      sameSlot: underPointer.dataset.sector === underBall.dataset.sector,
+      text: document.getElementById('rouletteResult').textContent.trim(),
+    };
   });
+  if (!r.sameSlot) {
+    roulMismatch++;
+    failures.push('рулетка: шар лежит не в той лунке, что под самоцветом');
+  }
 
   const expected = { red: 'Красное', black: 'Чёрное', green: 'Зелёное' }[r.color];
   if (!r.text.startsWith(expected)) {
@@ -1258,7 +1272,7 @@ for (let i = 0; i < 3; i++) {
     failures.push(`рулетка: под маркером ${expected}, в результате «${r.text}»`);
   }
 }
-check('рулетка: сектор под маркером совпадает с результатом', roulMismatch === 0);
+check('рулетка: сектор под самоцветом и шар совпадают с результатом', roulMismatch === 0);
 
 /* ---------- Риск-игра ---------- */
 
@@ -1850,7 +1864,15 @@ slotChecks: {
     await page.evaluate(() => document.getElementById('slotSpin').click());
     await page.waitForTimeout(3600);
     const answer = await page.evaluate(() => window.__slotAnswer);
-    check(`${slotId}: сервер ответил на прокрут`, Boolean(answer && answer.offsets));
+    // Если ответа нет, говорим, почему кнопка промолчала: открытое окно,
+    // выключенная кнопка или подсказка, - иначе остаётся гадать.
+    const why = answer ? '' : await page.evaluate(() => JSON.stringify({
+      modal: !document.getElementById('slotModal')?.hidden && document.getElementById('slotModal')?.textContent.trim().slice(0, 80),
+      disabled: document.getElementById('slotSpin')?.disabled,
+      toast: document.getElementById('toast')?.hidden ? '' : document.getElementById('toast')?.textContent.trim(),
+      balance: document.getElementById('slotBalance')?.textContent,
+    }));
+    check(`${slotId}: сервер ответил на прокрут`, Boolean(answer && answer.offsets), why);
 
     const landed = await page.evaluate(() => [...document.querySelectorAll('.sl-reel')].map((el) => {
       const strip = el.querySelector('.sl-strip');
