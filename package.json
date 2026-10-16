@@ -14,7 +14,8 @@
     "test:ui": "node test/ui.mjs",
     "test:x2": "node test/x2.mjs",
     "test:payments": "node test/payments.mjs",
-    "test": "npm run verify && npm run test:modules && npm run test:ratelimit && npm run test:x2 && npm run test:wager && npm run test:crypto && npm run test:analytics && npm run test:fortune && npm run test:slots && npm run test:payments && npm run test:api && npm run test:ui",
+    "test:casino": "node test/casino.mjs",
+    "test": "npm run verify && npm run test:modules && npm run test:ratelimit && npm run test:x2 && npm run test:wager && npm run test:crypto && npm run test:analytics && npm run test:fortune && npm run test:slots && npm run test:casino && npm run test:payments && npm run test:api && npm run test:ui",
     "test:ratelimit": "node test/ratelimit.mjs",
     "backup": "node deploy/backup.mjs",
     "test:crypto": "node test/crypto.mjs",
@@ -38,7 +39,8 @@
     "better-sqlite3": "^11.3.0",
     "dotenv": "^16.4.5",
     "express": "^4.21.0",
-    "grammy": "^1.30.0"
+    "grammy": "^1.30.0",
+    "sharp": "^0.33.5"
   },
   "devDependencies": {
     "playwright": "^1.48.0"

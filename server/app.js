@@ -37,6 +37,14 @@ import {
   validateUpgrade,
 } from './games.js';
 import { computeRoll, generateClientSeed } from './fair.js';
+import { timingSafeEqual } from 'node:crypto';
+import {
+  casinoWallet, CASINO_STATUS, userBalanceRub, casinoPlayerId, casinoExcluded,
+  casinoGames, casinoGame, casinoProviders, casinoHistory, casinoSummary, kopToRub,
+} from './casino-db.js';
+import {
+  casinoEnv, casinoConfigured, startCatalogSync, syncCatalog, syncStatus, launchGame, coverFile,
+} from './casino.js';
 import {
   FORTUNE_SEGMENTS, SEGMENT_DEG, SEGMENTS_START_DEG, validateFortune,
   GIFT_CASE_MAX_PRICE, PERCENT_MIN, PERCENT_MAX, VOUCHER_MIN, VOUCHER_MAX, CASH_PRIZE,
@@ -291,7 +299,8 @@ function publicUser(user) {
     id: user.id,
     username: user.username,
     firstName: user.first_name,
-    balance: user.balance,
+    // Целые рубли плюс копейки казино (users.balance_kop, см. casino-db.js).
+    balance: userBalanceRub(user),
     isAdmin: !!user.is_admin,
     x2Perks: getX2Perks(user.id),
     gambleStake: user.gamble_stake,
@@ -392,7 +401,11 @@ app.get('/api/config', (req, res) => {
       upgrade: setting('games_upgrade'),
       fortune: setting('games_fortune'),
       slots: setting('games_slots'),
+      casino: setting('games_casino'),
     },
+    // Отдача слотов казино - та же настройка, что уходит агрегатору при
+    // запуске. По ней раздел «Честность» и плитки показывают число.
+    casino: { rtp: casinoRtp(), configured: casinoConfigured() },
     // Условия приветственного бонуса нужны клиенту, чтобы показать их в кассе
     // до пополнения, а не после.
     firstDeposit: firstDepositRules(),
@@ -1138,6 +1151,161 @@ app.post('/api/upgrade', auth, limits.play, gameGate('upgrade'), (req, res) => {
    ============================================================ */
 
 /* ============================================================
+   КАЗИНО: ИГРЫ ПРОВАЙДЕРОВ
+   ============================================================ */
+
+/*
+ * Пределы отдачи, которые разрешает кабинет агрегатора. Настройку панели
+ * зажимаем в них: число вне пределов агрегатор молча заменил бы своим, и
+ * «Честность» показывала бы не то, что применено.
+ */
+const CASINO_RTP_MIN = Number(process.env.CASINO_RTP_MIN || 70);
+const CASINO_RTP_MAX = Number(process.env.CASINO_RTP_MAX || 80);
+
+function casinoRtp() {
+  const v = Number(setting('casino_rtp')) || CASINO_RTP_MIN;
+  return Math.min(CASINO_RTP_MAX, Math.max(CASINO_RTP_MIN, v));
+}
+
+/* Карточка игры для клиента. Ссылки на обложки - наши, а не CDN агрегатора:
+   у нас они пережаты и не зависят от того, отвечает ли их CDN. */
+function publicCasinoGame(g) {
+  return {
+    id: g.id,
+    name: g.name,
+    provider: g.provider_name,
+    providerId: g.provider_id,
+    kind: g.kind,
+    cover: `/casino/cover/${encodeURIComponent(g.id)}`,
+    vertical: Boolean(g.img_vertical),
+    wide: g.img_wide ? `/casino/wide/${encodeURIComponent(g.id)}` : null,
+    demo: Boolean(g.demo),
+    freespin: Boolean(g.freespin),
+    // Число отдачи только там, где оно наше. У живых столов и NovaPlay его
+    // задаёт провайдер, и приписать им нашу цифру значило бы соврать.
+    rtp: g.rtp_mode === 'operator' ? casinoRtp() : null,
+  };
+}
+
+const CASINO_KINDS = ['slots', 'live', 'fast'];
+const CASINO_PAGE_MAX = 96;
+
+app.post('/api/casino/lobby', auth, limits.read, gameGate('casino'), (req, res) => {
+  const providers = casinoProviders();
+  const counts = Object.fromEntries(CASINO_KINDS.map((k) => [k, 0]));
+  for (const p of providers) counts[p.kind] = (counts[p.kind] || 0) + p.game_count;
+  res.json({
+    rtp: casinoRtp(),
+    configured: casinoConfigured(),
+    counts,
+    providers: providers.map((p) => ({ id: p.id, name: p.name, kind: p.kind, count: p.game_count })),
+  });
+});
+
+app.post('/api/casino/games', auth, limits.read, gameGate('casino'), (req, res) => {
+  const b = req.body || {};
+  const kind = CASINO_KINDS.includes(b.kind) ? b.kind : '';
+  const { total, rows } = casinoGames({
+    kind,
+    provider: typeof b.provider === 'string' ? b.provider.slice(0, 80) : '',
+    q: typeof b.q === 'string' ? b.q.trim().slice(0, 60) : '',
+    sort: ['popular', 'az', 'new'].includes(b.sort) ? b.sort : 'popular',
+    offset: Math.max(0, Math.trunc(Number(b.offset) || 0)),
+    limit: Math.min(CASINO_PAGE_MAX, Math.max(1, Math.trunc(Number(b.limit) || 48))),
+  });
+  res.json({ total, games: rows.map(publicCasinoGame) });
+});
+
+/**
+ * Запуск игры.
+ *
+ * Игрок у агрегатора - lb<наш id>, не tg_id. Деньги в игре не лежат: каждое
+ * списание и начисление агрегатор присылает нам в /api/casino/wallet, и
+ * баланс остаётся только здесь.
+ */
+app.post('/api/casino/launch', auth, limits.play, gameGate('casino'), async (req, res) => {
+  const game = casinoGame(req.body?.gameId);
+  if (!game) return res.status(404).json({ error: 'Игра не найдена' });
+  const demo = req.body?.demo === true;
+  if (demo && !game.demo) return res.status(400).json({ error: 'У этой игры нет демо' });
+  if (!casinoConfigured()) return res.status(503).json({ error: 'Казино ещё не подключено' });
+  if (!demo && casinoExcluded(req.player.id)) {
+    return res.status(403).json({ error: 'Вы установили перерыв в игре. Казино откроется по его окончании' });
+  }
+
+  try {
+    const result = await launchGame({
+      game,
+      playerId: casinoPlayerId(req.player.id),
+      demo,
+      ip: req.ip?.replace(/^::ffff:/, '') || '',
+      country: req.get('cf-ipcountry') || '',
+      rtp: casinoRtp(),
+      lobbyUrl: process.env.PUBLIC_URL || '',
+    });
+    if (!result.ok) {
+      console.error('[casino] запуск', game.id, result.status, result.message);
+      return res.status(503).json({ error: 'Игра временно недоступна. Попробуйте позже' });
+    }
+    trackEvent(req.player.id, 'casino_launch', { gameId: game.id, demo });
+    res.json({ url: result.url, html: result.html, game: publicCasinoGame(game), demo });
+  } catch (err) {
+    console.error('[casino] запуск', game.id, err.message);
+    res.status(503).json({ error: 'Игра временно недоступна. Попробуйте позже' });
+  }
+});
+
+app.post('/api/casino/history', auth, limits.read, (req, res) => {
+  res.json({
+    rows: casinoHistory(req.player.id, 40).map((r) => ({
+      id: r.id, method: r.method, game: r.game_name || r.game_id, amount: kopToRub(r.amount_kop),
+      free: Boolean(r.free_round), rolledBack: Boolean(r.rolled_back), at: r.created_at,
+    })),
+    balance: userBalanceRub(getUserById(req.player.id)),
+  });
+});
+
+/*
+ * Обложки. Без авторизации: картинки публичные, а браузер грузит их тегом
+ * img, который заголовков Telegram не несёт. Кешируются надолго: имя файла
+ * - хеш адреса картинки, новая обложка придёт под новым именем.
+ */
+const COVER_MAX_AGE = 7 * 24 * 3600;
+
+async function sendCover(req, res, pick) {
+  const game = casinoGame(req.params.id);
+  if (!game) return res.status(404).end();
+  const cover = await coverFile(pick(game));
+  if (!cover) return res.status(404).end();
+  if (cover.redirect) return res.redirect(302, cover.redirect);
+  res.set('Cache-Control', `public, max-age=${COVER_MAX_AGE}, immutable`);
+  res.type('image/webp').sendFile(cover.file);
+}
+
+app.get('/casino/cover/:id', (req, res, next) => sendCover(req, res, (g) => g).catch(next));
+// Широкая - для окна запуска: подменяем источник, остальное то же.
+app.get('/casino/wide/:id', (req, res, next) =>
+  sendCover(req, res, (g) => ({ ...g, img_vertical: g.img_wide || g.img_vertical })).catch(next));
+
+app.post('/api/admin/casino', auth, need('games.manage'), (req, res) => {
+  const day = 24 * 3600 * 1000;
+  res.json({
+    sync: syncStatus(),
+    configured: casinoConfigured(),
+    rtp: casinoRtp(),
+    rtpRange: [CASINO_RTP_MIN, CASINO_RTP_MAX],
+    today: casinoSummary(Date.now() - day),
+    week: casinoSummary(Date.now() - 7 * day),
+    month: casinoSummary(Date.now() - 30 * day),
+  });
+});
+
+app.post('/api/admin/casino/sync', auth, need('games.manage'), async (req, res) => {
+  if (!casinoConfigured()) return res.status(400).json({ error: 'Не заданы ключи агрегатора' });
+  res.json({ sync: await syncCatalog() });
+});
+
+/* ============================================================
    СЛОТЫ
    ============================================================ */
 
@@ -1686,6 +1854,49 @@ app.post('/api/webhooks/heleket', limits.webhook, (req, res) => {
   }
 });
 
+/**
+ * Кошелёк казино: вызовы агрегатора на каждую ставку, выигрыш и отмену.
+ *
+ * Отвечаем всегда кодом 200 и statusCode в теле - так устроен их протокол;
+ * HTTP-ошибку агрегатор воспринял бы как сбой сети и повторял бы вызов.
+ * Повтор не страшен (casino-db.js отвечает на него кодом 9), но лишний.
+ *
+ * Защита двойная: адрес их сервера (CASINO_CALLBACK_IPS) и наш же ключ
+ * агента в заголовке. Ограничителя частоты здесь нет намеренно: вызовов по
+ * одному на каждый прокрут каждого игрока, и упереться в собственный лимит
+ * значило бы отказать в выигрыше.
+ */
+function sameSecret(a, b) {
+  const x = Buffer.from(String(a || ''));
+  const y = Buffer.from(String(b || ''));
+  return x.length === y.length && x.length > 0 && timingSafeEqual(x, y);
+}
+
+app.post('/api/casino/wallet', (req, res) => {
+  const env = casinoEnv();
+  const ip = String(req.ip || '').replace(/^::ffff:/, '');
+  if (env.callbackIps.length && !env.callbackIps.includes(ip)) {
+    console.error('[casino] кошелёк: чужой адрес', ip);
+    return res.status(403).json({ statusCode: CASINO_STATUS.INVALID_CREDENTIALS, message: 'Forbidden' });
+  }
+  if (!sameSecret(req.get('x-agent-name'), env.agent) || !sameSecret(req.get('x-agent-token'), env.token)) {
+    return res.json({ statusCode: CASINO_STATUS.INVALID_CREDENTIALS, message: 'Invalid credentials' });
+  }
+
+  try {
+    const result = casinoWallet(req.body, { currency: env.currency });
+    res.json({
+      statusCode: result.statusCode,
+      message: result.statusCode === 0 ? 'Success' : String(result.statusCode),
+      balance: result.balance ?? null,
+      bonusBalance: 0,
+    });
+  } catch (err) {
+    console.error('[casino] кошелёк:', err);
+    res.json({ statusCode: CASINO_STATUS.GENERIC, message: 'Generic error' });
+  }
+});
+
 /* ============================================================
    ПОПОЛНЕНИЯ BEELINE, REALTIME И ФИНАНСОВАЯ ПОДДЕРЖКА
    ============================================================ */
@@ -1978,6 +2189,7 @@ const PORT = Number(process.env.PORT || 3000);
 
 app.listen(PORT, () => {
   startFeed();
+  startCatalogSync();
 
   console.log(`\n  LUCKYBOX запущен на http://localhost:${PORT}`);
   if (process.env.DEV_MODE === 'true') {

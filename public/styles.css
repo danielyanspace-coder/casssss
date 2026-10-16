@@ -1326,7 +1326,9 @@ main { position: relative; z-index: 2; padding: 18px; }
   left: 50%;
   bottom: calc(100px + var(--safe-bottom));
   transform: translateX(-50%);
-  z-index: 100;
+  /* Над всеми окнами, включая запуск и экран игры казино (150 и 200):
+     сообщение об ошибке, спрятанное под окном, выглядит как зависание. */
+  z-index: 220;
   background: var(--card-hi);
   border: 2px solid var(--pink);
   border-radius: 14px;
@@ -8521,3 +8523,230 @@ body.mo-receded .opener-scroll { filter: blur(4px) saturate(.55); transform: sca
   /* Кейс на сцене - резкий, со своим контурным светом, а не в дымке. */
   .case-stage-art { image-rendering: auto; }
 }
+
+/* ============================================================
+   КАЗИНО: ЛОББИ ИГР ПРОВАЙДЕРОВ
+   ============================================================
+
+   Вид согласован с заказчиком по макету (tools/casino-concept.html).
+   Разметку собирает public/casino.js.
+
+   ПЛИТКА 3:4, А НЕ ВО ВСЮ СТРОКУ. На телефоне три в ряд, на компьютере
+   auto-fill от 150 точек: в колонке содержимого встаёт шесть-семь плиток,
+   как у Stake и 1Win. Растянутые на всю ширину обложки заказчик прямо
+   запретил.
+
+   Сетка здесь grid, а не flex, как у полок кейсов, и это не противоречие:
+   у полки неполный ряд центрируется, а каталог на тысячи игр читают слева
+   направо, и прижатый влево остаток - норма любой витрины.
+   ============================================================ */
+.cz { padding: 4px 0 24px; }
+
+.cz-crumbs { display: flex; gap: 6px; align-items: center; color: var(--muted); font-size: 12px; font-weight: 600; margin-bottom: 10px; }
+.cz-crumbs i { font-style: normal; opacity: .5; }
+.cz-crumbs b { color: var(--text); font-weight: 700; }
+.cz-crumbs button { padding: 0; border: 0; background: none; color: var(--pink); font: inherit; cursor: pointer; }
+
+.cz-hero {
+  position: relative; overflow: hidden;
+  display: flex; align-items: center; gap: 14px;
+  padding: 16px; border-radius: 18px;
+  background:
+    radial-gradient(90% 140% at 100% 0%, rgba(224, 81, 140, 0.26), transparent 60%),
+    radial-gradient(70% 120% at 0% 100%, rgba(147, 102, 208, 0.3), transparent 60%),
+    var(--bg-soft);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+/* Знак провайдера - наша буквенная монограмма, а не их логотип: чужой
+   товарный знак без договора ставить нельзя (см. «Честность и партнёры»). */
+.cz-mono {
+  flex: 0 0 auto; width: 52px; height: 52px; border-radius: 15px;
+  display: grid; place-items: center;
+  font: 800 17px/1 'Unbounded', 'Manrope', system-ui, sans-serif; color: var(--gold);
+  background: linear-gradient(145deg, #2c1a44, #120a1c);
+  box-shadow: inset 0 0 0 1px rgba(223, 190, 98, 0.35), 0 8px 18px rgba(0, 0, 0, 0.4);
+}
+.cz-hero-text { min-width: 0; }
+.cz-hero h1 { margin: 0; font: 800 20px/1.15 'Unbounded', 'Manrope', system-ui, sans-serif; color: var(--text); }
+.cz-hero p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+.cz-rtp { margin-left: auto; flex: 0 0 auto; text-align: right; font-size: 11px; font-weight: 700; color: var(--muted); line-height: 1.3; }
+.cz-rtp b { display: block; font: 800 18px/1.1 'Unbounded', 'Manrope', system-ui, sans-serif; color: var(--gold); }
+
+.cz-tabs { display: flex; gap: 6px; margin-top: 12px; overflow-x: auto; scrollbar-width: none; }
+.cz-tabs::-webkit-scrollbar { display: none; }
+.cz-tab {
+  flex: 0 0 auto; display: inline-flex; align-items: center; gap: 7px;
+  height: 40px; padding: 0 14px; border-radius: 12px; cursor: pointer;
+  background: var(--bg-soft); border: 1px solid rgba(255, 255, 255, 0.07);
+  color: var(--muted); font: 700 13px/1 'Manrope', system-ui, sans-serif;
+}
+.cz-tab span { font-size: 11px; opacity: .75; }
+.cz-tab[aria-selected="true"] { color: #fff; border-color: rgba(224, 81, 140, 0.55); background: rgba(224, 81, 140, 0.14); }
+
+.cz-provrow { display: flex; gap: 8px; margin-top: 10px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
+.cz-provrow::-webkit-scrollbar { display: none; }
+.cz-provrow:empty { display: none; }
+.cz-pcard {
+  flex: 0 0 auto; text-align: left; cursor: pointer;
+  padding: 9px 13px; border-radius: 12px;
+  background: var(--bg-soft); border: 1px solid rgba(255, 255, 255, 0.07);
+  color: var(--text); font: inherit;
+}
+.cz-pcard b { display: block; font-size: 13px; }
+.cz-pcard span { color: var(--muted); font-size: 11px; font-weight: 700; }
+.cz-pcard:active { transform: scale(.97); }
+
+.cz-tools { display: flex; gap: 8px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
+.cz-search {
+  flex: 1 1 200px; display: flex; align-items: center; gap: 8px;
+  height: 42px; padding: 0 12px; border-radius: 12px;
+  background: var(--bg-soft); border: 1px solid rgba(255, 255, 255, 0.07); color: var(--muted);
+}
+.cz-search input {
+  flex: 1; min-width: 0; height: 100%; border: 0; outline: 0; background: none;
+  color: var(--text); font: 600 14px 'Manrope', system-ui, sans-serif;
+}
+.cz-search input::placeholder { color: var(--muted); }
+.cz-chips { display: flex; gap: 6px; }
+.cz-chip {
+  height: 42px; padding: 0 14px; border-radius: 12px; cursor: pointer;
+  background: var(--bg-soft); border: 1px solid rgba(255, 255, 255, 0.07);
+  color: var(--muted); font: 700 13px/1 'Manrope', system-ui, sans-serif;
+}
+.cz-chip[aria-pressed="true"] { color: #fff; border-color: rgba(224, 81, 140, 0.55); background: rgba(224, 81, 140, 0.14); }
+
+.cz-count { display: flex; justify-content: space-between; align-items: baseline; margin: 16px 0 10px; }
+.cz-count h2 { margin: 0; font: 800 15px/1 'Unbounded', 'Manrope', system-ui, sans-serif; color: var(--text); }
+.cz-count span { color: var(--muted); font-size: 12px; font-weight: 700; }
+
+.cz-grid { display: grid; gap: 10px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (min-width: 600px) {
+  .cz-grid { gap: 12px; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+}
+.cz-tile { display: block; min-width: 0; padding: 0; border: 0; background: none; cursor: pointer; text-align: left; color: var(--text); font: inherit; }
+/* block обязателен: .cz-art - span внутри кнопки, а у строчного элемента
+   aspect-ratio не действует, и плитка схлопывается в ноль. */
+.cz-art {
+  display: block; position: relative; overflow: hidden; border-radius: 14px;
+  aspect-ratio: 3 / 4;
+  background: var(--bg-soft);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.07), 0 6px 16px rgba(0, 0, 0, 0.35);
+  transition: transform .18s cubic-bezier(.2, .8, .3, 1), box-shadow .18s;
+}
+.cz-art img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+/* Запасная обложка горизонтальная: целиком поверх своей размытой копии,
+   а не обрезанная под 3:4 - обрезка съедает название игры. */
+.cz-art.is-wide .cz-blur { filter: blur(14px) saturate(1.3) brightness(.7); transform: scale(1.2); }
+.cz-art.is-wide .cz-fit { object-fit: contain; }
+.cz-art::after {
+  content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.12), transparent 30%);
+}
+.cz-hover {
+  position: absolute; inset: 0; z-index: 2;
+  display: grid; place-items: center;
+  background: rgba(13, 7, 22, 0.5); opacity: 0; transition: opacity .18s;
+}
+.cz-play {
+  width: 50px; height: 50px; border-radius: 50%; display: grid; place-items: center;
+  background: linear-gradient(180deg, #ffe58a, #f2b230); box-shadow: 0 6px 18px rgba(242, 178, 48, 0.45);
+}
+@media (hover: hover) {
+  .cz-tile:hover .cz-art { transform: translateY(-4px); box-shadow: 0 0 0 1px rgba(224, 81, 140, 0.5), 0 14px 26px rgba(0, 0, 0, 0.5); }
+  .cz-tile:hover .cz-hover { opacity: 1; }
+}
+.cz-tile:active .cz-art { transform: scale(.97); }
+.cz-name { display: block; margin-top: 7px; font-size: 12.5px; font-weight: 700; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cz-prov { display: block; margin-top: 1px; color: var(--muted); font-size: 11px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cz-skel { pointer-events: none; }
+.cz-skel .cz-name { height: 12px; width: 70%; border-radius: 6px; }
+
+.cz-empty { padding: 40px 0; text-align: center; color: var(--muted); font-weight: 600; }
+.cz-more { margin-top: 18px; display: grid; justify-items: center; gap: 10px; }
+.cz-progress { width: min(260px, 70%); height: 4px; border-radius: 2px; background: var(--bg-soft); overflow: hidden; }
+.cz-progress i { display: block; height: 100%; background: linear-gradient(90deg, var(--pink), var(--violet)); }
+.cz-more small { color: var(--muted); font-size: 12px; font-weight: 700; }
+.cz-more button {
+  height: 44px; padding: 0 22px; border-radius: 12px; cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, 0.08); background: var(--card); color: var(--text); font: 800 14px/1 'Manrope', system-ui, sans-serif;
+}
+.cz-more button:disabled { opacity: .6; }
+
+/* ---------- Окно запуска ---------- */
+.cz-sheet { position: fixed; inset: 0; z-index: 150; display: grid; place-items: end center; }
+.cz-sheet[hidden] { display: none; }
+.cz-sheet-dim { position: absolute; inset: 0; background: rgba(5, 2, 10, 0.72); }
+.cz-sheet-card {
+  position: relative; width: min(100%, 460px);
+  border-radius: 22px 22px 0 0; overflow: hidden;
+  background: var(--bg-soft); border: 1px solid rgba(255, 255, 255, 0.08);
+  padding-bottom: var(--safe-bottom);
+  transform: translateY(40px); opacity: 0;
+  transition: transform .28s cubic-bezier(.2, .8, .3, 1), opacity .2s;
+}
+.cz-sheet.is-in .cz-sheet-card { transform: none; opacity: 1; }
+.cz-sheet-art { aspect-ratio: 1004 / 494; background: var(--card) center / cover no-repeat; }
+/* Без широкой картинки окно берёт вертикальную обложку: верх кадра, где
+   обычно название, а не середину. */
+.cz-sheet-art.is-cover { background-position: center 20%; }
+.cz-sheet-body { padding: 16px; }
+.cz-sheet-body h4 { margin: 0; font: 800 18px/1.2 'Unbounded', 'Manrope', system-ui, sans-serif; color: var(--text); }
+.cz-sheet-body p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+.cz-sheet-rtp {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  margin-top: 12px; padding: 10px 12px; border-radius: 12px;
+  background: rgba(223, 190, 98, 0.08); box-shadow: inset 0 0 0 1px rgba(223, 190, 98, 0.25);
+  font-size: 13px; font-weight: 700; color: var(--text);
+}
+.cz-sheet-rtp b { color: var(--gold); font: 800 15px/1 'Unbounded', 'Manrope', system-ui, sans-serif; text-align: right; }
+.cz-sheet-actions { display: flex; gap: 10px; margin-top: 14px; }
+.cz-sheet-actions > * { flex: 1; }
+.cz-sheet-actions .open-cta { justify-content: center; }
+@media (min-width: 700px) {
+  .cz-sheet { place-items: center; }
+  .cz-sheet-card { border-radius: 22px; }
+}
+
+/* ---------- Экран игры ---------- */
+/* Поверх всего, включая боковую панель: игра занимает экран целиком. */
+.cz-frame {
+  position: fixed; inset: 0; z-index: 200;
+  display: flex; flex-direction: column;
+  background: #05020a;
+  padding-top: var(--safe-top);
+}
+.cz-frame[hidden] { display: none; }
+.cz-frame-bar {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 10px;
+  height: 46px; padding: 0 10px;
+  background: var(--bg); border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+.cz-frame-close {
+  width: 36px; height: 36px; border-radius: 11px; display: grid; place-items: center; cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, 0.08); background: var(--bg-soft); color: var(--text);
+}
+.cz-frame-name { flex: 1; min-width: 0; font-weight: 800; font-size: 14px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cz-frame-balance { flex: 0 0 auto; padding: 7px 10px; border-radius: 10px; font-weight: 800; font-size: 13px; color: var(--gold); background: var(--bg-soft); }
+.cz-frame-host { flex: 1; position: relative; }
+.cz-iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #000; }
+body.cz-playing { overflow: hidden; }
+
+@media (min-width: 1024px) {
+  .cz-hero { padding: 20px 22px; }
+  .cz-hero h1 { font-size: 24px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cz-art, .cz-sheet-card { transition: none; }
+}
+
+/* «Честность»: карточка казино. Число отдачи крупно и золотом - его ищут
+   глазами, ради него карточку и открывают. */
+.fair-casino p { margin: 8px 0 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.fair-casino-rtp {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  margin-top: 12px; padding: 12px 14px; border-radius: 14px;
+  background: rgba(223, 190, 98, 0.08); box-shadow: inset 0 0 0 1px rgba(223, 190, 98, 0.25);
+  font-weight: 700; font-size: 13px; color: var(--text);
+}
+.fair-casino-rtp b { font: 800 22px/1 'Unbounded', 'Manrope', system-ui, sans-serif; color: var(--gold); }
+.fair-casino-note { font-size: 12px !important; }

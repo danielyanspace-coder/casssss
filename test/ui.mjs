@@ -47,10 +47,20 @@ const browser = await chromium.launch(EXECUTABLE ? { executablePath: EXECUTABLE 
 const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
 
 const consoleErrors = [];
+/*
+ * Отказ сервера, который проверка вызывает намеренно (запуск игры казино без
+ * ключа агрегатора), браузер сам пишет в консоль как ошибку загрузки. Он
+ * разрешён только на время такой проверки: любой другой 503 - ошибка.
+ */
+let expectRefusal = false;
 page.on('console', (m) => {
   const t = m.text();
-  // Внешние ресурсы (скрипт Telegram, favicon) в тесте недоступны - не считаем.
-  if (m.type() === 'error' && !/ERR_(FILE_NOT_FOUND|CONNECTION_RESET|NAME_NOT_RESOLVED)|404/.test(t)) {
+  if (expectRefusal && /status of 503/.test(t)) return;
+  // Внешние ресурсы (скрипт Telegram, favicon, шрифты Google, обложки с CDN
+  // агрегатора) в тесте могут быть недоступны - не считаем. CERT_AUTHORITY -
+  // это песочница, которая перехватывает TLS чужим сертификатом: к коду
+  // приложения отношения не имеет.
+  if (m.type() === 'error' && !/ERR_(FILE_NOT_FOUND|CONNECTION_RESET|NAME_NOT_RESOLVED|CERT_AUTHORITY_INVALID)|404/.test(t)) {
     consoleErrors.push(t);
   }
 });
@@ -145,12 +155,10 @@ if (newcomer) {
   check('баннер «Казино» загружен и той же пропорции 900x782',
     casinoArt.loaded && casinoArt.w === 900 && casinoArt.h === 782, JSON.stringify(casinoArt));
 
-  // Слоты по умолчанию выключены: баннер не уводит в пустоту, а говорит,
-  // что раздел готовится, и игрок остаётся на главной.
   await page.click('#promoCasino');
   await page.waitForTimeout(400);
-  check('«Казино» при выключенных слотах оставляет на главной',
-    await page.evaluate(() => document.getElementById('view-cases').classList.contains('active')));
+  check('баннер «Казино» ведёт в раздел казино',
+    await page.evaluate(() => document.getElementById('view-casino').classList.contains('active')));
 
   await page.click('#brandHome');
   await page.waitForTimeout(400);
@@ -1717,6 +1725,124 @@ check('честность: личная статистика убрана', fair
   check('компьютер: страница не разъезжается вбок', overflow <= 1, `лишних ${overflow}px`);
 
   await desk.close();
+}
+
+/* ---------- Казино ---------- */
+
+/*
+ * Лобби по согласованному макету: плитка 3:4, на телефоне три в ряд, хиты
+ * впереди. Запуск без ключа агрегатора отказывает - проверяем, что отказ
+ * виден, а экран игры не открылся пустым.
+ */
+{
+  await ensureOpenerClosed();
+  await page.click('#brandHome');
+  await page.waitForTimeout(300);
+  await page.evaluate(() => document.getElementById('promoCasino').scrollIntoView({ block: 'center' }));
+  await page.click('#promoCasino');
+  await page.waitForSelector('#czGrid .cz-tile[data-game]', { timeout: 15000 });
+  await page.waitForTimeout(500);
+
+  const lobby = await page.evaluate(() => {
+    const tiles = [...document.querySelectorAll('#czGrid .cz-tile[data-game]')];
+    const rows = new Map();
+    for (const t of tiles.slice(0, 9)) {
+      const r = t.getBoundingClientRect();
+      rows.set(Math.round(r.top), (rows.get(Math.round(r.top)) || 0) + 1);
+    }
+    const art = tiles[0].querySelector('.cz-art').getBoundingClientRect();
+    return {
+      count: tiles.length,
+      perRow: [...rows.values()][0],
+      ratio: art.height / art.width,
+      first: tiles[0].querySelector('.cz-name').textContent,
+      tabs: [...document.querySelectorAll('.cz-tab')].map((t) => t.textContent.replace(/\s+/g, ' ').trim()),
+      providers: document.querySelectorAll('.cz-pcard').length,
+      rtp: document.querySelector('.cz-hero .cz-rtp b')?.textContent,
+      shown: document.getElementById('czShown').textContent,
+    };
+  });
+  check('казино: сетка заполнена', lobby.count >= 24, `плиток ${lobby.count}`);
+  check('казино: на телефоне три плитки в ряд', lobby.perRow === 3, `в ряду ${lobby.perRow}`);
+  check('казино: плитка 3:4, а не во всю строку', Math.abs(lobby.ratio - 4 / 3) < 0.03, lobby.ratio.toFixed(3));
+  check('казино: первым идёт хит', lobby.first === 'Gates of Olympus', lobby.first);
+  check('казино: вкладки слотов и быстрых игр', lobby.tabs.some((t) => t.startsWith('Слоты')) && lobby.tabs.some((t) => t.startsWith('Быстрые')),
+        lobby.tabs.join(' / '));
+  check('казино: вкладки живого казино нет', !lobby.tabs.some((t) => t.startsWith('Живое')));
+  check('казино: полоса провайдеров', lobby.providers > 20, String(lobby.providers));
+  check('казино: отдача в шапке из настройки', lobby.rtp === '70%', lobby.rtp);
+
+  await page.click('#czMoreBtn');
+  await page.waitForFunction((n) => document.querySelectorAll('#czGrid .cz-tile[data-game]').length > n, lobby.count, { timeout: 15000 });
+  check('казино: «Показать ещё» догружает следующую страницу',
+    await page.evaluate((n) => document.querySelectorAll('#czGrid .cz-tile[data-game]').length > n, lobby.count));
+
+  await page.fill('#czQ', 'sweet bonanza');
+  // Ждём ответ поиска, а не время: обложки грузятся параллельно и в тесте
+  // занимают соединения браузера, ответ может прийти позже.
+  await page.waitForFunction(() => {
+    const names = [...document.querySelectorAll('#czGrid .cz-tile[data-game] .cz-name')];
+    return names.length > 0 && names.length < 48;
+  }, null, { timeout: 20000 }).catch(() => {});
+  const found = await page.evaluate(() => [...document.querySelectorAll('#czGrid .cz-name')].map((n) => n.textContent));
+  check('казино: поиск оставляет только найденное', found.length > 0 && found.every((n) => /sweet bonanza/i.test(n)),
+        found.slice(0, 4).join(' | '));
+  await page.fill('#czQ', '');
+  await page.waitForFunction(() => document.querySelectorAll('#czGrid .cz-tile[data-game]').length >= 48,
+    null, { timeout: 20000 }).catch(() => {});
+
+  await page.evaluate(() => document.querySelector('.cz-pcard[data-provider="hacksaw"]').click());
+  await page.waitForSelector('.cz-crumbs', { timeout: 10000 });
+  await page.waitForFunction(() => document.querySelectorAll('#czGrid .cz-tile[data-game]').length > 0,
+    null, { timeout: 20000 }).catch(() => {});
+  const prov = await page.evaluate(() => ({
+    title: document.querySelector('.cz-hero h1')?.textContent,
+    tabsHidden: document.getElementById('czTabs').hidden,
+    names: document.querySelectorAll('#czGrid .cz-tile[data-game]').length,
+  }));
+  check('казино: страница провайдера открывается', prov.title === 'Hacksaw' && prov.tabsHidden && prov.names > 0,
+        JSON.stringify(prov));
+
+  await page.click('#czGrid .cz-tile[data-game] >> nth=0');
+  await page.waitForTimeout(500);
+  const sheet = await page.evaluate(() => ({
+    open: !document.getElementById('czSheet').hidden,
+    rtp: document.getElementById('czSheetRtp').textContent,
+    name: document.getElementById('czSheetName').textContent,
+  }));
+  check('казино: плитка открывает окно запуска', sheet.open && sheet.name.length > 0, JSON.stringify(sheet));
+  check('казино: в окне запуска отдача игры', sheet.rtp === '70%', sheet.rtp);
+
+  expectRefusal = true;
+  await page.click('#czPlay');
+  await page.waitForTimeout(1200);
+  expectRefusal = false;
+  const launched = await page.evaluate(() => ({
+    frame: !document.getElementById('czFrame').hidden,
+    toast: document.querySelector('.toast')?.textContent || '',
+  }));
+  check('казино: без ключа агрегатора экран игры не открывается', !launched.frame);
+  check('казино: отказ запуска виден игроку', launched.toast.length > 0, launched.toast);
+
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(300);
+  check('казино: окно запуска закрывается Esc', await page.evaluate(() => document.getElementById('czSheet').hidden));
+
+  await page.click('.cz-crumbs [data-back]');
+  await page.waitForTimeout(800);
+  check('казино: «Казино» в крошках возвращает в лобби',
+    await page.evaluate(() => !document.getElementById('czTabs').hidden));
+
+  // «Честность»: отдача казино из той же настройки.
+  await page.evaluate(() => document.querySelector('[data-view="fair"]')?.click());
+  await page.waitForTimeout(500);
+  const fair = await page.evaluate(() => ({
+    shown: !document.getElementById('fairCasino').hidden,
+    rtp: document.getElementById('fairCasinoRtp').textContent,
+  }));
+  check('честность: карточка казино с отдачей', fair.shown && fair.rtp === '70%', JSON.stringify(fair));
+  await page.click('#brandHome');
+  await page.waitForTimeout(300);
 }
 
 /* ---------- Мини-игр нет ---------- */

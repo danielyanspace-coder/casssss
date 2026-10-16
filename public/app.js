@@ -21,6 +21,7 @@ import { itemArtHd } from './item-art-hd.js';
 import { coinMark, coinColor } from './coin-art.js';
 import { COMPANY, LICENSE, DOCS, PARTNERS, footerHtml } from './legal.js';
 import { createSlot } from './slots.js';
+import { createCasino } from './casino.js';
 import {
   sndTick, sndSpinStart, sndLand, sndReveal,
   sndBigWin, sndCollect, sndLose, sndFlip, sndBet, sndCrash, sndClimb,
@@ -122,7 +123,18 @@ function plural(n, one, few, many) {
  * Разряды внутри числа разделяет сам toLocaleString('ru-RU'), и он тоже
  * ставит неразрывный пробел, поэтому «329 000» не рассыпается.
  */
-const money = (n) => fmt(n) + ' ₽';
+/*
+ * Сумма денег. Копейки показываются, только если они есть: «1 250 ₽», но
+ * «12,50 ₽». Дробные суммы бывают только у казино (ставки провайдеров по
+ * 0,20), и для них «12,5 ₽» читалось бы как опечатка.
+ */
+const fmtMoney = (n) => {
+  const v = Math.round(Number(n) * 100) / 100;
+  return Number.isInteger(v)
+    ? v.toLocaleString('ru-RU')
+    : v.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+};
+const money = (n) => fmtMoney(n) + ' ₽';
 const esc = (s) => String(s ?? '').replace(/[<>&"]/g, (c) =>
   ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]));
 
@@ -330,7 +342,7 @@ function celebrate(kind, payload = {}) {
    ============================================================ */
 
 /** Сумма с отдельно выделенным знаком рубля: он набран жирнее цифр. */
-const moneyRich = (n) => `${fmt(n)} <span class="rub">₽</span>`;
+const moneyRich = (n) => `${fmtMoney(n)} <span class="rub">₽</span>`;
 
 function renderBalance() {
   const chip = document.getElementById('balanceChip');
@@ -3975,9 +3987,19 @@ function renderFairPartners() {
   mountIcons(box);
 }
 
+/* Отдача казино из настройки: то же число, что сервер передаёт агрегатору
+   при каждом запуске игры. Раздел выключен - карточки нет. */
+function renderFairCasino() {
+  const box = document.getElementById('fairCasino');
+  const rtp = state.config?.casino?.rtp;
+  box.hidden = !(rtp > 0) || !viewOpen('casino');
+  if (!box.hidden) document.getElementById('fairCasinoRtp').textContent = `${rtp}%`;
+}
+
 function renderFair() {
   const f = state.user.fair;
   renderFairPartners();
+  renderFairCasino();
   decodeInto(document.getElementById('serverHash'), f.serverSeedHash);
   document.getElementById('nonceBox').textContent = f.nonce;
   const input = document.getElementById('clientSeedInput');
@@ -4382,6 +4404,7 @@ const BO_SECTIONS = [
 
   { id: 'support', name: 'Обращения', group: 'Поддержка', need: 'support.view', load: () => loadAdminSupport() },
 
+  { id: 'casino', name: 'Казино', group: 'Система', need: 'games.manage', load: () => loadAdminCasino() },
   { id: 'settings', name: 'Настройки', group: 'Система', need: 'settings.manage', load: () => loadAdminSettings() },
   { id: 'staff', name: 'Сотрудники', group: 'Система', need: 'staff.manage', load: () => loadAdminStaff() },
   { id: 'journal', name: 'Журнал', group: 'Система', need: 'journal.view', load: () => loadAdminJournal() },
@@ -4452,6 +4475,48 @@ document.getElementById('boRefresh')?.addEventListener('click', () => {
   state.admin.tab = current;
   initAdminPanel();
 });
+
+/* ---------- Панель: казино ---------- */
+
+/*
+ * Состояние каталога и деньги казино. Отдачу здесь не меняют: она в
+ * «Настройках» рядом с выключателями игр, а тут видно, какое число
+ * применяется на самом деле (с учётом пределов агрегатора).
+ */
+async function loadAdminCasino() {
+  const pane = document.getElementById('admin-casino');
+  pane.innerHTML = '<div class="empty">Загрузка...</div>';
+  let d;
+  try { d = await api('/api/admin/casino'); } catch (err) { pane.innerHTML = `<div class="empty">${esc(err.message)}</div>`; return; }
+  const s = d.sync;
+  const syncLine = !d.configured
+    ? 'Ключи агрегатора не заданы: каталог из снимка в репозитории'
+    : s.running ? 'Идёт обновление каталога...'
+    : s.at ? `${s.ok ? 'Обновлён' : 'Ошибка обновления'} ${boDateTime(s.at)}${s.ok ? '' : `: ${esc(s.message)}`}`
+    : 'Ещё не обновлялся';
+  const row = (label, m) => `<tr><td>${label}</td><td class="num">${money(m.bets)}</td><td class="num">${money(m.wins)}</td>
+    <td class="num">${money(m.ggr)}</td><td class="num">${fmt(m.rounds)}</td><td class="num">${fmt(m.players)}</td></tr>`;
+  pane.innerHTML = `
+    ${boKpis([
+      { label: 'Игр в лобби', value: fmt(s.games), sub: `провайдеров ${fmt(s.providers)}` },
+      { label: 'Отдача слотов', value: `${d.rtp}%`, sub: `пределы агрегатора ${d.rtpRange[0]}-${d.rtpRange[1]}%` },
+      { label: 'Доход кассы за 30 дней', value: money(d.month.ggr), sub: 'ставки минус выигрыши', cls: d.month.ggr >= 0 ? 'plus' : 'minus' },
+    ])}
+    <div class="bo-subtitle">Каталог</div>
+    <p class="bo-note">${syncLine}. По расписанию каталог обновляется сам.</p>
+    <div class="admin-actions">
+      <button class="btn btn-outline btn-sm" id="casinoSync" ${d.configured ? '' : 'disabled'}>Обновить сейчас</button>
+    </div>
+    <div class="bo-subtitle">Деньги</div>
+    ${boTable([{ label: 'Период' }, { label: 'Ставки', num: true }, { label: 'Выигрыши', num: true },
+      { label: 'Доход', num: true }, { label: 'Раундов', num: true }, { label: 'Игроков', num: true }],
+      [row('Сутки', d.today), row('7 дней', d.week), row('30 дней', d.month)])}`;
+  document.getElementById('casinoSync')?.addEventListener('click', async (e) => {
+    e.target.disabled = true;
+    try { await api('/api/admin/casino/sync'); toast('Каталог обновлён'); } catch (err) { toast(err.message); }
+    loadAdminCasino();
+  });
+}
 
 /* ---------- Панель: общие кирпичи ---------- */
 
@@ -5418,6 +5483,15 @@ document.getElementById('adminSearchBtn').addEventListener('click', () => {
 });
 
 /*
+ * Казино тоже отдельным файлом: лобби на пять тысяч игр, окно запуска и
+ * экран игры к остальному app.js отношения не имеют.
+ */
+const casino = createCasino({
+  api, esc, money, toast, haptic, state, plural,
+  onUser: (user) => applyUser(user),
+});
+
+/*
  * Слот живёт отдельным файлом: у него своя анимация лент, своя панель и
  * свои окна, и держать всё это в app.js значило бы добавить туда полторы
  * тысячи строк, никак не связанных с остальным.
@@ -5468,6 +5542,8 @@ function switchView(name) {
   if (name === 'crash') { if (!state.crash) resetCrashGraph(); crashFx().wake(); }
   if (name === 'slots') slot.openShelf();
   else slot.close();
+  if (name === 'casino') casino.open();
+  else casino.close();
   if (name === 'admin') initAdminPanel();
   if (name === 'cases') loadFreeCase();
   if (name === 'bonuses') { renderBonuses(); renderMedals(); loadPromoState(); }
@@ -5540,6 +5616,7 @@ function openSupport() {
  * под картинкой и только тем, кому положены.
  */
 const MENU_EXTRA = [
+  { view: 'casino', ico: 'slot', title: 'Казино', sub: 'Слоты провайдеров' },
   { view: 'slots', ico: 'slot', title: 'Слоты', sub: 'TREASURE ISLAND' },
   { view: 'partner', ico: 'people', title: 'Партнёру', sub: 'Ваши рефералы', partnerOnly: true },
   { view: 'admin', ico: 'admin', title: 'Админ', sub: 'Панель управления', adminOnly: true },
@@ -5660,12 +5737,12 @@ function renderMenu() {
  * отказа бессмысленно (раздел открывается прямым запросом), а отказывать без
  * пряток значит оставить игроку кнопку, которая всегда ругается.
  */
-/** Подпись баннера «Казино», пока лобби провайдеров не открыто. */
+/** Подпись баннера «Казино», когда раздел выключен в панели. */
 const CASINO_SOON = 'Казино скоро откроется';
 
 const VIEW_SWITCH = {
   cases: 'cases', crash: 'crash', roulette: 'roulette',
-  upgrade: 'upgrade', freemoney: 'fortune', slots: 'slots',
+  upgrade: 'upgrade', freemoney: 'fortune', slots: 'slots', casino: 'casino',
 };
 
 function viewOpen(view) {
@@ -5681,6 +5758,7 @@ const SIDE_NAV = [
   { view: 'crash', art: '/assets/ui/nav-crash.webp', title: 'Краш', sub: 'Лови коэффициент' },
   { view: 'roulette', art: '/assets/ui/nav-roulette.webp', title: 'Рулетка', sub: 'Испытай удачу' },
   { view: 'wallet', art: '/assets/ui/nav-wallet.webp', title: 'Касса', sub: 'Пополнение и вывод' },
+  { view: 'casino', ico: 'slot', title: 'Казино', sub: 'Слоты провайдеров' },
   { view: 'slots', ico: 'slot', title: 'Слоты', sub: 'TREASURE ISLAND' },
   { view: 'bonuses', art: '/assets/ui/nav-bonuses.webp', title: 'Бонусы', sub: 'Ежедневные награды' },
   { view: 'partner', ico: 'people', title: 'Партнёру', sub: 'Статистика и выплаты',
@@ -7865,13 +7943,12 @@ function wireFortune() {
   });
   /*
    * «Казино» стоит на месте «Бонусов» (решение заказчика; бонусы остались в
-   * меню). Лобби игр провайдеров ещё согласуется, поэтому пока баннер ведёт
-   * в наши слоты, если раздел включён в панели, а иначе честно говорит, что
-   * раздел готовится: кнопка, которая молча ничего не делает, хуже надписи.
+   * меню). Если раздел выключен в панели, баннер говорит это словами, а не
+   * молчит: кнопка, которая ничего не делает, хуже надписи.
    */
   document.getElementById('promoCasino')?.addEventListener('click', () => {
     haptic('light');
-    if (viewOpen('slots')) switchView('slots');
+    if (viewOpen('casino')) switchView('casino');
     else toast(CASINO_SOON);
   });
   document.getElementById('brandHome')?.addEventListener('click', () => {

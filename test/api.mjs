@@ -1161,6 +1161,77 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
   }
 }
 
+/* ---------- Казино ---------- */
+
+/*
+ * Без ключа агрегатора сервер работает на снимке каталога: лобби, поиск и
+ * порядок проверяются по-настоящему, запуск честно отказывает. Деньги
+ * кошелька проверяет test:casino напрямую, здесь - только его дверь: чужой
+ * адрес не проходит.
+ */
+{
+  check('казино: раздел открыт в конфиге', config.open?.casino === true);
+  check('казино: отдача в конфиге из пределов 70-80', config.casino?.rtp >= 70 && config.casino?.rtp <= 80,
+        String(config.casino?.rtp));
+
+  const lobby = await post('/api/casino/lobby');
+  check('казино: лобби отдаётся', lobby.status === 200, `статус ${lobby.status}`);
+  check('казино: слотов больше пяти тысяч', lobby.data.counts?.slots > 5000, String(lobby.data.counts?.slots));
+  check('казино: живого казино нет (нет в списке партнёра)', !lobby.data.counts?.live);
+  check('казино: Pragmatic Play в провайдерах', (lobby.data.providers || []).some((p) => p.id === 'pragmatic-play'));
+  check('казино: спорта среди провайдеров нет', !(lobby.data.providers || []).some((p) => /sport|betby/i.test(p.id)));
+
+  const page = await post('/api/casino/games', { kind: 'slots', limit: 48 });
+  const games = page.data.games || [];
+  check('казино: страница из 48 игр', games.length === 48, String(games.length));
+  check('казино: первым идёт хит', games[0]?.name === 'Gates of Olympus', games[0]?.name);
+  check('казино: обложки наши, а не CDN агрегатора', games.every((g) => g.cover.startsWith('/casino/cover/')));
+  check('казино: у слотов показана наша отдача', games.every((g) => g.rtp === config.casino.rtp));
+
+  const next = await post('/api/casino/games', { kind: 'slots', limit: 48, offset: 48 });
+  check('казино: вторая страница не повторяет первую',
+        !(next.data.games || []).some((g) => games.some((x) => x.id === g.id)));
+
+  const prov = await post('/api/casino/games', { provider: 'hacksaw', limit: 96 });
+  check('казино: страница провайдера только его игры',
+        prov.data.total > 0 && prov.data.games.every((g) => g.providerId === 'hacksaw'), String(prov.data.total));
+
+  const found = await post('/api/casino/games', { q: 'sweet bonanza' });
+  check('казино: поиск находит по названию',
+        found.data.total > 0 && found.data.games.every((g) => /sweet bonanza/i.test(g.name)), String(found.data.total));
+
+  const az = await post('/api/casino/games', { kind: 'slots', sort: 'az', limit: 5 });
+  const names = (az.data.games || []).map((g) => g.name);
+  check('казино: сортировка по алфавиту', names.length === 5 && names[0].toLowerCase() <= names[4].toLowerCase(), names.join(' | '));
+
+  const noKeys = await post('/api/casino/launch', { gameId: games[0]?.id });
+  check('казино: без ключа агрегатора запуск отказывает 503', noKeys.status === 503, `статус ${noKeys.status}`);
+  const unknown = await post('/api/casino/launch', { gameId: 'нет-такой' });
+  check('казино: неизвестная игра 404', unknown.status === 404, `статус ${unknown.status}`);
+  const noCover = await fetch(BASE + '/casino/cover/нет-такой');
+  check('казино: обложка неизвестной игры 404', noCover.status === 404, `статус ${noCover.status}`);
+
+  const wallet = await post('/api/casino/wallet', [{ method: 'get_balance', userId: `lb${me.id}` }],
+    { 'x-agent-name': 'x', 'x-agent-token': 'y' });
+  check('казино: кошелёк не принимает чужой адрес', wallet.status === 403 && wallet.data.statusCode !== 0,
+        `статус ${wallet.status}`);
+
+  // Отдача из панели доходит до конфига и зажимается в пределы агрегатора.
+  await post('/api/admin/settings/save', { patch: { casino_rtp: 75 } });
+  check('казино: отдача из панели доходит до конфига', (await get('/api/config')).casino.rtp === 75);
+  await post('/api/admin/settings/save', { patch: { casino_rtp: 95 } });
+  check('казино: отдача выше предела агрегатора зажимается', (await get('/api/config')).casino.rtp === 80);
+  await post('/api/admin/settings/save', { patch: { casino_rtp: 70 } });
+
+  await post('/api/admin/settings/save', { patch: { games_casino: false } });
+  const off = await post('/api/casino/lobby');
+  check('казино: выключенный раздел отвечает 503', off.status === 503, `статус ${off.status}`);
+  await post('/api/admin/settings/save', { patch: { games_casino: true } });
+
+  const adm = await post('/api/admin/casino');
+  check('казино: сводка в панели', adm.status === 200 && adm.data.sync?.games > 5000, `статус ${adm.status}`);
+}
+
 /* ---------- Мини-игры сняты ---------- */
 
 /*

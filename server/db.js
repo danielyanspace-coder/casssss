@@ -1933,7 +1933,7 @@ const ALL_EVENTS = new Set([
   ...FUNNEL_STEPS.map((s) => s.name),
   ...CLIENT_EVENTS,
   'deposit_first_bonus', 'promo_redeemed', 'freespins_bought', 'bot_reminder',
-  'fortune_unlocked', 'fortune_spin',
+  'fortune_unlocked', 'fortune_spin', 'casino_launch',
   'slot_spin', 'slot_jackpot', 'slot_bonus_bought',
 ]);
 

@@ -385,7 +385,7 @@
         <div class="fair-eyebrow">Provably fair</div>
         <h2 class="fair-title">Честная игра</h2>
         <p class="fair-lead">
-          Исход каждого раунда записан до того, как вы нажали кнопку. Отпечаток
+          В играх LUCKYBOX исход каждого раунда записан до того, как вы нажали кнопку. Отпечаток
           этой записи вы видите заранее, а саму запись мы раскрываем потом:
           подменить её незаметно не может никто, даже мы.
         </p>
@@ -425,6 +425,24 @@
               попадает в интервал предмета. Ни ручек, ни исключений.</p>
           </div>
         </div>
+      </div>
+
+      <!-- Казино: что проверяется формулой, а что нет, и какая отдача у
+           слотов провайдеров. Число берётся из той же настройки, что уходит
+           агрегатору при запуске игры (renderFairCasino в app.js). -->
+      <div class="fair-card fair-casino" id="fairCasino" hidden>
+        <h3 class="fair-h3">Казино: игры провайдеров</h3>
+        <p>Проверка по ключам на этой странице относится к играм LUCKYBOX:
+          кейсам, крашу, рулетке, апгрейду и риск-игре. В разделе «Казино»
+          исход определяет генератор провайдера игры, и пересчитать его этой
+          формулой нельзя.</p>
+        <div class="fair-casino-rtp">
+          <span>Отдача слотов и быстрых игр казино</span>
+          <b id="fairCasinoRtp"></b>
+        </div>
+        <p class="fair-casino-note">Отдача одинакова для всех игроков и не
+          настраивается под конкретного человека. Это среднее за большое число
+          ставок: отдельная сессия может закончиться и выше, и ниже.</p>
       </div>
 
       <div class="fair-card fair-keys">
@@ -629,6 +647,12 @@
       ставки, джекпоты, пути к картинкам), и половина её всё равно строилась
       бы кодом. Игр в разделе больше одной, и разметка у них разная.
     -->
+    <!-- ══════════ КАЗИНО ══════════ -->
+    <!-- Лобби игр провайдеров собирает public/casino.js при открытии раздела. -->
+    <section class="view" id="view-casino">
+      <div class="cz" id="casinoRoot"></div>
+    </section>
+
     <section class="view" id="view-slots">
       <div id="slotShelf"></div>
       <div id="slotRoot" hidden></div>
@@ -737,6 +761,7 @@
           <div class="admin-pane" id="admin-settings"></div>
           <div class="admin-pane" id="admin-staff"></div>
           <div class="admin-pane" id="admin-journal"></div>
+          <div class="admin-pane" id="admin-casino"></div>
         </div>
       </div>
 
@@ -1040,5 +1065,32 @@
   <div class="toast" id="toast" hidden></div>
 
   <script type="module" src="/app.js"></script>
+  <!-- Казино: окно запуска игры и экран самой игры (public/casino.js). -->
+  <div class="cz-sheet" id="czSheet" hidden>
+    <div class="cz-sheet-dim" data-close></div>
+    <div class="cz-sheet-card" role="dialog" aria-modal="true" aria-labelledby="czSheetName">
+      <div class="cz-sheet-art" id="czSheetArt"></div>
+      <div class="cz-sheet-body">
+        <h4 id="czSheetName"></h4>
+        <p id="czSheetProv"></p>
+        <div class="cz-sheet-rtp"><span>Отдача в этой игре</span><b id="czSheetRtp"></b></div>
+        <div class="cz-sheet-actions">
+          <button class="take-btn" id="czDemo">Демо</button>
+          <button class="open-cta" id="czPlay"><span class="open-act"><span>Играть</span></span></button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="cz-frame" id="czFrame" hidden>
+    <div class="cz-frame-bar">
+      <button class="cz-frame-close" id="czFrameClose" aria-label="Закрыть игру">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M15 5l-7 7 7 7"/></svg>
+      </button>
+      <span class="cz-frame-name" id="czFrameName"></span>
+      <span class="cz-frame-balance" id="czFrameBalance"></span>
+    </div>
+    <div class="cz-frame-host" id="czFrameHost"></div>
+  </div>
 </body>
 </html>

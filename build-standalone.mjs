@@ -56,6 +56,19 @@ const fortuneConfig = {
 
 validateSlots();
 
+/*
+ * Каталог казино - тот же снимок, на котором работает сервер без ключа
+ * (server/casino-catalog.json). Только поля, нужные лобби: снимок большой,
+ * а файл сборки и так тяжёлый.
+ */
+const casinoSnap = JSON.parse(read('./server/casino-catalog.json'));
+const casinoCatalog = {
+  providers: casinoSnap.providers.map((p) => ({ id: p.id, name: p.name, kind: p.kind, count: p.game_count, sort: p.sort })),
+  games: casinoSnap.games.map((g) => [g.id, g.name, g.provider_id, g.provider_name, g.kind,
+    g.img_vertical || g.img, g.img_vertical ? 1 : 0, g.img_wide || '', g.demo, g.freespin, g.seed_rank,
+    g.rtp_mode === 'operator' ? 1 : 0]),
+};
+
 const config = {
   categories: CATEGORIES,
   cases: CASES.map(publicCase),
@@ -328,6 +341,7 @@ const legal = inlineUi(read('./public/legal.js'));
 // slots.js проходит через inlineUi: символы и доски рамки лежат в assets/ui/,
 // и без подстановки в автономной сборке весь слот был бы пустыми рамками.
 const slots = inlineUi(read('./public/slots.js'));
+const casinoUi = read('./public/casino.js');
 const app = inlineUi(read('./public/app.js'));
 
 // Тело страницы без внешних подключений - всё уедет внутрь файла.
@@ -364,6 +378,7 @@ const shim = `
 
 const DRAW = ${JSON.stringify(drawTables)};
 const CONFIG = ${JSON.stringify(config)};
+const CASINO_CATALOG = ${JSON.stringify(casinoCatalog)};
 const DRAW_BY_ID = new Map(DRAW.map((c) => [c.id, c]));
 
 /*
@@ -915,11 +930,67 @@ function demoOpen() {
     upgrade: on('games_upgrade'),
     fortune: on('games_fortune'),
     slots: on('games_slots'),
+    casino: on('games_casino'),
+  };
+}
+
+/* Отдача казино из той же настройки, что правит демо-панель. */
+function demoCasinoRtp() {
+  const row = store.settings.find((r) => r.key === 'casino_rtp');
+  const v = Number(row ? row.value : 70) || 70;
+  return Math.min(80, Math.max(70, v));
+}
+
+/*
+ * Игра каталога казино в том виде, в каком её отдаёт сервер. Обложки - с
+ * CDN агрегатора напрямую: пережимающего их сервера здесь нет.
+ */
+function demoCasinoGame(row) {
+  const [id, name, providerId, provider, kind, cover, vertical, wide, demo, freespin, , operator] = row;
+  return {
+    id, name, provider, providerId, kind, cover, vertical: Boolean(vertical), wide: wide || null,
+    demo: Boolean(demo), freespin: Boolean(freespin), rtp: operator ? demoCasinoRtp() : null,
   };
 }
 
 const routes = {
-  'GET /api/config': () => ({ ...CONFIG, open: demoOpen() }),
+  'GET /api/config': () => ({ ...CONFIG, open: demoOpen(), casino: { rtp: demoCasinoRtp(), configured: false } }),
+
+  /* ---------- Казино ---------- */
+
+  'POST /api/casino/lobby': () => {
+    const counts = { slots: 0, live: 0, fast: 0 };
+    for (const p of CASINO_CATALOG.providers) counts[p.kind] = (counts[p.kind] || 0) + p.count;
+    return { rtp: demoCasinoRtp(), configured: false, counts, providers: CASINO_CATALOG.providers };
+  },
+
+  'POST /api/casino/games': (body) => {
+    const q = String(body.q || '').trim().toLowerCase();
+    let rows = CASINO_CATALOG.games.filter((g) =>
+      (!body.provider || g[2] === body.provider)
+      && (body.provider || !body.kind || g[4] === body.kind)
+      && (!q || g[1].toLowerCase().includes(q)));
+    rows = body.sort === 'az'
+      ? rows.slice().sort((a, b) => a[1].localeCompare(b[1]))
+      : rows.slice().sort((a, b) => a[10] - b[10]);
+    const offset = Math.max(0, Number(body.offset) || 0);
+    const limit = Math.min(96, Math.max(1, Number(body.limit) || 48));
+    return { total: rows.length, games: rows.slice(offset, offset + limit).map(demoCasinoGame) };
+  },
+
+  // Игру запускает сервер с ключом агрегатора; в одном файле его нет.
+  'POST /api/casino/launch': () => ({ status: 503, body: { error: 'Игра временно недоступна. Попробуйте позже' } }),
+
+  'POST /api/casino/history': () => ({ rows: [], balance: store.user.balance }),
+
+  'POST /api/admin/casino': () => {
+    const zero = { bets: 0, wins: 0, ggr: 0, players: 0, rounds: 0 };
+    return {
+      sync: { at: 0, ok: null, message: '', running: false, games: CASINO_CATALOG.games.length,
+        providers: CASINO_CATALOG.providers.length, updatedAt: 0 },
+      configured: false, rtp: demoCasinoRtp(), rtpRange: [70, 80], today: zero, week: zero, month: zero,
+    };
+  },
 
   'POST /api/me': () => ({ user: publicUser() }),
 
@@ -2436,6 +2507,8 @@ ${strip(legal)}
 
 ${strip(slots)}
 
+${strip(casinoUi)}
+
 ${strip(app)}
 
 /*
@@ -2469,7 +2542,7 @@ function topLevelNames(src) {
 const scopes = {
   icons: topLevelNames(icons), covers: topLevelNames(covers),
   sounds: topLevelNames(sounds), legal: topLevelNames(legal),
-  medals: topLevelNames(medals),
+  medals: topLevelNames(medals), casino: topLevelNames(casinoUi),
   app: topLevelNames(app),
 };
 const clashes = [];
