@@ -1,7 +1,7 @@
 /**
  * Хранилище на SQLite: баланс, seed-ы, история всех игр.
  *
- * Все три игры пишут в общую таблицу rounds — так история и статистика
+ * Все три игры пишут в общую таблицу rounds - так история и статистика
  * считаются единообразно, без развилок по типу игры.
  */
 
@@ -406,7 +406,7 @@ if (hasOldTable) {
   db.exec('DROP TABLE openings;');
 }
 
-// Старая колонка счётчика называлась иначе — переносим, если осталась.
+// Старая колонка счётчика называлась иначе - переносим, если осталась.
 const userColumns = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name);
 if (userColumns.includes('total_opened') && !userColumns.includes('total_rounds')) {
   db.exec('ALTER TABLE users RENAME COLUMN total_opened TO total_rounds;');
@@ -414,7 +414,7 @@ if (userColumns.includes('total_opened') && !userColumns.includes('total_rounds'
 
 /**
  * CREATE TABLE IF NOT EXISTS не добавляет колонки в уже существующую таблицу,
- * поэтому новые поля досыпаем вручную — иначе база игрока со старой версии
+ * поэтому новые поля досыпаем вручную - иначе база игрока со старой версии
  * уронит сервер на первом же запросе.
  */
 /**
@@ -883,7 +883,7 @@ export const awardSlotJackpot = db.transaction((userId, jackpot, bet, nonce) => 
   return getUserById(userId).balance;
 });
 
-/* ---------- Краш: ставка и вывод — разные запросы ---------- */
+/* ---------- Краш: ставка и вывод - разные запросы ---------- */
 
 export const startCrashRound = db.transaction((userId, bet, computeCrashPoint) => {
   const before = getUserById(userId);
@@ -928,7 +928,7 @@ export function getCrashRound(roundId, userId) {
  * Фиксирует итог раунда краша.
  *
  * Ставка уже списана при старте, поэтому здесь только начисляем выплату и
- * дописываем историю — счётчик потраченного увеличиваем вручную.
+ * дописываем историю - счётчик потраченного увеличиваем вручную.
  */
 export const finishCrashRound = db.transaction((roundId, userId, status, cashedAt) => {
   const round = db.prepare(`SELECT * FROM crash_rounds WHERE id = ? AND user_id = ?
@@ -984,7 +984,7 @@ export function crashTier(multiplier) {
 /* ---------- История, seed-ы, бонус ---------- */
 
 /**
- * История раундов. С caseTitle отдаются только открытия конкретного кейса —
+ * История раундов. С caseTitle отдаются только открытия конкретного кейса -
  * это питает блок «ваши выпадения из этого кейса» на экране прокрута.
  */
 export function getHistory(userId, limit = 60, caseTitle = null) {
@@ -1018,7 +1018,7 @@ export const rotateServerSeed = db.transaction((userId) => {
   const user = getUserById(userId);
   const newSeed = generateServerSeed();
 
-  // Незавершённый раунд краша использует старый seed — закрываем его,
+  // Незавершённый раунд краша использует старый seed - закрываем его,
   // иначе после ротации проверка результата не сойдётся.
   db.prepare(`UPDATE crash_rounds SET status = 'busted'
                WHERE user_id = ? AND status = 'running'`).run(userId);
@@ -1045,7 +1045,7 @@ const BONUS_COOLDOWN_MS = Number(process.env.BONUS_COOLDOWN_MIN || 60) * 60 * 10
 const BONUS_BALANCE_LIMIT = Number(process.env.BONUS_BALANCE_LIMIT || 250);
 
 /**
- * Бонус отключён: раздача единиц по таймеру ломала ощущение ставки —
+ * Бонус отключён: раздача единиц по таймеру ломала ощущение ставки -
  * проигрыш переставал что-либо значить, раз через час всё равно доначислят.
  * Функция оставлена, чтобы старый клиент получал внятный отказ, а не 404.
  */
@@ -1312,7 +1312,7 @@ export const playFortuneSpin = db.transaction((userId, casePool = []) => {
 
 /**
  * Выдача бесплатного прокрута. Проверка подписки к этому моменту уже
- * пройдена — здесь только кулдаун и сам ваучер.
+ * пройдена - здесь только кулдаун и сам ваучер.
  *
  * Кулдаун проверяется ВНУТРИ транзакции, а не до неё: два одновременных
  * запроса иначе успели бы прочитать старую метку и выдать два ваучера.
@@ -1344,7 +1344,7 @@ export function freeCaseState(userId, cooldownMs) {
 /**
  * Крупные выпадения живых игроков для витрины.
  *
- * Ник берём из username, а если его нет — из имени. Ни Telegram ID, ни
+ * Ник берём из username, а если его нет - из имени. Ни Telegram ID, ни
  * баланс наружу не уходят: витрина видна всем.
  */
 /**
@@ -1381,12 +1381,12 @@ export function recentPublicDrops(limit = 24, minValue = 40) {
 
 /**
  * Открытие кейса целиком: списание либо расход ваучера, розыгрыш, применение
- * ×2, выдача плюшек, запись истории. Одной транзакцией — параллельные запросы
+ * ×2, выдача плюшек, запись истории. Одной транзакцией - параллельные запросы
  * не смогут потратить один ваучер дважды или уйти в минус по балансу.
  *
  * resolve(serverSeed, clientSeed, nonce) должен вернуть выпавший предмет.
  */
-/** Потолок длины серии фриспинов — предохранитель, см. розыгрыш ниже. */
+/** Потолок длины серии фриспинов - предохранитель, см. розыгрыш ниже. */
 export const MAX_FREE_SPINS = 300;
 
 /**
@@ -1638,7 +1638,7 @@ export const buyFreeSpins = db.transaction((userId, caseData, count, cost, resol
  * Несколько открытий одного кейса одной транзакцией.
  *
  * Важно, что это именно транзакция: при частичной нехватке средств не должно
- * получиться «три кейса открылись, четвёртый нет» — либо вся пачка, либо
+ * получиться «три кейса открылись, четвёртый нет» - либо вся пачка, либо
  * ничего. Каждое открытие внутри само разбирается с ваучером и ×2.
  */
 export const playCaseBatch = db.transaction((userId, caseData, count, resolve, resolveFree) => {
@@ -2357,7 +2357,7 @@ export function adminUserDetail(userId) {
 
 /**
  * Изменение баланса администратором. Отрицательная сумма списывает, но не
- * ниже нуля — уводить игрока в долг нельзя.
+ * ниже нуля - уводить игрока в долг нельзя.
  */
 export const adminAdjustBalance = db.transaction((adminId, targetId, amount, note,
                                                   { asDeposit = true } = {}) => {
@@ -2373,7 +2373,7 @@ export const adminAdjustBalance = db.transaction((adminId, targetId, amount, not
     VALUES (?, ?, ?, ?, ?, ?)
   `).run(adminId, targetId, amount >= 0 ? 'credit' : 'debit', applied, note || null, Date.now());
 
-  // Начисление показывается игроку в истории пополнений, списание — нет:
+  // Начисление показывается игроку в истории пополнений, списание - нет:
   // в кассе он должен видеть приход, а не служебные корректировки.
   /*
    * Начисление по умолчанию считается пополнением: его надо прокрутить, как и
@@ -2461,7 +2461,7 @@ export function adminRecentRounds(limit = 40) {
    ============================================================ */
 
 /**
- * Ставка риск-игры — это выигрыш последнего прокрута, он уже зачислен на
+ * Ставка риск-игры - это выигрыш последнего прокрута, он уже зачислен на
  * баланс. Поэтому при проигрыше ставку снимаем, а при выигрыше доначисляем
  * разницу до итоговой выплаты.
  *
@@ -2818,7 +2818,7 @@ export const cancelPayout = db.transaction((userId, payoutId) => {
 /**
  * Решение администратора по заявке.
  *
- * При отклонении сумма возвращается игроку — она была списана авансом.
+ * При отклонении сумма возвращается игроку - она была списана авансом.
  * При выплате остаётся списанной: деньги считаются ушедшими.
  */
 export const resolvePayout = db.transaction((adminId, payoutId, status, comment) => {

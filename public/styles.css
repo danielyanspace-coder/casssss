@@ -1,7 +1,7 @@
 /* ============================================================
-   LUCKYBOX — оформление
+   LUCKYBOX - оформление
    Яркая неоново-фантазийная тема: розовый, фуксия, фиолетовый.
-   Mobile-first, крупные элементы — мини-аппы открывают с телефона.
+   Mobile-first, крупные элементы - мини-аппы открывают с телефона.
    ============================================================ */
 
 /*
@@ -50,7 +50,7 @@
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
-/* Элементы с display:flex/grid игнорируют атрибут hidden — без этого правила
+/* Элементы с display:flex/grid игнорируют атрибут hidden - без этого правила
    скрытые оверлеи остаются на экране и перехватывают все нажатия. */
 [hidden] { display: none !important; }
 
@@ -87,7 +87,7 @@ body {
 .bg-glow-2 { width: 340px; height: 340px; background: var(--violet); top: 38%; right: -140px; opacity: 0.12; }
 .bg-glow-3 { width: 320px; height: 320px; background: var(--pink); bottom: -120px; left: -80px; opacity: 0.1; }
 
-/* Падающие символы валюты — чистая декорация */
+/* Падающие символы валюты - чистая декорация */
 .money-rain { position: fixed; inset: 0; pointer-events: none; z-index: 1; overflow: hidden; }
 
 .money-drop {
@@ -238,7 +238,7 @@ main { position: relative; z-index: 2; padding: 18px; }
 }
 .tabs::-webkit-scrollbar { display: none; }
 
-/* Размер подобран так, чтобы четвёртая вкладка выглядывала за краем — иначе
+/* Размер подобран так, чтобы четвёртая вкладка выглядывала за краем - иначе
    прокрутка ничем себя не выдаёт и категорию «Риск» просто не находят. */
 .tab {
   flex: 0 0 auto;
@@ -877,7 +877,7 @@ main { position: relative; z-index: 2; padding: 18px; }
   color: var(--tier-color);
   margin-bottom: 12px;
 }
-.result-name { font-size: 26px; font-weight: 900; margin-bottom: 8px; }
+.result-name { font-size: 24px; margin-bottom: 10px; }
 .result-value {
   font-size: 44px; font-weight: 900;
   color: var(--tier-color);
@@ -892,8 +892,42 @@ main { position: relative; z-index: 2; padding: 18px; }
   font-variant-numeric: tabular-nums;
 }
 
-.result-actions { display: flex; gap: 12px; margin-top: 26px; }
+.result-actions { display: flex; gap: 10px; margin-top: 26px; align-items: flex-start; }
 .result-actions .btn { flex: 1; }
+.result-actions .take-btn { flex: none; }
+/* Пачка ставит кнопки сразу под списком, и у неё «Ещё раз» тоже золотая. */
+.result-actions .again-cta { margin-bottom: 5px; min-height: 54px; }
+
+/* Имя выпавшего предмета залито металлом его материала. Тон редкости
+   подмешан в каждый градиент: карточка за 300 ₽ и за 300 000 ₽ одного
+   материала всё равно различаются цветом, как и на ленте. */
+.result-name {
+  --g: linear-gradient(180deg, #fff 15%, color-mix(in srgb, var(--tier-color) 70%, #fff) 85%);
+  display: block; width: fit-content; max-width: 100%; margin-inline: auto;
+  font-family: 'Unbounded', 'Manrope', system-ui, sans-serif; font-weight: 800; letter-spacing: -0.01em;
+  line-height: 1.15;
+  background: var(--g);
+  background-size: 100% 100%;
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  filter: drop-shadow(0 2px 0 rgba(0, 0, 0, 0.45)) drop-shadow(0 0 22px color-mix(in srgb, var(--tier-color) 40%, transparent));
+}
+.result-name[data-material="gold"] { --g: linear-gradient(180deg, #fffbe6 8%, #ffe08a 40%, #e0a02a 62%, #fff0b0 92%); }
+.result-name[data-material="chrome"] { --g: linear-gradient(180deg, #ffffff 10%, #c9d3e3 42%, #6f7f99 58%, #eef2f8 90%); }
+.result-name[data-material="glass"] { --g: linear-gradient(180deg, #ffffff 10%, color-mix(in srgb, var(--tier-color) 45%, #fff) 60%, #ffffff 95%); }
+.result-name[data-material="crystal"] { --g: linear-gradient(160deg, #f2fdff 10%, #9ae6ff 40%, color-mix(in srgb, var(--tier-color) 70%, #fff) 70%, #ffffff 95%); }
+.result-name[data-material="holo"] {
+  --g: linear-gradient(100deg, #ffd1f5, #c8b6ff 25%, #a6f0ff 45%, #c9ffd8 62%, #fff3b0 80%, #ffd1f5);
+  background-size: 220% 100%;
+  animation: nameHolo 5s linear infinite;
+}
+@keyframes nameHolo { to { background-position: 220% 0; } }
+.result-name[data-material="neon"] {
+  --g: linear-gradient(180deg, #ffffff 20%, color-mix(in srgb, var(--tier-color) 85%, #fff) 70%);
+  filter: drop-shadow(0 0 6px var(--tier-color)) drop-shadow(0 0 20px var(--tier-color));
+}
+.result-name[data-material="carbon"] { --g: linear-gradient(180deg, #f4f4f6 10%, #a9adb8 55%, color-mix(in srgb, var(--tier-color) 60%, #ddd) 95%); }
+.result-name[data-material="matte"] { --g: linear-gradient(180deg, #ffffff 15%, color-mix(in srgb, var(--tier-color) 55%, #fff) 90%); }
+@media (prefers-reduced-motion: reduce) { .result-name[data-material="holo"] { animation: none; } }
 
 /* ---------- Статистика и история ---------- */
 
@@ -933,16 +967,114 @@ main { position: relative; z-index: 2; padding: 18px; }
 
 /* ---------- Честность ---------- */
 
-.fair-intro { font-size: 14px; color: var(--muted); line-height: 1.6; margin-bottom: 18px; }
+/* Раздел собран как история: печать и обещание, почему этому можно верить,
+   как это устроено и только потом ключи. Всё движение здесь - при входе в
+   раздел (класс .active у .view) и одна бесконечная деталь, кольцо печати. */
+.fair-hero { text-align: center; padding: 8px 0 6px; }
+.fair-seal { width: 132px; height: 132px; margin: 0 auto 6px; position: relative; }
+.fair-seal::before {
+  content: ''; position: absolute; inset: 14%; border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 200, 70, 0.4), transparent 70%);
+  filter: blur(10px);
+}
+.fair-seal svg { position: relative; width: 100%; height: 100%; overflow: visible; }
+.fair-seal-ring { transform-origin: 60px 60px; animation: fairRing 26s linear infinite; }
+@keyframes fairRing { to { transform: rotate(360deg); } }
+.fair-seal-check { stroke-dasharray: 48; stroke-dashoffset: 48; }
+#view-fair.active .fair-seal-check { animation: fairCheck 0.7s cubic-bezier(0.65, 0, 0.35, 1) 0.35s forwards; }
+@keyframes fairCheck { to { stroke-dashoffset: 0; } }
+#view-fair.active .fair-seal svg { animation: fairSeal 0.8s cubic-bezier(0.2, 1.4, 0.4, 1) both; }
+@keyframes fairSeal { from { transform: scale(0.6) rotate(-14deg); opacity: 0; } }
+
+.fair-eyebrow {
+  font-size: 10.5px; font-weight: 800; letter-spacing: 0.24em; text-transform: uppercase; color: #c9a8ff;
+}
+.fair-title {
+  margin: 8px 0 10px;
+  font: 800 clamp(26px, 8vw, 38px)/1.05 'Unbounded', 'Manrope', system-ui, sans-serif;
+  background: linear-gradient(180deg, #fff8dc 10%, #ffd34d 55%, #d98a12 92%);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  filter: drop-shadow(0 2px 0 rgba(90, 30, 0, 0.6)) drop-shadow(0 0 22px rgba(255, 190, 60, 0.25));
+}
+.fair-lead { font-size: 14.5px; line-height: 1.6; color: #d4c8ea; max-width: 520px; margin: 0 auto 22px; }
+
+/* Партнёры: тёмная плашка с золотой кромкой, знаки крупно и светло. */
+.fair-partners {
+  position: relative; overflow: hidden;
+  margin-bottom: 18px; padding: 20px 18px 18px;
+  border-radius: 20px; text-align: center;
+  background:
+    radial-gradient(90% 70% at 50% 0%, rgba(255, 200, 70, 0.14), transparent 70%),
+    linear-gradient(180deg, #1b0b30, #10061f);
+  box-shadow: inset 0 0 0 1px rgba(255, 211, 77, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+.fair-partners::after {
+  content: ''; position: absolute; inset: 0; translate: -130% 0; pointer-events: none;
+  background: linear-gradient(105deg, transparent 40%, rgba(255, 230, 160, 0.12) 50%, transparent 60%);
+  animation: openSheen 6s cubic-bezier(0.65, 0, 0.35, 1) infinite 1.5s;
+}
+.fair-partners-title { margin: 8px 0 14px; font: 800 19px/1.2 'Unbounded', 'Manrope', system-ui, sans-serif; color: #fff; }
+.fair-marks { display: flex; justify-content: center; gap: 14px; margin-bottom: 14px; }
+.fair-mark {
+  width: 120px; height: 46px; padding: 8px 12px; border-radius: 14px;
+  color: #fff3d0;
+  background: rgba(255, 255, 255, 0.04); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+}
+.fair-mark svg { width: 100%; height: 100%; display: block; }
+.fair-partners-text { font-size: 13.5px; line-height: 1.65; color: #d4c8ea; margin: 0 auto 14px; max-width: 520px; }
+.fair-pledges { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
+.fair-pledges span {
+  padding: 6px 10px; border-radius: 999px;
+  font-size: 11px; font-weight: 800; color: #ffe58a;
+  background: rgba(255, 211, 77, 0.08); box-shadow: inset 0 0 0 1px rgba(255, 211, 77, 0.3);
+}
+.fair-pledges span::before { content: '✓ '; color: #7dffb3; }
+
+/* Три шага с линией между значками: по линии бежит свет от первого шага к
+   третьему - так читается, что это одна цепочка, а не три пункта. */
+.fair-steps { position: relative; display: flex; flex-direction: column; gap: 14px; margin-bottom: 18px; }
+.fair-steps::before {
+  content: ''; position: absolute; left: 25px; top: 30px; bottom: 30px; width: 2px;
+  background: linear-gradient(180deg, rgba(201, 168, 255, 0.5), rgba(255, 211, 77, 0.5));
+}
+.fair-steps::after {
+  content: ''; position: absolute; left: 22px; top: 30px; width: 8px; height: 40px; border-radius: 4px;
+  background: linear-gradient(180deg, transparent, #fff6cf, transparent);
+  filter: blur(1px);
+  animation: fairFlow 3.2s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+@keyframes fairFlow { from { top: 30px; opacity: 0; } 15% { opacity: 1; } 85% { opacity: 1; } to { top: calc(100% - 70px); opacity: 0; } }
+.fair-step { position: relative; display: flex; gap: 14px; align-items: flex-start; }
+#view-fair.active .fair-step { animation: fairStepIn 0.55s cubic-bezier(0.16, 1, 0.3, 1) both; animation-delay: calc(0.45s + var(--i) * 0.14s); }
+@keyframes fairStepIn { from { opacity: 0; transform: translateX(-16px); } }
+.fair-step-ico {
+  position: relative; z-index: 1; flex: none;
+  width: 52px; height: 52px; border-radius: 16px; display: grid; place-items: center;
+  color: #ffd34d;
+  background: linear-gradient(160deg, #2c1452, #160828);
+  box-shadow: inset 0 0 0 1px rgba(255, 211, 77, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 8px 18px -10px rgba(0, 0, 0, 0.8);
+}
+.fair-step-ico svg { width: 24px; height: 24px; }
+.fair-shackle { transform-origin: 16px 11px; }
+#view-fair.active .fair-shackle { animation: fairLock 0.6s cubic-bezier(0.2, 1.4, 0.4, 1) both 0.9s; }
+@keyframes fairLock { from { transform: translateY(-4px); } }
+.fair-step b { display: block; font: 800 14.5px/1.2 'Unbounded', 'Manrope', system-ui, sans-serif; color: #fff; margin: 4px 0 5px; }
+.fair-step p { margin: 0; font-size: 13px; line-height: 1.55; color: #bfb2d8; }
 
 .fair-card {
   padding: 18px;
-  border-radius: var(--radius);
-  background: var(--card);
-  border: 1.5px solid var(--line);
+  border-radius: 18px;
+  background: linear-gradient(180deg, #1a0a2e, #12061f);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.06);
   margin-bottom: 14px;
 }
-.fair-h3 { font-size: 16px; margin: 0 0 12px; }
+.fair-keys .mono-box { box-shadow: 0 0 22px -12px var(--cyan); }
+.fair-rotate { margin-top: 16px; font-size: 13px; }
+.fair-revealed { box-shadow: inset 0 0 0 1px rgba(125, 255, 179, 0.35); }
+.fair-h3 { font: 800 15px/1.2 'Unbounded', 'Manrope', system-ui, sans-serif; margin: 0 0 12px; }
+@media (prefers-reduced-motion: reduce) {
+  .fair-seal-ring, .fair-steps::after, .fair-partners::after { animation: none; }
+}
 .fair-label { display: block; font-size: 12px; color: var(--muted); margin: 15px 0 7px; font-weight: 600; }
 .fair-label:first-child { margin-top: 0; }
 .fair-note { font-size: 13px; color: var(--muted); line-height: 1.7; margin: 12px 0 0; }
@@ -1317,12 +1449,12 @@ main { position: relative; z-index: 2; padding: 18px; }
   height: 172px;
   overflow: hidden;
 }
-/* Обложка та же, но заметно сочнее соседних — витрина должна бить в глаза. */
+/* Обложка та же, но заметно сочнее соседних - витрина должна бить в глаза. */
 .featured-cover .cover-svg {
   width: 100%; height: 100%;
   filter: saturate(1.35) contrast(1.12) brightness(1.12);
 }
-/* Закрытый сезонный кейс на витрине не гасим — см. featuredHtml. */
+/* Закрытый сезонный кейс на витрине не гасим - см. featuredHtml. */
 .featured-card.is-locked .cover-svg { filter: saturate(1.35) contrast(1.12) brightness(1.12); }
 
 /* Присланный постер показывается целиком: высоту задаёт его собственная
@@ -1490,7 +1622,7 @@ main { position: relative; z-index: 2; padding: 18px; }
 }
 
 /* Плашки отдельной полосой над обложкой: поверх картинки они закрывали
-   крышу машины — главное, ради чего эта обложка и рисовалась. */
+   крышу машины - главное, ради чего эта обложка и рисовалась. */
 .featured-badges {
   display: flex; justify-content: center; flex-wrap: wrap; gap: 8px;
   padding: 14px 16px 12px;
@@ -1549,7 +1681,7 @@ main { position: relative; z-index: 2; padding: 18px; }
   color: var(--cyan);
 }
 
-/* У кейса с готовым баннером в строку добавляется ещё и потолок выигрыша —
+/* У кейса с готовым баннером в строку добавляется ещё и потолок выигрыша -
    вчетвером они не влезают на узкий экран и переносятся, оставляя одинокую
    плашку. Поджимаем, чтобы строка осталась одной. */
 .featured-card.own-art .featured-foot { gap: 7px; margin-top: 11px; }
@@ -1566,7 +1698,7 @@ main { position: relative; z-index: 2; padding: 18px; }
 }
 
 /* Карточка до старта остаётся кликабельной: состав посмотреть можно,
-   открыть — нет. Поэтому приглушаем обложку, а не блокируем нажатие. */
+   открыть - нет. Поэтому приглушаем обложку, а не блокируем нажатие. */
 .case-card.locked { box-shadow: 0 0 0 2px -6px var(--cyan), 0 10px 40px -12px var(--cyan); }
 .case-card.locked .cover-svg { filter: saturate(0.75) brightness(0.78); }
 .case-card.locked .case-price { color: var(--cyan); }
@@ -1862,7 +1994,7 @@ main { position: relative; z-index: 2; padding: 18px; }
 
 .item-ico { width: 26px; height: 26px; flex: 0 0 auto; }
 
-/* Монеты фона — теперь SVG, размер задаётся инлайном */
+/* Монеты фона - теперь SVG, размер задаётся инлайном */
 .money-drop { font-size: 0; }
 .money-drop svg { width: 100%; height: 100%; }
 
@@ -1926,16 +2058,32 @@ select.seed-input {
   gap: 2px; margin-bottom: 8px; text-align: center;
 }
 
-/* Заголовок обычным цветом: градиентная заливка текста - тот же неон, только
-   в буквах, и на длинных названиях она читается хуже сплошного тона. */
+/* Заголовок полки: дисплейный шрифт, сплошной светлый тон с мягким
+   свечением и по золотой черте с ромбом по бокам. Градиентной заливки в
+   буквах нет намеренно: на длинных названиях она читается хуже сплошного
+   тона. Орнамент - картинка фоном псевдоэлемента, а не узлы разметки: полок
+   десять, и лишние элементы в каждой ради украшения не нужны. */
 .shelf-title {
-  font-size: 23px; font-weight: 900; margin: 0; line-height: 1.1;
-  color: var(--text);
+  display: inline-flex; align-items: center; gap: 12px;
+  font: 800 21px/1.15 'Unbounded', 'Manrope', system-ui, sans-serif; letter-spacing: -0.005em;
+  margin: 0;
+  color: #fbf7ff;
+  text-shadow: 0 0 18px rgba(190, 150, 255, 0.35), 0 2px 0 rgba(0, 0, 0, 0.35);
 }
-.shelf-hint { font-size: 11.5px; color: var(--muted); margin-top: 3px; }
+.shelf-title::before, .shelf-title::after {
+  content: ''; flex: none; width: 34px; height: 10px;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 34 10'%3E%3Cdefs%3E%3ClinearGradient id='a'%3E%3Cstop offset='0' stop-color='%23ffd34d' stop-opacity='0'/%3E%3Cstop offset='1' stop-color='%23ffd34d'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect y='4.5' width='26' height='1' fill='url(%23a)'/%3E%3Cpath d='M29.5 1.5 33 5l-3.5 3.5L26 5z' fill='%23ffd34d'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+.shelf-title::after { transform: scaleX(-1); }
+.shelf-hint {
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase;
+  color: #a99cc4; margin-top: 7px;
+}
 .shelf-range {
-  font-size: 11px; font-weight: 800; color: var(--cyan);
-  white-space: nowrap; padding-bottom: 2px;
+  margin-top: 8px; padding: 4px 10px; border-radius: 999px;
+  font-size: 11px; font-weight: 800; color: #bff4ff; font-variant-numeric: tabular-nums;
+  background: rgba(107, 189, 204, 0.1); box-shadow: inset 0 0 0 1px rgba(107, 189, 204, 0.28);
+  white-space: nowrap;
 }
 
 /*
@@ -2002,7 +2150,7 @@ select.seed-input {
 .shelf-row .case-card:active { transform: scale(0.95); }
 .shelf-row .case-card::after { display: none; }
 
-/* Обложка вытянутая, а не квадратная: 178x74 — это 2.4:1, близко к пропорции
+/* Обложка вытянутая, а не квадратная: 178x74 - это 2.4:1, близко к пропорции
    самого рисунка (340x130), поэтому сундук не обрезается по бокам. */
 .shelf-row .case-cover {
   height: 104px;
@@ -2113,12 +2261,80 @@ select.seed-input {
   font-variant-numeric: tabular-nums;
 }
 
-.opener-history { margin-top: 24px; }
-.opener-history h3 {
-  font-size: 13px; color: var(--muted); font-weight: 700;
-  margin: 0 0 10px; display: flex; justify-content: space-between;
+.opener-history { margin-top: 28px; }
+
+/* Заголовок раздела на экране кейса: дисплейный шрифт, короткая золотая
+   черта слева и число плашкой. Прежний мелкий серый текст терялся между
+   карточками и читался как сноска, а не как начало раздела. */
+.sec-head {
+  display: flex; align-items: center; gap: 10px;
+  margin: 26px 0 12px;
 }
+.sec-head::before {
+  content: ''; width: 4px; height: 18px; border-radius: 2px; flex: none;
+  background: linear-gradient(180deg, #ffe58a, #e8a024);
+  box-shadow: 0 0 12px rgba(255, 200, 60, 0.55);
+}
+.sec-title {
+  font: 800 15px/1 'Unbounded', 'Manrope', system-ui, sans-serif; letter-spacing: 0.01em;
+  background: linear-gradient(180deg, #ffffff 30%, #d9c8ff);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.sec-chip {
+  margin-left: auto;
+  padding: 5px 9px; border-radius: 999px;
+  font-size: 11px; font-weight: 800; color: #d9c8ff; font-variant-numeric: tabular-nums;
+  background: rgba(255, 255, 255, 0.06); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+}
+.hist-empty {
+  padding: 18px 16px; border-radius: 16px; text-align: center;
+  font-size: 13px; line-height: 1.45; color: var(--muted);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+}
+
+/* Выпадения карточками: те же пропорции, что у состава, но мельче - по три
+   в ряд на телефоне (у состава два), по шесть на широком (у состава четыре).
+   Флекс, а не сетка: неполный последний ряд встаёт по центру, а не
+   прижимается к левому краю. */
+.hist-grid {
+  --hist-cols: 3; --hist-rows: 3; --hist-gap: 8px;
+  display: flex; flex-wrap: wrap; justify-content: center; gap: var(--hist-gap);
+}
+.hist-card.drop-card.rw-skin {
+  position: relative;
+  flex: 0 0 calc((100% - (var(--hist-cols) - 1) * var(--hist-gap)) / var(--hist-cols));
+  min-width: 0;
+  border-radius: 13px;
+  font-family: inherit; color: inherit; cursor: pointer;
+  animation: histIn 0.42s cubic-bezier(0.2, 1.2, 0.4, 1) both;
+  animation-delay: calc(var(--k, 0) * 40ms);
+}
+@keyframes histIn { from { opacity: 0; transform: translateY(12px) scale(0.92); } }
+.hist-card.drop-card.rw-skin .drop-name { padding: 0 7px; font-size: 10px; }
+.hist-card.drop-card.rw-skin .drop-value { padding: 2px 7px 8px; font-size: 12.5px; }
+.hist-x2 {
+  position: absolute; top: 6px; right: 6px; z-index: 2;
+  padding: 3px 5px; border-radius: 7px;
+  font: 800 9.5px/1 'Unbounded', 'Manrope', system-ui, sans-serif; color: #3a1d00;
+  background: linear-gradient(180deg, #ffe58a, #e8a024);
+}
+.hist-more {
+  display: block; margin: 14px auto 0; padding: 10px 22px;
+  border: 0; border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+  color: #e6dcf5; font-family: inherit; font-size: 13px; font-weight: 800; cursor: pointer;
+}
+.hist-more:active { background: rgba(255, 255, 255, 0.1); }
+.hist-more[hidden] { display: none; }
+@media (min-width: 560px) {
+  .hist-grid { --hist-cols: 6; --hist-rows: 2; --hist-gap: 10px; }
+}
+
+/* Во время прокрута выпадения остаются строками, но строка - кнопка: она
+   открывает предмет крупно, как и карточка. */
 .mini-row {
+  width: 100%; border: 0; color: inherit; font-family: inherit; text-align: left; cursor: pointer;
   display: flex; align-items: center; gap: 10px;
   padding: 9px 12px; margin-bottom: 6px;
   border-radius: 11px;
@@ -2128,97 +2344,277 @@ select.seed-input {
 }
 .mini-row .mini-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mini-row .mini-val { font-weight: 900; color: var(--tier-color); font-variant-numeric: tabular-nums; }
+.mini-row em { font-style: normal; font-weight: 800; color: #ffd34d; }
+div.mini-row { cursor: default; }
 
 /* ---------- Риск-игра ---------- */
 
-.btn-gamble {
-  margin-top: 14px;
-  background: linear-gradient(135deg, var(--red), var(--gold));
-  color: #2a0a00;
-  box-shadow: 0 8px 30px rgba(255, 45, 85, 0.22);
-  animation: gamblePulse 1.8s ease-in-out infinite;
+/* Кнопка риска - предложение, а не главное действие. Она меньше «Ещё раз»,
+   стоит под ней по центру и не пульсирует: громкой на экране остаётся одна
+   золотая кнопка. Красно-золотая кромка и масть говорят «карты» без слов. */
+.gamble-cta {
+  display: inline-flex; align-items: center; gap: 10px;
+  margin: 14px auto 0; padding: 7px 8px 7px 9px;
+  border: 1px solid transparent; border-radius: 999px;
+  background:
+    linear-gradient(180deg, #2a0d1c, #16061a) padding-box,
+    linear-gradient(120deg, #ff5d7a, #ffd34d 55%, #ff5d7a) border-box;
+  box-shadow: 0 8px 22px -12px rgba(255, 70, 110, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  color: #ffe7ee; font-family: inherit; cursor: pointer;
+  position: relative; overflow: hidden;
+  transition: transform 0.1s;
 }
-@keyframes gamblePulse {
-  0%, 100% { box-shadow: 0 8px 30px rgba(255, 45, 85, 0.22); }
-  50%      { box-shadow: 0 8px 44px rgba(255, 214, 10, 0.32); }
+.gamble-cta:active { transform: scale(0.97); }
+.gamble-cta[hidden] { display: none; }
+.gamble-cta::after {
+  content: ''; position: absolute; inset: 0; translate: -130% 0; pointer-events: none;
+  background: linear-gradient(105deg, transparent 35%, rgba(255, 220, 230, 0.22) 50%, transparent 65%);
+  animation: openSheen 5s cubic-bezier(0.65, 0, 0.35, 1) infinite 2s;
+}
+.gamble-cta-suit {
+  width: 28px; height: 28px; flex: none;
+  display: grid; place-items: center;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #ff8aa0, #c1121f 70%);
+  box-shadow: 0 0 12px -2px rgba(255, 60, 90, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+  color: #fff;
+}
+.gamble-cta-suit svg { width: 16px; height: 16px; }
+.gamble-cta-txt { display: flex; flex-direction: column; align-items: flex-start; line-height: 1.1; }
+.gamble-cta-txt b { font: 800 13px/1 'Unbounded', 'Manrope', system-ui, sans-serif; letter-spacing: 0.02em; }
+.gamble-cta-txt small { margin-top: 3px; font-size: 11px; font-weight: 700; color: #f5b9c6; font-variant-numeric: tabular-nums; }
+.gamble-cta-x {
+  padding: 6px 9px; border-radius: 999px;
+  background: linear-gradient(180deg, #ffe58a, #e8a024);
+  color: #3a1d00; font: 800 11px/1 'Unbounded', 'Manrope', system-ui, sans-serif;
 }
 
-.gamble { margin-top: 26px; animation: fade 0.3s; }
+.gamble { margin-top: 18px; animation: fade 0.3s; position: relative; }
 
-.gamble-rules {
-  text-align: center;
-  font-size: 13.5px;
-  line-height: 1.5;
-  color: var(--muted);
-  margin-bottom: 18px;
-  padding: 12px 14px;
+.gamble-rules { text-align: center; margin-bottom: 18px; }
+.gr-eyebrow {
+  display: inline-block;
+  font-size: 10.5px; font-weight: 800; letter-spacing: 0.24em; text-transform: uppercase;
+  color: #ff8aa0;
+  padding: 4px 12px; border-radius: 999px;
+  background: rgba(255, 70, 110, 0.12); box-shadow: inset 0 0 0 1px rgba(255, 90, 120, 0.3);
+}
+/* Заголовок дисплейным шрифтом с металлом золота и тенью: прежняя строка
+   тонким серым текстом читалась как сноска к картам, а не как правило игры. */
+.gr-title {
+  margin: 10px 0 6px;
+  font: 800 clamp(21px, 6.4vw, 30px)/1.1 'Unbounded', 'Manrope', system-ui, sans-serif;
+  letter-spacing: -0.01em;
+  background: linear-gradient(180deg, #fff8dc 10%, #ffd34d 55%, #d98a12 90%);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  filter: drop-shadow(0 2px 0 rgba(90, 30, 0, 0.6)) drop-shadow(0 0 18px rgba(255, 190, 60, 0.25));
+}
+.gr-sub { font-size: 13px; line-height: 1.45; color: #c9bde0; max-width: 320px; margin: 0 auto; }
+.gr-stakes { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 14px; }
+.gr-stake {
+  position: relative;
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  min-width: 112px; padding: 10px 12px;
   border-radius: 14px;
-  background: var(--bg-soft);
-  border: 1.5px solid var(--line);
+  background: rgba(255, 255, 255, 0.05); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
 }
-.gamble-rules b { color: var(--gold); }
+.gr-stake b { font: 800 16px/1 'Unbounded', 'Manrope', system-ui, sans-serif; color: #fff; font-variant-numeric: tabular-nums; }
+.gr-stake small { font-size: 10px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+.gr-stake.is-prize b { color: #ffd34d; }
+.gr-mult {
+  font: 800 14px/1 'Unbounded', 'Manrope', system-ui, sans-serif; color: #ffd34d;
+  padding: 8px 10px; border-radius: 999px;
+  background: rgba(255, 211, 77, 0.1); box-shadow: inset 0 0 0 1px rgba(255, 211, 77, 0.35);
+}
 
+/* Выиграл: плашка ставки становится выигрышем, сверху ложится печать. */
+.gr-stake.is-stamped { box-shadow: inset 0 0 0 1.5px #ffd34d, 0 0 30px -8px rgba(255, 211, 77, 0.8); background: rgba(255, 211, 77, 0.1); }
+.gr-stake.is-stamped b { color: #ffe58a; }
+.gr-stamp {
+  position: absolute; right: -14px; top: -16px;
+  padding: 6px 9px; border-radius: 10px;
+  font: 800 15px/1 'Unbounded', 'Manrope', system-ui, sans-serif; color: #3a1d00;
+  background: linear-gradient(180deg, #fff3c4, #ffd34d 45%, #e8a024);
+  box-shadow: 0 4px 0 #8a4f08, 0 10px 24px -6px rgba(255, 170, 40, 0.8);
+  rotate: -12deg;
+  animation: grStamp 0.42s cubic-bezier(0.2, 1.6, 0.4, 1) both;
+}
+@keyframes grStamp {
+  from { opacity: 0; transform: scale(3.2); filter: blur(4px); }
+  60%  { opacity: 1; filter: none; }
+  to   { transform: scale(1); }
+}
+.gamble.is-lost .gr-stake:first-child b { color: #8a7b9e; text-decoration: line-through; text-decoration-color: #ff5d7a; animation: grAsh 0.9s ease-out both; }
+@keyframes grAsh { 0%, 30% { color: #fff; } 45% { color: #ff9a3c; } to { color: #8a7b9e; } }
+
+.gamble-table { position: relative; }
 .gamble-cards {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 12px;
+  perspective: 900px;
 }
 
 .gcard {
   position: relative;
   aspect-ratio: 3 / 4;
   border-radius: 14px;
-  border: 2px solid var(--line);
+  border: 0;
   cursor: pointer;
   perspective: 700px;
   background: none;
   padding: 0;
+  transition: transform 0.35s cubic-bezier(0.2, 1.2, 0.4, 1), opacity 0.35s, filter 0.35s;
 }
+/* Раздача: из колоды над столом на свои места, с поворотом и вразнобой. */
+.gamble.is-dealing .gcard {
+  animation: gDeal 0.5s cubic-bezier(0.2, 0.9, 0.3, 1.05) both;
+  animation-delay: calc(260ms + var(--i) * 85ms);
+  pointer-events: none;
+}
+@keyframes gDeal {
+  from { transform: translate(var(--fx), var(--fy)) rotate(var(--rot)) scale(0.7); opacity: 0; }
+  20%  { opacity: 1; }
+  to   { transform: none; opacity: 1; }
+}
+/* Разложенные карты чуть дышат вразнобой: зовут нажать, но не мигают. */
+/* Качается внутренность, а не сама кнопка: у кнопки рамка стоит на месте, и
+   нажатие не промахивается мимо уплывшей карты. */
+.gamble.is-ready:not(.is-picked) .gcard-inner { animation: gIdle 3.2s ease-in-out infinite; animation-delay: calc(var(--i) * -0.55s); }
+@keyframes gIdle { 0%, 100% { translate: 0 0; } 50% { translate: 0 -4px; } }
+.gamble.is-picked .gcard:not(.picked) { opacity: 0.55; filter: saturate(0.6); transform: scale(0.96); }
+.gamble.is-picked .gcard.flipped { opacity: 1; filter: none; }
+.gcard.picked { transform: translateY(-10px) scale(1.06); z-index: 2; }
+.gcard.picked:not(.flipped) .gcard-back { animation: gPulse 0.65s ease-in-out infinite; }
+@keyframes gPulse { 50% { box-shadow: 0 0 0 2px #ffd34d, 0 0 34px -4px rgba(255, 211, 77, 0.9); } }
+
 .gcard-inner {
   position: relative;
   width: 100%; height: 100%;
   transform-style: preserve-3d;
-  transition: transform 0.55s cubic-bezier(0.3, 0.9, 0.3, 1);
-  border-radius: 12px;
+  transition: transform 0.6s cubic-bezier(0.3, 1.3, 0.4, 1);
+  border-radius: 14px;
 }
 .gcard.flipped .gcard-inner { transform: rotateY(180deg); }
 
 .gcard-face {
   position: absolute; inset: 0;
   backface-visibility: hidden;
-  border-radius: 12px;
+  border-radius: 14px;
   display: grid; place-items: center;
   font-size: 30px; font-weight: 900;
+  overflow: hidden;
 }
+/* Рубашка: тёмно-фиолетовое поле, золотая рамка, ромбовая сетка и масть в
+   медальоне. Знак вопроса на прежней рубашке говорил «здесь неизвестно что»,
+   а не «здесь карта». */
 .gcard-back {
   background:
-    repeating-linear-gradient(45deg, rgba(255,255,255,0.06) 0 6px, transparent 6px 12px),
-    linear-gradient(150deg, var(--violet), var(--purple));
-  color: rgba(255, 255, 255, 0.6);
+    radial-gradient(70% 50% at 50% 50%, rgba(255, 211, 77, 0.12), transparent 70%),
+    repeating-linear-gradient(45deg, rgba(255, 211, 77, 0.07) 0 1px, transparent 1px 9px),
+    repeating-linear-gradient(-45deg, rgba(255, 211, 77, 0.07) 0 1px, transparent 1px 9px),
+    linear-gradient(160deg, #3b1a6e, #1a0838);
+  box-shadow: inset 0 0 0 1.5px rgba(255, 211, 77, 0.55), inset 0 0 0 5px #1a0838,
+    inset 0 0 0 6px rgba(255, 211, 77, 0.25), 0 10px 20px -10px rgba(0, 0, 0, 0.8);
 }
+.gcard-back::after {
+  content: ''; position: absolute; inset: 0;
+  background: linear-gradient(115deg, transparent 40%, rgba(255, 255, 255, 0.12) 48%, transparent 56%);
+}
+.gcard-emblem {
+  width: 44%; aspect-ratio: 1;
+  display: grid; place-items: center;
+  border-radius: 50%;
+  background: radial-gradient(circle at 40% 35%, #4a2585, #24104a);
+  box-shadow: inset 0 0 0 1.5px rgba(255, 211, 77, 0.6), 0 0 18px -6px rgba(255, 211, 77, 0.6);
+  color: #ffd34d;
+}
+.gcard-emblem svg { width: 55%; height: 55%; }
 .gcard-front { transform: rotateY(180deg); }
 .gcard-front.ace {
-  background: linear-gradient(150deg, #ff4d6d, #c1121f);
+  background:
+    radial-gradient(80% 60% at 50% 45%, rgba(255, 255, 255, 0.35), transparent 70%),
+    linear-gradient(160deg, #ff6b85, #c1121f 70%, #8a0a17);
   color: #fff;
-  box-shadow: inset 0 0 26px rgba(0, 0, 0, 0.4);
+  box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.6), inset 0 0 0 5px rgba(140, 10, 25, 0.6), inset 0 0 26px rgba(0, 0, 0, 0.35);
 }
+.ace-suit { width: 52%; filter: drop-shadow(0 4px 8px rgba(80, 0, 10, 0.6)); }
+.ace-suit svg { width: 100%; height: auto; display: block; }
+.ace-corner { position: absolute; left: 9px; top: 7px; font: 800 16px/1 'Unbounded', 'Manrope', system-ui, sans-serif; }
+.ace-corner.is-bottom { left: auto; top: auto; right: 9px; bottom: 7px; rotate: 180deg; }
+.gcard.is-ace.flipped { filter: none; opacity: 1; }
+.gcard.is-ace .gcard-inner { box-shadow: 0 0 34px -6px rgba(255, 70, 100, 0.9); }
+.gamble.is-won .gcard.picked { transform: translateY(-14px) scale(1.12); }
+.gamble.is-won .gcard.picked .gcard-inner { animation: gAceGlow 1.6s ease-in-out infinite 0.6s; }
+@keyframes gAceGlow { 50% { box-shadow: 0 0 0 2px #ffd34d, 0 0 48px -2px rgba(255, 211, 77, 0.9); } }
 .gcard-front.blank {
-  background: linear-gradient(150deg, #2a1550, #14082a);
+  background: linear-gradient(160deg, #2a1550, #14082a);
   color: var(--muted);
+  box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.1);
 }
-.gcard.picked { border-color: var(--gold); box-shadow: 0 0 26px -12px var(--gold); }
+/* Выбранная пустая карта обугливается по краям: выигрыш сгорел вместе с ней. */
+.gcard.is-burnt .gcard-front.blank {
+  background:
+    radial-gradient(120% 90% at 50% 50%, transparent 45%, rgba(255, 120, 40, 0.5) 70%, #1a0505 92%),
+    linear-gradient(160deg, #2a1218, #0e0508);
+  animation: gBurn 1.1s ease-out both 0.25s;
+}
+@keyframes gBurn { from { filter: brightness(1.8) saturate(1.6); } to { filter: brightness(0.7); } }
+.gcard.is-burnt { animation: gShake 0.42s cubic-bezier(0.36, 0.07, 0.19, 0.97) both 0.3s; }
+@keyframes gShake {
+  20%, 60% { translate: -6px 0; } 40%, 80% { translate: 6px 0; }
+}
 .gcard.disabled { cursor: default; }
 .gcard:not(.disabled):active { transform: scale(0.95); }
+
+/* Искры выигрыша поверх стола. */
+.gamble-fx { position: absolute; inset: 0; pointer-events: none; overflow: visible; }
+.gfx-spark {
+  position: absolute; width: 6px; height: 6px; margin: -3px 0 0 -3px; border-radius: 50%;
+  background: #ffe58a; box-shadow: 0 0 10px 2px rgba(255, 211, 77, 0.8);
+  animation: gfxSpark 0.9s cubic-bezier(0.2, 0.7, 0.3, 1) both var(--d);
+}
+@keyframes gfxSpark {
+  from { transform: none; opacity: 1; }
+  to   { transform: translate(var(--dx), var(--dy)) scale(0.3); opacity: 0; }
+}
+.gfx-ring {
+  position: absolute; width: 40px; height: 40px; margin: -20px 0 0 -20px; border-radius: 50%;
+  border: 3px solid #ffd34d;
+  animation: gfxRing 0.8s ease-out both;
+}
+@keyframes gfxRing { from { transform: scale(0.4); opacity: 1; } to { transform: scale(6); opacity: 0; } }
 
 .gamble-outcome {
   text-align: center;
   min-height: 30px;
   margin: 18px 0 14px;
-  font-size: 19px;
-  font-weight: 900;
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
 }
-.gamble-outcome.win { color: var(--green); }
-.gamble-outcome.lose { color: var(--red); }
+.gamble-outcome b { font: 800 22px/1.1 'Unbounded', 'Manrope', system-ui, sans-serif; animation: pop 0.45s cubic-bezier(0.2, 1.4, 0.4, 1); }
+.gamble-outcome span { font-size: 13px; line-height: 1.4; color: #c9bde0; animation: fade 0.5s both 0.15s; }
+.gamble-outcome.win b {
+  background: linear-gradient(180deg, #fff8dc, #ffd34d 55%, #e8a024);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  filter: drop-shadow(0 0 16px rgba(255, 211, 77, 0.45));
+}
+.gamble-outcome.lose b { color: #ff8aa0; }
+
+/* Тихая кнопка рядом с золотой: «Забрать» и «Забрать без риска». */
+.take-btn {
+  border: 0; border-radius: 16px;
+  padding: 0 20px; min-height: 54px;
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+  color: #e6dcf5; font-family: inherit; font-size: 14px; font-weight: 800;
+  cursor: pointer; transition: background 0.15s;
+}
+.take-btn:active { background: rgba(255, 255, 255, 0.1); }
+.take-wide { width: 100%; min-height: 48px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .gamble.is-dealing .gcard, .gamble.is-ready .gcard-inner, .gamble-cta::after { animation: none; }
+}
 
 /* ---------- Плитки в ленте ---------- */
 
@@ -2318,7 +2714,7 @@ select.seed-input {
 .item-chance { font-size: 12px; }
 
 .result-value { font-size: 52px; }
-.result-name { font-size: 28px; }
+.result-name { font-size: clamp(20px, 6.2vw, 27px); }
 
 /* Знак пустой карты: вскрытая карта не должна выглядеть как рубашка */
 .gcard-empty {
@@ -3122,12 +3518,13 @@ select.seed-input {
 }
 
 /* Коробка под одну обложку. Ширина - доля ряда, высота - доля отведённых
-   сцене 196 точек, поделённых на число рядов. Оба числа приходят из разметки,
+   сцене 236 точек (было 196: на телефоне кейс выглядел мелким среди
+   свободного места), поделённых на число рядов. Оба числа приходят из разметки,
    поэтому перенос по строкам происходит ровно там, где рассчитано, а общая
    высота сцены одинакова хоть при одном кейсе, хоть при пяти. */
 .case-stage-box {
-  flex: 0 0 min(76%, calc((100% - (var(--cols, 1) - 1) * 8px) / var(--cols, 1)));
-  height: calc((196px - (var(--rows, 1) - 1) * 8px) / var(--rows, 1));
+  flex: 0 0 min(86%, calc((100% - (var(--cols, 1) - 1) * 8px) / var(--cols, 1)));
+  height: calc((236px - (var(--rows, 1) - 1) * 8px) / var(--rows, 1));
   display: flex;
   align-items: flex-end;
   justify-content: center;
@@ -3242,21 +3639,10 @@ select.seed-input {
 }
 
 .reels { display: flex; flex-direction: column; gap: 10px; }
-/* В пачке ленты ниже: пять полноразмерных не помещаются на экран телефона. */
-/* Барабанов несколько - каждый ниже и уже. Отступы и второй контур сжимаются
-   вместе с плиткой: с прежними значениями подпись налезала на сумму. */
-.reels.compact .reel-wrap { height: 96px; }
-.reels.compact .reel-tile {
-  flex-basis: 96px; width: 96px;
-  padding: 6px 5px 8px;
-  gap: 2px;
-  border-radius: 12px;
-}
-.reels.compact .reel-tile::before { inset: 3px; border-radius: 8px; }
-.reels.compact .reel-tile::after { left: 30%; right: 30%; }
-.reels.compact .tile-icon { width: 22px; height: 22px; }
-.reels.compact .tile-name { font-size: 9px; -webkit-line-clamp: 1; }
-.reels.compact .tile-value { font-size: 12px; }
+/* В пачке на телефоне ленты полноразмерные. Раньше они сжимались втрое: пять
+   полных не помещались на экран. Пачка теперь не больше трёх, три полные
+   ленты встают в один экран телефона, и выигрыш в пачке читается так же,
+   как одиночный, а не мелким шрифтом. */
 
 .batch-summary { margin-top: 22px; animation: pop 0.4s cubic-bezier(0.2, 1.3, 0.4, 1); }
 .batch-total {
@@ -3548,11 +3934,12 @@ select.seed-input {
   .fs-total { font-size: 38px; }
 }
 
-/* Полка направлений собрана по теме, а не по цене — выделяем её рамкой,
+/* Полка направлений собрана по теме, а не по цене - выделяем её рамкой,
    чтобы разброс цен внутри не читался как ошибка сортировки. */
 .shelf-country .shelf-title {
   background: linear-gradient(100deg, var(--cyan), var(--gold));
   -webkit-background-clip: text; background-clip: text; color: transparent;
+  text-shadow: none;
 }
 
 /* ============================================================
@@ -3634,9 +4021,10 @@ select.seed-input {
 .shelf-got .shelf-title {
   background: linear-gradient(100deg, #e8c56a, #c2410c);
   -webkit-background-clip: text; background-clip: text; color: transparent;
+  text-shadow: none;
 }
 
-/* Перезапуск серии — редкое и приятное событие, его стоит выделить. */
+/* Перезапуск серии - редкое и приятное событие, его стоит выделить. */
 .fs-chip.retrigger {
   border-color: var(--gold);
   color: #1a0510;
@@ -3715,7 +4103,7 @@ select.seed-input {
 .menu-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
 
 /* Плитки были почти квадратные и занимали весь первый экран.
-   Фиксированная невысокая строка вместо пропорции — содержимого в плитке
+   Фиксированная невысокая строка вместо пропорции - содержимого в плитке
    на квадрат всё равно не набирается. */
 .menu-tile {
   min-height: 74px;
@@ -3750,11 +4138,25 @@ select.seed-input {
 
 .case-panel { margin-top: 14px; }
 
+/* «Содержимое» тем же заголовком раздела, что и «Ваши выпадения». */
 .drops-head {
-  display: flex; justify-content: space-between; align-items: baseline;
-  margin: 20px 0 10px;
-  font-size: 12.5px; font-weight: 800; color: var(--muted);
-  letter-spacing: 0.6px;
+  display: flex; align-items: center; gap: 10px;
+  margin: 24px 0 12px;
+}
+.drops-head::before {
+  content: ''; width: 4px; height: 18px; border-radius: 2px; flex: none;
+  background: linear-gradient(180deg, #ffe58a, #e8a024);
+  box-shadow: 0 0 12px rgba(255, 200, 60, 0.55);
+}
+.drops-head > span:first-child {
+  font: 800 15px/1 'Unbounded', 'Manrope', system-ui, sans-serif;
+  background: linear-gradient(180deg, #ffffff 30%, #d9c8ff);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.drops-head > span:last-child {
+  margin-left: auto; padding: 5px 9px; border-radius: 999px;
+  font-size: 11px; font-weight: 800; color: #d9c8ff;
+  background: rgba(255, 255, 255, 0.06); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
 }
 
 /* Два предмета в ряд на телефоне, от дорогого к дешёвому. */
@@ -3805,7 +4207,7 @@ select.seed-input {
 
 .site-footer { padding: 26px 16px 40px; text-align: center; }
 
-/* Ссылки — тонкий текст, без плиток: это служебная часть страницы. */
+/* Ссылки - тонкий текст, без плиток: это служебная часть страницы. */
 .footer-links {
   display: flex; flex-wrap: wrap; justify-content: center; align-items: center;
   gap: 6px 8px;
@@ -3931,7 +4333,7 @@ select.seed-input {
   letter-spacing: 0.5px;
 }
 
-/* Реквизиты — строкой во всю ширину, а не узким столбиком. */
+/* Реквизиты - строкой во всю ширину, а не узким столбиком. */
 .footer-entities { max-width: 760px; margin: 0 auto 14px; }
 .footer-entity {
   font-size: 10.5px; line-height: 1.55; color: var(--muted);
@@ -4396,39 +4798,158 @@ select.seed-input {
   white-space: nowrap;
 }
 
-/* Карточка выигрыша из ленты: что выпало и в каком кейсе. */
-.feed-sheet { text-align: center; }
-.feed-sheet-tier {
-  font-size: 10px; font-weight: 900; letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--tier-color, var(--muted));
+/* ---------- Выигрыш из ленты: сцена «откуда выпало» ----------
+   Слои снизу вверх: затемнение с размытием, лучи в тон кейса, пылинки,
+   кейс-источник, луч между ним и карточкой, сама карточка, подписи. Всё
+   движение - классы is-in / is-out и переменные, без анимаций с заполнением:
+   повторное открытие начинает сцену с нуля. */
+.feed-scene {
+  position: fixed; inset: 0; z-index: 96;
+  display: grid; place-items: center;
+  padding: 16px;
+  overflow: hidden;
 }
-.feed-sheet-name { font-size: 19px; font-weight: 900; margin-top: 6px; }
-.feed-sheet-value {
-  font-size: 28px; font-weight: 900; margin-top: 4px;
-  color: var(--tier-color, var(--gold));
+.feed-scene[hidden] { display: none; }
+.fsc-dim {
+  position: absolute; inset: 0;
+  background: radial-gradient(120% 80% at 50% 35%, rgba(30, 8, 50, 0.72), rgba(4, 0, 10, 0.94));
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  opacity: 0; transition: opacity 0.45s;
 }
-.feed-sheet-from {
-  margin: 16px 0 4px;
-  font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase;
-  color: var(--muted);
+.fsc-sky { position: absolute; left: 50%; top: 32%; width: 0; height: 0; pointer-events: none; }
+.fsc-rays {
+  position: absolute; left: -380px; top: -380px; width: 760px; height: 760px; border-radius: 50%;
+  background: repeating-conic-gradient(from 0deg,
+    color-mix(in srgb, var(--glow-a) 32%, transparent) 0deg 5deg, transparent 5deg 18deg);
+  -webkit-mask: radial-gradient(circle, #000 8%, transparent 62%); mask: radial-gradient(circle, #000 8%, transparent 62%);
+  opacity: 0; transform: scale(0.4);
+  transition: opacity 0.9s, transform 1.2s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: fscSpin 60s linear infinite;
 }
-.feed-sheet-cover {
-  height: 150px;
+.fsc-rays.is-back {
+  background: repeating-conic-gradient(from 9deg,
+    color-mix(in srgb, var(--glow-b) 22%, transparent) 0deg 3deg, transparent 3deg 14deg);
+  animation-duration: 90s; animation-direction: reverse;
+}
+@keyframes fscSpin { to { rotate: 360deg; } }
+
+.fsc-motes { position: absolute; left: 50%; top: 34%; pointer-events: none; }
+.fsc-motes i {
+  position: absolute; left: var(--x); top: 60px;
+  width: var(--s); height: var(--s); border-radius: 50%;
+  background: #fff4cf; box-shadow: 0 0 8px 2px var(--glow-a);
+  opacity: 0;
+}
+.feed-scene.is-in .fsc-motes i { animation: fscMote var(--t) ease-out infinite var(--d); }
+@keyframes fscMote {
+  0%   { opacity: 0; transform: translate(0, 0) scale(0.5); }
+  20%  { opacity: 1; }
+  100% { opacity: 0; transform: translate(var(--drift), -150px) scale(1.2); }
+}
+
+.fsc-body {
+  position: relative; width: min(100%, 400px);
+  display: flex; flex-direction: column; align-items: center; text-align: center;
+}
+.fsc-stage { position: relative; width: 100%; height: 300px; }
+/* Кейс-источник: поднимается из света за карточкой, чуть выше и левее, -
+   так оба читаются разом и не закрывают друг друга. */
+.fsc-cover {
+  position: absolute; left: 50%; top: 0; width: 240px; height: 225px; margin-left: -168px;
   display: flex; align-items: flex-end; justify-content: center;
+  opacity: 0; transform: translateY(60px) scale(0.6); filter: blur(6px) brightness(2);
+  transition: opacity 0.6s 0.35s, transform 0.9s 0.35s cubic-bezier(0.16, 1, 0.3, 1), filter 0.9s 0.35s;
 }
-.feed-sheet-cover .cover-art,
-.feed-sheet-cover .cover-photo,
-.feed-sheet-cover svg {
-  max-width: 100%; max-height: 100%;
-  width: auto; height: 100%;
-  object-fit: contain;
+.fsc-cover img, .fsc-cover svg {
+  max-width: 100%; max-height: 100%; width: auto; height: 100%; object-fit: contain;
+  filter: drop-shadow(0 0 26px var(--glow-a)) drop-shadow(0 18px 24px rgba(0, 0, 0, 0.7));
 }
-.feed-sheet-case {
-  margin: 8px 0 18px;
-  font-size: 15px; font-weight: 800;
+/* Луч от кейса к карточке: та самая связь «выпал отсюда». */
+.fsc-beam {
+  position: absolute; left: 50%; top: 120px; width: 90px; height: 120px; margin-left: -60px;
+  background: linear-gradient(160deg, color-mix(in srgb, var(--glow-a) 70%, #fff), transparent 80%);
+  -webkit-mask: linear-gradient(90deg, transparent, #000 40%, #000 60%, transparent);
+  mask: linear-gradient(90deg, transparent, #000 40%, #000 60%, transparent);
+  transform-origin: 50% 0; rotate: -28deg;
+  opacity: 0; transform: scaleY(0); filter: blur(3px);
+  transition: opacity 0.5s 0.7s, transform 0.6s 0.7s cubic-bezier(0.16, 1, 0.3, 1);
 }
-.feed-sheet-case span { color: var(--gold); }
+/* Карточка: вылетает с плитки ленты (--fx, --fy, --fs), делает оборот и
+   садится справа внизу сцены, поверх кейса. */
+.fsc-card {
+  position: absolute; left: 50%; bottom: 0; width: 150px; margin-left: -40px;
+  perspective: 900px;
+  transform: translate(var(--fx), var(--fy)) scale(var(--fs)) rotateY(0deg);
+  opacity: 0;
+}
+.fsc-card .drop-card.rw-skin { width: 100%; box-shadow: 0 0 0 1px color-mix(in srgb, var(--tier-color) 60%, transparent), 0 24px 40px -12px rgba(0, 0, 0, 0.8), 0 0 40px -10px var(--tier-color); }
+.feed-scene.is-in .fsc-card { animation: fscCard 0.9s cubic-bezier(0.16, 1, 0.3, 1) both; }
+@keyframes fscCard {
+  0%   { opacity: 1; transform: translate(var(--fx), var(--fy)) scale(var(--fs)) rotateY(0deg) rotate(0deg); }
+  55%  { transform: translate(calc(var(--fx) * 0.2), calc(var(--fy) * 0.2 - 50px)) scale(1.1) rotateY(300deg) rotate(-6deg); }
+  100% { opacity: 1; transform: translate(0, 0) scale(1) rotateY(360deg) rotate(4deg); }
+}
+.feed-scene.is-in .fsc-dim { opacity: 1; }
+.feed-scene.is-in .fsc-rays { opacity: 1; transform: scale(1); }
+.feed-scene.is-in .fsc-cover { opacity: 1; transform: none; filter: none; }
+.feed-scene.is-in .fsc-beam { opacity: 0.55; transform: scaleY(1); }
+
+.fsc-info { margin-top: 18px; min-height: 0; }
+.fsc-info > * { opacity: 0; transform: translateY(14px); transition: opacity 0.5s, transform 0.6s cubic-bezier(0.16, 1, 0.3, 1); }
+.feed-scene.is-in .fsc-info > * { opacity: 1; transform: none; }
+.feed-scene.is-in .fsc-info > :nth-child(1) { transition-delay: 0.75s; }
+.feed-scene.is-in .fsc-info > :nth-child(2) { transition-delay: 0.82s; }
+.feed-scene.is-in .fsc-info > :nth-child(3) { transition-delay: 0.9s; }
+.feed-scene.is-in .fsc-info > :nth-child(4) { transition-delay: 1s; }
+.feed-scene.is-in .fsc-info > :nth-child(5) { transition-delay: 1.06s; }
+.fsc-tier {
+  display: inline-block; padding: 5px 12px; border-radius: 999px;
+  font-size: 10px; font-weight: 900; letter-spacing: 0.2em; text-transform: uppercase;
+  color: var(--tier-color); box-shadow: inset 0 0 0 1.5px var(--tier-color);
+  background: color-mix(in srgb, var(--tier-color) 12%, transparent);
+}
+.fsc-name.result-name { margin-top: 10px; margin-bottom: 4px; font-size: clamp(19px, 5.6vw, 24px); }
+.fsc-value {
+  font: 800 34px/1.1 'Unbounded', 'Manrope', system-ui, sans-serif; font-variant-numeric: tabular-nums;
+  background: linear-gradient(180deg, #fff8dc 10%, #ffd34d 55%, #d98a12 90%);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  filter: drop-shadow(0 2px 0 rgba(90, 30, 0, 0.6)) drop-shadow(0 0 18px rgba(255, 190, 60, 0.3));
+}
+.fsc-from {
+  display: flex; align-items: center; gap: 10px; justify-content: center;
+  margin-top: 14px;
+  font-size: 10.5px; font-weight: 800; letter-spacing: 0.2em; text-transform: uppercase; color: #a99cc4;
+}
+.fsc-from::before, .fsc-from::after { content: ''; width: 34px; height: 1px; background: linear-gradient(90deg, transparent, #a99cc4); }
+.fsc-from::after { transform: scaleX(-1); }
+.fsc-case { margin-top: 6px; font: 800 17px/1.2 'Unbounded', 'Manrope', system-ui, sans-serif; color: #fff; }
+
+.fsc-actions {
+  display: flex; gap: 10px; width: 100%; margin-top: 20px; align-items: flex-start;
+  opacity: 0; transform: translateY(16px);
+  transition: opacity 0.5s 1.15s, transform 0.6s 1.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.fsc-actions .open-cta { min-height: 54px; }
+.fsc-actions .open-cta[hidden] { display: none; }
+.feed-scene.is-in .fsc-actions { opacity: 1; transform: none; }
+
+/* Уход - быстрый и общий: всё гаснет разом, без обратного полёта. */
+.feed-scene.is-out .fsc-dim,
+.feed-scene.is-out .fsc-body,
+.feed-scene.is-out .fsc-sky,
+.feed-scene.is-out .fsc-motes { opacity: 0; transition: opacity 0.17s; transition-delay: 0s; }
+.feed-scene.is-out .fsc-body { transform: scale(0.96); transition: opacity 0.17s, transform 0.17s; }
+
+@media (prefers-reduced-motion: reduce) {
+  .fsc-rays, .feed-scene.is-in .fsc-motes i { animation: none; }
+  .feed-scene.is-in .fsc-card { animation: none; opacity: 1; transform: none; }
+}
+@media (min-width: 1024px) {
+  .fsc-body { width: 440px; }
+  .fsc-stage { height: 340px; }
+  .fsc-cover { width: 260px; height: 240px; margin-left: -170px; }
+  .fsc-card { width: 170px; }
+}
 
 /* ============================================================
    БЕСПЛАТНЫЙ КЕЙС ЗА ПОДПИСКУ
@@ -4477,7 +4998,7 @@ select.seed-input {
    ============================================================ */
 
 /* Экран апгрейда собран так, чтобы кольцо, множители, ставка и кнопка
-   помещались на телефон целиком: листать вниз ради каждого запуска — это
+   помещались на телефон целиком: листать вниз ради каждого запуска - это
    лишнее движение на самом частом действии раздела.
    Кольцо ограничено и по ширине, и по высоте видимой области. */
 #view-upgrade.view { padding-bottom: 8px; }
@@ -4494,7 +5015,7 @@ select.seed-input {
 
 .upg-ring { width: 100%; height: 100%; display: block; }
 
-/* Подложка под кольцом — свечение, а не заливка, иначе центр глушит цифры. */
+/* Подложка под кольцом - свечение, а не заливка, иначе центр глушит цифры. */
 .upg-halo {
   fill: none;
   stroke: rgba(160, 32, 255, 0.12);
@@ -4509,7 +5030,7 @@ select.seed-input {
 
 /* Сектор выигрыша. Длина дуги приходит с сервера вместе с результатом.
    Концы обязательно butt, а не round: скруглением дуга растягивается на
-   половину толщины с каждой стороны — это лишние 12 градусов, и указатель
+   половину толщины с каждой стороны - это лишние 12 градусов, и указатель
    вставал бы «внутри» нарисованного сектора при проигрыше. */
 .upg-arc {
   fill: none;
@@ -5252,8 +5773,9 @@ select.seed-input {
   /* Всё по центру: и заголовок полки, и сами кейсы. Выключка влево оставляла
      неполный последний ряд прижатым к краю, и полка выглядела оборванной. */
   .shelf-head { align-items: center; text-align: center; margin-bottom: 18px; }
-  .shelf-title { font-size: 34px; }
-  .shelf-hint { font-size: 15px; }
+  .shelf-title { font-size: 30px; gap: 16px; }
+  .shelf-title::before, .shelf-title::after { width: 48px; height: 14px; }
+  .shelf-hint { font-size: 12.5px; }
   .shelf-range { font-size: 13px; }
 
   /*
@@ -7610,10 +8132,12 @@ button.mg-cell:active { transform: scale(0.92); }
   .reels:not(.compact) .reel-wrap { height: 392px; }
   .reels:not(.compact) .reel-tile { flex-basis: 252px; width: 252px; }
 
-  .reels.compact .reel-wrap { height: 202px; }
-  .reels.compact .reel-tile { flex-basis: 130px; width: 130px; }
-  .reels.compact .tile-name { font-size: 12px; }
-  .reels.compact .tile-value { font-size: 16px; }
+  /* На мониторе три ленты по 392 точки - это полторы высоты экрана, поэтому
+     пачка ниже одиночной, но заметно крупнее телефонной: плитка 200 точек. */
+  .reels.compact .reel-wrap { height: 300px; }
+  .reels.compact .reel-tile { flex-basis: 200px; width: 200px; }
+  .reels.compact .tile-name { font-size: 16px; }
+  .reels.compact .tile-value { font-size: 24px; }
 
   .fs-reel-wrap { height: 264px; }
   .fs-reel-wrap .reel-tile { flex-basis: 172px; width: 172px; }
@@ -7679,6 +8203,25 @@ body.mo-receded .opener-scroll { filter: blur(4px) saturate(.55); transform: sca
   color: #fff; text-shadow: 0 0 12px var(--c, #9dffcf), 0 2px 0 rgba(0,0,0,.5);
 }
 .mo-float.is-muted { color: #cfc6dc; text-shadow: 0 2px 0 rgba(0,0,0,.5); font-size: 13px; }
+
+/* Печать удвоителя: золотой знак на тёмной плашке с зубчатым краем, как
+   оттиск на документе. Плашка нужна, чтобы ×2 читался поверх любой плитки. */
+.mo-x2 {
+  position: absolute;
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 10px 14px 8px; border-radius: 16px;
+  background: radial-gradient(circle at 50% 30%, #4a1d00, #1c0a00 75%);
+  box-shadow: 0 0 0 2px #ffd34d, 0 0 0 5px rgba(28, 10, 0, 0.85), 0 0 0 6px rgba(255, 211, 77, 0.6),
+    0 12px 30px rgba(0, 0, 0, 0.6), 0 0 40px rgba(255, 190, 60, 0.55);
+}
+.mo-x2 b { font: 800 40px/1 'Unbounded', 'Manrope', system-ui, sans-serif; }
+.mo-x2 small {
+  font: 800 9px/1 'Manrope', system-ui, sans-serif; letter-spacing: 0.22em; text-transform: uppercase;
+  color: #ffd34d;
+}
+/* Плитка, на которой сработал удвоитель, остаётся помеченной до конца показа. */
+.reel-tile.mo-x2-tile { box-shadow: 0 0 0 2px #ffd34d, 0 0 26px -4px rgba(255, 200, 60, 0.9); }
+.reel-tile.mo-x2-tile .tile-value { color: #ffe58a; }
 
 /* Металлическая надпись: заливка градиентом, глубина - цепочкой теней
    фильтра. text-shadow под прозрачным текстом с background-clip ложится
@@ -7947,4 +8490,71 @@ body.mo-receded .opener-scroll { filter: blur(4px) saturate(.55); transform: sca
 
 @media (prefers-reduced-motion: reduce) {
   .mo-take::after, .mo-hero-sheen, .opener-bonus::before, .opener.is-bonus .fs-emblem { animation: none; }
+}
+
+/* ============================================================
+   КОМПЬЮТЕР: ЧЁТКОСТЬ ВМЕСТО ДЫМКИ
+   ============================================================
+
+   Заказчик увидел на мониторе то, чего не видно на телефоне: «всё какое-то
+   мутное». Причины нашлись конкретные, и каждая убрана здесь, а не размазана
+   по файлу.
+
+   1. Экран кейса. Фон - обложка, размытая на 58 точек и растянутая в
+      полтора раза, плюс тёмная заливка прямоугольником. На телефоне фон
+      уходит за край экрана, а на мониторе он лежит в колонке, и размытие
+      стекает с её краёв мутной рамкой. Здесь фон - чистые радиальные
+      свечения в тоне кейса, которые сходят в ноль сами: у них нет края,
+      значит нечему и мылиться.
+   2. Шапка полупрозрачная с размытием того, что под ней: на мониторе под ней
+      проезжают крупные обложки, и полоса выглядела запотевшей. Шапка теперь
+      плотная, с бликом и чёткой гранью.
+   3. Падающие монеты на фоне. На телефоне их несколько штук на узком экране,
+      на мониторе - россыпь серых точек по всему полю, которая читается как
+      пыль на экране. На компьютере их нет.
+   4. Сглаживание шрифтов и блик на панелях: стекло вместо матового пластика.
+
+   Телефон этот блок не трогает: там заказчика всё устраивает. */
+@media (min-width: 1024px) {
+  body {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  .money-rain { display: none; }
+
+  .topbar {
+    background: linear-gradient(180deg, rgba(22, 8, 40, 0.985), rgba(14, 4, 26, 0.985));
+    backdrop-filter: none; -webkit-backdrop-filter: none;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 12px 28px -18px rgba(0, 0, 0, 0.9);
+  }
+
+  .side-nav {
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent 30%),
+      linear-gradient(180deg, #170932, #0d0420);
+    border-right: 1px solid rgba(255, 255, 255, 0.07);
+    box-shadow: inset -1px 0 0 rgba(0, 0, 0, 0.4), 12px 0 40px -30px rgba(0, 0, 0, 0.9);
+  }
+  /* Блик по верхней кромке плитки: панель читается стеклом, а не тканью. */
+  .side-item { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07); }
+  .side-item.active {
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 0 0 1px rgba(160, 32, 255, 0.35),
+      0 8px 26px -12px var(--violet);
+  }
+
+  /* Экран кейса: фон без размытой картинки и без прямоугольника затемнения. */
+  .opener-theme-wash,
+  .opener-theme-mark,
+  .opener-theme::after { display: none; }
+  .opener.is-themed { background: transparent; }
+  .opener.is-themed .opener-theme {
+    background:
+      radial-gradient(42% 34% at 50% 30%, hsl(var(--case-h1, 275) 85% 50% / 0.22), transparent 100%),
+      radial-gradient(60% 40% at 50% 62%, hsl(var(--case-h2, 300) 80% 45% / 0.1), transparent 100%);
+  }
+  /* Кейс на сцене - резкий, со своим контурным светом, а не в дымке. */
+  .case-stage-art { image-rendering: auto; }
 }

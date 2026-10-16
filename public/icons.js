@@ -167,7 +167,7 @@ export const GAME_ICONS = {
   roulette: iconRoulette,
 };
 
-/** Звезда для плюшек и меток — вместо символа ★ из эмодзи-диапазона. */
+/** Звезда для плюшек и меток - вместо символа ★ из эмодзи-диапазона. */
 export function iconStar(color = '#ffd60a') {
   return svg(`<path d="m12 3 2.7 5.9 6.4.7-4.8 4.3 1.3 6.3L12 17.1 6.4 20.2l1.3-6.3L2.9 9.6l6.4-.7L12 3Z" fill="${color}"/>`);
 }
@@ -179,7 +179,7 @@ export function iconRouletteMark(kind) {
   return svg('<rect x="5" y="5" width="14" height="14" rx="2" fill="#cbb6e8"/>');
 }
 
-/** Динамик — для переключателя звука. */
+/** Динамик - для переключателя звука. */
 export function iconSound(on = true) {
   const waves = on
     ? '<path d="M16.4 8.6a4.6 4.6 0 0 1 0 6.8M19 6a8 8 0 0 1 0 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>'
@@ -188,7 +188,7 @@ export function iconSound(on = true) {
       fill="currentColor"/>${waves}`);
 }
 
-/** Сетка 2×2 — кнопка меню в шапке. */
+/** Сетка 2×2 - кнопка меню в шапке. */
 export function iconGrid() {
   return svg(`<rect x="3.5" y="3.5" width="7.5" height="7.5" rx="2.2" fill="currentColor"/>
     <rect x="13" y="3.5" width="7.5" height="7.5" rx="2.2" fill="currentColor" opacity="0.75"/>
@@ -210,7 +210,7 @@ export function iconSlot() {
     <rect x="14.6" y="8" width="3.4" height="7" rx="1.1" fill="currentColor" opacity="0.86"/>`);
 }
 
-/** Ключ — счётчик открытых кейсов. */
+/** Ключ - счётчик открытых кейсов. */
 export function iconKey(color = '#ffd60a') {
   return svg(`<circle cx="8" cy="8" r="4.4" fill="none" stroke="${color}" stroke-width="2.1"/>
     <path d="m11.2 11.2 8 8" stroke="${color}" stroke-width="2.1" stroke-linecap="round"/>
@@ -218,7 +218,7 @@ export function iconKey(color = '#ffd60a') {
       stroke-linecap="round"/>`);
 }
 
-/** Три фигурки — счётчик игроков. */
+/** Три фигурки - счётчик игроков. */
 export function iconPeople(color = '#00f0ff') {
   return svg(`<circle cx="12" cy="7.6" r="3.1" fill="${color}"/>
     <path d="M6.4 19.4c0-3.1 2.5-5.2 5.6-5.2s5.6 2.1 5.6 5.2Z" fill="${color}"/>
@@ -230,7 +230,7 @@ export function iconPeople(color = '#00f0ff') {
       stroke-width="1.7" stroke-linecap="round" opacity="0.55"/>`);
 }
 
-/** Конверт — перед адресом почты в подвале. */
+/** Конверт - перед адресом почты в подвале. */
 export function iconMail(color = 'currentColor') {
   return svg(`<rect x="2.6" y="5" width="18.8" height="14" rx="2.6" fill="none"
       stroke="${color}" stroke-width="1.9"/>

@@ -141,7 +141,7 @@ import {
   supportChat, adminChats,
 } from './payments.js';
 
-// Если математика поехала — падаем на старте, до первого игрока.
+// Если математика поехала - падаем на старте, до первого игрока.
 const caseReport = validateCases();
 const gameReport = validateGames();
 const gambleReport = validateGamble();
@@ -155,7 +155,7 @@ const slotReport = validateSlots();
 const skinReport = validateSkins();
 validateFortune();
 
-// Администраторы задаются Telegram ID через настройки — не через базу,
+// Администраторы задаются Telegram ID через настройки - не через базу,
 // чтобы права нельзя было получить, дописав себе строку в таблицу.
 const ADMIN_TG_IDS = String(process.env.ADMIN_TG_IDS || '')
   .split(',').map((s) => s.trim()).filter(Boolean);
@@ -407,7 +407,7 @@ app.get('/api/config', (req, res) => {
 
 /**
  * Лента открыта без авторизации: она видна и до входа в Telegram.
- * Наружу уходят только ник, кейс и предмет — ни ID, ни балансов.
+ * Наружу уходят только ник, кейс и предмет - ни ID, ни балансов.
  */
 /**
  * Оформление и рисунок для настоящего выпадения.
@@ -469,8 +469,34 @@ app.post('/api/track', auth, limits.read, (req, res) => {
    КЕЙСЫ
    ============================================================ */
 
-/** Сколько одинаковых кейсов можно открыть за раз. */
-const MAX_BATCH = 5;
+/**
+ * Несколько серий фриспинов одной пачки - одна серия для показа.
+ *
+ * Только склейка: каждая серия уже посчитана и зачислена в транзакции своего
+ * открытия. Бонуса за совпадение нет - он не входит в отдачу кейса. Та же
+ * функция стоит в public/app.js, клиент склеивает свежий ответ сам.
+ */
+function mergeFreeSpinGrants(grants) {
+  if (grants.length === 1) return grants[0];
+  return {
+    type: 'freespins',
+    caseId: grants[0].caseId,
+    count: grants.reduce((n, g) => n + (g.count || g.spins.length), 0),
+    capped: grants.some((g) => g.capped),
+    spins: grants.flatMap((g) => g.spins),
+    total: grants.reduce((n, g) => n + (g.total || 0), 0),
+    parts: grants.map((g) => g.count || g.spins.length),
+  };
+}
+
+/**
+ * Сколько одинаковых кейсов можно открыть за раз.
+ *
+ * Три, а не пять: три ленты помещаются на экран телефона в полный размер, и
+ * выигрыш в пачке читается так же, как одиночный. Пять лент приходилось
+ * сжимать втрое, и предмет на них было не разглядеть.
+ */
+const MAX_BATCH = 3;
 
 app.post('/api/open', auth, limits.play, gameGate('cases'), (req, res) => {
   const caseData = getCase(req.body?.caseId);
@@ -521,6 +547,10 @@ app.post('/api/open', auth, limits.play, gameGate('cases'), (req, res) => {
       art: result.item.art,
       perkLabel: result.item.perkLabel,
       multiplier: Number((result.payout / caseData.price).toFixed(2)),
+      // Номинал предмета до удвоителя. Лента показывает его, а удвоение
+      // играется отдельно, когда она встала: на плитке стоит та же сумма,
+      // что в составе кейса, и видно, что именно добавил удвоитель.
+      baseValue: result.item.value,
     },
     granted: result.granted.map((g) => ({
       ...g,
@@ -534,13 +564,15 @@ app.post('/api/open', auth, limits.play, gameGate('cases'), (req, res) => {
 
   const last = results[results.length - 1];
 
-  // Выпавшая серия тоже может остаться недосмотренной. Храним последнюю:
-  // показать всё равно можно только одну за раз.
+  // Выпавшая серия тоже может остаться недосмотренной. Серии с разных лент
+  // пачки клиент показывает одной общей, и сохраняется она так же: раньше
+  // хранилась только последняя, и вышедший посреди двойной серии игрок при
+  // возвращении видел половину.
   const pending = opened.flatMap((o) => o.granted).filter((g) => g.type === 'freespins');
-  if (pending.length) savePendingSpins(user.id, caseData.id, pending[pending.length - 1]);
+  if (pending.length) savePendingSpins(user.id, caseData.id, mergeFreeSpinGrants(pending));
 
   // Выигрыш фриспинов реально зачислен на баланс в той же транзакции, что и
-  // сам предмет, — его нельзя терять при подсчёте суммы пачки, иначе итог
+  // сам предмет, - его нельзя терять при подсчёте суммы пачки, иначе итог
   // на экране разойдётся с тем, что реально начислено.
   const freeSpinsTotal = (o) =>
     o.granted.find((g) => g.type === 'freespins')?.total || 0;
@@ -699,7 +731,7 @@ app.post('/api/crash/start', auth, limits.play, gameGate('crash'), (req, res) =>
     throw err;
   }
 
-  // crashPoint намеренно не отдаём — иначе клиент знал бы будущее.
+  // crashPoint намеренно не отдаём - иначе клиент знал бы будущее.
   res.json({
     roundId: round.roundId,
     startedAt: round.startedAt,
@@ -712,7 +744,7 @@ app.post('/api/crash/start', auth, limits.play, gameGate('crash'), (req, res) =>
 
 /**
  * Опрос состояния раунда. Клиент дёргает это каждые ~150 мс, чтобы узнать,
- * не взорвалось ли — раньше времени точку краша он получить не может.
+ * не взорвалось ли - раньше времени точку краша он получить не может.
  */
 app.post('/api/crash/state', auth, (req, res) => {
   const round = getCrashRound(Number(req.body?.roundId), req.player.id);
@@ -913,7 +945,7 @@ app.post('/api/admin/partner/pay', auth, need('partners.pay'), (req, res) => {
    ПРОЧЕЕ
    ============================================================ */
 
-// Бонус по таймеру отключён — раздача единиц обесценивала ставку.
+// Бонус по таймеру отключён - раздача единиц обесценивала ставку.
 app.post('/api/bonus', auth, limits.play, (req, res) => {
   res.status(410).json({ error: 'disabled', message: 'Бонус больше не выдаётся' });
 });
@@ -1078,7 +1110,7 @@ app.post('/api/upgrade', auth, limits.play, gameGate('upgrade'), (req, res) => {
     stake,
     target,
     multiplier,
-    // Угол стрелки: ролл — это доля круга от верхней точки. Сектор выигрыша
+    // Угол стрелки: ролл - это доля круга от верхней точки. Сектор выигрыша
     // клиент рисует сам от нуля до chance, поэтому картинка проверяема.
     chance,
     balance: result.balance,
@@ -1479,7 +1511,7 @@ app.post('/api/free-case/claim', auth, limits.cashier, async (req, res) => {
   const check = await isSubscribed(req.player.tg_id);
 
   if (!check.ok) {
-    // Сеть или права бота — это наша проблема, а не игрока, и говорить
+    // Сеть или права бота - это наша проблема, а не игрока, и говорить
     // ему «вы не подписаны» в такой ситуации нельзя.
     const message = check.reason === 'network'
       ? 'Telegram не ответил, попробуйте ещё раз'
@@ -1825,7 +1857,7 @@ app.post('/api/admin/payment-settings', auth, need('finance.settings'), (req, re
 app.post('/api/admin/payment-devices', auth, need('finance.settings'), (req, res) => res.json({ rows: adminDevices() }));
 app.post('/api/admin/payment-device/register', auth, need('finance.settings'), (req, res) => {
   const id=String(req.body?.deviceId||'').trim(), secret=String(req.body?.secret||'');
-  if (!id || secret.length < 24) return res.status(400).json({ error: 'ID обязателен, секрет — минимум 24 символа' });
+  if (!id || secret.length < 24) return res.status(400).json({ error: 'ID обязателен, секрет - минимум 24 символа' });
   registerDevice(id, String(req.body?.name||id).slice(0,80), secret); res.status(201).json({ ok:true });
 });
 /* ============================================================

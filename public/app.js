@@ -19,7 +19,7 @@ import { itemArt, itemArtMaterial } from './item-art.js';
 import { itemArt64 } from './item-art64.js';
 import { itemArtHd } from './item-art-hd.js';
 import { coinMark, coinColor } from './coin-art.js';
-import { COMPANY, LICENSE, DOCS, footerHtml } from './legal.js';
+import { COMPANY, LICENSE, DOCS, PARTNERS, footerHtml } from './legal.js';
 import { createMini } from './minigames.js';
 import { createSlot } from './slots.js';
 import {
@@ -28,6 +28,7 @@ import {
   sndRetrigger, sndFirework,
   sndWhoosh, sndBoom, sndSlash, sndRiser, sndHit, sndFanfare, sndCoin, sndDeal,
   sndChime, sndSoft,
+  sndShuffle, sndCardDrop, sndHeartbeat, sndAceWin, sndStamp, sndBurn,
 } from './sounds.js';
 import { createMotion, MOTION_NICE_AT } from './motion.js';
 
@@ -206,7 +207,7 @@ function haptic(type = 'light') {
   } catch { /* вне Telegram вибрации нет */ }
 }
 
-/** Падающие монеты на фоне — рисуются той же иконкой, что и баланс. */
+/** Падающие монеты на фоне - рисуются той же иконкой, что и баланс. */
 function buildMoneyRain() {
   const layer = document.getElementById('moneyRain');
   let html = '';
@@ -387,8 +388,8 @@ function applyUser(user) {
 /**
  * Полки кейсов: ряды по цене, каждый листается вбок.
  *
- * Границы подобраны так, чтобы в ряду выходило 6–9 кейсов: полка короче
- * выглядит куцей, длиннее — заставляет листать слишком долго ради последнего.
+ * Границы подобраны так, чтобы в ряду выходило 6-9 кейсов: полка короче
+ * выглядит куцей, длиннее - заставляет листать слишком долго ради последнего.
  */
 /**
  * Тематические полки собраны по идее, а не по цене, поэтому в ценовую сетку
@@ -479,7 +480,7 @@ function caseCardHtml(c, vouchers, artAspect = null) {
 }
 
 /**
- * Витрина сезонного кейса — широкая карточка под шапкой.
+ * Витрина сезонного кейса - широкая карточка под шапкой.
  *
  * Закрытый кейс здесь не гасим, иначе главное место на экране занимает серое
  * пятно. О том, что он ещё не открылся, говорят плашка с датой и подпись на
@@ -487,7 +488,7 @@ function caseCardHtml(c, vouchers, artAspect = null) {
  *
  * У кейса с готовым баннером на обложке уже есть и заголовок, и плашка
  * «сезонный кейс», поэтому свои подписи карточка не рисует: осталась только
- * дата старта — её баннер знать не может. Потолок выигрыша переехал в нижнюю
+ * дата старта - её баннер знать не может. Потолок выигрыша переехал в нижнюю
  * строку, чтобы не перекрывать макет.
  */
 function featuredHtml(c, vouchers) {
@@ -530,7 +531,7 @@ function renderCases() {
   const all = [...state.config.cases].sort((a, b) => a.price - b.price);
 
   // Сезонный кейс идёт витриной над полками, поэтому из общего списка его
-  // убираем — иначе он попал бы в полку по цене ещё и вторым экземпляром.
+  // убираем - иначе он попал бы в полку по цене ещё и вторым экземпляром.
   const featured = all.find((c) => c.availableFrom);
 
   // Тематические кейсы вынуты из ценовой сетки: они собраны по идее, и разброс
@@ -623,7 +624,7 @@ function renderCases() {
 }
 
 /**
- * Экран «Бонусы»: кейсы, выигранные в подарок (ваучеры), и активный ×2 —
+ * Экран «Бонусы»: кейсы, выигранные в подарок (ваучеры), и активный ×2 -
  * та же плюшка, что и в плашке над полками, только с собственным экраном,
  * куда можно вернуться позже, если не открыл сразу.
  */
@@ -683,7 +684,7 @@ function renderBonuses() {
  *
  * Раньше состав показывался шторкой снизу, а лента появлялась только после
  * нажатия. Теперь это один экран: сверху лента в покое, под ней кнопка
- * прокрута, а ещё ниже — сетка того, что может выпасть, от дорогого к
+ * прокрута, а ещё ниже - сетка того, что может выпасть, от дорогого к
  * дешёвому. Так видно и содержимое, и сам барабан до первого открытия.
  */
 /**
@@ -799,7 +800,7 @@ function openCase(caseId) {
    * читалась последней словом капсом. Заказчик выбрал вариант «Пульт» из
    * демо (tools/open-button-demo.html).
    */
-  const maxCount = state.config.maxBatch || 5;
+  const maxCount = state.config.maxBatch || 3;
   const countVal = document.getElementById('countVal');
   const openAct = document.getElementById('openAct');
   const openSub = document.getElementById('openSub');
@@ -1128,7 +1129,7 @@ const WINNER_INDEX = 54;
  * Ширина плитки и шаг берутся из разметки, а не задаются числом.
  *
  * Раньше это были константы, продублированные в CSS. Стоило поменять размер
- * плитки в стилях — и лента доезжала не до той позиции: под маркером
+ * плитки в стилях - и лента доезжала не до той позиции: под маркером
  * оказывался один предмет, а в результате приходил другой. Измерение из DOM
  * убирает саму возможность такого расхождения.
  */
@@ -1211,7 +1212,7 @@ function tileHtml(item, visual) {
   else if (item.kind === 'perk' && !item.value) value = iconStar();
   else value = money(item.value);
 
-  // У витринного предмета вместо значка редкости — сама фотография: ради неё
+  // У витринного предмета вместо значка редкости - сама фотография: ради неё
   // он в ленте и крутится.
   const icon = tileArt(item, color);
 
@@ -1223,7 +1224,7 @@ function tileHtml(item, visual) {
   </div>`;
 }
 
-// Позиции витринного предмета в ленте. Среди них нет WINNER_INDEX — витрина
+// Позиции витринного предмета в ленте. Среди них нет WINNER_INDEX - витрина
 // проезжает мимо маркера, но остановиться на ней лента не может.
 const SHOWCASE_SLOTS = [11, 27, 43, 58];
 
@@ -1239,7 +1240,7 @@ function reelWrapHtml() {
 
 /**
  * Щелчки ленты привязаны к её реальному положению, а не к таймеру:
- * когда лента замедляется, щелчки редеют сами — как у настоящего барабана.
+ * когда лента замедляется, щелчки редеют сами - как у настоящего барабана.
  */
 function trackReelTicks(reel, step, durationMs) {
   let last = 0;
@@ -1257,7 +1258,15 @@ function trackReelTicks(reel, step, durationMs) {
   requestAnimationFrame(frame);
 }
 
-async function startOpening(caseId, count = 1) {
+/**
+ * Открытие кейса.
+ *
+ * again - повтор с экрана результата. Обряд (тряска кейса) положен только
+ * первому открытию: на «Ещё раз» на экране уже стоит лента, игрок смотрит на
+ * неё и ждёт следующего прокрута, и возвращать кейс на сцену ради второй
+ * тряски значит секунду держать его перед тем, чего он уже попросил.
+ */
+async function startOpening(caseId, count = 1, { again = false } = {}) {
   if (state.busy) return;
   const c = state.config.cases.find((x) => x.id === caseId);
   if (!c) return;
@@ -1280,7 +1289,8 @@ async function startOpening(caseId, count = 1) {
   document.getElementById('batchSummary').hidden = true;
   document.getElementById('gamble').hidden = true;
   document.getElementById('gambleStartBtn').hidden = true;
-  const ritual = hasRitual(c) ? playRitual(c, count) : null;
+  const ritual = hasRitual(c) && !again ? playRitual(c, count) : null;
+  if (again) clearCaseStage();
 
   let data;
   try {
@@ -1300,7 +1310,7 @@ async function startOpening(caseId, count = 1) {
     `${esc(c.name)}${count > 1 ? ` ×${count}` : ''} · ` +
     `<span>${data.totalSpent ? money(data.totalSpent) : 'бесплатно'}</span>`;
 
-  // Число зрителей выдуманное и своё для каждого кейса — чисто оформление.
+  // Число зрителей выдуманное и своё для каждого кейса - чисто оформление.
   document.getElementById('openerViewers').textContent =
     `этот кейс крутят ${viewersFor(c.id)} игроков`;
 
@@ -1334,6 +1344,7 @@ async function startOpening(caseId, count = 1) {
 
   sndLand();
   haptic('medium');
+  await playDoublers(opened);
 
   /*
    * Показ выигрыша - с плитки, на которой встала лента, и до экрана
@@ -1351,16 +1362,47 @@ async function startOpening(caseId, count = 1) {
   }
 
   // Фриспины проигрываются до итогового экрана: сначала игрок видит, сколько
-  // они принесли, и только потом — общий результат прокрута. Итог серии
+  // они принесли, и только потом - общий результат прокрута. Итог серии
   // сравнивается с ценой открытия: за неё игрок и получил серию.
-  for (const g of collectFreeSpins(data)) {
-    // Плитка, на которой выпала серия: из неё летит сгусток пролога.
-    const fromIdx = opened.findIndex((o) => (o.granted || []).includes(g));
-    await runFreeSpins(g, c, { cost: c.price, origin: winnerTile(Math.max(0, fromIdx)) });
+  const fsGrants = collectFreeSpins(data);
+  if (fsGrants.length) {
+    // Ленты, на которых выпали серии: из каждой летит свой сгусток пролога, и
+    // в центре они сливаются в один. Итог общей серии сравнивается с ценой
+    // именно этих открытий - за них игрок и получил прокруты.
+    const from = opened.map((o, i) => ((o.granted || []).some((g) => g.type === 'freespins') ? i : -1))
+      .filter((i) => i >= 0);
+    const merged = mergeFreeSpinGrants(fsGrants);
+    await runFreeSpins(merged, c, {
+      cost: c.price * Math.max(1, from.length),
+      origins: from.map(winnerTile),
+      sub: merged.parts ? mergedSeriesSub(merged.parts) : null,
+    });
   }
 
   if (count > 1) showBatchResult(data, c);
   else showCaseResult(data, c);
+}
+
+/**
+ * Выигрышная плитка ленты - с номиналом предмета, без удвоителя.
+ *
+ * Удвоение показывается отдельно, когда лента встала (playDoublers): на
+ * плитке стоит та же сумма, что у предмета в составе кейса, и игрок видит,
+ * что выпало и что добавил удвоитель. baseValue присылает сервер; у старых
+ * ответов его нет, и тогда плитка остаётся как была.
+ */
+function reelItem(o) {
+  return o.x2Applied && o.item.baseValue != null ? { ...o.item, value: o.item.baseValue } : o.item;
+}
+
+/** Печать ×2 на всех плитках, где сработал удвоитель. Ждёт самую долгую. */
+async function playDoublers(opened) {
+  const jobs = opened
+    .map((o, i) => (o.x2Applied && o.item.baseValue != null && o.item.value > o.item.baseValue
+      ? motion().doubler(winnerTile(i), { from: o.item.baseValue, to: o.item.value })
+      : null))
+    .filter(Boolean);
+  if (jobs.length) await Promise.all(jobs);
 }
 
 /** Сколько едет лента при обычном прокруте. */
@@ -1419,7 +1461,7 @@ function spinReels(c, opened, duration) {
 
     const strip = [];
     for (let i = 0; i < STRIP_LENGTH; i++) {
-      if (i === WINNER_INDEX) strip.push(opened[idx].item);
+      if (i === WINNER_INDEX) strip.push(reelItem(opened[idx]));
       else if (showcaseTile && SHOWCASE_SLOTS.includes(i)) strip.push(showcaseTile);
       else strip.push(weightedSample(c.items));
     }
@@ -1466,7 +1508,7 @@ function spinReels(c, opened, duration) {
       }, duration * 1000 + 20);
     }
 
-    // Щелчки снимаем только с первой ленты — иначе они сливаются в шум.
+    // Щелчки снимаем только с первой ленты - иначе они сливаются в шум.
     if (idx === 0) trackReelTicks(reel, step, duration * 1000);
   });
 
@@ -1653,20 +1695,25 @@ async function buyFreeSpins(caseId, count) {
  * открытий дорогого кейса сжимает надпись до «О…». Поэтому кнопка меряет
  * сама себя: надпись обрезалась - цена переезжает вниз.
  */
-function fitOpenBtn() {
-  const btn = document.getElementById('doOpenBtn');
+function fitOpenBtn(target) {
+  // «Ещё раз» устроена так же, как «Открыть», и меряется тем же кодом.
+  const btn = target instanceof HTMLElement ? target : document.getElementById('doOpenBtn');
   if (!btn || !btn.offsetParent) return;
   btn.classList.remove('is-tight');
-  const cut = [document.getElementById('openAct'), document.getElementById('openSub')]
-    .some((el) => el && el.scrollWidth > el.clientWidth + 1);
+  const cut = [...btn.querySelectorAll('.open-act > span, .open-act small')]
+    .some((el) => el.scrollWidth > el.clientWidth + 1);
   btn.classList.toggle('is-tight', cut);
 }
-addEventListener('resize', fitOpenBtn);
+addEventListener('resize', () => fitOpenBtn());
 // Просмотр предмета закрывается и с клавиатуры: на компьютере до кнопки
 // «Закрыть» тянуться мышью дальше, чем до Esc.
-addEventListener('keydown', (e) => { if (e.key === 'Escape') motion().closeInspect(); });
+addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  motion().closeInspect();
+  if (!document.getElementById('feedBackdrop').hidden) document.getElementById('feedSheetClose').click();
+});
 // Дисплейный шрифт шире запасного: приехал позже замера - меряем заново.
-document.fonts?.ready.then(fitOpenBtn);
+document.fonts?.ready.then(() => fitOpenBtn());
 
 /* ============================================================
    АВТООТКРЫТИЕ
@@ -1772,6 +1819,7 @@ async function runAutoOpen(caseId, times) {
     previewBalance(state.user.balance - data.totalSpent);
     await spinReels(c, [data], AUTO_SPIN_DURATION);
     sndLand();
+    await playDoublers([data]);
 
     // Фриспины внутри серии забираются сами: серия на то и авто, чтобы не
     // требовать нажатий. Анимацию всё же показываем - это главный момент.
@@ -1839,20 +1887,68 @@ function showAutoResult(caseData, { times, done, spent, won, stopped, label = '�
     (label === 'фриспинов' ? buyFreeSpins(caseData.id, times) : runAutoOpen(caseData.id, times)));
 }
 
-/** Все выдачи фриспинов из ответа — и одиночного прокрута, и пачки. */
+/** Все выдачи фриспинов из ответа - и одиночного прокрута, и пачки. */
+/**
+ * Серии фриспинов из ответа открытия.
+ *
+ * Берутся из opened, а granted верхнего уровня - только когда opened нет.
+ * Сервер кладёт поля первого открытия и наверх (на них опирается анимация
+ * одиночного прокрута), и сбор из обоих мест проигрывал серию первого кейса
+ * дважды.
+ */
 function collectFreeSpins(data) {
-  const out = [];
-  for (const g of data.granted || []) if (g.type === 'freespins') out.push(g);
-  for (const o of data.opened || []) {
-    for (const g of o.granted || []) if (g.type === 'freespins') out.push(g);
-  }
-  return out;
+  const sources = data.opened ? data.opened.map((o) => o.granted) : [data.granted];
+  return sources.flatMap((list) => (list || []).filter((g) => g.type === 'freespins'));
+}
+
+/**
+ * Несколько серий одного открытия - одна общая серия.
+ *
+ * В пачке фриспины могут выпасть на двух или трёх лентах сразу. Показывать их
+ * тремя сериями подряд значит трижды проиграть пролог и трижды подвести итог:
+ * событие, которое случается раз на сотни пачек, растворялось в повторе.
+ * Общая серия - одно событие («двойная серия»), один счёт и один итог.
+ *
+ * Денег это не меняет ни на копейку. Каждая серия посчитана сервером в
+ * транзакции своего открытия и уже входит в отдачу кейса; здесь они только
+ * складываются для показа. Никакого бонуса за совпадение нет и быть не
+ * должно: он не входит в матожидание кейса и сломал бы отдачу.
+ *
+ * Та же склейка стоит на сервере (mergeFreeSpinGrants в server/app.js) - для
+ * доигрывания недосмотренной серии.
+ */
+function mergeFreeSpinGrants(grants) {
+  if (grants.length === 1) return grants[0];
+  return {
+    type: 'freespins',
+    caseId: grants[0].caseId,
+    count: grants.reduce((n, g) => n + (g.count || g.spins.length), 0),
+    capped: grants.some((g) => g.capped),
+    spins: grants.flatMap((g) => g.spins),
+    total: grants.reduce((n, g) => n + (g.total || 0), 0),
+    parts: grants.map((g) => g.count || g.spins.length),
+  };
+}
+
+/**
+ * Эмблема серии. Рисунки есть только на числа из таблицы плюшек и пачек;
+ * у общей серии число сумма (10 + 12 = 22), и тогда берётся эмблема первой
+ * из сложенных серий.
+ */
+function fsEmblem(grant, count) {
+  return itemArtHd(`perk/fs/${count}`) || itemArtHd(`perk/fs/${grant.parts?.[0] || grant.count}`) || '';
+}
+
+/** Подпись под числом прокрутов в прологе общей серии. */
+function mergedSeriesSub(parts) {
+  const name = { 2: 'двойная серия', 3: 'тройная серия' }[parts.length] || `${parts.length} серии`;
+  return `${name} · ${parts.join(' + ')}`;
 }
 
 /**
  * Проигрывает серию фриспинов.
  *
- * Исход каждого прокрута уже посчитан сервером и лежит в ответе — здесь только
+ * Исход каждого прокрута уже посчитан сервером и лежит в ответе - здесь только
  * анимация. Сумма копится на экране крупными цифрами: это и есть смысл режима,
  * поэтому она набирается на глазах, а не появляется готовой в конце.
  *
@@ -1866,7 +1962,7 @@ function collectFreeSpins(data) {
  *                                решает, праздновать ли (см. seriesVerdict)
  * @param {Element|object} [opts.origin] откуда летит сгусток пролога
  */
-async function runFreeSpins(grant, caseData, { auto = false, replay = false, cost = 0, origin = null } = {}) {
+async function runFreeSpins(grant, caseData, { auto = false, replay = false, cost = 0, origin = null, origins = null, sub = null } = {}) {
   const box = document.getElementById('freespins');
   const reel = document.getElementById('fsReel');
   const totalEl = document.getElementById('fsTotal');
@@ -1894,6 +1990,10 @@ async function runFreeSpins(grant, caseData, { auto = false, replay = false, cos
     // бы висеть над барабаном фриспинов.
     document.getElementById('caseStage').hidden = true;
     box.hidden = false;
+    // После пачки серия стоит под тремя лентами, за нижним краем телефона.
+    // Прокручиваем, только если она не видна: у одиночного открытия экран
+    // прыгал бы без нужды.
+    if (box.getBoundingClientRect().bottom > innerHeight) box.scrollIntoView({ block: 'start' });
     collectBtn.hidden = true;
     logEl.innerHTML = '';
     verdictEl.innerHTML = '';
@@ -1901,7 +2001,7 @@ async function runFreeSpins(grant, caseData, { auto = false, replay = false, cos
     totalEl.textContent = money(0);
     leftEl.textContent = `0 из ${shown}`;
     document.getElementById('opener').classList.add('is-bonus');
-    document.getElementById('fsEmblem').innerHTML = itemArtHd(`perk/fs/${startCount}`) || '';
+    document.getElementById('fsEmblem').innerHTML = fsEmblem(grant, startCount);
     pipsEl.innerHTML = Array.from({ length: startCount }, () => `<i class="fs-pip${filled ? ' full' : ''}"></i>`).join('');
     return {
       pips: [...pipsEl.children],
@@ -1917,8 +2017,8 @@ async function runFreeSpins(grant, caseData, { auto = false, replay = false, cos
 
   if (withIntro) {
     await motion().purchase({
-      count: startCount, origin, theme: caseData.theme,
-      emblem: itemArtHd(`perk/fs/${startCount}`) || '',
+      count: startCount, origin, origins, sub, theme: caseData.theme,
+      emblem: fsEmblem(grant, startCount),
       prepare: () => open(false),
     });
     leftEl.textContent = `0 из ${shown}`;
@@ -2113,11 +2213,20 @@ function showBatchResult(data, caseData) {
       }).join('')}
     </div>
     <div class="result-actions">
-      <button class="btn btn-outline" id="batchClose">Забрать</button>
-      <button class="btn btn-primary" id="batchAgain">Ещё раз ×${data.count}</button>
+      <button class="take-btn" id="batchClose">Забрать</button>
+      <button class="open-cta again-cta" id="batchAgain">
+        <span class="open-act"><span>Ещё раз</span><small></small></span>
+        <span class="open-price"></span>
+      </button>
     </div>
   `;
   box.hidden = false;
+  setAgainButton(document.getElementById('batchAgain'), caseData, data.count);
+  // Три полноразмерные ленты занимают почти весь экран телефона, и итог
+  // пачки оказывается под ними. Подводим к нему, если он не виден.
+  if (box.getBoundingClientRect().top > innerHeight * 0.7) {
+    box.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }
 
   applyUser(data.user);
   updateOpenerBalance();
@@ -2135,7 +2244,7 @@ function showBatchResult(data, caseData) {
 
   document.getElementById('batchClose').addEventListener('click', returnToCaseIdle);
   document.getElementById('batchAgain').addEventListener('click', () =>
-    startOpening(caseData.id, data.count));
+    startOpening(caseData.id, data.count, { again: true }));
 }
 
 function showCaseResult(data, caseData) {
@@ -2146,13 +2255,21 @@ function showCaseResult(data, caseData) {
   document.getElementById('resultTier').textContent = item.kind === 'perk'
     ? (item.perkLabel || 'Плюшка')
     : (state.config.tiers.find((t) => t.id === item.tier)?.label || item.tier);
-  document.getElementById('resultName').textContent = item.name;
+  // Имя предмета залито градиентом его материала (золото, хром, голограмма):
+  // та же карточка только что стояла на ленте, и подпись продолжает её, а не
+  // начинает белым текстом заново.
+  const nameEl = document.getElementById('resultName');
+  nameEl.textContent = item.name;
+  nameEl.dataset.material = item.skin?.material || 'matte';
   document.getElementById('resultValue').textContent =
     item.value ? money(item.value) : '-';
 
   const net = document.getElementById('resultNet');
   const parts = [];
-  if (data.x2Applied) parts.push('удвоитель применён');
+  if (data.x2Applied) {
+    const extra = item.baseValue != null ? item.value - item.baseValue : 0;
+    parts.push(extra > 0 ? `удвоитель ×2: +${fmt(extra)}` : 'удвоитель применён');
+  }
 
   // Удвоителей за один прокрут может прийти несколько: сам предмет плюс те,
   // что выпали внутри серии фриспинов. Считаем их, а не пишем строку на каждый.
@@ -2204,19 +2321,43 @@ function showCaseResult(data, caseData) {
   const stake = state.user.gambleStake || 0;
   gambleBtn.hidden = stake <= 0;
   if (stake > 0) {
-    gambleBtn.textContent = `РИСКНУТЬ ${money(stake)} → ${money(stake * state.config.gamble.payout)}`;
+    const g = state.config.gamble;
+    gambleBtn.innerHTML = `<span class="gamble-cta-suit">${iconAce()}</span>
+      <span class="gamble-cta-txt"><b>Рискнуть</b><small>${money(stake)} → ${money(stake * g.payout)}</small></span>
+      <span class="gamble-cta-x">×${g.payout}</span>`;
   }
 
+  setAgainButton(document.getElementById('againBtn'), caseData, 1);
+}
+
+/**
+ * «Ещё раз» той же разметкой, что и «Открыть»: надпись, подпись и цена
+ * плашкой. Цена здесь не конец фразы, а отдельное число - это деньги игрока.
+ */
+function setAgainButton(btn, caseData, count) {
   const freeLeft = (state.user.vouchers || []).find((v) => v.case_id === caseData.id)?.count || 0;
-  const againBtn = document.getElementById('againBtn');
-  againBtn.disabled = !freeLeft && state.user.balance < caseData.price;
-  againBtn.textContent = freeLeft ? 'Ещё раз · бесплатно'
-    : againBtn.disabled ? 'Не хватает' : `Ещё раз · ${fmt(caseData.price)}`;
+  const paid = Math.max(0, count - freeLeft);
+  btn.disabled = paid * caseData.price > state.user.balance;
+  btn.querySelector('.open-act > span').textContent = btn.disabled ? 'Не хватает' : 'Ещё раз';
+  btn.querySelector('.open-act small').textContent =
+    count > 1 ? `${count} ${plural(count, 'кейс', 'кейса', 'кейсов')} сразу` : 'тот же кейс';
+  btn.querySelector('.open-price').textContent = paid === 0 ? 'бесплатно' : money(paid * caseData.price);
+  requestAnimationFrame(() => fitOpenBtn(btn));
+}
+
+/**
+ * Значок красного туза: червонная масть. Нарисован здесь, а не взят из
+ * значков: на кнопке риска, на рубашке выигрышной карты и в штампе нужен
+ * один и тот же знак, и он должен читаться как карта, а не как звезда.
+ */
+function iconAce(color = 'currentColor') {
+  return `<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="${color}"
+    d="M12 21c-.4 0-.8-.2-1.1-.4C6.4 17 3 14 3 9.9 3 7.2 5.1 5 7.7 5c1.8 0 3.3.9 4.3 2.4C13 5.9 14.5 5 16.3 5 18.9 5 21 7.2 21 9.9c0 4.1-3.4 7.1-7.9 10.7-.3.2-.7.4-1.1.4z"/></svg>`;
 }
 
 /* ---------- Вспомогательное для экрана прокрута ---------- */
 
-/** Выдуманное число зрителей, но стабильное для кейса — чтобы не скакало. */
+/** Выдуманное число зрителей, но стабильное для кейса - чтобы не скакало. */
 function viewersFor(caseId) {
   let h = 0;
   for (let i = 0; i < caseId.length; i++) h = (h * 31 + caseId.charCodeAt(i)) >>> 0;
@@ -2249,26 +2390,124 @@ function updateOpenerBalance() {
   if (el) el.textContent = money(state.user.balance);
 }
 
-/** Последние выпадения игрока именно из этого кейса. */
+/** Сколько выпадений забирать с сервера за раз: столько же отдаёт ручка. */
+const HISTORY_LOAD = 60;
+
+/**
+ * Предмет кейса по строке истории.
+ *
+ * В истории лежит подпись раунда, а не идентификатор предмета: «Имя (×2)» или
+ * «10 фриспинов» за купленную серию. Внутри одного кейса имена не
+ * повторяются, поэтому имени хватает, чтобы найти рисунок и оформление.
+ */
+function historyItem(c, h) {
+  const x2 = / \(×2\)$/.test(h.subtitle || '');
+  const name = (h.subtitle || '').replace(/ \(×2\)$/, '');
+  const own = c?.items.find((it) => it.name === name);
+  const fs = name.match(/^(\d+) фриспинов$/);
+  const base = own || {
+    name, tier: h.tier, kind: fs ? 'perk' : 'item',
+    art: fs ? `perk/fs/${fs[1]}` : null, skin: c?.visual,
+  };
+  return { ...base, value: h.payout, x2 };
+}
+
+/** Показ выпадения крупно: витрина, как у карточки состава. */
+function inspectHistory(c, item, tile) {
+  haptic('light');
+  motion().inspect(item, {
+    tile, price: c?.price || 0, theme: c?.theme,
+    tierLabel: item.x2 ? 'ваше выпадение · ×2' : 'ваше выпадение',
+    valueNote: 'выпало вам',
+  });
+}
+
+/**
+ * Последние выпадения игрока именно из этого кейса.
+ *
+ * Два вида. На экране кейса - карточками, как состав, только мельче: это
+ * то, что игрок уже достал из этого кейса, и показывать это надо тем же
+ * языком, что и то, что достать можно. Во время прокрута - прежним списком
+ * строк: под лентой и итогом карточки отвлекали бы от главного, а строка
+ * читается краем глаза. Нажатие в обоих видах открывает предмет крупно.
+ */
 async function loadCaseHistory(caseTitle) {
   const box = document.getElementById('openerHistory');
   let history;
   try {
-    ({ history } = await api('/api/history', { caseTitle, limit: 8 }));
+    ({ history } = await api('/api/history', { caseTitle, limit: HISTORY_LOAD }));
   } catch { return; }
 
+  const c = state.config.cases.find((x) => x.name === caseTitle);
+  const idle = !document.getElementById('casePanel').hidden;
+  const head = (n) => `<div class="sec-head">
+      <span class="sec-title">Ваши выпадения</span>
+      ${n ? `<span class="sec-chip">${n}</span>` : ''}
+    </div>`;
+
   if (!history.length) {
-    box.innerHTML = '<h3><span>Ваши выпадения из этого кейса</span></h3>' +
-      '<div class="empty" style="padding:18px">Пока пусто</div>';
+    box.innerHTML = head(0) +
+      '<div class="hist-empty">Здесь появятся предметы, которые выпадут вам из этого кейса</div>';
     return;
   }
 
-  box.innerHTML = '<h3><span>Ваши выпадения из этого кейса</span>' +
-    `<span>${history.length}</span></h3>` +
-    history.map((h) => `<div class="mini-row" style="--tier-color:${tierColor(h.tier)}">
-      <span class="mini-name">${esc(h.subtitle)}</span>
-      <span class="mini-val">${money(h.payout)}</span>
-    </div>`).join('');
+  const items = history.map((h) => historyItem(c, h));
+
+  if (!idle) {
+    box.innerHTML = head(history.length) + items.slice(0, 8).map((it, i) =>
+      `<button class="mini-row" data-i="${i}" style="--tier-color:${tierColor(it.tier)}">
+        <span class="mini-name">${esc(it.name)}${it.x2 ? ' <em>×2</em>' : ''}</span>
+        <span class="mini-val">${money(it.value)}</span>
+      </button>`).join('');
+    box.querySelectorAll('.mini-row').forEach((row) => {
+      row.onclick = () => inspectHistory(c, items[Number(row.dataset.i)], row);
+    });
+    return;
+  }
+
+  box.innerHTML = head(history.length) +
+    '<div class="hist-grid" id="histGrid"></div>' +
+    '<button class="hist-more" id="histMore" hidden>Показать ещё</button>';
+
+  const grid = box.querySelector('#histGrid');
+  const more = box.querySelector('#histMore');
+
+  /*
+   * Порция - целое число рядов: столько карточек, сколько помещается в ряд,
+   * умноженное на число рядов. Оба числа живут в CSS (--hist-cols и
+   * --hist-rows), потому что от ширины экрана зависят именно они, и считать
+   * их второй раз в коде значит однажды разойтись с вёрсткой.
+   */
+  const css = getComputedStyle(grid);
+  const page = (Number(css.getPropertyValue('--hist-cols')) || 3) *
+               (Number(css.getPropertyValue('--hist-rows')) || 3);
+  let shown = 0;
+
+  const card = (it, i) => {
+    const color = tierColor(it.tier);
+    return `<button class="drop-card rw-skin hist-card" data-i="${i}" ${skinAttrs(it.skin || c?.visual)}
+        style="--tier-color:${color}">
+      <div class="drop-ico">${tileArt(it, color)}</div>
+      <div class="drop-name"><span>${esc(it.name)}</span></div>
+      <div class="drop-value">${money(it.value)}</div>
+      ${it.x2 ? '<span class="hist-x2">×2</span>' : ''}
+    </button>`;
+  };
+
+  const showMore = () => {
+    const next = items.slice(shown, shown + page);
+    grid.insertAdjacentHTML('beforeend', next.map((it, k) => card(it, shown + k)).join(''));
+    // Новые карточки въезжают по одной: видно, что добавилось именно они.
+    [...grid.children].slice(shown).forEach((el, k) => el.style.setProperty('--k', k));
+    shown += next.length;
+    more.hidden = shown >= items.length;
+  };
+  grid.onclick = (e) => {
+    const el = e.target.closest('.hist-card');
+    if (el) inspectHistory(c, items[Number(el.dataset.i)], el);
+  };
+  more.onclick = () => { haptic('light'); showMore(); };
+  showMore();
 }
 
 function closeOpener() {
@@ -2281,7 +2520,7 @@ function closeOpener() {
 }
 
 /**
- * «Забрать» после результата не должно выкидывать из кейса — игрок почти
+ * «Забрать» после результата не должно выкидывать из кейса - игрок почти
  * наверняка захочет крутить ещё. Экран просто возвращается в исходное
  * состояние, как при первом входе в кейс, а не закрывается целиком.
  */
@@ -2303,36 +2542,95 @@ const gambleEl = {
   rules: () => document.getElementById('gambleRules'),
   cards: () => document.getElementById('gambleCards'),
   outcome: () => document.getElementById('gambleOutcome'),
+  fx: () => document.getElementById('gambleFx'),
 };
+
+/** Сколько карты разлетаются из колоды по столу. */
+const GAMBLE_DEAL_STEP_MS = 85;
+
+/**
+ * Пауза между выбором и вскрытием. Ответ сервера приходит за десятки
+ * миллисекунд, и мгновенный переворот проглатывал момент, ради которого
+ * игрок и рискнул. Исход к этому времени уже решён: пауза его не меняет,
+ * она отмечает выбор.
+ */
+const GAMBLE_SUSPENSE_MS = 650;
+
+/** Строки исхода. Сухое «Мимо» на проигрыше читалось как ошибка формы. */
+const GAMBLE_LOSE_LINES = [
+  ['Туз ускользнул', 'Он прятался на карте №{n}'],
+  ['Не в этот раз', 'Красный туз лежал на карте №{n}'],
+  ['Карта пустая', 'Туз ждал на карте №{n}'],
+];
 
 function renderGamble() {
   const g = state.config.gamble;
+  const stake = state.user.gambleStake || 0;
 
-  gambleEl.rules().innerHTML =
-    `Найдите красного туза среди ${g.cards} карт - выигрыш вырастет в ` +
-    `<b>×${g.payout}</b>. Промах - выигрыш сгорает.`;
+  /*
+   * Заголовок крупный и короткий, ставка и выигрыш - двумя плашками со
+   * стрелкой множителя между ними. Прежняя строка мелким серым текстом
+   * объясняла правило, но не показывала, что на кону.
+   */
+  gambleEl.rules().innerHTML = `
+    <div class="gr-eyebrow">риск-игра</div>
+    <div class="gr-title">Найди красного туза</div>
+    <div class="gr-sub">Один туз среди ${g.cards} карт. Нашли - выигрыш растёт, промах - сгорает.</div>
+    <div class="gr-stakes">
+      <span class="gr-stake" id="gambleStake"><b>${money(stake)}</b><small>на кону</small></span>
+      <span class="gr-mult">×${g.payout}</span>
+      <span class="gr-stake is-prize"><b>${money(stake * g.payout)}</b><small>если туз</small></span>
+    </div>`;
 
   gambleEl.cards().innerHTML = Array.from({ length: g.cards }, (_, i) =>
-    `<button class="gcard" data-idx="${i}">
+    `<button class="gcard" data-idx="${i}" style="--i:${i}" aria-label="Карта ${i + 1}">
       <div class="gcard-inner">
-        <div class="gcard-face gcard-back">?</div>
+        <div class="gcard-face gcard-back"><span class="gcard-emblem">${iconAce()}</span></div>
         <div class="gcard-face gcard-front blank"></div>
       </div>
     </button>`).join('');
 
-  gambleEl.outcome().textContent = '';
+  gambleEl.outcome().innerHTML = '';
   gambleEl.outcome().className = 'gamble-outcome';
+  gambleEl.fx().innerHTML = '';
+  gambleEl.root().className = 'gamble';
 
-  gambleEl.cards().querySelectorAll('.gcard').forEach((card) => {
+  const cards = [...gambleEl.cards().querySelectorAll('.gcard')];
+  cards.forEach((card) => {
     card.addEventListener('click', () => pickGambleCard(Number(card.dataset.idx)));
+  });
+
+  /*
+   * Раздача: карты вылетают из одной точки над столом и раскладываются по
+   * местам. Смещение каждой считается от её настоящего места в сетке, а не
+   * задаётся числом: на телефоне и компьютере сетка разной ширины.
+   */
+  requestAnimationFrame(() => {
+    const box = gambleEl.cards().getBoundingClientRect();
+    const cx = box.left + box.width / 2;
+    const cy = box.top - 40;
+    cards.forEach((card, i) => {
+      const r = card.getBoundingClientRect();
+      card.style.setProperty('--fx', `${(cx - (r.left + r.width / 2)).toFixed(0)}px`);
+      card.style.setProperty('--fy', `${(cy - (r.top + r.height / 2)).toFixed(0)}px`);
+      card.style.setProperty('--rot', `${((i % 2 ? 1 : -1) * (8 + i * 3))}deg`);
+    });
+    gambleEl.root().classList.add('is-dealing');
+    sndShuffle(cards.length);
+    cards.forEach((_, i) => setTimeout(() => sndCardDrop(i), 260 + i * GAMBLE_DEAL_STEP_MS));
+    setTimeout(() => gambleEl.root().classList.replace('is-dealing', 'is-ready'),
+      260 + cards.length * GAMBLE_DEAL_STEP_MS + 420);
   });
 }
 
 document.getElementById('gambleStartBtn').addEventListener('click', () => {
   document.getElementById('gambleStartBtn').hidden = true;
   document.getElementById('result').hidden = true;
-  renderGamble();
   gambleEl.root().hidden = false;
+  // Стол целиком в кадре: под лентой он начинался у нижнего края, и исход
+  // раздачи оказывался за экраном.
+  renderGamble();
+  gambleEl.root().scrollIntoView({ block: 'start' });
   haptic('medium');
 });
 
@@ -2340,22 +2638,30 @@ async function pickGambleCard(index) {
   if (state.busy) return;
   state.busy = true;
 
+  const root = gambleEl.root();
   const cards = [...gambleEl.cards().querySelectorAll('.gcard')];
   cards.forEach((c) => c.classList.add('disabled'));
   cards[index].classList.add('picked');
+  root.classList.add('is-picked');
+  sndHeartbeat();
+  haptic('medium');
 
   let data;
   try {
-    data = await api('/api/gamble/pick', { index });
+    [data] = await Promise.all([
+      api('/api/gamble/pick', { index }),
+      sleep(GAMBLE_SUSPENSE_MS),
+    ]);
   } catch (err) {
     state.busy = false;
     cards.forEach((c) => c.classList.remove('disabled', 'picked'));
+    root.classList.remove('is-picked');
     toast(err.message);
     haptic('error');
     return;
   }
 
-  // Сначала переворачивается выбранная карта, затем — все остальные,
+  // Сначала переворачивается выбранная карта, затем - все остальные,
   // чтобы было видно, где на самом деле лежал туз.
   const setFace = (i) => {
     const front = cards[i].querySelector('.gcard-front');
@@ -2363,13 +2669,32 @@ async function pickGambleCard(index) {
     front.className = 'gcard-face gcard-front ' + (isAce ? 'ace' : 'blank');
     // Пустая карта получает свой знак: без него вскрытая карта выглядит
     // ровно как ещё не перевёрнутая, и непонятно, что раздача уже показана.
-    front.innerHTML = isAce ? iconStar('#fff') : '<span class="gcard-empty"></span>';
+    front.innerHTML = isAce
+      ? `<span class="ace-corner">A</span><span class="ace-suit">${iconAce('#fff')}</span><span class="ace-corner is-bottom">A</span>`
+      : '<span class="gcard-empty"></span>';
     cards[i].classList.add('flipped');
+    if (isAce) cards[i].classList.add('is-ace');
   };
 
   setFace(index);
   sndFlip();
   haptic(data.won ? 'success' : 'error');
+
+  const g = state.config.gamble;
+  const out = gambleEl.outcome();
+
+  if (data.won) {
+    root.classList.add('is-won');
+    sndAceWin();
+    gambleBurst(cards[index]);
+    // Множитель печатью ложится на плашку ставки, и сумма под ним растёт до
+    // выигрыша: видно, что именно умножилось и во сколько раз.
+    setTimeout(() => gambleStamp(data.payout), 520);
+  } else {
+    root.classList.add('is-lost');
+    cards[index].classList.add('is-burnt');
+    sndBurn();
+  }
 
   setTimeout(() => {
     cards.forEach((_, i) => {
@@ -2377,24 +2702,69 @@ async function pickGambleCard(index) {
     });
 
     setTimeout(() => {
-      const out = gambleEl.outcome();
-      out.textContent = data.won
-        ? `Есть туз! Забираете ${money(data.payout)}`
-        : `Мимо. Туз был на карте ${data.acePosition + 1}`;
+      if (data.won) {
+        out.innerHTML = `<b>Туз ваш!</b><span>Выигрыш вырос в ${g.payout} раза: ${money(data.payout)} уже на балансе</span>`;
+      } else {
+        const [title, line] = GAMBLE_LOSE_LINES[Math.floor(Math.random() * GAMBLE_LOSE_LINES.length)];
+        out.innerHTML = `<b>${title}</b><span>${line.replace('{n}', data.acePosition + 1)}. Кейс по-прежнему ждёт вас</span>`;
+        sndLose();
+      }
       out.className = 'gamble-outcome ' + (data.won ? 'win' : 'lose');
-      if (data.won) { sndBigWin(); sndCollect(); } else sndLose();
 
       applyUser(data.user);
       updateOpenerBalance();
       loadCaseHistory(state.config.cases.find((c) => c.id === state.openingCaseId)?.name);
 
-      // Рисковать больше нечем — кнопка становится выходом из раздачи.
+      // Рисковать больше нечем - кнопка становится выходом из раздачи.
       const btn = document.getElementById('gambleSkipBtn');
       btn.textContent = 'Продолжить';
       btn.dataset.done = '1';
       state.busy = false;
     }, cards.length * 90 + 400);
-  }, 700);
+  }, data.won ? 1500 : 900);
+}
+
+/** Искры из выигравшей карты. Частицы - узлы с переменными, не холст. */
+function gambleBurst(card) {
+  const fx = gambleEl.fx();
+  const host = fx.getBoundingClientRect();
+  const r = card.getBoundingClientRect();
+  const x = r.left + r.width / 2 - host.left;
+  const y = r.top + r.height / 2 - host.top;
+  fx.innerHTML = `<span class="gfx-ring" style="left:${x}px;top:${y}px"></span>` +
+    Array.from({ length: 26 }, (_, i) => {
+      const a = (i / 26) * Math.PI * 2 + Math.random() * 0.3;
+      const d = 70 + Math.random() * 90;
+      return `<span class="gfx-spark" style="left:${x}px;top:${y}px;
+        --dx:${(Math.cos(a) * d).toFixed(0)}px;--dy:${(Math.sin(a) * d).toFixed(0)}px;
+        --d:${(Math.random() * 160).toFixed(0)}ms"></span>`;
+    }).join('');
+}
+
+/** Печать множителя на ставке и счёт суммы до выигрыша. */
+function gambleStamp(payout) {
+  const plate = document.getElementById('gambleStake');
+  if (!plate) return;
+  const sum = plate.querySelector('b');
+  const from = state.user.gambleStake || payout / state.config.gamble.payout;
+  plate.insertAdjacentHTML('beforeend',
+    `<span class="gr-stamp">×${state.config.gamble.payout}</span>`);
+  plate.classList.add('is-stamped');
+  plate.querySelector('small').textContent = 'выигрыш';
+  sndStamp();
+  haptic('heavy');
+
+  const started = performance.now();
+  const COUNT_MS = 900;
+  let lastCoin = 0;
+  const tick = (now) => {
+    const t = Math.min(1, (now - started) / COUNT_MS);
+    const eased = 1 - Math.pow(1 - t, 3);
+    sum.textContent = money(Math.round(from + (payout - from) * eased));
+    if (now - lastCoin > 90 && t < 1) { sndCoin(); lastCoin = now; }
+    if (t < 1) requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
 }
 
 document.getElementById('gambleSkipBtn').addEventListener('click', async (e) => {
@@ -2414,7 +2784,7 @@ document.getElementById('gambleSkipBtn').addEventListener('click', async (e) => 
 });
 
 document.getElementById('againBtn').addEventListener('click', () => {
-  if (state.openingCaseId) startOpening(state.openingCaseId, state.openingCount || 1);
+  if (state.openingCaseId) startOpening(state.openingCaseId, state.openingCount || 1, { again: true });
 });
 
 /* ============================================================
@@ -2464,7 +2834,7 @@ const crashEl = {
 
 /**
  * Система координат графика берётся из самого SVG. Держать её числом в коде
- * означало бы третью копию тех же размеров — ровно так лента кейса и разошлась
+ * означало бы третью копию тех же размеров - ровно так лента кейса и разошлась
  * с разметкой.
  */
 const [GRAPH_W, GRAPH_H] = (() => {
@@ -2696,7 +3066,7 @@ function renderColorPicker() {
 function renderRouletteReel(offsetTiles = 0) {
   const wheel = state.config.roulette.wheel;
   const reel = document.getElementById('rouletteReel');
-  // Метки секторов — собственные SVG, а не типографские символы: так они
+  // Метки секторов - собственные SVG, а не типографские символы: так они
   // одинаково выглядят на всех платформах и красятся под цвет сектора.
 
   let html = '';
@@ -2783,9 +3153,62 @@ document.getElementById('rouletteSpinBtn').addEventListener('click', spinRoulett
    ЧЕСТНОСТЬ
    ============================================================ */
 
+/** Сколько длится «расшифровка» хеша при входе в раздел. */
+const FAIR_DECODE_MS = 650;
+
+/**
+ * Хеш проявляется из перебора символов слева направо. Это не украшение
+ * ради украшения: так видно, что строка - результат вычисления, а не надпись.
+ * Длина строки всё время та же, что у настоящего хеша, и в конце стоит ровно
+ * он.
+ */
+function decodeInto(el, text) {
+  const HEX = '0123456789abcdef';
+  const started = performance.now();
+  const frame = (now) => {
+    const k = Math.min(1, (now - started) / FAIR_DECODE_MS);
+    const fixed = Math.floor(text.length * k);
+    el.textContent = text.slice(0, fixed) +
+      Array.from({ length: text.length - fixed }, () => HEX[Math.floor(Math.random() * 16)]).join('');
+    if (k < 1) requestAnimationFrame(frame);
+  };
+  requestAnimationFrame(frame);
+}
+
+/**
+ * Блок партнёров. Список живёт в legal.js и пуст, пока партнёрство не
+ * подтверждено договором; пустой список - блока нет вовсе.
+ */
+function renderFairPartners() {
+  const box = document.getElementById('fairPartners');
+  if (!PARTNERS.length) { box.hidden = true; return; }
+  const names = PARTNERS.map((p) => p.with || p.name);
+  const joined = names.length > 1
+    ? `${names.slice(0, -1).join(', ')} и ${names[names.length - 1]}` : names[0];
+  box.innerHTML = `
+    <div class="fair-eyebrow">Нам есть что терять</div>
+    <h3 class="fair-partners-title">Партнёр мирового спорта</h3>
+    <div class="fair-marks">
+      ${PARTNERS.map((p) => `<span class="fair-mark" data-ico="${p.mark}" title="${esc(p.title)}"></span>`).join('')}
+    </div>
+    <p class="fair-partners-text">
+      LUCKYBOX сотрудничает с ${esc(joined)}. В большом спорте
+      репутация строится годами, а рушится за один день, и партнёров там
+      выбирают так же строго, как пилотов на стартовую решётку. Этим доверием
+      мы дорожим больше, чем любым отдельным выигрышем, поэтому каждый исход у
+      нас можно проверить, а не принимать на веру.
+    </p>
+    <div class="fair-pledges">
+      <span>исход записан до игры</span><span>формула открыта</span><span>проверка за минуту</span>
+    </div>`;
+  box.hidden = false;
+  mountIcons(box);
+}
+
 function renderFair() {
   const f = state.user.fair;
-  document.getElementById('serverHash').textContent = f.serverSeedHash;
+  renderFairPartners();
+  decodeInto(document.getElementById('serverHash'), f.serverSeedHash);
   document.getElementById('nonceBox').textContent = f.nonce;
   const input = document.getElementById('clientSeedInput');
   if (document.activeElement !== input) input.value = f.clientSeed;
@@ -4315,7 +4738,7 @@ function switchView(name) {
  * Разделы меню.
  *
  * Нижней панели больше нет: на неё уходила полоса экрана, а разделов стало
- * больше, чем в неё помещается. Вместо этого — кнопка-сетка в шапке и
+ * больше, чем в неё помещается. Вместо этого - кнопка-сетка в шапке и
  * плитки во весь экран.
  */
 /**
@@ -5086,7 +5509,7 @@ async function loadAdminPayments() {
 }
 async function loadAdminSupport(){try{const d=await api('/api/admin/support');document.getElementById('adminSupportList').innerHTML=d.rows.length?d.rows.map(c=>`<button class="payment-history admin-chat-open" data-chat="${c.id}">#${c.id} · ${esc(c.username||c.first_name||c.tg_id)} · ${money(c.payable_amount)} <span class="payment-status ${c.payment_status}">${c.payment_status}</span>${c.unread_admin?` · непрочитано ${c.unread_admin}`:''}</button>`).join(''):'<div class="empty">Обращений нет</div>';document.querySelectorAll('.admin-chat-open').forEach(b=>b.onclick=()=>openAdminChat(Number(b.dataset.chat)));}catch(err){toast(err.message);}}
 async function openAdminChat(chatId){const d=await api('/api/admin/support/chat',{chatId});const box=document.getElementById('adminSupportList');box.innerHTML=`<button class="btn btn-sm" id="supportBack">Назад</button>${d.messages.map(m=>`<div class="support-message ${m.sender_type}"><b>${m.sender_type}</b><br>${esc(m.text||m.attachment_name)}</div>`).join('')}<textarea class="seed-input" id="adminSupportText"></textarea><button class="btn btn-primary" id="adminSupportSend">Ответить</button>`;document.getElementById('supportBack').onclick=loadAdminSupport;document.getElementById('adminSupportSend').onclick=async()=>{await api('/api/admin/support/message',{chatId,text:document.getElementById('adminSupportText').value});openAdminChat(chatId);};}
-async function loadAdminPaymentSettings(){try{const s=await api('/api/admin/payment-settings');const fields=[['beeline_phone','Номер Beeline'],['beeline_completed_limit','Лимит выполненных заявок, ₽ (0 — без лимита)'],['payment_ttl_minutes','Время жизни, мин'],['payment_markup_min','Надбавка от, ₽'],['payment_markup_max','Надбавка до, ₽'],['payment_min','Минимум, ₽'],['payment_max','Максимум, ₽']];const box=document.getElementById('adminPaymentSettings');box.innerHTML=`<div class="settings-grid">${fields.map(([k,l])=>`<label>${l}<input id="setting-${k}" value="${esc(s[k])}"></label>`).join('')}<p class="settings-help">Лимит считается отдельно по указанному номеру. Когда остаток меньше минимального пополнения, реквизит больше не выдаётся.</p><button class="btn btn-primary" id="savePaymentSettings">Сохранить</button></div><h3>Android-устройства</h3><div class="settings-grid device-register"><input id="deviceName" placeholder="Название, например Телефон кассы"><input id="deviceId" placeholder="ID, например beeline-1"><input id="deviceSecret" placeholder="Секрет — минимум 24 символа"><button class="btn btn-primary" id="registerDevice">Создать / обновить устройство</button></div><div id="deviceList"></div>`;document.getElementById('savePaymentSettings').onclick=async()=>{const values=Object.fromEntries(fields.map(([k])=>[k,document.getElementById(`setting-${k}`).value]));await api('/api/admin/payment-settings',{save:true,values});toast('Настройки сохранены');loadAdminPaymentSettings();};document.getElementById('registerDevice').onclick=async()=>{await api('/api/admin/payment-device/register',{name:document.getElementById('deviceName').value,deviceId:document.getElementById('deviceId').value,secret:document.getElementById('deviceSecret').value});toast('Устройство сохранено. Перенесите эти же ID и секрет в APK');loadAdminPaymentSettings();};const dev=await api('/api/admin/payment-devices');document.getElementById('deviceList').innerHTML=dev.rows.map(d=>`<div class="log-row"><span>${esc(d.name)}<br><small>${esc(d.device_id)}</small></span><b>${d.last_seen_at&&Date.now()-d.last_seen_at<300000?'● Online':'○ Offline'}</b></div>`).join('')||'<div class="empty">Добавьте первое устройство выше</div>';}catch(err){toast(err.message);}}
+async function loadAdminPaymentSettings(){try{const s=await api('/api/admin/payment-settings');const fields=[['beeline_phone','Номер Beeline'],['beeline_completed_limit','Лимит выполненных заявок, ₽ (0 - без лимита)'],['payment_ttl_minutes','Время жизни, мин'],['payment_markup_min','Надбавка от, ₽'],['payment_markup_max','Надбавка до, ₽'],['payment_min','Минимум, ₽'],['payment_max','Максимум, ₽']];const box=document.getElementById('adminPaymentSettings');box.innerHTML=`<div class="settings-grid">${fields.map(([k,l])=>`<label>${l}<input id="setting-${k}" value="${esc(s[k])}"></label>`).join('')}<p class="settings-help">Лимит считается отдельно по указанному номеру. Когда остаток меньше минимального пополнения, реквизит больше не выдаётся.</p><button class="btn btn-primary" id="savePaymentSettings">Сохранить</button></div><h3>Android-устройства</h3><div class="settings-grid device-register"><input id="deviceName" placeholder="Название, например Телефон кассы"><input id="deviceId" placeholder="ID, например beeline-1"><input id="deviceSecret" placeholder="Секрет - минимум 24 символа"><button class="btn btn-primary" id="registerDevice">Создать / обновить устройство</button></div><div id="deviceList"></div>`;document.getElementById('savePaymentSettings').onclick=async()=>{const values=Object.fromEntries(fields.map(([k])=>[k,document.getElementById(`setting-${k}`).value]));await api('/api/admin/payment-settings',{save:true,values});toast('Настройки сохранены');loadAdminPaymentSettings();};document.getElementById('registerDevice').onclick=async()=>{await api('/api/admin/payment-device/register',{name:document.getElementById('deviceName').value,deviceId:document.getElementById('deviceId').value,secret:document.getElementById('deviceSecret').value});toast('Устройство сохранено. Перенесите эти же ID и секрет в APK');loadAdminPaymentSettings();};const dev=await api('/api/admin/payment-devices');document.getElementById('deviceList').innerHTML=dev.rows.map(d=>`<div class="log-row"><span>${esc(d.name)}<br><small>${esc(d.device_id)}</small></span><b>${d.last_seen_at&&Date.now()-d.last_seen_at<300000?'● Online':'○ Offline'}</b></div>`).join('')||'<div class="empty">Добавьте первое устройство выше</div>';}catch(err){toast(err.message);}}
 
 function showPayment(p) {
   state.payment = p; const box = document.getElementById('paymentCheckout'); box.hidden = false;
@@ -5222,7 +5645,7 @@ document.getElementById('withdrawSubmit').addEventListener('click', async () => 
  *
  * ПОЧЕМУ НЕ ПЕРЕРИСОВЫВАЕМ ЦЕЛИКОМ. Раньше опрос заменял содержимое ленты
  * разом, и она моргала. Теперь новые выигрыши въезжают по одному слева,
- * сдвигая остальные вправо, — как настоящая живая лента.
+ * сдвигая остальные вправо, - как настоящая живая лента.
  *
  * ПОЧЕМУ ОЧЕРЕДЬ. Сервер добавляет выигрыш каждые две секунды, но сеть
  * отвечает неровно: опрос с тем же периодом приносил бы то ноль записей,
@@ -5245,7 +5668,7 @@ const FEED_STEP_MS = 2000;
 /** Сколько карточек держим в DOM. */
 const FEED_MAX_CARDS = 20;
 
-/** Ключи уже показанных записей — иначе один выигрыш въехал бы дважды. */
+/** Ключи уже показанных записей - иначе один выигрыш въехал бы дважды. */
 const feedSeen = new Set();
 
 /** Выигрыши, дождавшиеся своей очереди на показ. */
@@ -5289,60 +5712,126 @@ function pushFeedCard(drop, animate = true) {
   document.getElementById('feed').hidden = false;
 }
 
+/** Сколько длится вход сцены выигрыша из ленты до появления подписей. */
+const FEED_SCENE_MS = 900;
+
+/** Уход сцены: короткий, игрок уже решил закрыть. */
+const FEED_SCENE_OUT_MS = 180;
+
 /**
- * Карточка выигрыша из ленты.
+ * Выигрыш из ленты.
  *
  * Витрина показывает, что и сколько выпало, но не откуда - а именно это и
  * интересно: увидел крупное выпадение, хочешь тот же кейс. Поэтому нажатие
- * открывает карточку с обложкой кейса и кнопкой, которая ведёт прямо в него.
+ * открывает сцену с обложкой кейса и кнопкой, которая ведёт прямо в него.
+ *
+ * Это сцена, а не окно с текстом: карточка срывается с ленты с того места,
+ * где её нажали, переворачивается в воздухе, и за ней из света поднимается
+ * кейс-источник. Порядок важен: сначала предмет (на него нажали), потом
+ * откуда он (ради этого открыли), и только потом подписи и кнопка.
  */
-function openFeedDrop(drop) {
+function openFeedDrop(drop, fromEl = null) {
   const c = state.config.cases.find((x) => x.id === drop.caseId);
-  const backdrop = document.getElementById('feedBackdrop');
+  const scene = document.getElementById('feedBackdrop');
   const color = tierColor(drop.tier);
+  const skin = drop.skin || skinOfCase(drop.caseId);
 
-  backdrop.style.setProperty('--tier-color', color);
+  scene.style.setProperty('--tier-color', color);
   document.getElementById('feedSheetTier').textContent =
     state.config.tiers.find((t) => t.id === drop.tier)?.label || '';
-  document.getElementById('feedSheetName').textContent = drop.name;
+  const nameEl = document.getElementById('feedSheetName');
+  nameEl.textContent = drop.name;
+  nameEl.dataset.material = skin.material || 'matte';
   document.getElementById('feedSheetValue').textContent = money(drop.value);
+
+  // Карточка предмета - той же разметкой, что состав кейса: игрок узнаёт её
+  // по виду, а сцена не заводит своего третьего оформления предмета.
+  const card = document.getElementById('feedSheetCard');
+  card.innerHTML = `<div class="drop-card rw-skin" ${skinAttrs(skin)} style="--tier-color:${color}">
+      <div class="drop-ico">${tileArt(drop, color)}</div>
+      <div class="drop-name"><span>${esc(drop.name)}</span></div>
+      <div class="drop-value">${money(drop.value)}</div>
+    </div>`;
 
   const cover = document.getElementById('feedSheetCover');
   cover.innerHTML = c ? caseCover(c) : '';
-  if (c?.artGlow) {
-    cover.style.setProperty('--art-glow', `hsl(${c.artGlow[0]} 95% 58% / 0.5)`);
-    cover.style.setProperty('--art-glow-far', `hsl(${c.artGlow[1]} 90% 60% / 0.42)`);
-  }
+  const [h1, h2] = c?.artGlow || [275, 300];
+  scene.style.setProperty('--glow-a', `hsl(${h1} 95% 60%)`);
+  scene.style.setProperty('--glow-b', `hsl(${h2} 90% 62%)`);
 
   document.getElementById('feedSheetCase').innerHTML = c
-    ? `${esc(c.name)} · <span>${money(c.price)}</span>`
+    ? `${esc(c.name)}`
     : esc(drop.caseName || '');
 
   const openBtn = document.getElementById('feedSheetOpen');
   const closeBtn = document.getElementById('feedSheetClose');
   openBtn.hidden = !c;
+  if (c) {
+    document.getElementById('feedSheetSub').textContent = c.name;
+    document.getElementById('feedSheetPrice').textContent = money(c.price);
+  }
+
+  // Пылинки поднимаются от кейса к карточке: след, по которому видно, откуда
+  // она. Каждая со своей траекторией и задержкой, иначе облако читалось бы
+  // одним штампом.
+  document.getElementById('feedSheetMotes').innerHTML = Array.from({ length: 22 }, () => {
+    const x = (Math.random() * 2 - 1) * 90;
+    return `<i style="--x:${x.toFixed(0)}px;--drift:${((Math.random() * 2 - 1) * 40).toFixed(0)}px;
+      --d:${(700 + Math.random() * 2400).toFixed(0)}ms;--t:${(2200 + Math.random() * 1800).toFixed(0)}ms;
+      --s:${(2 + Math.random() * 3).toFixed(1)}px"></i>`;
+  }).join('');
+
+  /*
+   * Карточка вылетает оттуда, где её нажали: сдвиг от её места в сцене до
+   * плитки ленты считается из настоящих прямоугольников, а не задаётся числом.
+   * Без плитки (например, открыли из кода) она просто проявляется на месте.
+   */
+  scene.hidden = false;
+  scene.classList.remove('is-in', 'is-out');
+  const from = fromEl?.getBoundingClientRect();
+  if (from && from.width) {
+    const to = card.getBoundingClientRect();
+    card.style.setProperty('--fx', `${(from.left + from.width / 2 - (to.left + to.width / 2)).toFixed(0)}px`);
+    card.style.setProperty('--fy', `${(from.top + from.height / 2 - (to.top + to.height / 2)).toFixed(0)}px`);
+    card.style.setProperty('--fs', (from.width / to.width).toFixed(3));
+  } else {
+    card.style.setProperty('--fx', '0px');
+    card.style.setProperty('--fy', '40px');
+    card.style.setProperty('--fs', '0.6');
+  }
+  void scene.offsetWidth;
+  scene.classList.add('is-in');
+  sndWhoosh(true);
+  setTimeout(() => { if (!scene.hidden) sndChime(); }, FEED_SCENE_MS * 0.6);
 
   const close = () => {
-    backdrop.hidden = true;
+    if (scene.classList.contains('is-out')) return;
+    scene.classList.add('is-out');
     openBtn.onclick = null;
     closeBtn.onclick = null;
-    backdrop.onclick = null;
+    scene.onclick = null;
+    setTimeout(() => {
+      scene.hidden = true;
+      scene.classList.remove('is-in', 'is-out');
+    }, FEED_SCENE_OUT_MS);
   };
 
   // Кнопки нет, если кейса в конфиге не нашлось: запись могла остаться в
   // ленте от версии, где такой кейс ещё был.
   openBtn.onclick = c ? () => { close(); openCase(c.id); } : null;
   closeBtn.onclick = () => { close(); haptic('light'); };
-  backdrop.onclick = (e) => { if (e.target === backdrop) close(); };
-
-  backdrop.hidden = false;
+  // Закрывается нажатием мимо: по затемнению и пустому месту сцены.
+  scene.onclick = (e) => {
+    if (e.target.closest('.fsc-actions, .fsc-card, .fsc-info')) return;
+    close();
+  };
   haptic('light');
 }
 
 document.getElementById('feedTrack')?.addEventListener('click', (e) => {
   const card = e.target.closest('.feed-card');
   const drop = card && feedDrops.get(card.dataset.drop);
-  if (drop) openFeedDrop(drop);
+  if (drop) openFeedDrop(drop, card);
 });
 
 async function pollFeed() {
@@ -5398,7 +5887,7 @@ function startFeed() {
 
 /**
  * Плитка появляется, только когда раздел настроен на сервере: заданы канал,
- * токен бота и выдаваемый кейс. Пока их нет, кнопки просто не существует —
+ * токен бота и выдаваемый кейс. Пока их нет, кнопки просто не существует -
  * лучше, чем висящая заглушка, которая ничего не делает.
  */
 function renderFreeCase(info) {
@@ -5442,7 +5931,7 @@ document.getElementById('freeCase').addEventListener('click', async () => {
   } catch (err) {
     toast(err.message);
     haptic('error');
-    // Не подписан — открываем канал, чтобы не искать его руками.
+    // Не подписан - открываем канал, чтобы не искать его руками.
     const url = state.config?.freeCase?.channelUrl;
     if (url && /подпиш/i.test(err.message)) {
       if (tg?.openTelegramLink) tg.openTelegramLink(url);
@@ -5618,7 +6107,7 @@ async function loadPartner() {
 
 /**
  * Ставка против цели. Сектор выигрыша нарисован на кольце, стрелка
- * останавливается на угле roll * 360 градусов от верхней точки — то есть
+ * останавливается на угле roll * 360 градусов от верхней точки - то есть
  * картинка ровно повторяет то, что посчитал сервер, и её можно проверить
  * через раздел «Честность».
  */
@@ -5663,7 +6152,7 @@ function renderUpgradePicker() {
   });
 }
 
-/** Насечки по кругу — иначе кольцо выглядит пустым до первого прокрута. */
+/** Насечки по кругу - иначе кольцо выглядит пустым до первого прокрута. */
 function renderUpgradeTicks() {
   const g = document.getElementById('upgTicks');
   if (!g || g.childElementCount) return;
@@ -5684,7 +6173,7 @@ function renderUpgradeTicks() {
 /**
  * Пересчитывает цель и длину сектора под текущую ставку.
  *
- * Формулы те же, что на сервере, — но результат раунда клиент всё равно
+ * Формулы те же, что на сервере, - но результат раунда клиент всё равно
  * не решает: сюда приходит только оформление, исход считает сервер.
  */
 function renderUpgradeStage() {
@@ -5841,7 +6330,7 @@ const ONBOARDING = [
     // legal.js, и пока его не вписали, текст обходится без него.
     text: 'Хеш серверного ключа публикуется <b>до</b> вашей игры. ' +
       'После смены ключа любой прошедший ролл пересчитывается вручную ' +
-      'и должен сойтись до последнего знака. Раздел «Честность» в меню.',
+      'и должен сойтись до последнего знака. Раздел «Честность игры» в подвале сайта.',
     extra: licenseLine,
   },
   {
@@ -5984,7 +6473,7 @@ async function init() {
     wireBetPanel('rouletteBet', 'data-roul-add', 'data-roul-bet');
     wireBetPanel('upgStake', 'data-upg-add', 'data-upg-bet');
 
-    // Цель пересчитывается на лету — иначе игрок жмёт «Апгрейд», не увидев,
+    // Цель пересчитывается на лету - иначе игрок жмёт «Апгрейд», не увидев,
     // за что играет.
     document.getElementById('upgStake').addEventListener('input', () => {
     if (!state.busy) renderUpgradeStage();
@@ -6378,16 +6867,16 @@ function runHeroSlider() {
 /**
  * Витринные счётчики: открытых кейсов и игроков.
  *
- * Числа не приходят с сервера и ничего не измеряют — это оформление, как и
+ * Числа не приходят с сервера и ничего не измеряют - это оформление, как и
  * счётчик зрителей на экране кейса. Кейсы прибавляются каждую секунду,
- * игроки — примерно раз в десять минут, иначе рост выглядел бы неправдоподобно.
+ * игроки - примерно раз в десять минут, иначе рост выглядел бы неправдоподобно.
  *
  * Стартовая точка сдвигается по реальному времени, поэтому у зашедшего завтра
  * счётчик не откатится к исходному значению.
  */
 function startFooterCounters() {
   // Константы объявлены внутри намеренно: функция вызывается при отрисовке
-  // подвала, а это происходит раньше, чем выполнится конец файла, — вынесенные
+  // подвала, а это происходит раньше, чем выполнится конец файла, - вынесенные
   // наружу const попали бы в мёртвую зону и уронили бы страницу.
   const ORIGIN = Date.parse('2026-08-17T00:00:00Z');
   const BASE = { cases: 1_567_266, players: 45_678 };

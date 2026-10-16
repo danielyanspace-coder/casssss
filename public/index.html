@@ -315,42 +315,104 @@
       </div>
     </section>
 
-    <!-- ══════════ ЧЕСТНОСТЬ ══════════ -->
+    <!-- ══════════ ЧЕСТНОСТЬ ══════════
+         Сначала обещание и почему ему можно верить, потом как это устроено,
+         и только потом ключи и формула. Прежний раздел начинался с полей
+         хеша: игрок, не знающий, что такое seed, видел таблицу и уходил. -->
     <section class="view" id="view-fair">
-      <h2 class="section-title">Provably fair</h2>
-      <p class="fair-intro">
-        Результат каждого раунда считается заранее заданной формулой, а не
-        «на усмотрение сервера». Хеш серверного seed вы видите до игры -
-        подменить seed задним числом невозможно, хеш не сойдётся.
-      </p>
+      <div class="fair-hero">
+        <div class="fair-seal" aria-hidden="true">
+          <svg viewBox="0 0 120 120">
+            <defs>
+              <linearGradient id="fairSealG" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" stop-color="#fff6cf"/><stop offset=".45" stop-color="#ffd34d"/>
+                <stop offset=".55" stop-color="#c8781a"/><stop offset="1" stop-color="#ffe9a0"/>
+              </linearGradient>
+              <path id="fairSealArc" d="M60 60m-47 0a47 47 0 1 1 94 0a47 47 0 1 1-94 0"/>
+            </defs>
+            <g class="fair-seal-ring">
+              <text font-size="7.4" font-weight="800" letter-spacing="2.6" fill="#ffd34d" opacity=".75">
+                <textPath href="#fairSealArc">PROVABLY FAIR · HMAC SHA-256 · PROVABLY FAIR · HMAC SHA-256 ·</textPath>
+              </text>
+            </g>
+            <path d="M60 26 86 36v20c0 18-11 30-26 37-15-7-26-19-26-37V36z" fill="#1d0b38" stroke="url(#fairSealG)" stroke-width="3"/>
+            <path class="fair-seal-check" d="M47 59l9 9 18-20" fill="none" stroke="url(#fairSealG)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <div class="fair-eyebrow">Provably fair</div>
+        <h2 class="fair-title">Честная игра</h2>
+        <p class="fair-lead">
+          Исход каждого раунда записан до того, как вы нажали кнопку. Отпечаток
+          этой записи вы видите заранее, а саму запись мы раскрываем потом:
+          подменить её незаметно не может никто, даже мы.
+        </p>
+      </div>
 
-      <div class="fair-card">
-        <label class="fair-label">Хеш серверного seed</label>
+      <div class="fair-partners" id="fairPartners" hidden></div>
+
+      <div class="fair-steps">
+        <div class="fair-step" style="--i:0">
+          <div class="fair-step-ico" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path class="fair-shackle" d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+          </div>
+          <div>
+            <b>Мы загадываем</b>
+            <p>Сервер выбирает секретный ключ и сразу показывает его отпечаток. По
+              отпечатку ключ не восстановить, а поменять ключ, не изменив отпечаток,
+              невозможно.</p>
+          </div>
+        </div>
+        <div class="fair-step" style="--i:1">
+          <div class="fair-step-ico" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h7l-2-2M4 7l5 0"/><path d="M20 17h-7l2 2"/><circle cx="17" cy="7" r="3"/><circle cx="7" cy="17" r="3"/></svg>
+          </div>
+          <div>
+            <b>Вы добавляете своё</b>
+            <p>Ваша строка и номер раунда смешиваются с ключом сервера. Смените
+              строку в любой момент, и заранее исход не будет знать никто.</p>
+          </div>
+        </div>
+        <div class="fair-step" style="--i:2">
+          <div class="fair-step-ico" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="3"/><circle cx="9" cy="9" r="1.3" fill="currentColor"/><circle cx="15" cy="15" r="1.3" fill="currentColor"/><circle cx="15" cy="9" r="1.3" fill="currentColor"/><circle cx="9" cy="15" r="1.3" fill="currentColor"/></svg>
+          </div>
+          <div>
+            <b>Формула решает</b>
+            <p>HMAC-SHA256 превращает всё это в число от нуля до единицы, и число
+              попадает в интервал предмета. Ни ручек, ни исключений.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="fair-card fair-keys">
+        <h3 class="fair-h3">Ваши ключи</h3>
+        <label class="fair-label">Отпечаток ключа сервера (хеш)</label>
         <div class="mono-box" id="serverHash">-</div>
 
-        <label class="fair-label">Ваш client seed</label>
+        <label class="fair-label">Ваша строка (client seed)</label>
         <div class="seed-row">
           <input class="seed-input" id="clientSeedInput" maxlength="64" placeholder="любая строка">
           <button class="btn btn-sm" id="saveSeedBtn">ОК</button>
         </div>
 
-        <label class="fair-label">Nonce (номер раунда)</label>
+        <label class="fair-label">Номер раунда (nonce)</label>
         <div class="mono-box" id="nonceBox">-</div>
 
-        <button class="btn btn-outline btn-wide" id="rotateBtn">
-          Сменить серверный seed и раскрыть текущий
+        <button class="take-btn take-wide fair-rotate" id="rotateBtn">
+          Сменить ключ сервера и раскрыть текущий
         </button>
       </div>
 
-      <div class="fair-card" id="revealedCard" hidden>
-        <label class="fair-label">Раскрытый серверный seed</label>
+      <div class="fair-card fair-revealed" id="revealedCard" hidden>
+        <h3 class="fair-h3">Раскрытый ключ</h3>
+        <label class="fair-label">Ключ сервера прошлой серии</label>
         <div class="mono-box" id="revealedSeed">-</div>
-        <label class="fair-label">Его хеш (сверьте с тем, что видели раньше)</label>
+        <label class="fair-label">Его отпечаток: сверьте с тем, что видели до игры</label>
         <div class="mono-box" id="revealedHash">-</div>
       </div>
 
       <div class="fair-card">
-        <h3 class="fair-h3">Как проверить самому</h3>
+        <h3 class="fair-h3">Проверьте сами</h3>
         <pre class="code-block">roll = HMAC_SHA256(serverSeed, "clientSeed:nonce")
 число = первые 8 hex-символов / 2^32</pre>
         <p class="fair-note">
@@ -764,18 +826,28 @@
           <div class="result-name" id="resultName"></div>
           <div class="result-value" id="resultValue"></div>
           <div class="result-net" id="resultNet"></div>
+          <!-- «Ещё раз» той же золотой кнопкой, что и «Открыть»: это то же
+               действие, и игрок узнаёт его по виду, а не по надписи. -->
           <div class="result-actions">
-            <button class="btn btn-outline" id="closeOpener">Забрать</button>
-            <button class="btn btn-primary" id="againBtn">Ещё раз</button>
+            <button class="take-btn" id="closeOpener">Забрать</button>
+            <button class="open-cta again-cta" id="againBtn">
+              <span class="open-act"><span id="againAct">Ещё раз</span><small id="againSub"></small></span>
+              <span class="open-price" id="againPrice"></span>
+            </button>
           </div>
-          <button class="btn btn-huge btn-gamble" id="gambleStartBtn" hidden></button>
+          <!-- Риск - предложение, а не главное действие: кнопка меньше
+               остальных и стоит под ними. -->
+          <button class="gamble-cta" id="gambleStartBtn" hidden></button>
         </div>
 
         <div class="gamble" id="gamble" hidden>
           <div class="gamble-rules" id="gambleRules"></div>
-          <div class="gamble-cards" id="gambleCards"></div>
+          <div class="gamble-table">
+            <div class="gamble-cards" id="gambleCards"></div>
+            <div class="gamble-fx" id="gambleFx" aria-hidden="true"></div>
+          </div>
           <div class="gamble-outcome" id="gambleOutcome"></div>
-          <button class="btn btn-outline btn-wide" id="gambleSkipBtn">Забрать без риска</button>
+          <button class="take-btn take-wide" id="gambleSkipBtn">Забрать без риска</button>
         </div>
 
         <div class="opener-history" id="openerHistory"></div>
@@ -829,18 +901,32 @@
     </div>
   </div>
 
-  <!-- Карточка выигрыша из ленты: показывает, из какого он кейса. -->
-  <div class="confirm-backdrop" id="feedBackdrop" hidden>
-    <div class="confirm-sheet feed-sheet">
-      <div class="feed-sheet-tier" id="feedSheetTier"></div>
-      <div class="feed-sheet-name" id="feedSheetName"></div>
-      <div class="feed-sheet-value" id="feedSheetValue"></div>
-      <div class="feed-sheet-from">выпал из кейса</div>
-      <div class="feed-sheet-cover" id="feedSheetCover"></div>
-      <div class="feed-sheet-case" id="feedSheetCase"></div>
-      <div class="confirm-actions">
-        <button class="btn btn-outline" id="feedSheetClose">Закрыть</button>
-        <button class="btn btn-primary" id="feedSheetOpen">Открыть</button>
+  <!-- Выигрыш из ленты: что выпало и из какого кейса. Сцена, а не окно:
+       карточка срывается с ленты, переворачивается, и за ней из света
+       поднимается кейс, из которого она выпала. -->
+  <div class="feed-scene" id="feedBackdrop" hidden>
+    <div class="fsc-dim"></div>
+    <div class="fsc-sky" aria-hidden="true"><div class="fsc-rays"></div><div class="fsc-rays is-back"></div></div>
+    <div class="fsc-motes" id="feedSheetMotes" aria-hidden="true"></div>
+    <div class="fsc-body">
+      <div class="fsc-stage">
+        <div class="fsc-cover" id="feedSheetCover"></div>
+        <div class="fsc-beam" aria-hidden="true"></div>
+        <div class="fsc-card" id="feedSheetCard"></div>
+      </div>
+      <div class="fsc-info">
+        <div class="fsc-tier" id="feedSheetTier"></div>
+        <div class="result-name fsc-name" id="feedSheetName"></div>
+        <div class="fsc-value" id="feedSheetValue"></div>
+        <div class="fsc-from"><span>выпал из кейса</span></div>
+        <div class="fsc-case" id="feedSheetCase"></div>
+      </div>
+      <div class="fsc-actions">
+        <button class="take-btn" id="feedSheetClose">Закрыть</button>
+        <button class="open-cta" id="feedSheetOpen">
+          <span class="open-act"><span>Открыть кейс</span><small id="feedSheetSub"></small></span>
+          <span class="open-price" id="feedSheetPrice"></span>
+        </button>
       </div>
     </div>
   </div>

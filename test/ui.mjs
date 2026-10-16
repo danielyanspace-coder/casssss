@@ -1,7 +1,7 @@
 /**
  * Сквозной тест интерфейса в браузере.
  *
- * Главная проверка — совпадение ленты с результатом: плитка, оказавшаяся под
+ * Главная проверка - совпадение ленты с результатом: плитка, оказавшаяся под
  * маркером, обязана быть той же, что показана в результате. Именно здесь
  * ломалось, когда размер плитки в CSS разошёлся с константой в коде.
  *
@@ -49,7 +49,7 @@ const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
 const consoleErrors = [];
 page.on('console', (m) => {
   const t = m.text();
-  // Внешние ресурсы (скрипт Telegram, favicon) в тесте недоступны — не считаем.
+  // Внешние ресурсы (скрипт Telegram, favicon) в тесте недоступны - не считаем.
   if (m.type() === 'error' && !/ERR_(FILE_NOT_FOUND|CONNECTION_RESET|NAME_NOT_RESOLVED)|404/.test(t)) {
     consoleErrors.push(t);
   }
@@ -379,7 +379,7 @@ async function goto(view) {
       withValue: cards.filter((c) => /\d/.test(c.querySelector('.feed-value')?.textContent || '')).length,
       withNick: cards.filter((c) => c.querySelector('.feed-nick')).length,
       clickable: cards.filter((c) => c.dataset.drop).length,
-      // Лента не должна выдавать шансы — как и остальной интерфейс.
+      // Лента не должна выдавать шансы - как и остальной интерфейс.
       percents: cards.filter((c) => c.textContent.includes('%')).length,
     };
   });
@@ -456,7 +456,7 @@ await page.waitForSelector('#upgradeBtn', { state: 'visible' });
         parseInt(high.target.replace(/\D/g, ''), 10) > parseInt(low.target.replace(/\D/g, ''), 10),
         `${low.target} → ${high.target}`);
 
-  // Прокрут: указатель обязан встать на угол ролла, а исход — совпасть
+  // Прокрут: указатель обязан встать на угол ролла, а исход - совпасть
   // с тем, попал ли этот угол в нарисованный сектор.
   await page.evaluate(() => {
     document.querySelector('.upg-opt[data-mult="1.5"]').click();
@@ -489,7 +489,7 @@ await page.waitForSelector('#upgradeBtn', { state: 'visible' });
         `угол ${spun.angle.toFixed(1)}°, сектор ${spun.sector.toFixed(1)}°, выигрыш ${spun.won}`);
 
   // Кнопка запуска обязана быть видна без прокрутки: тянуться вниз перед
-  // каждым запуском — лишнее движение на самом частом действии раздела.
+  // каждым запуском - лишнее движение на самом частом действии раздела.
   const fit = await page.evaluate(() => {
     window.scrollTo(0, 0);
     const btn = document.getElementById('upgradeBtn').getBoundingClientRect();
@@ -557,7 +557,7 @@ async function ensureOpenerClosed() {
   if (!open) return;
   await page.click('#closeOpenerTop');
   // waitForSelector по умолчанию ждёт видимости, а скрытый элемент видимым
-  // не станет никогда — ждём именно состояние.
+  // не станет никогда - ждём именно состояние.
   await page.waitForFunction(() => document.getElementById('opener').hidden, { timeout: 5000 });
   await page.waitForTimeout(200);
 }
@@ -622,7 +622,7 @@ async function openCaseAndVerify(caseId) {
 
   return page.evaluate(() => {
     // Именно родитель нужной ленты: класс .reel-wrap есть и у рулетки,
-    // а querySelector вернул бы её — скрытую, с нулевыми координатами.
+    // а querySelector вернул бы её - скрытую, с нулевыми координатами.
     // Первая лента пачки: при мультиоткрытии их несколько.
     const reel = document.querySelector('#reels .reel');
     const box = reel.parentElement.getBoundingClientRect();
@@ -868,7 +868,7 @@ async function openCaseAndVerify(caseId) {
       reelsHidden: document.getElementById('reels').hidden,
       кейсов: arts.length,
       загрузились: arts.every((a) => a.complete && a.naturalWidth > 0),
-      // Кейсы не должны вылезать за ряд: при ×5 они обязаны сжаться.
+      // Кейсы не должны вылезать за ряд: при ×3 они обязаны сжаться.
       влезли: arts.every((a) => {
         const row = document.getElementById('caseStageRow').getBoundingClientRect();
         const r = a.getBoundingClientRect();
@@ -903,7 +903,8 @@ async function openCaseAndVerify(caseId) {
     return null;
   };
 
-  for (const n of [3, 5]) {
+  // Потолок пачки - три: «+» на ×3 дальше не ведёт.
+  for (const n of [2, 3]) {
     const got = await setCount(n);
     check(`икс: кнопки «−» и «+» доводят до ×${n}`, got === n, `стоит ×${got}`);
     await page.waitForTimeout(200);
@@ -1077,6 +1078,95 @@ check('показ выигрыша убирает за собой', stuckAfter.l
   await ensureOpenerClosed();
 }
 
+/* ---------- «Ещё раз», выпадения карточками, потолок пачки ---------- */
+
+/*
+ * «Ещё раз» крутит ту же ленту сразу: обряд с тряской положен только первому
+ * открытию. Выпадения игрока на экране кейса - карточками по три в ряд,
+ * нажатие показывает предмет крупно. Пачка - не больше трёх кейсов.
+ */
+{
+  await openCaseAndVerify('warmup_100');
+  await page.click('#againBtn');
+  await page.waitForTimeout(350);
+  const again = await page.evaluate(() => ({
+    shaking: document.getElementById('caseStage').classList.contains('is-shaking'),
+    stage: !document.getElementById('caseStage').hidden,
+    reels: !document.getElementById('reels').hidden,
+  }));
+  check('«Ещё раз»: без тряски кейса, сразу лента',
+        !again.shaking && !again.stage && again.reels, JSON.stringify(again));
+  await page.waitForFunction(() => {
+    const res = document.getElementById('result');
+    const btn = document.getElementById('fsCollect');
+    return !res.hidden || !btn.hidden;
+  }, null, { timeout: 180000 });
+  while (await page.evaluate(() => !document.getElementById('fsCollect').hidden)) {
+    await page.click('#fsCollect');
+    await page.waitForTimeout(800);
+  }
+  await page.waitForSelector('#result:not([hidden])', { timeout: 30000 });
+  await page.waitForTimeout(600);
+  check('«Ещё раз»: кнопка той же золотой разметки, что «Открыть»',
+        await page.evaluate(() => document.getElementById('againBtn').classList.contains('open-cta')));
+
+  await page.click('#closeOpener');
+  await page.waitForSelector('#histGrid .hist-card', { state: 'attached', timeout: 10000 });
+  await page.waitForTimeout(700);
+  const hist = await page.evaluate(() => {
+    const cards = [...document.querySelectorAll('#histGrid .hist-card')];
+    const grid = document.getElementById('histGrid').getBoundingClientRect();
+    const rows = new Map();
+    for (const c of cards) {
+      const r = c.getBoundingClientRect();
+      const key = Math.round(r.top);
+      (rows.get(key) || rows.set(key, []).get(key)).push(r);
+    }
+    const list = [...rows.values()];
+    const last = list[list.length - 1];
+    const left = last[0].left - grid.left;
+    const right = grid.right - last[last.length - 1].right;
+    const card = document.querySelector('#dropsGrid .drop-card:not(.is-showcase)').getBoundingClientRect();
+    return {
+      count: cards.length,
+      firstRow: list[0].length,
+      centered: Math.abs(left - right) <= 2,
+      smaller: cards[0].getBoundingClientRect().width < card.width,
+    };
+  });
+  check('выпадения: карточками на экране кейса', hist.count > 0, `карточек ${hist.count}`);
+  check('выпадения: по три в ряд на телефоне', hist.firstRow === Math.min(3, hist.count), `в ряду ${hist.firstRow}`);
+  check('выпадения: неполный ряд по центру', hist.centered);
+  check('выпадения: мельче карточек состава', hist.smaller);
+
+  await page.evaluate(() => document.querySelector('#histGrid .hist-card').scrollIntoView({ block: 'center' }));
+  await page.waitForTimeout(300);
+  await page.click('#histGrid .hist-card');
+  await page.waitForTimeout(1300);
+  const shownHist = await page.evaluate(() => ({
+    open: !!document.querySelector('.mo-inspect'),
+    text: document.querySelector('.mo-inspect')?.textContent || '',
+  }));
+  check('выпадения: карточка открывается крупно', shownHist.open);
+  check('выпадения: показ не выдаёт себя за выигрыш', !/\bWIN\b/.test(shownHist.text));
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(900);
+
+  // Потолок пачки: «+» дальше ×3 не ведёт.
+  await page.evaluate(() => document.getElementById('countRow').scrollIntoView({ block: 'center' }));
+  for (let i = 0; i < 5; i++) {
+    await page.click('#countRow [data-step="1"]');
+    await page.waitForTimeout(80);
+  }
+  const top = await page.evaluate(() => document.getElementById('countVal').textContent.replace(/\D/g, ''));
+  check('пачка: не больше трёх кейсов за раз', top === '3', `стоит ×${top}`);
+  for (let i = 0; i < 3; i++) {
+    await page.click('#countRow [data-step="-1"]');
+    await page.waitForTimeout(80);
+  }
+  await ensureOpenerClosed();
+}
+
 /* ---------- Маркер: стрелки, а не полоска ---------- */
 
 {
@@ -1185,8 +1275,8 @@ for (let attempt = 0; attempt < 6 && !gambleTested; attempt++) {
     await page.waitForSelector('.gcard', { state: 'visible' });
 
     const rules = await page.textContent('#gambleRules');
-    check('риск: правила показаны над картами', /туза среди/.test(rules), rules.trim());
-    // Числовые шансы из интерфейса убраны намеренно — проверяем, что они
+    check('риск: правила показаны над картами', /туз среди 6 карт/.test(rules), rules.trim());
+    // Числовые шансы из интерфейса убраны намеренно - проверяем, что они
     // не вернулись ни здесь, ни в составе кейса.
     check('риск: процент шанса не показан', !/%/.test(rules), rules.trim());
 
@@ -1287,16 +1377,18 @@ if (check('сезонный кейс есть в конфиге', seasonal !== n
 
   const sheet = await page.evaluate(() => ({
     disabled: document.getElementById('doOpenBtn').disabled,
-    showcase: document.querySelectorAll('.drop-card.is-showcase').length,
+    // Только сетка состава: выпадения игрока ниже нарисованы теми же
+    // карточками, но идут по времени, а не по цене.
+    showcase: document.querySelectorAll('#dropsGrid .drop-card.is-showcase').length,
     // Витринный предмет не должен встречаться в таблице розыгрыша.
-    inTable: [...document.querySelectorAll('.drop-card:not(.is-showcase) .drop-name')]
+    inTable: [...document.querySelectorAll('#dropsGrid .drop-card:not(.is-showcase) .drop-name')]
       .map((n) => n.textContent.trim()),
-    showcaseName: document.querySelector('.drop-card.is-showcase .drop-name')?.textContent.trim() || '',
+    showcaseName: document.querySelector('#dropsGrid .drop-card.is-showcase .drop-name')?.textContent.trim() || '',
     // Числовых шансов в составе быть не должно.
     chances: document.querySelectorAll('.item-chance').length,
-    badges: [...document.querySelectorAll('.drop-card')].map((b) => b.textContent),
+    badges: [...document.querySelectorAll('#dropsGrid .drop-card')].map((b) => b.textContent),
     // Состав отсортирован от дорогого к дешёвому.
-    values: [...document.querySelectorAll('.drop-card:not(.is-showcase) .drop-value')]
+    values: [...document.querySelectorAll('#dropsGrid .drop-card:not(.is-showcase) .drop-value')]
       .map((v) => Number(v.textContent.replace(/[^\d]/g, ''))).filter((x) => x > 0),
   }));
 
@@ -1346,7 +1438,13 @@ const fair = await page.evaluate(() => ({
   hash: document.getElementById('serverHash').textContent.trim().length,
   stats: document.querySelectorAll('#statsGrid').length,
   visible: document.getElementById('view-fair').classList.contains('active'),
+  partners: document.getElementById('fairPartners').hidden ? 0
+    : document.querySelectorAll('#fairPartners .fair-mark svg').length,
+  steps: document.querySelectorAll('#view-fair .fair-step').length,
 }));
+// Партнёры берутся из legal.js -> PARTNERS: сколько записей, столько знаков.
+check('честность: партнёры показаны знаками', fair.partners === 2, `знаков ${fair.partners}`);
+check('честность: три шага проверки', fair.steps === 3, `шагов ${fair.steps}`);
 check('честность: открывается ссылкой из подвала', fair.visible);
 check('честность: хеш серверного seed показан', fair.hash === 64, `длина ${fair.hash}`);
 check('честность: личная статистика убрана', fair.stats === 0, `блоков ${fair.stats}`);

@@ -696,26 +696,48 @@ export function createMotion({ money, artFor, tierColor, snd, haptic = () => {} 
     // Откуда летит сгусток: элемент или заранее снятые координаты. Кнопку
     // покупки прячут вместе с панелью кейса раньше, чем начнётся пролог, и
     // у спрятанной прямоугольник нулевой - сгусток вылетел бы из угла.
-    let ob = null;
-    if (o.origin?.getBoundingClientRect) { const b = box(o.origin); if (b.w) ob = b; }
-    else if (o.origin && o.origin.cx != null) ob = o.origin;
-    ob ||= { cx, cy: H * 0.8 };
+    const where = (src) => {
+      if (src?.getBoundingClientRect) { const b = box(src); return b.w ? b : null; }
+      return src && src.cx != null ? src : null;
+    };
+    /*
+     * В пачке серия может выпасть сразу на нескольких лентах. Тогда сгустков
+     * несколько, по одному с каждой плитки, и в центре они сливаются в один:
+     * игрок видит, что серия общая и откуда в ней взялось каждое слагаемое.
+     */
+    const origins = (o.origins || [o.origin]).map(where).filter(Boolean);
+    if (!origins.length) origins.push({ cx, cy: H * 0.8 });
+    const ob = origins[0];
 
     // 1. Сгусток летит в центр по дуге.
-    const orb = el('div', 'mo-orb', top);
-    orb.style.left = `${ob.cx}px`; orb.style.top = `${ob.cy}px`;
     const dim = el('div', 'mo-dim');
     anim(dim, [{ opacity: 0 }, { opacity: 1 }], { duration: 700, easing: E.out });
     recede(true);
     const to = (k) => `translate(${(cx - ob.cx) * k}px, ${(cy - ob.cy) * k}px)`;
-    anim(orb, [
-      { transform: 'translate(0,0) scale(.6)' },
-      { transform: `translate(${(cx - ob.cx) * 0.4 + 60}px, ${(cy - ob.cy) * 0.55}px) scale(1.4)`, offset: 0.5 },
-      { transform: `${to(1)} scale(2.2)` },
-    ], { duration: 560, easing: E.inout });
+    const orbs = origins.map((p, i) => {
+      const it = el('div', 'mo-orb', top);
+      it.style.left = `${p.cx}px`; it.style.top = `${p.cy}px`;
+      // Дуги разведены в разные стороны: три сгустка по одной дуге летели бы
+      // гуськом и читались как один.
+      const bend = origins.length > 1 ? (i - (origins.length - 1) / 2) * 120 : 60;
+      anim(it, [
+        { transform: 'translate(0,0) scale(.6)' },
+        { transform: `translate(${(cx - p.cx) * 0.4 + bend}px, ${(cy - p.cy) * 0.55}px) scale(1.4)`, offset: 0.5 },
+        { transform: `translate(${cx - p.cx}px, ${cy - p.cy}px) scale(2.2)` },
+      ], { duration: 560 + i * 90, easing: E.inout });
+      return it;
+    });
+    const orb = orbs[0];
     play('sndWhoosh');
-    emit(540, 16, () => { const b = box(orb); sparks(b.cx, b.cy, 3, ['#fff6cf', '#ffd34d', '#ff8a1f'], 140, { g: 60 }); });
-    await sleep(560);
+    emit(540, 16, () => orbs.forEach((it) => { const b = box(it); sparks(b.cx, b.cy, 3, ['#fff6cf', '#ffd34d', '#ff8a1f'], 140, { g: 60 }); }));
+    await sleep(560 + (orbs.length - 1) * 90);
+    // Слияние: лишние сгустки гаснут в первом, вспышка отмечает момент.
+    if (orbs.length > 1) {
+      orbs.slice(1).forEach((it) => it.remove());
+      ring(cx, cy, '#ffd34d', 2.4, 500);
+      play('sndBoom');
+      haptic('heavy');
+    }
 
     // 2. Заряд: искры стягиваются к сгустку.
     play('sndRiser', 0.7);
@@ -745,7 +767,7 @@ export function createMotion({ money, artFor, tierColor, snd, haptic = () => {} 
       <div class="mo-fs-emblem">${o.emblem || ''}</div>
       <div class="mo-fs-title"><div></div><div></div></div>
       <div class="mo-fs-count" style="opacity:0"><span class="mo-metal">${count}</span></div>
-      <div class="mo-fs-sub">бесплатных прокрутов</div>`;
+      <div class="mo-fs-sub">${o.sub || 'бесплатных прокрутов'}</div>`;
     const sky = show.querySelector('.mo-sky');
     anim(sky, [{ opacity: 0, transform: 'scale(.4)' }, { opacity: 1, transform: 'scale(1)' }], { duration: 900, easing: E.out });
     [...show.querySelectorAll('.mo-rays')].forEach((r, i) => r.animate([{ rotate: '0deg' }, { rotate: `${i ? -360 : 360}deg` }], { duration: i ? 40000 : 24000, iterations: Infinity }));
@@ -878,6 +900,68 @@ export function createMotion({ money, artFor, tierColor, snd, haptic = () => {} 
     return sleep(pips.length * 60 + 1000);
   }
 
+  /**
+   * Удвоитель на остановившейся плитке.
+   *
+   * Лента показывает номинал предмета - ту же сумму, что в составе кейса, -
+   * а удвоение играется отдельно, когда она встала: печать ×2 падает на
+   * плитку сверху, по ней проходит удар, и сумма на плитке пересчитывается до
+   * удвоенной. Так видно и что выпало, и что именно добавил удвоитель. Раньше
+   * удвоенная сумма стояла на плитке с самого начала прокрута, и предмет
+   * выглядел другим, чем в составе.
+   *
+   * Сумма на плитке в конце обязана совпасть с выплатой: по ней сверяется
+   * лента с результатом.
+   */
+  async function doubler(tile, { from, to }) {
+    mount();
+    const valueEl = tile.querySelector('.tile-value');
+    const b = box(tile);
+    const stamp = el('div', 'mo-x2', top);
+    stamp.innerHTML = '<b class="mo-metal">×2</b><small>удвоитель</small>';
+    stamp.style.left = `${b.cx}px`;
+    stamp.style.top = `${b.cy}px`;
+    tile.classList.add('mo-x2-tile');
+
+    // 1. Печать падает с высоты и бьёт в плитку.
+    anim(stamp, [
+      { transform: 'translate(-50%, -50%) translateY(-120px) scale(3.4) rotate(-24deg)', opacity: 0, filter: 'blur(6px)' },
+      { transform: 'translate(-50%, -50%) scale(.92) rotate(-10deg)', opacity: 1, filter: 'blur(0)', offset: 0.7 },
+      { transform: 'translate(-50%, -50%) scale(1) rotate(-10deg)', opacity: 1, filter: 'blur(0)' },
+    ], { duration: 420, easing: E.in });
+    play('sndWhoosh', false);
+    await sleep(300);
+    ring(b.cx, b.cy, '#ffd34d', 3, 600);
+    sparks(b.cx, b.cy, 46, ['#ffffff', '#ffe58a', '#ffb02e'], 520);
+    shake(7, 380);
+    play('sndBoom');
+    haptic('heavy');
+
+    // 2. Сумма на плитке растёт до удвоенной.
+    const COUNT_MS = 750;
+    const t0 = performance.now();
+    let coin = 0;
+    await new Promise((done) => {
+      const tick = (now) => {
+        const k = Math.min(1, (now - t0) / COUNT_MS);
+        const v = Math.round(from + (to - from) * (1 - Math.pow(1 - k, 3)));
+        if (valueEl) valueEl.textContent = money(v);
+        if (now - coin > 80 && k < 1) { play('sndCoin'); coin = now; }
+        if (k < 1) requestAnimationFrame(tick); else done();
+      };
+      requestAnimationFrame(tick);
+    });
+    if (valueEl) valueEl.textContent = money(to);
+    play('sndChime');
+    floatText(`+${money(to - from)}`, b.cx, b.y - 6, { color: '#ffe58a', dur: 1100 });
+
+    // 3. Печать остаётся видна мгновение и уходит; плитка сохраняет метку.
+    await sleep(520);
+    anim(stamp, [{ opacity: 1 }, { opacity: 0, transform: 'translate(-50%, -50%) scale(.6) rotate(-10deg)' }], { duration: 260, easing: E.out })
+      .onfinish = () => stamp.remove();
+    await sleep(200);
+  }
+
   /** Сумма прокрута вылетает из плитки и по дуге падает в счётчик серии. */
   function payout(text, tile, target, color) {
     mount();
@@ -937,8 +1021,12 @@ export function createMotion({ money, artFor, tierColor, snd, haptic = () => {} 
       <div class="mo-skip">потяните карточку, чтобы повернуть</div>`;
     wl.querySelector('.mo-insp-tier').textContent = o.tierLabel || '';
     wl.querySelector('.mo-insp-value').textContent = value ? money(value) : (item.perkLabel || '');
+    // valueNote - подпись к сумме, когда это не цена предмета, а то, что
+    // выпало игроку (история выпадений): «стоимость предмета» там была бы
+    // неправдой, если на выпадении стоял удвоитель.
+    const note = o.valueNote || 'стоимость предмета';
     wl.querySelector('.mo-insp-sub').textContent = value
-      ? (mult ? `стоимость предмета · ${xFmt(mult)} к цене кейса` : 'стоимость предмета')
+      ? (mult ? `${note} · ${xFmt(mult)} к цене кейса` : note)
       : 'бонус из этого кейса';
     const slot = wl.querySelector('.mo-card-slot');
     const spinner = wl.querySelector('.mo-spinner');
@@ -1062,7 +1150,8 @@ export function createMotion({ money, artFor, tierColor, snd, haptic = () => {} 
     EM.length = 0;
     g.clearRect(0, 0, W, H);
     document.querySelectorAll('.mo-lifted').forEach((t) => t.classList.remove('mo-lifted'));
+    document.querySelectorAll('.mo-x2-tile').forEach((t) => t.classList.remove('mo-x2-tile'));
   }
 
-  return { win, purchase, retrigger, payout, seriesEnd, reset, recede, levelOf, inspect, closeInspect };
+  return { win, purchase, retrigger, payout, seriesEnd, reset, recede, levelOf, inspect, closeInspect, doubler };
 }

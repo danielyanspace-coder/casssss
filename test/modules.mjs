@@ -105,6 +105,18 @@ for (const [file, { source }] of modules) {
   }
 }
 
+// 5. Длинных тире в клиенте нет - ни в тексте на экране, ни в коде рядом с
+//    ним. Требование заказчика: тире читается как машинный текст, и проще
+//    держать ноль везде, чем отличать видимую строку от комментария.
+for (const [file, { source }] of modules) {
+  const at = source.search(/[\u2013\u2014]/);
+  if (at >= 0) check(`${file}: нет длинного тире`, false, source.slice(Math.max(0, at - 30), at + 10));
+}
+{
+  const html = readFileSync(resolvePath(DIR, 'index.html'), 'utf8');
+  check('index.html: нет длинного тире', !/[\u2013\u2014]/.test(html));
+}
+
 if (failures) {
   console.error(`\nМодули клиента: провалов - ${failures}\n`);
   process.exit(1);

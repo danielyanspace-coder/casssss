@@ -52,7 +52,7 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
     const { data } = await post('/api/open', { caseId: cheap.id });
 
     // Фриспины есть теперь у каждого кейса, и серия зачисляется тем же
-    // ответом — без её учёта ожидание расходится каждый раз, когда она выпала.
+    // ответом - без её учёта ожидание расходится каждый раз, когда она выпала.
     const fs = (data.granted || []).find((g) => g.type === 'freespins');
     const expected = before.balance - cheap.price + data.item.value + (fs ? fs.total : 0);
     if (data.balance !== expected) {
@@ -98,7 +98,7 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
 /* ---------- 4. Риск-игра ---------- */
 
 {
-  // Крутим, пока не будет выигрыша, — рисковать можно только выигранным.
+  // Крутим, пока не будет выигрыша, - рисковать можно только выигранным.
   let opened;
   for (let i = 0; i < 60; i++) {
     opened = (await post('/api/open', { caseId: 'vault_1000' })).data;
@@ -219,7 +219,7 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
   check('витрина: ключи записей уникальны', ids.size === feed.drops.length,
         `${ids.size} из ${feed.drops.length}`);
 
-  // Наружу уходит только витринное — ни идентификаторов, ни балансов.
+  // Наружу уходит только витринное - ни идентификаторов, ни балансов.
   const leaked = feed.drops.filter((d) => 'userId' in d || 'balance' in d || 'tgId' in d).length;
   check('витрина: приватные поля не утекают', leaked === 0, `утечек ${leaked}`);
 
@@ -349,11 +349,18 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
   const c = config.cases.find((x) => x.id === 'neon_500');
   const before = (await post('/api/me')).data.user;
 
-  const r = await post('/api/open', { caseId: c.id, count: 5 });
+  const r = await post('/api/open', { caseId: c.id, count: 3 });
   check('пачка: открыто ровно столько, сколько просили',
-        r.data.count === 5 && r.data.opened?.length === 5, `count ${r.data.count}`);
+        r.data.count === 3 && r.data.opened?.length === 3, `count ${r.data.count}`);
 
-  // Любое из пяти открытий могло выдать серию фриспинов — она начисляется тем
+  // Пачка ограничена тремя: три ленты помещаются на экран телефона в полный
+  // размер. Просьба о большем не отклоняется, а урезается до потолка.
+  const over = await post('/api/open', { caseId: c.id, count: 5 });
+  check('пачка: больше трёх за раз не открывается',
+        over.data.count === 3 && over.data.opened?.length === 3, `count ${over.data.count}`);
+  check('пачка: конфиг сообщает потолок', config.maxBatch === 3, `maxBatch ${config.maxBatch}`);
+
+  // Любое из трёх открытий могло выдать серию фриспинов - она начисляется тем
   // же ответом и должна попадать в totalWon наравне с обычным предметом,
   // иначе выигрыш остальных кейсов пачки на экране выглядел бы пропавшим.
   const fsTotal = r.data.opened.reduce((s, o) =>
@@ -366,7 +373,7 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
         `${r.data.balance} vs ${expectedBalance}`);
 
   const tooMany = await post('/api/open', { caseId: c.id, count: 99 });
-  check('пачка: количество ограничено сверху', tooMany.data.count <= 5, `count ${tooMany.data.count}`);
+  check('пачка: количество ограничено сверху', tooMany.data.count <= 3, `count ${tooMany.data.count}`);
 }
 
 /* ---------- 9c. Округление номиналов ---------- */
@@ -400,7 +407,7 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
   check('подарочные кейсы сопоставимы по цене', offBand === 0, `вне диапазона ${offBand}`);
 
   // Отдача задана одна на все кейсы и должна совпадать с фактической: если
-  // решатель разойдётся с заявленным значением, поймать это больше негде —
+  // решатель разойдётся с заявленным значением, поймать это больше негде -
   // из интерфейса число убрано.
   const TARGET_RTP = 0.7;
   let offRtp = 0;
@@ -760,7 +767,7 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
     const future = c.availableFrom > Date.now();
     const r = await post('/api/open', { caseId: c.id, count: 1 });
 
-    // До даты старта сервер обязан отказать, после — открыть как обычно.
+    // До даты старта сервер обязан отказать, после - открыть как обычно.
     // Проверка привязана к дате, а не к «сегодня»: тест не протухнет 1 октября.
     check(`«${c.name}»: ${future ? 'до старта закрыт' : 'после старта открывается'}`,
           future ? r.status === 403 : r.status === 200,
@@ -906,7 +913,7 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
   // Отыгрываем ставками и проверяем, что вывод открылся.
   let guard = 0;
   while ((await post('/api/me')).data.user.wagerRequired > 0 && guard++ < 200) {
-    await post('/api/open', { caseId: 'warmup_100', count: 5 });
+    await post('/api/open', { caseId: 'warmup_100', count: 3 });
   }
   check('ставки гасят отыгрыш',
         (await post('/api/me')).data.user.wagerRequired === 0);

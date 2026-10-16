@@ -4,11 +4,11 @@
  * Файл собирается из ТЕХ ЖЕ исходников, что и рабочий проект: разметка,
  * стили, иконки, обложки и клиентский код берутся как есть, а таблицы кейсов
  * выгружаются из server/cases.js. Так демо не разъезжается с проектом при
- * правках — пересобрал и получил актуальную версию.
+ * правках - пересобрал и получил актуальную версию.
  *
  * Отличие одно: вместо сервера подставляется заглушка, которая перехватывает
  * fetch к /api/* и считает всё в браузере. Поэтому демо годится, чтобы
- * потыкать интерфейс, но НЕ является защищённой версией — в настоящей игре
+ * потыкать интерфейс, но НЕ является защищённой версией - в настоящей игре
  * исход считает сервер, и серверный seed игроку недоступен.
  *
  * Запуск: node build-standalone.mjs
@@ -90,10 +90,10 @@ const config = {
     rtp: UPGRADE_CONFIG.rtp,
   },
   feed: { minMultiplier: FEED_MIN_MULTIPLIER, minValue: FEED_MIN_VALUE },
-  // Бесплатный кейс требует живого Telegram — в автономной сборке его нет.
+  // Бесплатный кейс требует живого Telegram - в автономной сборке его нет.
   freeCase: { enabled: false },
   bonus: { enabled: false },
-  maxBatch: 5,
+  maxBatch: 3,
   freeSpinPacks: FREESPIN_PACKS,
   minPayout: 1000,
   // Условия те же, что по умолчанию на сервере: демо показывает предложение
@@ -108,7 +108,7 @@ const config = {
 
 /**
  * Пул витрины считается на сборке: в браузере нет ни базы, ни других игроков,
- * поэтому лента целиком выдуманная. Веса те же, что на сервере, — доля редких
+ * поэтому лента целиком выдуманная. Веса те же, что на сервере, - доля редких
  * предметов внутри крупных выпадений приподнята показателем 0.45.
  */
 const feedPool = [];
@@ -135,7 +135,7 @@ for (const c of CASES) {
 }
 
 // Кумулятивные границы и плюшки нужны заглушке для розыгрыша, но в publicCase
-// их нет — сервер не отдаёт их клиенту. Для демо добавляем.
+// их нет - сервер не отдаёт их клиенту. Для демо добавляем.
 const drawTables = CASES.map((c) => ({
   id: c.id,
   price: c.price,
@@ -314,7 +314,7 @@ const minigames = read('./public/minigames.js');
 const slots = inlineUi(read('./public/slots.js'));
 const app = inlineUi(read('./public/app.js'));
 
-// Тело страницы без внешних подключений — всё уедет внутрь файла.
+// Тело страницы без внешних подключений - всё уедет внутрь файла.
 const body = html
   .replace(/^[\s\S]*?<body>/, '')
   .replace(/<\/body>[\s\S]*$/, '')
@@ -324,7 +324,7 @@ const body = html
 // уезжают внутрь файла общим правилом inlineUi, как баннеры полок.
 
 // Модульный синтаксис снимаем: файл открывают с диска, а браузеры не грузят
-// ES-модули по file:// — всё склеивается в один обычный скрипт.
+// ES-модули по file:// - всё склеивается в один обычный скрипт.
 const strip = (src) => src
   .replace(/^import[\s\S]*?from\s+'[^']*';\s*$/gm, '')
   /*
@@ -394,7 +394,7 @@ const FORTUNE = ${JSON.stringify(fortuneConfig)};
 const FORTUNE_COOLDOWN_MS = ${SPIN_COOLDOWN_MS};
 
 /* Витрина выпадений: пулы и ники. Ленту наполняет Math.random, а не
-   provably fair, — ни один результат отсюда не влияет на баланс.
+   provably fair, - ни один результат отсюда не влияет на баланс.
    Семь записей из десяти обычные, три крупные: лента из сплошных джекпотов
    читается как реклама, а не как чужая игра. */
 const FEED_POOL = ${JSON.stringify(feedPool)};
@@ -434,7 +434,7 @@ function makeFeedDrop(at) {
   return { id: 'd' + (feedSeq++), nick: head + tail, ...pick, at };
 }
 
-// Лента не должна открываться пустой — набиваем историю сразу.
+// Лента не должна открываться пустой - набиваем историю сразу.
 const feedRing = [];
 for (let i = 23; i >= 0; i--) feedRing.push(makeFeedDrop(feedLastAt - i * FEED_STEP_MS));
 feedRing.reverse();
@@ -583,7 +583,7 @@ function demoStaff() {
 }
 
 /**
- * Демонстрационные игроки — чтобы в админке было на что смотреть.
+ * Демонстрационные игроки - чтобы в админке было на что смотреть.
  * Это выдуманные данные, а не чья-то реальная статистика.
  */
 function demoPlayers() {
@@ -655,7 +655,7 @@ function publicUser() {
     id: u.id, username: u.username, firstName: u.firstName,
     balance: u.balance,
     // Кнопка «Админ» скрыта: в рабочей версии её видят только Telegram ID
-    // из ADMIN_TG_IDS. Посмотреть панель в демо — demoAdmin() в консоли.
+    // из ADMIN_TG_IDS. Посмотреть панель в демо - demoAdmin() в консоли.
     isAdmin: !!store.showAdmin,
     x2Perks: Object.entries(u.x2Perks || {})
       .filter(([, n]) => n > 0).map(([case_id, count]) => ({ case_id, count })),
@@ -844,13 +844,11 @@ function openOnce(table) {
     });
     consumeWager(spent);
 
-    const droppedSeries = granted.find((g) => g.type === 'freespins');
-    if (droppedSeries) u.pendingSpins = { caseId: table.id, grant: droppedSeries, at: Date.now() };
 
     return {
       item: { id: item.id, name: item.name, kind: item.kind, value: payout,
               tier: item.tier, skin: item.skin, art: item.art, perkLabel: item.perkLabel,
-              multiplier: Number((payout / table.price).toFixed(2)) },
+              multiplier: Number((payout / table.price).toFixed(2)), baseValue: item.value },
       granted, free, x2Applied: x2Active && item.value > 0,
       net: totalPayout - spent,
       fair: { roll, nonce: u.nonce },
@@ -916,14 +914,31 @@ const routes = {
 
     const opened = [];
     for (let n = 0; n < count; n++) opened.push(openOnce(table));
+
+    // Серии с разных лент пачки - одна недосмотренная серия, как на сервере
+    // (mergeFreeSpinGrants в server/app.js).
+    const series = opened.flatMap((o) => o.granted).filter((g) => g.type === 'freespins');
+    if (series.length) {
+      const grant = series.length === 1 ? series[0] : {
+        type: 'freespins', caseId: table.id,
+        count: series.reduce((a, g) => a + g.count, 0),
+        spins: series.flatMap((g) => g.spins),
+        total: series.reduce((a, g) => a + g.total, 0),
+        parts: series.map((g) => g.count),
+      };
+      u.pendingSpins = { caseId: table.id, grant, at: Date.now() };
+    }
     save();
 
+    const seriesWon = (o) => o.granted.reduce((a, g) => a + (g.type === 'freespins' ? g.total : 0), 0);
     return {
       count,
       opened,
       ...opened[0],
       totalSpent: opened.reduce((a, o) => a + (o.free ? 0 : table.price), 0),
-      totalWon: opened.reduce((a, o) => a + o.item.value, 0),
+      // Выигрыш серий зачислен вместе с предметом и входит в итог пачки, как
+      // на сервере: иначе сумма на экране расходилась с балансом.
+      totalWon: opened.reduce((a, o) => a + o.item.value + seriesWon(o), 0),
       balance: u.balance,
       user: publicUser(),
     };
@@ -1221,7 +1236,7 @@ const routes = {
         message: 'Не хватает ' + (stake - u.balance) + ' ед.' } };
     }
 
-    // Цель округляем ДО расчёта шанса — иначе отдача уезжает на округлении.
+    // Цель округляем ДО расчёта шанса - иначе отдача уезжает на округлении.
     const target = Math.round(stake * multiplier);
     const chance = (cfg.rtp * stake) / target;
 
@@ -1246,7 +1261,7 @@ const routes = {
   },
 
   /* Лента выигрышей: в автономной сборке других игроков нет, поэтому она
-     целиком выдуманная — см. NEDOSTATOK.md. Обычные исходы в неё не попадают.
+     целиком выдуманная - см. NEDOSTATOK.md. Обычные исходы в неё не попадают.
 
      Кольцо живёт между запросами, а не пересобирается заново: клиент
      показывает только записи, которых ещё не видел, и лента из свежих
@@ -1504,7 +1519,7 @@ const routes = {
           : 'Сначала сыграйте: вывести можно не больше, чем поставлено' } };
     }
 
-    // Списываем сразу — как на сервере: иначе один баланс можно заявить дважды.
+    // Списываем сразу - как на сервере: иначе один баланс можно заявить дважды.
     // Вместе с деньгами расходуется и отыгранное.
     u.balance -= amount;
     u.wagerProgress = Math.max(0, (u.wagerProgress || 0) - amount);
@@ -1756,7 +1771,7 @@ const routes = {
     p.status = body.status;
     p.comment = body.comment || null;
     p.resolved_at = Date.now();
-    // Отклонение возвращает деньги, выплата — нет: они считаются ушедшими.
+    // Отклонение возвращает деньги, выплата - нет: они считаются ушедшими.
     if (body.status === 'rejected') u.balance += p.amount;
     save();
     return { status: p.status, amount: p.amount };
@@ -2318,7 +2333,7 @@ window.fetch = async (input, init = {}) => {
 
   const method = (init.method || 'GET').toUpperCase();
   // Строку запроса отбрасываем: маршруты заданы без неё, а витрина
-  // ходит с ?limit=… — иначе она получала бы 404.
+  // ходит с ?limit=… - иначе она получала бы 404.
   const key = method + ' ' + url.split('?')[0];
   const handler = routes[key];
 
@@ -2353,7 +2368,7 @@ window.demoAdmin = (on = true) => {
   location.reload();
 };
 
-/** Сброс демо-прогресса — доступен из консоли. */
+/** Сброс демо-прогресса - доступен из консоли. */
 window.resetDemo = () => {
   localStorage.removeItem(STORE_KEY);
   location.reload();
@@ -2395,7 +2410,7 @@ ${shim}
 
 <script>
 /* Обложки-картинки уезжают в файл целиком: с диска относительных путей нет.
-   Присваивание идёт до кода обложек — оттуда они и читаются. */
+   Присваивание идёт до кода обложек - оттуда они и читаются. */
 window.__PORSCHE_SRC = 'data:image/webp;base64,${porscheData}';
 window.__PORSCHE_BANNER_SRC = 'data:image/webp;base64,${bannerData}';
 window.__COVER_ART = ${JSON.stringify(coverArt)};
