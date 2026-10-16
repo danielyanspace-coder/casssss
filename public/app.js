@@ -20,7 +20,6 @@ import { itemArt64 } from './item-art64.js';
 import { itemArtHd } from './item-art-hd.js';
 import { coinMark, coinColor } from './coin-art.js';
 import { COMPANY, LICENSE, DOCS, PARTNERS, footerHtml } from './legal.js';
-import { createMini } from './minigames.js';
 import { createSlot } from './slots.js';
 import {
   sndTick, sndSpinStart, sndLand, sndReveal,
@@ -5418,30 +5417,10 @@ document.getElementById('adminSearchBtn').addEventListener('click', () => {
   loadAdminUsers();
 });
 
-/* ============================================================
-   МИНИ-ИГРЫ
-   ============================================================ */
-
 /*
- * Модуль мини-игр живёт отдельным файлом и ничего не импортирует отсюда:
- * иначе получился бы круг импортов, и оба файла перестали бы грузиться.
- * Всё, что ему нужно, передаётся сюда явно.
- */
-const mini = createMini({
-  api, esc, fmt, money, toast, haptic, state,
-  sounds: {
-    bet: sndBet, tick: sndTick, land: sndLand, flip: sndFlip,
-    reveal: sndReveal, collect: sndCollect, bigWin: sndBigWin,
-    lose: sndLose, crash: sndCrash,
-  },
-  onUser: (user) => applyUser(user),
-  onRound: () => { /* лента обновится сама по своему таймеру */ },
-});
-
-/*
- * Слот живёт отдельным файлом по той же причине, что и мини-игры: у него своя
- * анимация лент, своя панель и свои окна, и держать всё это в app.js значило
- * бы добавить туда полторы тысячи строк, никак не связанных с остальным.
+ * Слот живёт отдельным файлом: у него своя анимация лент, своя панель и
+ * свои окна, и держать всё это в app.js значило бы добавить туда полторы
+ * тысячи строк, никак не связанных с остальным.
  */
 const slot = createSlot({
   api, esc, fmt, money, toast, haptic, state,
@@ -5487,7 +5466,6 @@ function switchView(name) {
   }
   if (name === 'roulette') renderRouletteWheel();
   if (name === 'crash') { if (!state.crash) resetCrashGraph(); crashFx().wake(); }
-  if (name === 'mini') { mini.close(); mini.renderShelf(); }
   if (name === 'slots') slot.openShelf();
   else slot.close();
   if (name === 'admin') initAdminPanel();
@@ -5563,7 +5541,6 @@ function openSupport() {
  */
 const MENU_EXTRA = [
   { view: 'slots', ico: 'slot', title: 'Слоты', sub: 'TREASURE ISLAND' },
-  { view: 'mini', ico: 'grid', title: 'Мини-игры', sub: 'Пятьдесят коротких' },
   { view: 'partner', ico: 'people', title: 'Партнёру', sub: 'Ваши рефералы', partnerOnly: true },
   { view: 'admin', ico: 'admin', title: 'Админ', sub: 'Панель управления', adminOnly: true },
 ];
@@ -5683,9 +5660,12 @@ function renderMenu() {
  * отказа бессмысленно (раздел открывается прямым запросом), а отказывать без
  * пряток значит оставить игроку кнопку, которая всегда ругается.
  */
+/** Подпись баннера «Казино», пока лобби провайдеров не открыто. */
+const CASINO_SOON = 'Казино скоро откроется';
+
 const VIEW_SWITCH = {
   cases: 'cases', crash: 'crash', roulette: 'roulette',
-  upgrade: 'upgrade', freemoney: 'fortune', mini: 'mini', slots: 'slots',
+  upgrade: 'upgrade', freemoney: 'fortune', slots: 'slots',
 };
 
 function viewOpen(view) {
@@ -5702,7 +5682,6 @@ const SIDE_NAV = [
   { view: 'roulette', art: '/assets/ui/nav-roulette.webp', title: 'Рулетка', sub: 'Испытай удачу' },
   { view: 'wallet', art: '/assets/ui/nav-wallet.webp', title: 'Касса', sub: 'Пополнение и вывод' },
   { view: 'slots', ico: 'slot', title: 'Слоты', sub: 'TREASURE ISLAND' },
-  { view: 'mini', ico: 'grid', title: 'Мини-игры', sub: 'Пятьдесят коротких' },
   { view: 'bonuses', art: '/assets/ui/nav-bonuses.webp', title: 'Бонусы', sub: 'Ежедневные награды' },
   { view: 'partner', ico: 'people', title: 'Партнёру', sub: 'Статистика и выплаты',
     partnerOnly: true },
@@ -7884,9 +7863,16 @@ function wireFortune() {
     haptic('light');
     switchView('freemoney');
   });
-  document.getElementById('promoBonuses')?.addEventListener('click', () => {
+  /*
+   * «Казино» стоит на месте «Бонусов» (решение заказчика; бонусы остались в
+   * меню). Лобби игр провайдеров ещё согласуется, поэтому пока баннер ведёт
+   * в наши слоты, если раздел включён в панели, а иначе честно говорит, что
+   * раздел готовится: кнопка, которая молча ничего не делает, хуже надписи.
+   */
+  document.getElementById('promoCasino')?.addEventListener('click', () => {
     haptic('light');
-    switchView('bonuses');
+    if (viewOpen('slots')) switchView('slots');
+    else toast(CASINO_SOON);
   });
   document.getElementById('brandHome')?.addEventListener('click', () => {
     haptic('light');

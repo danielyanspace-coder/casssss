@@ -111,10 +111,6 @@ import {
   getSlotSession, playSlotSpin, buySlotBonus, playSlotFreeSpin, awardSlotJackpot,
 } from './db.js';
 import {
-  MINIGAMES, MINI_RTP, FAMILIES as MINI_FAMILIES,
-  getMinigame, resolveMinigame, publicMinigame, validateMinigames,
-} from './minigames.js';
-import {
   SLOTS, getSlot, publicSlot, slotCard, validateSlots,
   LINES as SLOT_LINES,
   gridFrom, evaluate as evaluateSlot, jackpotFrom, jackpotRoll, offsetsFrom,
@@ -147,7 +143,6 @@ const caseReport = validateCases();
 const gameReport = validateGames();
 const gambleReport = validateGamble();
 const upgradeReport = validateUpgrade();
-const miniReport = validateMinigames();
 const slotReport = validateSlots();
 /*
  * Опечатка в названии семейства или материала иначе всплывёт на экране
@@ -383,11 +378,6 @@ app.get('/api/config', (req, res) => {
     bonus: { enabled: false },
     maxBatch: MAX_BATCH,
     freeSpinPacks: FREESPIN_PACKS,
-    minigames: {
-      rtp: MINI_RTP,
-      families: MINI_FAMILIES,
-      games: MINIGAMES.map(publicMinigame),
-    },
     minPayout: minPayoutNow(),
     // Выключатели из панели: клиент по ним прячет разделы, сервер по ним же
     // отказывает. Прятать без отказа нельзя - раздел открывается прямым
@@ -400,7 +390,6 @@ app.get('/api/config', (req, res) => {
       crash: setting('games_crash'),
       roulette: setting('games_roulette'),
       upgrade: setting('games_upgrade'),
-      mini: setting('games_mini'),
       fortune: setting('games_fortune'),
       slots: setting('games_slots'),
     },
@@ -1147,93 +1136,6 @@ app.post('/api/upgrade', auth, limits.play, gameGate('upgrade'), (req, res) => {
 /* ============================================================
    МИНИ-ИГРЫ
    ============================================================ */
-
-/**
- * Один раунд мини-игры.
- *
- * Исход решает сервер и отдаёт вместе с ним ИНДЕКС исхода. Клиент по нему
- * рисует именно тот сектор, ту клетку и ту грань, которые соответствуют
- * результату. Без индекса анимация подбирала бы картинку сама, и однажды
- * колесо встало бы не на то, что написано в окне выигрыша, - а это уже не
- * косметика, а обман игрока.
- */
-app.post('/api/mini/play', auth, limits.play, gameGate('mini'), (req, res) => {
-  const game = getMinigame(req.body?.gameId);
-  if (!game) return res.status(400).json({ error: 'Игра не найдена' });
-
-  const optionIndex = Math.trunc(Number(req.body?.option) || 0);
-  if (!game.options[optionIndex]) {
-    return res.status(400).json({ error: 'Такого варианта нет' });
-  }
-
-  const bet = parseBet(req.body?.bet);
-  if (!bet) return res.status(400).json({ error: 'Некорректная ставка' });
-  if (bet < game.minBet || bet > game.maxBet) {
-    return res.status(400).json({
-      error: `Ставка от ${game.minBet.toLocaleString('ru-RU')} до ${game.maxBet.toLocaleString('ru-RU')}`,
-    });
-  }
-
-  const user = req.player;
-  if (user.balance < bet) return sendInsufficient(res, bet - user.balance);
-
-  /*
-   * Ячейка, которую игрок ткнул, приходит вместе со ставкой и на исход не
-   * влияет: ячейки равноправны, и разыгрывается не «что лежит под третьей»,
-   * а «сколько платит эта попытка». Номер нужен только рисунку - подсветить
-   * надо именно ту ячейку, по которой нажали.
-   */
-  const picked = Math.max(0, Math.trunc(Number(req.body?.picked) || 0));
-
-  let result;
-  try {
-    result = playInstantRound(user.id, bet, (serverSeed, clientSeed, nonce) => {
-      const roll = computeRoll(serverSeed, clientSeed, nonce);
-      const outcome = resolveMinigame(game, optionIndex, roll);
-      const payout = Math.round(bet * outcome.multiplier);
-      const option = game.options[optionIndex];
-
-      return {
-        game: 'mini',
-        title: game.name,
-        subtitle: outcome.win
-          ? `${option.label} - ×${outcome.multiplier}`
-          : `${option.label} - мимо`,
-        payout,
-        tier: !outcome.win ? 'common'
-            : outcome.multiplier >= 50 ? 'unique'
-            : outcome.multiplier >= 10 ? 'mythic'
-            : outcome.multiplier >= 3 ? 'epic'
-            : 'rare',
-        roll,
-        multiplier: outcome.multiplier,
-        outcomeIndex: outcome.outcomeIndex,
-        win: outcome.win,
-      };
-    });
-  } catch (err) {
-    if (err.code === 'INSUFFICIENT_FUNDS') return sendInsufficient(res, bet - user.balance);
-    if (err.code === 'BAD') return res.status(400).json({ error: err.message });
-    throw err;
-  }
-
-  trackEvent(user.id, 'mini_played', { gameId: game.id, bet, win: result.win });
-
-  res.json({
-    gameId: game.id,
-    option: optionIndex,
-    picked,
-    win: result.win,
-    multiplier: result.multiplier,
-    outcomeIndex: result.outcomeIndex,
-    payout: result.payout,
-    bet,
-    roll: result.roll,
-    nonce: result.nonce,
-    balance: result.balance,
-    user: publicUser(getUserById(user.id)),
-  });
-});
 
 /* ============================================================
    СЛОТЫ

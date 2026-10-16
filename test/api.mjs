@@ -1161,115 +1161,20 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
   }
 }
 
-/* ---------- Мини-игры ---------- */
+/* ---------- Мини-игры сняты ---------- */
 
+/*
+ * Раздел удалён по решению заказчика. Проверяем, что от него не осталось
+ * входа: ручка не принимает ставку, конфиг игр не отдаёт, выключателя в
+ * настройках нет. Иначе забытая ручка списывала бы деньги в игре, которой
+ * на экране уже нет.
+ */
 {
-  await post('/api/admin/balance', { userId: me.id, amount: 3_000_000,
-                                     note: 'мини-игры', asDeposit: false });
-
-  const list = config.minigames?.games || [];
-  check('мини-игры: конфиг отдаёт пятьдесят игр', list.length === 50, `${list.length}`);
-  check('мини-игры: конфиг отдаёт шестнадцать механик',
-        (config.minigames?.families || []).length === 16,
-        `${config.minigames?.families?.length}`);
-  // Ни одна механика не должна раздуться за счёт остальных: именно этим
-  // была плоха первая версия раздела.
-  {
-    const perFamily = {};
-    for (const g of list) perFamily[g.family] = (perFamily[g.family] || 0) + 1;
-    const biggest = Math.max(...Object.values(perFamily));
-    check('мини-игры: ни одна механика не занимает больше четверти раздела',
-          biggest <= 13, `самая крупная ${biggest}`);
-  }
-  check('мини-игры: у каждой свой значок',
-        new Set(list.map((g) => g.art.path)).size === list.length);
-  check('мини-игры: отдача заявлена',
-        list.every((g) => Math.abs(g.rtp - 0.7) < 1e-9));
-
-  const bad = await post('/api/mini/play', { gameId: 'такой-нет', option: 0, bet: 100 });
-  check('мини-игры: неизвестная игра отклонена', bad.status === 400, `статус ${bad.status}`);
-
-  const first = list[0];
-  const badOption = await post('/api/mini/play', { gameId: first.id, option: 99, bet: 100 });
-  check('мини-игры: несуществующий вариант отклонён', badOption.status === 400,
-        `статус ${badOption.status}`);
-
-  const tooSmall = await post('/api/mini/play',
-    { gameId: first.id, option: 0, bet: Math.max(1, first.minBet - 1) });
-  check('мини-игры: ставка ниже минимума отклонена', tooSmall.status === 400,
-        `статус ${tooSmall.status}`);
-
-  const tooBig = await post('/api/mini/play',
-    { gameId: first.id, option: 0, bet: first.maxBet + 1 });
-  check('мини-игры: ставка выше максимума отклонена', tooBig.status === 400,
-        `статус ${tooBig.status}`);
-
-  /*
-   * По одному раунду на каждое семейство: проверяется не «отвечает ли
-   * ручка», а сходится ли баланс. Выплата обязана быть ровно ставка ×
-   * множитель, иначе расхождение копится тихо.
-   */
-  const seen = new Set();
-  for (const game of list) {
-    if (seen.has(game.family)) continue;
-    seen.add(game.family);
-
-    const before = (await post('/api/me')).data.user.balance;
-    const bet = Math.max(game.minBet, 100);
-    const res = await post('/api/mini/play', { gameId: game.id, option: 0, bet, picked: 0 });
-    check(`мини-игры: ${game.family} играется`, res.status === 200, `статус ${res.status}`);
-    if (res.status !== 200) continue;
-
-    const d = res.data;
-    check(`мини-игры: ${game.family} выплата равна ставке на множитель`,
-          d.payout === Math.round(bet * d.multiplier),
-          `${d.payout} против ${Math.round(bet * d.multiplier)}`);
-    const after = (await post('/api/me')).data.user.balance;
-    check(`мини-игры: ${game.family} баланс сходится`,
-          after === before - bet + d.payout,
-          `${after} против ${before - bet + d.payout}`);
-    check(`мини-игры: ${game.family} индекс исхода согласован с выигрышем`,
-          d.win ? d.outcomeIndex >= 0 : d.outcomeIndex === -1);
-    check(`мини-игры: ${game.family} множитель из таблицы игры`,
-          !d.win || game.options[0].wins.some((w) => w.multiplier === d.multiplier),
-          `×${d.multiplier}`);
-  }
-  check('мини-игры: сыграны все шестнадцать механик', seen.size === 16, `${seen.size}`);
-
-  /*
-   * Долгий прогон одной игры: эмпирическая отдача обязана сойтись с
-   * заявленной. Это единственная проверка, которая ловит расхождение между
-   * таблицей и тем, что сервер реально платит.
-   */
-  {
-    // Кость на «больше трёх»: выплата ×1.4 при шансе 50%, то есть самая
-    // низкая дисперсия в разделе. На ней четыре сигмы это примерно 0.14, и
-    // прогон в четыреста раундов уже что-то значит.
-    const game = list.find((g) => g.id === 'dice');
-    const ROUNDS = 400;
-    const bet = 100;
-    let wagered = 0;
-    let paid = 0;
-    for (let i = 0; i < ROUNDS; i++) {
-      const r = await post('/api/mini/play', { gameId: game.id, option: 0, bet });
-      if (r.status !== 200) break;
-      wagered += bet;
-      paid += r.data.payout;
-    }
-    check('мини-игры: прогон не сорвался', wagered === ROUNDS * bet, `${wagered}`);
-    const rtp = paid / wagered;
-    // Монета: дисперсия известна точно, четыре сигмы это примерно 0.14.
-    check('мини-игры: эмпирическая отдача близка к заявленной',
-          Math.abs(rtp - 0.7) < 0.15, `факт ${rtp.toFixed(3)}`);
-    check('мини-игры: прогон не ушёл в ноль по балансу',
-          (await post('/api/me')).data.user.balance > 0);
-  }
-
-  /* Выключатель мини-игр из панели. */
-  await post('/api/admin/settings/save', { patch: { games_mini: false } });
-  const off = await post('/api/mini/play', { gameId: first.id, option: 0, bet: 100 });
-  check('мини-игры: выключенный раздел отказывает', off.status === 503, `статус ${off.status}`);
-  await post('/api/admin/settings/save', { patch: { games_mini: true } });
+  const gone = await post('/api/mini/play', { gameId: 'smallwheel', option: 0, bet: 100 });
+  check('мини-игр нет: ручка ставки не отвечает', gone.status === 404, `статус ${gone.status}`);
+  check('мини-игр нет: конфиг их не отдаёт', !('minigames' in config));
+  check('мини-игр нет: выключателя в настройках нет',
+        !Object.prototype.hasOwnProperty.call(config.open || {}, 'mini'));
 }
 
 /* ---------- Уборка за собой ---------- */

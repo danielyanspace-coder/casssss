@@ -26,7 +26,6 @@ export const SETTING_DEFS = [
   { key: 'games_crash', type: 'bool', value: '1', group: 'Игры', label: 'Краш' },
   { key: 'games_roulette', type: 'bool', value: '1', group: 'Игры', label: 'Рулетка' },
   { key: 'games_upgrade', type: 'bool', value: '1', group: 'Игры', label: 'Апгрейд' },
-  { key: 'games_mini', type: 'bool', value: '1', group: 'Игры', label: 'Мини-игры' },
   { key: 'games_fortune', type: 'bool', value: '1', group: 'Игры', label: 'Колесо фортуны' },
   /*
    * Слоты выключены по умолчанию - это решение заказчика, а не поломка.
