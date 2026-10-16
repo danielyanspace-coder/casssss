@@ -28,6 +28,7 @@
     "test:art": "node test/art.mjs",
     "demo:motion": "node tools/motion-demo.mjs",
     "demo:button": "node tools/open-button-demo.mjs",
+    "demo:menu": "node tools/menu-concepts.mjs",
     "demo:admin": "DEMO_ADMIN=1 node build-standalone.mjs && cp dist/luckybox.html dist/luckybox-admin.html && node build-standalone.mjs"
   },
   "engines": {
