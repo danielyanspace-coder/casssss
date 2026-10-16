@@ -21,7 +21,7 @@
   -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;800&amp;family=Manrope:wght@500;700;800&amp;family=Bodoni+Moda:opsz,wght@6..96,700;6..96,900&amp;family=JetBrains+Mono:wght@400;700&amp;display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;800&amp;family=Manrope:wght@500;700;800&amp;family=Inter:wght@600;700;800&amp;family=Bodoni+Moda:opsz,wght@6..96,700;6..96,900&amp;family=JetBrains+Mono:wght@400;700&amp;display=swap">
 
   <link rel="stylesheet" href="/styles.css">
 </head>
@@ -107,10 +107,12 @@
         <div class="banner-top">
           <div class="hero" id="hero">
             <div class="hero-slides">
-              <img src="/assets/ui/hero-1.webp" alt="Lucky Energy" class="hero-img active">
-              <img src="/assets/ui/hero-2.webp" alt="Официальные спонсоры Формула-1" class="hero-img" loading="lazy">
-              <img src="/assets/ui/hero-3.webp" alt="Партнёры международной федерации тенниса" class="hero-img" loading="lazy">
-              <img src="/assets/ui/hero-4.webp" alt="Дарим перелёт на частном джете" class="hero-img" loading="lazy">
+              <!-- Джекпот-баннер стоит дольше остальных (data-ms): это главный
+                   вход в казино, остальные три - фирменные, их хватает мельком. -->
+              <img src="/assets/ui/hero-jackpot.webp" alt="Большие джекпоты каждый день" class="hero-img active" data-ms="10000" data-go="casino">
+              <img src="/assets/ui/hero-1.webp" alt="Lucky Energy" class="hero-img" loading="lazy" data-ms="3000">
+              <img src="/assets/ui/hero-2.webp" alt="Официальные спонсоры Формула-1" class="hero-img" loading="lazy" data-ms="3000">
+              <img src="/assets/ui/hero-3.webp" alt="Партнёры международной федерации тенниса" class="hero-img" loading="lazy" data-ms="3000">
             </div>
             <div class="hero-dots" id="heroDots"></div>
           </div>
@@ -650,6 +652,33 @@
     <!-- ══════════ КАЗИНО ══════════ -->
     <!-- Лобби игр провайдеров собирает public/casino.js при открытии раздела. -->
     <section class="view" id="view-casino">
+      <!-- Меню вкладок по образцу 1Win: Слоты, Live казино, Быстрые игры.
+           Кнопки рисует public/casino.js. -->
+      <div class="cz-seg" id="czSeg" role="tablist"></div>
+
+      <!-- Баннеры казино: то же слайд-шоу, что на главной, и пара под ним.
+           На месте «Казино» здесь «Кейсы»: из казино ведём в кейсы. На
+           внутренних экранах (категория, провайдер) баннеры прячутся. -->
+      <div class="cz-banners" id="czBanners">
+        <div class="hero cz-hero" id="czHero">
+          <div class="hero-slides">
+            <img src="/assets/ui/hero-jackpot.webp" alt="Большие джекпоты каждый день" class="hero-img active" data-ms="10000" data-go="popular">
+            <img src="/assets/ui/hero-1.webp" alt="Lucky Energy" class="hero-img" loading="lazy" data-ms="3000">
+            <img src="/assets/ui/hero-2.webp" alt="Официальные спонсоры Формула-1" class="hero-img" loading="lazy" data-ms="3000">
+            <img src="/assets/ui/hero-3.webp" alt="Партнёры международной федерации тенниса" class="hero-img" loading="lazy" data-ms="3000">
+          </div>
+          <div class="hero-dots" id="czHeroDots"></div>
+        </div>
+        <div class="promo-pair cz-promo">
+          <button class="promo-wide" id="czPromoFortune" aria-label="Free Money">
+            <img src="/assets/ui/promo-wide.webp" alt="Free money: разыгрываем Rolls-Royce Wraith">
+          </button>
+          <button class="promo-square" id="czPromoCases" aria-label="Кейсы">
+            <img src="/assets/ui/promo-cases.webp" alt="Кейсы LUCKYBOX">
+          </button>
+        </div>
+      </div>
+
       <div class="cz" id="casinoRoot"></div>
     </section>
 

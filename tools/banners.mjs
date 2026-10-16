@@ -135,11 +135,12 @@ const MENU_ICONS = MENU_ROWS.map(([centre, out]) => ({
 }));
 
 const JOBS = [
-  // Слайд-шоу главного баннера. Порядок показа задан порядком в этом списке.
+  // Слайд-шоу главного баннера. Порядок показа задан разметкой (index.html):
+  // первым идёт hero-jackpot.webp из tools/promo-banners.mjs. Баннер с
+  // перелётом (hero-4) снят по просьбе заказчика, его место занял джекпот.
   { src: 'D6BC2519-B36D-47EE-903D-E3CC550101FE.png', out: 'hero-1.webp', side: WIDE_SIDE },
   { src: 'EE1DE7F8-0010-417B-827E-D0B6EFFE427D.png', out: 'hero-2.webp', side: WIDE_SIDE },
   { src: '16F7CEB0-E741-45A6-8C78-811D5FB87B99.png', out: 'hero-3.webp', side: WIDE_SIDE },
-  { src: 'F47531B5-0B24-44D6-ADFD-D30C8582137B.png', out: 'hero-4.webp', side: WIDE_SIDE },
 
   // Пара под лентой: широкий слева, квадратный справа. Обоим срезаем поля,
   // иначе они не встают по одной линии.

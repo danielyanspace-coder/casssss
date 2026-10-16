@@ -176,7 +176,10 @@ const HITS = [
  *
  * Чистая функция, без сети: её же зовёт тест и автономная сборка.
  */
-export function buildCatalog(rawGames, rawProviders, allowed = allowedProviders()) {
+export function buildCatalog(rawGames, rawProviders, allowed = allowedProviders(), storefront = {}) {
+  // Списки витрины агрегатора: код игры «gameCode:::vendorCode» -> место.
+  const topRank = new Map((storefront.top || []).map((code, i) => [code, i]));
+  const isNew = new Set(storefront.new || []);
   const provById = new Map(rawProviders.map((p) => [p.id, p]));
 
   // Провайдер для игрока - бренд и вкладка, а не источник: два «Pragmatic
@@ -275,10 +278,42 @@ export function buildCatalog(rawGames, rawProviders, allowed = allowedProviders(
       // Отдачу из нашей настройки агрегатор применяет только к играм Sloter.
       rtp_mode: g.gameSource === RTP_SOURCE ? 'operator' : 'provider',
       seed_rank: hit !== undefined ? hit : HITS.length + (roundRobin.get(c) ?? 0),
+      original_id: g.originalId ? String(g.originalId) : null,
+      partner_top: topRank.has(g.originalId) ? topRank.get(g.originalId) : null,
+      partner_new: isNew.has(g.originalId) ? 1 : 0,
     };
   });
 
   return { providers: providerList, games };
+}
+
+/*
+ * Витрина агрегатора (betinovioslots): у неё есть списки «топ» и «новинки»
+ * по провайдерам. Это их данные о спросе и релизах, а не наша оценка, поэтому
+ * ими дополняется порядок «Популярных» и блок «Новинки». Ручка витрины не
+ * описана в документации агрегатора: не ответила - живём без неё, каталог
+ * от этого не страдает.
+ */
+export async function storefrontLists() {
+  const base = (process.env.CASINO_STOREFRONT_URL || 'https://api.betinovioslots.net').replace(/\/+$/, '');
+  const agentCode = process.env.CASINO_STOREFRONT_AGENT || 'multitest';
+  const out = { top: [], new: [] };
+  for (const [key, method] of [['top', 'GetTopGames'], ['new', 'GetNewGames']]) {
+    try {
+      const res = await fetch(`${base}/backend/unauthorizeapi`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ method, agentCode }),
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      });
+      const data = await res.json();
+      if (data?.status === 0 && Array.isArray(data.vendorGames)) {
+        // В каталоге агрегатора originalId - «код игры:::код провайдера».
+        out[key] = data.vendorGames.map((v) => `${v.gameCode}:::${v.vendorCode}`);
+      }
+    } catch { /* витрина молчит - списков нет */ }
+  }
+  return out;
 }
 
 let syncing = null;
@@ -299,7 +334,7 @@ export function syncCatalog() {
       const { status, data: providers } = await request('/api/game/get-providers');
       if (status !== 200 || !Array.isArray(providers)) throw new Error(`get-providers: ${status}`);
 
-      const built = buildCatalog(raw, providers);
+      const built = buildCatalog(raw, providers, allowedProviders(), await storefrontLists());
       // Пустой ответ - сбой агрегатора, а не «все игры убрали»: не гасим лобби.
       if (!built.games.length) throw new Error('агрегатор вернул пустой каталог');
       saveCatalog(built.providers, built.games);

@@ -12,7 +12,7 @@
 import { writeFileSync } from 'node:fs';
 
 process.env.DB_PATH = process.env.DB_PATH || './data/snapshot-tmp.db';
-const { buildCatalog, casinoEnv, SNAPSHOT_PATH } = await import('../server/casino.js');
+const { buildCatalog, casinoEnv, SNAPSHOT_PATH, storefrontLists, allowedProviders } = await import('../server/casino.js');
 
 const env = casinoEnv();
 if (!env.agent || !env.token) throw new Error('нужны DATABETRIX_AGENT_NAME и DATABETRIX_AGENT_TOKEN');
@@ -38,7 +38,7 @@ for (let offset = 0; ; offset += 500) {
   if (raw.length >= page.total || !page.items.length) break;
 }
 const providers = await get('/api/game/get-providers');
-const built = buildCatalog(raw, providers);
+const built = buildCatalog(raw, providers, allowedProviders(), await storefrontLists());
 // Без времени и прочего шума: снимок должен меняться в git только тогда,
 // когда поменялся сам каталог.
 writeFileSync(SNAPSHOT_PATH, JSON.stringify({ providers: built.providers, games: built.games }));

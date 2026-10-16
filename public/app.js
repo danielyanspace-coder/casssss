@@ -7542,6 +7542,7 @@ async function init() {
   // Баннеры лежат в разметке и от сервера не зависят: крутим их сразу, не
   // дожидаясь конфига. Иначе первые секунды на экране висит неподвижный кадр.
   runHeroSlider();
+  runHeroSlider('czHero', 'czHeroDots');
   wireFortune();
 
 
@@ -7946,6 +7947,15 @@ function wireFortune() {
    * меню). Если раздел выключен в панели, баннер говорит это словами, а не
    * молчит: кнопка, которая ничего не делает, хуже надписи.
    */
+  // Пара под слайд-шоу в казино: Free Money и обратно в кейсы.
+  document.getElementById('czPromoFortune')?.addEventListener('click', () => {
+    haptic('light');
+    switchView('freemoney');
+  });
+  document.getElementById('czPromoCases')?.addEventListener('click', () => {
+    haptic('light');
+    switchView('cases');
+  });
   document.getElementById('promoCasino')?.addEventListener('click', () => {
     haptic('light');
     if (viewOpen('casino')) switchView('casino');
@@ -7973,17 +7983,22 @@ function wireFortune() {
  * приложение продолжает перекрашивать баннер: работа впустую, а на телефоне
  * ещё и расход батареи. Вернувшись, игрок увидит тот же кадр, на котором ушёл.
  */
-function runHeroSlider() {
-  const hero = document.getElementById('hero');
-  const dotsBox = document.getElementById('heroDots');
+function runHeroSlider(heroId = 'hero', dotsId = 'heroDots') {
+  const hero = document.getElementById(heroId);
+  const dotsBox = document.getElementById(dotsId);
   if (!hero || !dotsBox) return;
 
   const slides = [...hero.querySelectorAll('.hero-img')];
   if (slides.length < 2) return;
 
-  // Шесть секунд: за меньшее время надпись на баннере прочитать не успеваешь,
-  // за большее баннер перестаёт читаться как сменяющийся.
-  const SLIDE_MS = 6000;
+  /*
+   * Длительность у каждого слайда своя (data-ms). Джекпот-баннер стоит
+   * десять секунд, фирменные по три: заказчику нужно, чтобы большую часть
+   * времени на экране был вход в казино. Слайд без data-ms стоит шесть
+   * секунд: за меньшее время надпись не успеваешь прочитать.
+   */
+  const DEFAULT_SLIDE_MS = 6000;
+  const durationOf = (el) => Number(el.dataset.ms) || DEFAULT_SLIDE_MS;
 
   let at = 0;
   let timer = null;
@@ -8000,10 +8015,13 @@ function runHeroSlider() {
     dots.forEach((el, i) => el.classList.toggle('on', i === at));
   };
 
+  // Таймер одноразовый и заводится заново на каждом слайде: у слайдов
+  // разная длительность, и setInterval с одним шагом её бы не учёл.
   const start = () => {
-    if (timer === null) timer = setInterval(() => show(at + 1), SLIDE_MS);
+    if (timer !== null) return;
+    timer = setTimeout(() => { timer = null; show(at + 1); start(); }, durationOf(slides[at]));
   };
-  const stop = () => { clearInterval(timer); timer = null; };
+  const stop = () => { clearTimeout(timer); timer = null; };
 
   dots.forEach((dot, i) => {
     dot.addEventListener('click', () => {
@@ -8013,6 +8031,18 @@ function runHeroSlider() {
       show(i);
       start();
       haptic('light');
+    });
+  });
+
+  /* Баннер с data-go ведёт в раздел: джекпот на главной - в казино, в
+     самом казино - к «Популярным». */
+  slides.forEach((el) => {
+    if (!el.dataset.go) return;
+    el.style.cursor = 'pointer';
+    el.addEventListener('click', () => {
+      haptic('light');
+      if (el.dataset.go === 'casino') { if (viewOpen('casino')) switchView('casino'); }
+      else casino.focusBlock(el.dataset.go);
     });
   });
 

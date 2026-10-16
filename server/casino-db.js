@@ -19,6 +19,7 @@
  * 0.30000000000000004, и через тысячу ставок касса разошлась бы с игроком.
  */
 import { db, getUserById, consumeWager, getPlayerLimits } from './db.js';
+import { categoryById, categoriesFor, POPULAR_SIZE, BLOCK_SIZE, PROVIDER_BLOCKS, MIN_BLOCK_GAMES } from './casino-categories.js';
 
 /* ---------- Схема ---------- */
 
@@ -110,6 +111,35 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS casino_tx_game ON casino_tx (game_id, created_at);
   CREATE INDEX IF NOT EXISTS casino_tx_user ON casino_tx (user_id, created_at);
 `);
+
+/*
+ * Поля каталога, появившиеся с блоками лобби:
+ *   original_id   - код игры у провайдера («vs20olympgate:::slot-pragmatic»):
+ *                   по нему сверяются списки новинок и топа агрегатора;
+ *   first_seen_at - когда игра впервые пришла в наш каталог. Не меняется при
+ *                   обновлении: по ней «Новинки» видят игры, добавленные
+ *                   после первой загрузки;
+ *   partner_top   - место в топе агрегатора (меньше - выше), NULL - не в топе;
+ *   partner_new   - игра в списке новых релизов агрегатора.
+ */
+ensureColumn('casino_games', 'original_id', 'TEXT');
+ensureColumn('casino_games', 'first_seen_at', 'INTEGER');
+ensureColumn('casino_games', 'partner_top', 'INTEGER');
+ensureColumn('casino_games', 'partner_new', 'INTEGER NOT NULL DEFAULT 0');
+db.exec('UPDATE casino_games SET first_seen_at = updated_at WHERE first_seen_at IS NULL');
+
+/*
+ * REGEXP для тематических блоков. SQLite своего не имеет; шаблоны те же, что
+ * проверяет автономная сборка (casino-categories.js), поэтому совпадения
+ * одинаковы в обоих местах. Скомпилированные шаблоны кешируются: функция
+ * зовётся на каждую строку каталога.
+ */
+const reCache = new Map();
+db.function('lb_re', { deterministic: true }, (pattern, value) => {
+  let re = reCache.get(pattern);
+  if (!re) { re = new RegExp(pattern, 'i'); reCache.set(pattern, re); }
+  return re.test(String(value ?? '')) ? 1 : 0;
+});
 
 /* ---------- Коды ответа агрегатору ---------- */
 
@@ -391,17 +421,22 @@ export const saveCatalog = db.transaction((providers, games) => {
   const putGame = db.prepare(`
     INSERT INTO casino_games (id, name, provider_id, provider_name, source, kind, img, img_vertical,
                               img_wide, demo, freespin, buybonus, jackpot, rtp_mode, seed_rank,
-                              active, updated_at)
+                              original_id, partner_top, partner_new, first_seen_at, active, updated_at)
     VALUES (@id, @name, @provider_id, @provider_name, @source, @kind, @img, @img_vertical,
-            @img_wide, @demo, @freespin, @buybonus, @jackpot, @rtp_mode, @seed_rank, 1, @updated_at)
+            @img_wide, @demo, @freespin, @buybonus, @jackpot, @rtp_mode, @seed_rank,
+            @original_id, @partner_top, @partner_new, @updated_at, 1, @updated_at)
     ON CONFLICT(id) DO UPDATE SET name=excluded.name, provider_id=excluded.provider_id,
       provider_name=excluded.provider_name, source=excluded.source, kind=excluded.kind,
       img=excluded.img, img_vertical=excluded.img_vertical, img_wide=excluded.img_wide,
       demo=excluded.demo, freespin=excluded.freespin, buybonus=excluded.buybonus,
       jackpot=excluded.jackpot, rtp_mode=excluded.rtp_mode, seed_rank=excluded.seed_rank,
-      active=1, updated_at=excluded.updated_at
+      original_id=excluded.original_id, partner_top=excluded.partner_top,
+      partner_new=excluded.partner_new, active=1, updated_at=excluded.updated_at
   `);
-  for (const g of games) putGame.run({ ...g, updated_at: now });
+  // first_seen_at при обновлении не трогаем: это дата появления, а не правки.
+  for (const g of games) {
+    putGame.run({ original_id: null, partner_top: null, partner_new: 0, ...g, updated_at: now });
+  }
 });
 
 export function catalogStats() {
@@ -425,17 +460,50 @@ const POPULAR_WINDOW_MS = 7 * 24 * 3600 * 1000;
  * стартовому порядку хитов (seed_rank). Пока ставок нет, порядок целиком
  * задаёт стартовый список, а по мере игры его сменяет настоящий спрос.
  */
-export function casinoGames({ kind = '', provider = '', q = '', sort = 'popular', offset = 0, limit = 48 } = {}) {
+/* Порядок «популярные»: наши ставки за неделю, топ агрегатора, хиты. */
+const POPULAR_ORDER = 'heat DESC, COALESCE(g.partner_top, 1000000) ASC, g.seed_rank ASC, g.name COLLATE NOCASE ASC';
+
+/*
+ * «Новинки»: список новых релизов агрегатора или игра, пришедшая в каталог
+ * позже первой загрузки (и не раньше NEW_WINDOW_MS назад). Первая загрузка
+ * кладёт весь каталог разом, и без этого условия «новыми» были бы все.
+ */
+const NEW_WINDOW_MS = 30 * 24 * 3600 * 1000;
+const FIRST_LOAD_GRACE_MS = 24 * 3600 * 1000;
+const NEW_WHERE = `(g.partner_new = 1 OR (g.first_seen_at >= @newSince AND g.first_seen_at >
+  (SELECT MIN(first_seen_at) FROM casino_games) + ${FIRST_LOAD_GRACE_MS}))`;
+
+/** Условие SQL для категории лобби; null - категория не про строки каталога. */
+function categoryWhere(cat, args) {
+  if (!cat) return null;
+  if (cat.type === 'match') { args.pattern = cat.pattern; return 'lb_re(@pattern, g.name) = 1'; }
+  if (cat.type === 'new') { args.newSince = Date.now() - NEW_WINDOW_MS; return NEW_WHERE; }
+  return '';
+}
+
+/**
+ * Страница игр лобби: вкладка, провайдер, категория, поиск.
+ *
+ * Порядок всегда «популярные»: сначала наши ставки за неделю, потом топ
+ * агрегатора, потом стартовый список хитов. Пока ставок нет, порядок задают
+ * два последних, а по мере игры их сменяет настоящий спрос. «Новинки»
+ * сортируются по дате появления.
+ */
+export function casinoGames({ kind = '', provider = '', category = '', q = '', offset = 0, limit = 48 } = {}) {
   const where = ['g.active = 1'];
   const args = { since: Date.now() - POPULAR_WINDOW_MS };
+  const cat = category ? categoryById(category) : null;
+  if (cat?.type === 'bigwins') {
+    const rows = bigWins(cat.kind, Math.max(1, limit) + Math.max(0, offset)).slice(offset);
+    return { total: rows.length + offset, rows };
+  }
   if (kind) { where.push('g.kind = @kind'); args.kind = kind; }
   if (provider) { where.push('g.provider_id = @provider'); args.provider = provider; }
+  const catSql = categoryWhere(cat, args);
+  if (catSql) where.push(catSql);
   if (q) { where.push('g.name LIKE @q ESCAPE \'\\\''); args.q = `%${String(q).replace(/[\\%_]/g, (c) => `\\${c}`)}%`; }
 
-  const order = sort === 'az' ? 'g.name COLLATE NOCASE ASC'
-    : sort === 'new' ? 'g.updated_at DESC, g.seed_rank ASC'
-    : 'heat DESC, g.seed_rank ASC, g.name COLLATE NOCASE ASC';
-
+  const order = cat?.type === 'new' ? 'g.partner_new DESC, g.first_seen_at DESC, ' + POPULAR_ORDER : POPULAR_ORDER;
   const whereSql = where.join(' AND ');
   const total = db.prepare(`SELECT COUNT(*) AS n FROM casino_games g WHERE ${whereSql}`).get(args).n;
   const rows = db.prepare(`
@@ -449,6 +517,80 @@ export function casinoGames({ kind = '', provider = '', q = '', sort = 'popular'
      LIMIT @limit OFFSET @offset
   `).all({ ...args, limit: Math.min(Math.max(1, limit), 120), offset: Math.max(0, offset) });
   return { total, rows };
+}
+
+/*
+ * Лучшие выигрыши недели: настоящие раунды наших игроков с самым большим
+ * множителем к ставке. По одному раунду на игру - иначе одна щедрая игра
+ * заняла бы весь блок. Раунды фриспинов не в счёт: ставка в них не
+ * списывалась, и множитель к нулю ничего не значит. Отменённое не в счёт.
+ */
+const BIGWIN_MIN_BET_KOP = 100;
+function bigWins(kind, limit = BLOCK_SIZE) {
+  const rounds = db.prepare(`
+    SELECT w.game_id, w.user_id, w.round_id, SUM(w.amount_kop) AS win,
+           (SELECT SUM(b.amount_kop) FROM casino_tx b
+             WHERE b.user_id = w.user_id AND b.round_id = w.round_id AND b.method = 'bet'
+               AND b.free_round = 0 AND b.rolled_back = 0) AS bet
+      FROM casino_tx w
+     WHERE w.method IN ('win', 'cashout') AND w.rolled_back = 0 AND w.created_at >= ?
+     GROUP BY w.user_id, w.round_id
+    HAVING bet >= ? AND win > bet
+     ORDER BY CAST(win AS REAL) / bet DESC
+     LIMIT 500`).all(Date.now() - POPULAR_WINDOW_MS, BIGWIN_MIN_BET_KOP);
+  const seen = new Set();
+  const out = [];
+  for (const r of rounds) {
+    if (seen.has(r.game_id)) continue;
+    const g = db.prepare('SELECT * FROM casino_games WHERE id = ? AND active = 1 AND kind = ?').get(r.game_id, kind);
+    if (!g) continue;
+    seen.add(r.game_id);
+    out.push({ ...g, heat: 0, win_kop: r.win, win_mult: Math.round((r.win / r.bet) * 10) / 10 });
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
+/**
+ * Лобби вкладки: блоки по порядку CASINO_CATEGORIES и блоки провайдеров.
+ * Пустой блок не отдаётся: заголовок без игр хуже отсутствующего.
+ */
+/*
+ * В блоке одно название - одна плитка. «40 Super Hot» есть и у EGT, и у EGT
+ * VIP: это разные игры, но два одинаковых рядом в одной ленте читаются как
+ * ошибка. Полный список категории показывает обе.
+ */
+function uniqueByName(rows, size) {
+  const seen = new Set();
+  return rows.filter((r) => {
+    const k = r.name.toLowerCase();
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  }).slice(0, size);
+}
+
+export function casinoHome(kind) {
+  const blocks = [];
+  for (const cat of categoriesFor(kind)) {
+    const size = cat.type === 'popular' && kind === 'slots' ? POPULAR_SIZE : BLOCK_SIZE;
+    const page = casinoGames({ kind, category: cat.type === 'popular' ? '' : cat.id, limit: size * 2 });
+    const { total } = page;
+    const rows = uniqueByName(page.rows, size);
+    // «Популярные» показываются при любом числе игр: это вход во вкладку.
+    if (!rows.length || (cat.type !== 'popular' && rows.length < MIN_BLOCK_GAMES)) continue;
+    blocks.push({ id: cat.id, title: cat.title, icon: cat.icon, type: cat.type, rows: cat.rows || 1, total, games: rows });
+  }
+  const providers = casinoProviders().filter((p) => p.kind === kind).slice(0, PROVIDER_BLOCKS);
+  if (providers.length > 1) {
+    for (const p of providers) {
+      const page = casinoGames({ kind, provider: p.id, limit: BLOCK_SIZE * 2 });
+      const { total } = page;
+      const rows = uniqueByName(page.rows, BLOCK_SIZE);
+      if (rows.length) blocks.push({ id: `provider:${p.id}`, provider: p.id, title: p.name, type: 'provider', rows: 1, total, games: rows });
+    }
+  }
+  return blocks;
 }
 
 export function casinoGame(id) {

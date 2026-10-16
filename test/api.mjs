@@ -8,6 +8,8 @@
  * Запуск: node test/api.mjs [http://localhost:3000]
  */
 
+import { readFileSync } from 'node:fs';
+
 const BASE = process.argv[2] || 'http://localhost:3000';
 
 let passed = 0;
@@ -1188,7 +1190,11 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
   const page = await post('/api/casino/games', { kind: 'slots', limit: 48 });
   const games = page.data.games || [];
   check('казино: страница из 48 игр', games.length === 48, String(games.length));
-  check('казино: первым идёт хит', games[0]?.name === 'Gates of Olympus', games[0]?.name);
+  // Порядок популярности: топ витрины агрегатора, затем наши хиты. Ставок в
+  // свежей базе нет, поэтому первым обязан стоять первый из топа витрины.
+  const snapTop = JSON.parse(readFileSync(new URL('../server/casino-catalog.json', import.meta.url), 'utf8'))
+    .games.filter((g) => g.kind === 'slots' && g.partner_top != null).sort((a, b) => a.partner_top - b.partner_top)[0];
+  check('казино: первым идёт топ агрегатора', !snapTop || games[0]?.id === snapTop.id, `${games[0]?.name} / ${snapTop?.name}`);
   check('казино: обложки наши, а не CDN агрегатора', games.every((g) => g.cover.startsWith('/casino/cover/')));
   check('казино: у слотов показана наша отдача', games.every((g) => g.rtp === config.casino.rtp));
 
@@ -1204,9 +1210,25 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
   check('казино: поиск находит по названию',
         found.data.total > 0 && found.data.games.every((g) => /sweet bonanza/i.test(g.name)), String(found.data.total));
 
-  const az = await post('/api/casino/games', { kind: 'slots', sort: 'az', limit: 5 });
-  const names = (az.data.games || []).map((g) => g.name);
-  check('казино: сортировка по алфавиту', names.length === 5 && names[0].toLowerCase() <= names[4].toLowerCase(), names.join(' | '));
+  // Меню и блоки лобби по образцу 1Win.
+  check('казино: меню вкладок', (lobby.data.tabs || []).map((t) => t.label).join('|') === 'Слоты|Live казино|Быстрые игры',
+        JSON.stringify(lobby.data.tabs));
+  const home = await post('/api/casino/home', { kind: 'slots' });
+  const blocks = home.data.blocks || [];
+  check('казино: лобби из блоков, «Популярные» первые', blocks[0]?.id === 'popular' && blocks.length >= 5,
+        blocks.map((b) => b.id).join(','));
+  check('казино: в «Популярных» 10-20 игр', blocks[0]?.games.length >= 10 && blocks[0]?.games.length <= 20,
+        String(blocks[0]?.games.length));
+  check('казино: у плиток блоков наши обложки',
+        blocks.every((b) => b.games.every((g) => g.cover.startsWith('/casino/cover/'))));
+  check('казино: блоки провайдеров в лобби', blocks.some((b) => b.type === 'provider'));
+  const mw = await post('/api/casino/games', { kind: 'slots', category: 'megaways', limit: 48 });
+  check('казино: «Все» блока - игры только этой категории',
+        mw.data.total > 10 && mw.data.games.every((g) => /megaways/i.test(g.name)), String(mw.data.total));
+  const fakeCat = await post('/api/casino/games', { kind: 'slots', category: 'нет-такой', limit: 5 });
+  check('казино: неизвестная категория не ломает список', fakeCat.status === 200 && fakeCat.data.total > 5000);
+  const liveHome = await post('/api/casino/home', { kind: 'live' });
+  check('казино: вкладка Live отвечает и без столов', liveHome.status === 200 && Array.isArray(liveHome.data.blocks));
 
   const noKeys = await post('/api/casino/launch', { gameId: games[0]?.id });
   check('казино: без ключа агрегатора запуск отказывает 503', noKeys.status === 503, `статус ${noKeys.status}`);

@@ -155,6 +155,17 @@ if (newcomer) {
   check('баннер «Казино» загружен и той же пропорции 900x782',
     casinoArt.loaded && casinoArt.w === 900 && casinoArt.h === 782, JSON.stringify(casinoArt));
 
+  // Слайд-шоу: джекпот-баннер первым и дольше всех (10 с против 3 с), он
+  // заменил старый четвёртый баннер с поездкой.
+  const slides = await page.evaluate(() => [...document.querySelectorAll('#hero .hero-img')]
+    .map((i) => ({ alt: i.alt, ms: Number(i.dataset.ms) })));
+  // По подписи, а не по адресу: в автономной сборке адрес - сам файл.
+  check('слайд-шоу: джекпот первым, 10 секунд', /джекпоты/i.test(slides[0]?.alt) && slides[0]?.ms === 10000,
+        JSON.stringify(slides[0]));
+  check('слайд-шоу: остальные три по 3 секунды',
+        slides.length === 4 && slides.slice(1).every((x) => x.ms === 3000),
+        slides.map((x) => `${x.alt}:${x.ms}`).join(' / '));
+
   await page.click('#promoCasino');
   await page.waitForTimeout(400);
   check('баннер «Казино» ведёт в раздел казино',
@@ -1691,6 +1702,25 @@ check('честность: личная статистика убрана', fair
       Math.abs(row.feed.x - row.hero.x) <= 2);
   }
 
+  /*
+   * Казино на компьютере: справа от слайд-шоу столбик Free Money над
+   * «Кейсами», низы сходятся - доли ширины считаны из пропорций картинок.
+   */
+  await desk.click('#sideNav .side-item[data-view="casino"]');
+  await desk.waitForSelector('.cz-block[data-block="popular"] .cz-tile[data-game]', { timeout: 15000 });
+  await desk.waitForTimeout(600);
+  const czRow = await desk.evaluate(() => {
+    const r = (sel) => document.querySelector(sel).getBoundingClientRect();
+    return { hero: r('#czHero'), cases: r('#czPromoCases'), fortune: r('#czPromoFortune'),
+      overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth };
+  });
+  check('компьютер: казино - Free Money над «Кейсами» справа от слайд-шоу',
+    czRow.fortune.x > czRow.hero.right - 2 && czRow.cases.top >= czRow.fortune.bottom - 1
+    && Math.abs(czRow.cases.x - czRow.fortune.x) <= 2, JSON.stringify({ h: czRow.hero.right, f: czRow.fortune.x }));
+  check('компьютер: казино - низы баннеров сходятся', Math.abs(czRow.cases.bottom - czRow.hero.bottom) <= 3,
+    `разбег ${Math.abs(czRow.cases.bottom - czRow.hero.bottom).toFixed(1)}px`);
+  check('компьютер: казино не разъезжается вбок', czRow.overflow <= 1, `лишних ${czRow.overflow}px`);
+
   // В боковом меню админки быть не должно: заказчик просил убрать её оттуда.
   check('компьютер: админки в боковом меню нет',
     await desk.evaluate(() => !document.querySelector('#sideNav [data-view="admin"]')));
@@ -1730,9 +1760,10 @@ check('честность: личная статистика убрана', fair
 /* ---------- Казино ---------- */
 
 /*
- * Лобби по согласованному макету: плитка 3:4, на телефоне три в ряд, хиты
- * впереди. Запуск без ключа агрегатора отказывает - проверяем, что отказ
- * виден, а экран игры не открылся пустым.
+ * Лобби по образцу 1Win: меню вкладок, баннеры, поиск и «Провайдеры», чипы,
+ * блоки-ленты с «Популярными» первыми. Главное, что здесь проверяется, -
+ * обратный путь: со страницы провайдера «Назад» ведёт к выбору провайдеров,
+ * а не в лобби (на этом заказчик и споткнулся).
  */
 {
   await ensureOpenerClosed();
@@ -1740,73 +1771,119 @@ check('честность: личная статистика убрана', fair
   await page.waitForTimeout(300);
   await page.evaluate(() => document.getElementById('promoCasino').scrollIntoView({ block: 'center' }));
   await page.click('#promoCasino');
-  await page.waitForSelector('#czGrid .cz-tile[data-game]', { timeout: 15000 });
+  await page.waitForSelector('.cz-block[data-block="popular"] .cz-tile[data-game]', { timeout: 15000 });
   await page.waitForTimeout(500);
 
   const lobby = await page.evaluate(() => {
-    const tiles = [...document.querySelectorAll('#czGrid .cz-tile[data-game]')];
-    const rows = new Map();
-    for (const t of tiles.slice(0, 9)) {
-      const r = t.getBoundingClientRect();
-      rows.set(Math.round(r.top), (rows.get(Math.round(r.top)) || 0) + 1);
-    }
+    const pop = document.querySelector('.cz-block[data-block="popular"]');
+    const tiles = [...pop.querySelectorAll('.cz-tile[data-game]')];
     const art = tiles[0].querySelector('.cz-art').getBoundingClientRect();
     return {
-      count: tiles.length,
-      perRow: [...rows.values()][0],
+      seg: [...document.querySelectorAll('#czSeg .cz-seg-btn')].map((t) => t.textContent.trim()),
+      selected: document.querySelector('#czSeg [aria-selected="true"]')?.textContent.trim(),
+      firstBlock: document.querySelector('#czBody .cz-block')?.dataset.block,
+      blocks: document.querySelectorAll('#czBody .cz-block').length,
+      popular: tiles.length,
+      rows: new Set(tiles.map((t) => Math.round(t.getBoundingClientRect().top))).size,
       ratio: art.height / art.width,
-      first: tiles[0].querySelector('.cz-name').textContent,
-      tabs: [...document.querySelectorAll('.cz-tab')].map((t) => t.textContent.replace(/\s+/g, ' ').trim()),
-      providers: document.querySelectorAll('.cz-pcard').length,
-      rtp: document.querySelector('.cz-hero .cz-rtp b')?.textContent,
-      shown: document.getElementById('czShown').textContent,
+      chips: [...document.querySelectorAll('#czChips .cz-chip')].map((c) => c.textContent.trim()),
+      az: /А[-\u2013]Я|A-Z/.test(document.getElementById('view-casino').textContent),
+      banners: !document.getElementById('czBanners').hidden,
+      slides: document.querySelectorAll('#czHero .hero-img').length,
+      jackpot: document.querySelector('#czHero .hero-img')?.alt || '',
+      pair: !!document.querySelector('#czPromoFortune') && !!document.querySelector('#czPromoCases'),
+      provBlocks: document.querySelectorAll('#czBody .cz-block[data-block^="provider:"]').length,
+      note: document.querySelector('.cz-note')?.textContent || '',
     };
   });
-  check('казино: сетка заполнена', lobby.count >= 24, `плиток ${lobby.count}`);
-  check('казино: на телефоне три плитки в ряд', lobby.perRow === 3, `в ряду ${lobby.perRow}`);
+  check('казино: меню Слоты / Live казино / Быстрые игры', lobby.seg.join('|') === 'Слоты|Live казино|Быстрые игры',
+        lobby.seg.join(' / '));
+  check('казино: открывается на слотах', lobby.selected === 'Слоты', lobby.selected);
+  check('казино: первым блоком «Популярные»', lobby.firstBlock === 'popular', lobby.firstBlock);
+  check('казино: в «Популярных» 10-20 игр в две строки', lobby.popular >= 10 && lobby.popular <= 20 && lobby.rows === 2,
+        `${lobby.popular} игр, строк ${lobby.rows}`);
   check('казино: плитка 3:4, а не во всю строку', Math.abs(lobby.ratio - 4 / 3) < 0.03, lobby.ratio.toFixed(3));
-  check('казино: первым идёт хит', lobby.first === 'Gates of Olympus', lobby.first);
-  check('казино: вкладки слотов и быстрых игр', lobby.tabs.some((t) => t.startsWith('Слоты')) && lobby.tabs.some((t) => t.startsWith('Быстрые')),
-        lobby.tabs.join(' / '));
-  // Вкладка живого казино есть ровно тогда, когда агрегатор отдаёт живые
-  // столы: пустая вкладка хуже отсутствующей.
+  check('казино: несколько тематических блоков', lobby.blocks >= 5, String(lobby.blocks));
+  check('казино: блоки провайдеров в лобби', lobby.provBlocks > 0, String(lobby.provBlocks));
+  check('казино: чипы начинаются с «Лобби» и «Популярных»', lobby.chips[0] === 'Лобби' && lobby.chips[1] === 'Популярные',
+        lobby.chips.slice(0, 3).join(' / '));
+  check('казино: сортировки «А-Я» нет', !lobby.az);
+  check('казино: баннеры главной в лобби', lobby.banners && lobby.slides === 4 && /джекпоты/i.test(lobby.jackpot) && lobby.pair,
+        `${lobby.slides} слайдов, первый ${lobby.jackpot}`);
+  check('казино: отдача под лобби из настройки', /70%/.test(lobby.note), lobby.note);
+
+  // Лента блока листается и не раздвигает страницу.
+  const overflowX = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  check('казино: ленты не раздвигают страницу вбок', overflowX <= 1, `лишних ${overflowX}px`);
+
+  // Вкладки: Live честно пустая, пока агрегатор не отдаёт столы.
   const liveCount = await page.evaluate(() => fetch('/api/casino/lobby', { method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Telegram-Init-Data': '' }, body: '{}' })
     .then((r) => r.json()).then((d) => d.counts?.live || 0).catch(() => 0));
-  check('казино: вкладка живого казино только когда есть живые столы',
-        lobby.tabs.some((t) => t.startsWith('Живое')) === liveCount > 0, `столов ${liveCount}`);
-  check('казино: полоса провайдеров', lobby.providers > 20, String(lobby.providers));
-  check('казино: отдача в шапке из настройки', lobby.rtp === '70%', lobby.rtp);
+  await page.click('#czSeg [data-kind="live"]');
+  // [data-block]: у силуэтов загрузки тот же класс блока, но без имени.
+  await page.waitForFunction(() => document.querySelector('#czBody .cz-block[data-block], #czBody .cz-soon'), null, { timeout: 15000 });
+  const live = await page.evaluate(() => ({ soon: !!document.querySelector('#czBody .cz-soon'),
+    blocks: document.querySelectorAll('#czBody .cz-block[data-block]').length }));
+  check('казино: Live - столы или честная строка «готовится»', liveCount > 0 ? live.blocks > 0 : live.soon,
+        `столов ${liveCount}, ${JSON.stringify(live)}`);
 
-  await page.click('#czMoreBtn');
-  await page.waitForFunction((n) => document.querySelectorAll('#czGrid .cz-tile[data-game]').length > n, lobby.count, { timeout: 15000 });
-  check('казино: «Показать ещё» догружает следующую страницу',
-    await page.evaluate((n) => document.querySelectorAll('#czGrid .cz-tile[data-game]').length > n, lobby.count));
+  await page.click('#czSeg [data-kind="fast"]');
+  await page.waitForSelector('.cz-block[data-block="popular-fast"] .cz-tile[data-game]', { timeout: 15000 });
+  const fastNames = await page.evaluate(() => [...document.querySelectorAll('#czBody .cz-name')].map((n) => n.textContent));
+  check('казино: быстрые игры своей вкладкой', fastNames.some((n) => /aviator/i.test(n)), fastNames.slice(0, 4).join(' | '));
+  check('казино: чипы новой вкладки видны с начала',
+    await page.evaluate(() => document.getElementById('czChips').scrollLeft === 0));
 
-  await page.fill('#czQ', 'sweet bonanza');
-  // Ждём ответ поиска, а не время: обложки грузятся параллельно и в тесте
-  // занимают соединения браузера, ответ может прийти позже.
-  await page.waitForFunction(() => {
-    const names = [...document.querySelectorAll('#czGrid .cz-tile[data-game] .cz-name')];
-    return names.length > 0 && names.length < 48;
-  }, null, { timeout: 20000 }).catch(() => {});
-  const found = await page.evaluate(() => [...document.querySelectorAll('#czGrid .cz-name')].map((n) => n.textContent));
-  check('казино: поиск оставляет только найденное', found.length > 0 && found.every((n) => /sweet bonanza/i.test(n)),
-        found.slice(0, 4).join(' | '));
-  await page.fill('#czQ', '');
-  await page.waitForFunction(() => document.querySelectorAll('#czGrid .cz-tile[data-game]').length >= 48,
-    null, { timeout: 20000 }).catch(() => {});
+  await page.click('#czSeg [data-kind="slots"]');
+  await page.waitForSelector('.cz-block[data-block="popular"] .cz-tile[data-game]', { timeout: 15000 });
 
-  await page.evaluate(() => document.querySelector('.cz-pcard[data-provider="hacksaw"]').click());
-  await page.waitForSelector('.cz-crumbs', { timeout: 10000 });
-  await page.waitForFunction(() => document.querySelectorAll('#czGrid .cz-tile[data-game]').length > 0,
-    null, { timeout: 20000 }).catch(() => {});
-  const prov = await page.evaluate(() => ({
-    title: document.querySelector('.cz-hero h1')?.textContent,
-    tabsHidden: document.getElementById('czTabs').hidden,
-    names: document.querySelectorAll('#czGrid .cz-tile[data-game]').length,
+  // Категория: «Все» блока - полный список, баннеры уходят, «Назад» - в лобби.
+  await page.click('#czChips [data-chip="megaways"]');
+  await page.waitForFunction(() => document.querySelectorAll('#czGrid .cz-tile[data-game]').length > 0, null, { timeout: 15000 });
+  const cat = await page.evaluate(() => ({
+    names: [...document.querySelectorAll('#czGrid .cz-name')].map((n) => n.textContent),
+    banners: document.getElementById('czBanners').hidden,
+    title: document.querySelector('.cz-listtitle')?.textContent.trim(),
+    pressed: document.querySelector('#czChips [aria-pressed="true"]')?.dataset.chip,
   }));
-  check('казино: страница провайдера открывается', prov.title === 'Hacksaw' && prov.tabsHidden && prov.names > 0,
+  check('казино: категория из своих игр', cat.names.length > 0 && cat.names.every((n) => /megaways/i.test(n)),
+        cat.names.slice(0, 3).join(' | '));
+  check('казино: в категории баннеры спрятаны, чип выбран', cat.banners && cat.pressed === 'megaways' && cat.title === 'Megaways',
+        JSON.stringify({ b: cat.banners, p: cat.pressed, t: cat.title }));
+  const shown = cat.names.length;
+  if (!(await page.isHidden('#czMoreBtn'))) {
+    await page.click('#czMoreBtn');
+    await page.waitForFunction((n) => document.querySelectorAll('#czGrid .cz-tile[data-game]').length > n, shown, { timeout: 15000 });
+    check('казино: «Показать ещё» догружает категорию',
+      await page.evaluate((n) => document.querySelectorAll('#czGrid .cz-tile[data-game]').length > n, shown));
+  }
+  await page.click('.cz-listhead [data-back]');
+  await page.waitForSelector('.cz-block[data-block="popular"]', { timeout: 10000 });
+  check('казино: из категории «Назад» в лобби', await page.evaluate(() => !document.getElementById('czBanners').hidden));
+
+  // Провайдеры: сетка знаков, провайдер, и обратно К ВЫБОРУ провайдеров.
+  await page.click('#czProvBtn');
+  await page.waitForSelector('.cz-pgrid .cz-pcard', { timeout: 10000 });
+  // Знаки грузятся параллельно с обложками лобби: ждём загрузку, а не время.
+  await page.waitForFunction(() => [...document.querySelectorAll('.cz-pgrid img.cz-plogo')].every((i) => i.complete),
+    null, { timeout: 15000 }).catch(() => {});
+  const provs = await page.evaluate(() => ({
+    cards: document.querySelectorAll('.cz-pgrid .cz-pcard').length,
+    logos: [...document.querySelectorAll('.cz-pgrid img.cz-plogo')].filter((i) => i.complete && i.naturalWidth > 0).length,
+    words: document.querySelectorAll('.cz-pgrid .cz-pword').length,
+  }));
+  check('казино: выбор провайдера - сетка', provs.cards > 20, String(provs.cards));
+  check('казино: у провайдеров знаки, у остальных название', provs.logos >= 15 && provs.logos + provs.words === provs.cards,
+        JSON.stringify(provs));
+
+  await page.click('.cz-pcard[data-provider="hacksaw"]');
+  await page.waitForFunction(() => document.querySelectorAll('#czGrid .cz-tile[data-game]').length > 0, null, { timeout: 20000 });
+  const prov = await page.evaluate(() => ({
+    title: document.querySelector('.cz-listtitle img')?.alt || document.querySelector('.cz-listtitle')?.textContent.trim(),
+    provs: [...new Set([...document.querySelectorAll('#czGrid .cz-prov')].map((n) => n.textContent))],
+  }));
+  check('казино: страница провайдера только его игры', prov.title === 'Hacksaw' && prov.provs.join() === 'Hacksaw',
         JSON.stringify(prov));
 
   await page.click('#czGrid .cz-tile[data-game] >> nth=0');
@@ -1834,10 +1911,40 @@ check('честность: личная статистика убрана', fair
   await page.waitForTimeout(300);
   check('казино: окно запуска закрывается Esc', await page.evaluate(() => document.getElementById('czSheet').hidden));
 
-  await page.click('.cz-crumbs [data-back]');
-  await page.waitForTimeout(800);
-  check('казино: «Казино» в крошках возвращает в лобби',
-    await page.evaluate(() => !document.getElementById('czTabs').hidden));
+  await page.click('.cz-listhead [data-back]');
+  await page.waitForTimeout(400);
+  check('казино: с провайдера «Назад» - к выбору провайдеров',
+    await page.evaluate(() => document.querySelectorAll('.cz-pgrid .cz-pcard').length > 20));
+  // Выбор другого провайдера после возврата - тот самый путь, что ломался.
+  await page.click('.cz-pcard[data-provider="nolimitcity"]');
+  await page.waitForFunction(() => document.querySelectorAll('#czGrid .cz-tile[data-game]').length > 0, null, { timeout: 20000 });
+  check('казино: после возврата выбирается другой провайдер',
+    await page.evaluate(() => [...document.querySelectorAll('#czGrid .cz-prov')].every((n) => n.textContent === 'NolimitCity')));
+  await page.click('.cz-listhead [data-back]');
+  await page.waitForSelector('.cz-pgrid', { timeout: 5000 });
+  await page.click('.cz-listhead [data-back]');
+  await page.waitForSelector('.cz-block[data-block="popular"]', { timeout: 10000 });
+  check('казино: от выбора провайдеров «Назад» - в лобби',
+    await page.evaluate(() => !document.getElementById('czBanners').hidden && !document.querySelector('.cz-pgrid')));
+
+  // Поиск открывает свой экран, пустое поле возвращает в лобби.
+  await page.fill('#czQ', 'sweet bonanza');
+  await page.waitForFunction(() => {
+    const names = [...document.querySelectorAll('#czGrid .cz-tile[data-game] .cz-name')];
+    return names.length > 0 && names.length < 48;
+  }, null, { timeout: 20000 }).catch(() => {});
+  const found = await page.evaluate(() => [...document.querySelectorAll('#czGrid .cz-name')].map((n) => n.textContent));
+  check('казино: поиск оставляет только найденное', found.length > 0 && found.every((n) => /sweet bonanza/i.test(n)),
+        found.slice(0, 4).join(' | '));
+  await page.fill('#czQ', '');
+  await page.waitForSelector('.cz-block[data-block="popular"]', { timeout: 10000 });
+  check('казино: пустой поиск возвращает в лобби', await page.evaluate(() => !document.getElementById('czBanners').hidden));
+
+  // «Кейсы» на месте «Казино»: из казино ведём в кейсы.
+  await page.click('#czPromoCases');
+  await page.waitForTimeout(400);
+  check('казино: баннер «Кейсы» ведёт к кейсам',
+    await page.evaluate(() => document.getElementById('view-cases').classList.contains('active')));
 
   // «Честность»: отдача казино из той же настройки.
   await page.evaluate(() => document.querySelector('[data-view="fair"]')?.click());

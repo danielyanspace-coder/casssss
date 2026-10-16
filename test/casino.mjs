@@ -17,6 +17,7 @@ for (const t of ['', '-wal', '-shm']) rmSync(process.env.DB_PATH + t, { force: t
 const { db, getOrCreateUser, getUserById } = await import('../server/db.js');
 const cdb = await import('../server/casino-db.js');
 const { buildCatalog } = await import('../server/casino.js');
+const cats = await import('../server/casino-categories.js');
 const { casinoWallet, CASINO_STATUS: S, userBalanceRub, casinoPlayerId, toKop } = cdb;
 
 let passed = 0;
@@ -288,13 +289,79 @@ const call = (list) => casinoWallet(list, { currency: 'RUB' });
   // Популярность: ставки недели обгоняют стартовый порядок.
   cdb.saveCatalog(snap.providers, snap.games);
   const before = cdb.casinoGames({ kind: 'slots', limit: 3 }).rows.map((r) => r.id);
-  const tail = cdb.casinoGames({ kind: 'slots', sort: 'az', offset: 900, limit: 1 }).rows[0];
+  const tail = cdb.casinoGames({ kind: 'slots', offset: 900, limit: 1 }).rows[0];
   const u = player(1000);
   for (let i = 0; i < 3; i++) call([tx('bet', u, { amount: 1, gameId: tail.id })]);
   const after = cdb.casinoGames({ kind: 'slots', limit: 3 }).rows.map((r) => r.id);
   check('популярность: игра со ставками недели встаёт первой', after[0] === tail.id && before[0] !== tail.id);
   check('поиск по названию', cdb.casinoGames({ q: 'olympus' }).rows.every((r) => /olympus/i.test(r.name)));
   check('поиск экранирует % и _', cdb.casinoGames({ q: '%' }).total === 0);
+
+  // Витрина агрегатора: топ и новинки находятся по originalId.
+  const withFront = buildCatalog(
+    [g('20', 'Front Top', 'Sloter-slot-pragmatic', { originalId: 'ft:::pp' }),
+      g('21', 'Front New', 'Sloter-slot-pragmatic', { originalId: 'fn:::pp' })],
+    providers, allowed, { top: ['x', 'ft:::pp'], new: ['fn:::pp'] });
+  const ft = withFront.games.find((x) => x.id === '20');
+  const fn = withFront.games.find((x) => x.id === '21');
+  check('витрина: место в топе агрегатора сохранено', ft?.partner_top === 1 && fn?.partner_top === null);
+  check('витрина: новинка агрегатора помечена', fn?.partner_new === 1 && ft?.partner_new === 0);
+}
+
+/* ---------- Блоки лобби ---------- */
+
+{
+  const ids = cats.CASINO_CATEGORIES.map((c) => c.id);
+  check('категории: id не повторяются', new Set(ids).size === ids.length);
+  check('категории: у каждой вкладка из меню',
+    cats.CASINO_CATEGORIES.every((c) => cats.CASINO_TABS.some((t) => t.id === c.kind)));
+  check('категории: «Популярные» первые в каждой вкладке',
+    cats.CASINO_TABS.every((t) => cats.categoriesFor(t.id)[0]?.type === 'popular'));
+  check('категории: шаблоны разбираются',
+    cats.CASINO_CATEGORIES.filter((c) => c.type === 'match').every((c) => { try { new RegExp(c.pattern); return true; } catch { return false; } }));
+  check('меню: Слоты, Live казино, Быстрые игры',
+    cats.CASINO_TABS.map((t) => t.label).join('|') === 'Слоты|Live казино|Быстрые игры');
+
+  // Тот же шаблон в SQL и в JS: блок Megaways состоит только из Megaways.
+  const mw = cdb.casinoGames({ kind: 'slots', category: 'megaways', limit: 120 });
+  check('блок по шаблону: только подходящие игры', mw.total > 10 && mw.rows.every((r) => /megaways/i.test(r.name)),
+        String(mw.total));
+  const mwAll = db.prepare("SELECT COUNT(*) AS n FROM casino_games WHERE active = 1 AND kind = 'slots'").all()[0].n;
+  check('блок по шаблону: не весь каталог', mw.total < mwAll);
+
+  const home = cdb.casinoHome('slots');
+  check('лобби: первым блоком «Популярные»', home[0]?.id === 'popular' && home[0].rows === 2, home[0]?.id);
+  check('лобби: в «Популярных» не больше заданного', home[0].games.length <= cats.POPULAR_SIZE && home[0].games.length >= 10,
+        String(home[0].games.length));
+  check('лобби: в блоке нет двух игр с одним названием',
+    home.every((b) => new Set(b.games.map((x) => x.name.toLowerCase())).size === b.games.length));
+  check('лобби: тематический блок не короче порога',
+    home.filter((b) => b.type === 'match').every((b) => b.games.length >= cats.MIN_BLOCK_GAMES));
+  const provBlocks = home.filter((b) => b.type === 'provider');
+  check('лобби: блоки провайдеров после тематических',
+    provBlocks.length > 0 && provBlocks.length <= cats.PROVIDER_BLOCKS
+    && home.findIndex((b) => b.type === 'provider') > home.findLastIndex((b) => b.type !== 'provider'));
+  check('лобби: блок провайдера только из его игр',
+    provBlocks.every((b) => b.games.every((x) => x.provider_id === b.provider)));
+  check('лобби: «Все N» знает полный размер блока', home.every((b) => b.total >= b.games.length));
+  const fast = cdb.casinoHome('fast');
+  check('быстрые игры: свои блоки, без слотов', fast.length > 0 && fast.every((b) => b.games.every((x) => x.kind === 'fast')));
+
+  // Лучшие выигрыши: настоящий раунд с множителем, фриспин не в счёт.
+  const slot = cdb.casinoGames({ kind: 'slots', category: 'megaways', limit: 1 }).rows[0];
+  const other = cdb.casinoGames({ kind: 'slots', category: 'books', limit: 1 }).rows[0];
+  const w = player(1000);
+  call([tx('bet', w, { amount: 2, gameId: slot.id, roundId: 'BW1' })]);
+  call([tx('win', w, { amount: 50, gameId: slot.id, roundId: 'BW1' })]);
+  call([tx('bet', w, { amount: 0, gameId: other.id, roundId: 'BW2', isFreeRound: true })]);
+  call([tx('win', w, { amount: 500, gameId: other.id, roundId: 'BW2', isFreeRound: true })]);
+  const bw = cdb.casinoGames({ category: 'bigwins', limit: 20 }).rows;
+  check('лучшие выигрыши: раунд с множителем ×25', bw[0]?.id === slot.id && bw[0].win_mult === 25,
+        JSON.stringify(bw[0] && { id: bw[0].id, m: bw[0].win_mult }));
+  check('лучшие выигрыши: фриспин без ставки не в счёт', !bw.some((r) => r.id === other.id));
+  const after = cdb.casinoHome('slots');
+  check('лучшие выигрыши: блок появляется только с раундами',
+    !home.some((b) => b.id === 'bigwins') && (bw.length >= cats.MIN_BLOCK_GAMES) === after.some((b) => b.id === 'bigwins'));
 }
 
 /* ---------- итог ---------- */

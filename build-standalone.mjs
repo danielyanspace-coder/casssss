@@ -25,6 +25,9 @@ import { PERMISSIONS, PERMISSION_GROUPS, PERMISSION_IDS, publicRoles } from './s
 import { SETTING_DEFS } from './server/settings-defs.js';
 import { validateSlots } from './server/slots.js';
 import {
+  CASINO_TABS, CASINO_CATEGORIES, POPULAR_SIZE, BLOCK_SIZE, PROVIDER_BLOCKS, MIN_BLOCK_GAMES,
+} from './server/casino-categories.js';
+import {
   FORTUNE_SEGMENTS, SEGMENT_DEG, SEGMENTS_START_DEG,
   PERCENT_MIN, PERCENT_MAX, VOUCHER_MIN, VOUCHER_MAX,
   CASH_PRIZE, GIFT_CASE_MAX_PRICE, SPINS_PER_CYCLE, MIN_DEPOSIT, SPIN_COOLDOWN_MS,
@@ -66,7 +69,16 @@ const casinoCatalog = {
   providers: casinoSnap.providers.map((p) => ({ id: p.id, name: p.name, kind: p.kind, count: p.game_count, sort: p.sort })),
   games: casinoSnap.games.map((g) => [g.id, g.name, g.provider_id, g.provider_name, g.kind,
     g.img_vertical || g.img, g.img_vertical ? 1 : 0, g.img_wide || '', g.demo, g.freespin, g.seed_rank,
-    g.rtp_mode === 'operator' ? 1 : 0]),
+    g.rtp_mode === 'operator' ? 1 : 0, g.partner_top ?? null, g.partner_new ? 1 : 0]),
+};
+/*
+ * Правила блоков лобби - те же объекты, что читает сервер
+ * (server/casino-categories.js): заглушка раскладывает игры по ним же, и
+ * лобби в файле сборки совпадает с настоящим.
+ */
+const casinoRules = {
+  tabs: CASINO_TABS, categories: CASINO_CATEGORIES,
+  popularSize: POPULAR_SIZE, blockSize: BLOCK_SIZE, providerBlocks: PROVIDER_BLOCKS, minBlock: MIN_BLOCK_GAMES,
 };
 
 const config = {
@@ -342,6 +354,8 @@ const legal = inlineUi(read('./public/legal.js'));
 // и без подстановки в автономной сборке весь слот был бы пустыми рамками.
 const slots = inlineUi(read('./public/slots.js'));
 const casinoUi = read('./public/casino.js');
+// Знаки провайдеров лежат в assets/ui/ и уезжают внутрь файла через inlineUi.
+const providerLogos = inlineUi(read('./public/provider-logos.js'));
 const app = inlineUi(read('./public/app.js'));
 
 // Тело страницы без внешних подключений - всё уедет внутрь файла.
@@ -379,6 +393,7 @@ const shim = `
 const DRAW = ${JSON.stringify(drawTables)};
 const CONFIG = ${JSON.stringify(config)};
 const CASINO_CATALOG = ${JSON.stringify(casinoCatalog)};
+const CASINO_RULES = ${JSON.stringify(casinoRules)};
 const DRAW_BY_ID = new Map(DRAW.map((c) => [c.id, c]));
 
 /*
@@ -953,6 +968,36 @@ function demoCasinoGame(row) {
   };
 }
 
+/*
+ * Порядок популярности как на сервере, только без наших ставок (их в файле
+ * нет): топ агрегатора, затем стартовый список хитов, затем название.
+ */
+const demoPopular = (a, b) => ((a[12] ?? 1e6) - (b[12] ?? 1e6)) || (a[10] - b[10]) || a[1].localeCompare(b[1]);
+const demoCatRe = new Map();
+function demoCasinoRows({ kind = '', provider = '', category = '', q = '' }) {
+  const cat = CASINO_RULES.categories.find((c) => c.id === category) || null;
+  // Лучших выигрышей в файле нет: ставок не было, блок пустой, как на
+  // сервере без единого раунда.
+  if (cat?.type === 'bigwins') return [];
+  let re = null;
+  if (cat?.type === 'match') {
+    re = demoCatRe.get(cat.id) || new RegExp(cat.pattern, 'i');
+    demoCatRe.set(cat.id, re);
+  }
+  const needle = String(q || '').trim().toLowerCase();
+  const rows = CASINO_CATALOG.games.filter((g) =>
+    (!kind || g[4] === kind)
+    && (!provider || g[2] === provider)
+    && (!re || re.test(g[1]))
+    && (cat?.type !== 'new' || g[13] === 1)
+    && (!needle || g[1].toLowerCase().includes(needle)));
+  return rows.sort(demoPopular);
+}
+function demoUnique(rows, size) {
+  const seen = new Set();
+  return rows.filter((r) => { const k = r[1].toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; }).slice(0, size);
+}
+
 const routes = {
   'GET /api/config': () => ({ ...CONFIG, open: demoOpen(), casino: { rtp: demoCasinoRtp(), configured: false } }),
 
@@ -961,18 +1006,37 @@ const routes = {
   'POST /api/casino/lobby': () => {
     const counts = { slots: 0, live: 0, fast: 0 };
     for (const p of CASINO_CATALOG.providers) counts[p.kind] = (counts[p.kind] || 0) + p.count;
-    return { rtp: demoCasinoRtp(), configured: false, counts, providers: CASINO_CATALOG.providers };
+    return { rtp: demoCasinoRtp(), configured: false, tabs: CASINO_RULES.tabs, counts, providers: CASINO_CATALOG.providers };
+  },
+
+  'POST /api/casino/home': (body) => {
+    const kind = ['slots', 'live', 'fast'].includes(body.kind) ? body.kind : 'slots';
+    const blocks = [];
+    for (const cat of CASINO_RULES.categories.filter((c) => c.kind === kind)) {
+      const size = cat.type === 'popular' && kind === 'slots' ? CASINO_RULES.popularSize : CASINO_RULES.blockSize;
+      const all = demoCasinoRows({ kind, category: cat.type === 'popular' ? '' : cat.id });
+      const rows = demoUnique(all, size);
+      if (!rows.length || (cat.type !== 'popular' && rows.length < CASINO_RULES.minBlock)) continue;
+      blocks.push({ id: cat.id, title: cat.title, icon: cat.icon, type: cat.type, rows: cat.rows || 1,
+        total: all.length, games: rows.map(demoCasinoGame) });
+    }
+    const providers = CASINO_CATALOG.providers.filter((p) => p.kind === kind && p.count > 0)
+      .sort((a, b) => a.sort - b.sort).slice(0, CASINO_RULES.providerBlocks);
+    if (providers.length > 1) {
+      for (const p of providers) {
+        const all = demoCasinoRows({ kind, provider: p.id });
+        const rows = demoUnique(all, CASINO_RULES.blockSize);
+        if (rows.length) blocks.push({ id: 'provider:' + p.id, provider: p.id, title: p.name, type: 'provider', rows: 1,
+          total: all.length, games: rows.map(demoCasinoGame) });
+      }
+    }
+    return { kind, blocks };
   },
 
   'POST /api/casino/games': (body) => {
-    const q = String(body.q || '').trim().toLowerCase();
-    let rows = CASINO_CATALOG.games.filter((g) =>
-      (!body.provider || g[2] === body.provider)
-      && (body.provider || !body.kind || g[4] === body.kind)
-      && (!q || g[1].toLowerCase().includes(q)));
-    rows = body.sort === 'az'
-      ? rows.slice().sort((a, b) => a[1].localeCompare(b[1]))
-      : rows.slice().sort((a, b) => a[10] - b[10]);
+    const rows = demoCasinoRows({
+      kind: body.kind, provider: body.provider, category: body.category, q: body.q,
+    });
     const offset = Math.max(0, Number(body.offset) || 0);
     const limit = Math.min(96, Math.max(1, Number(body.limit) || 48));
     return { total: rows.length, games: rows.slice(offset, offset + limit).map(demoCasinoGame) };
@@ -2507,6 +2571,8 @@ ${strip(legal)}
 
 ${strip(slots)}
 
+${strip(providerLogos)}
+
 ${strip(casinoUi)}
 
 ${strip(app)}
@@ -2542,7 +2608,7 @@ function topLevelNames(src) {
 const scopes = {
   icons: topLevelNames(icons), covers: topLevelNames(covers),
   sounds: topLevelNames(sounds), legal: topLevelNames(legal),
-  medals: topLevelNames(medals), casino: topLevelNames(casinoUi),
+  medals: topLevelNames(medals), casino: topLevelNames(casinoUi), providerLogos: topLevelNames(providerLogos),
   app: topLevelNames(app),
 };
 const clashes = [];

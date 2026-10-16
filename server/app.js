@@ -40,8 +40,9 @@ import { computeRoll, generateClientSeed } from './fair.js';
 import { timingSafeEqual } from 'node:crypto';
 import {
   casinoWallet, CASINO_STATUS, userBalanceRub, casinoPlayerId, casinoExcluded,
-  casinoGames, casinoGame, casinoProviders, casinoHistory, casinoSummary, kopToRub,
+  casinoGames, casinoGame, casinoProviders, casinoHistory, casinoSummary, kopToRub, casinoHome,
 } from './casino-db.js';
+import { CASINO_TABS, categoryById } from './casino-categories.js';
 import {
   casinoEnv, casinoConfigured, startCatalogSync, syncCatalog, syncStatus, launchGame, coverFile,
 } from './casino.js';
@@ -1184,6 +1185,8 @@ function publicCasinoGame(g) {
     // Число отдачи только там, где оно наше. У живых столов и NovaPlay его
     // задаёт провайдер, и приписать им нашу цифру значило бы соврать.
     rtp: g.rtp_mode === 'operator' ? casinoRtp() : null,
+    // Только у «Лучших выигрышей»: настоящий раунд, множитель и сумма.
+    ...(g.win_mult ? { winMult: g.win_mult, winAmount: kopToRub(g.win_kop) } : {}),
   };
 }
 
@@ -1197,19 +1200,33 @@ app.post('/api/casino/lobby', auth, limits.read, gameGate('casino'), (req, res) 
   res.json({
     rtp: casinoRtp(),
     configured: casinoConfigured(),
+    // Вкладки показываются все три, даже пустая: заказчик держит «Live
+    // казино» в меню, а пустая вкладка честно говорит, что столы готовятся.
+    tabs: CASINO_TABS,
     counts,
     providers: providers.map((p) => ({ id: p.id, name: p.name, kind: p.kind, count: p.game_count })),
+  });
+});
+
+/* Лобби вкладки: блоки с первыми играми каждого. Полный список блока -
+   /api/casino/games с category. */
+app.post('/api/casino/home', auth, limits.read, gameGate('casino'), (req, res) => {
+  const kind = CASINO_KINDS.includes(req.body?.kind) ? req.body.kind : 'slots';
+  res.json({
+    kind,
+    blocks: casinoHome(kind).map((b) => ({ ...b, games: b.games.map(publicCasinoGame) })),
   });
 });
 
 app.post('/api/casino/games', auth, limits.read, gameGate('casino'), (req, res) => {
   const b = req.body || {};
   const kind = CASINO_KINDS.includes(b.kind) ? b.kind : '';
+  const category = typeof b.category === 'string' && categoryById(b.category) ? b.category : '';
   const { total, rows } = casinoGames({
     kind,
     provider: typeof b.provider === 'string' ? b.provider.slice(0, 80) : '',
+    category,
     q: typeof b.q === 'string' ? b.q.trim().slice(0, 60) : '',
-    sort: ['popular', 'az', 'new'].includes(b.sort) ? b.sort : 'popular',
     offset: Math.max(0, Math.trunc(Number(b.offset) || 0)),
     limit: Math.min(CASINO_PAGE_MAX, Math.max(1, Math.trunc(Number(b.limit) || 48))),
   });
