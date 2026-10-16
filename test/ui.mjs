@@ -379,6 +379,8 @@ async function goto(view) {
       withValue: cards.filter((c) => /\d/.test(c.querySelector('.feed-value')?.textContent || '')).length,
       withNick: cards.filter((c) => c.querySelector('.feed-nick')).length,
       clickable: cards.filter((c) => c.dataset.drop).length,
+      // Плашки ленты прямоугольные: силуэты карточек здесь не используются.
+      shaped: cards.filter((c) => getComputedStyle(c).clipPath !== 'none').length,
       // Лента не должна выдавать шансы - как и остальной интерфейс.
       percents: cards.filter((c) => c.textContent.includes('%')).length,
     };
@@ -398,6 +400,8 @@ async function goto(view) {
   check('лента: ников нет', feed.withNick === 0, `нашлось ${feed.withNick}`);
   check('лента: карточки нажимаются', feed.clickable === feed.count,
         `${feed.clickable} из ${feed.count}`);
+  check('лента: плашки прямоугольные, без силуэтов', feed.shaped === 0,
+        `с силуэтом ${feed.shaped} из ${feed.count}`);
   check('лента: проценты не показаны', feed.percents === 0, `нарушений ${feed.percents}`);
   // Полоса не должна разрастаться вниз - она под шапкой, над самими кейсами.
   // Порог поднят вместе с карточками: они стали крупнее по присланному
@@ -786,6 +790,32 @@ async function openCaseAndVerify(caseId) {
   check('фриспины: у выделенной ступени есть пометка',
         /хит/i.test(popularBtns[0]?.flag || ''), popularBtns[0]?.flag);
 
+  // Покупка идёт через сцену: жетон, число, цена. Отмена ничего не списывает.
+  const before = await page.evaluate(() => document.getElementById('balanceValue')?.textContent || '');
+  const pick = fs.buttons[0];
+  await page.evaluate((n) => document.querySelector(`#fsBuyRow .fsbuy-btn[data-fs="${n}"]`).scrollIntoView({ block: 'center' }), pick.count);
+  await page.click(`#fsBuyRow .fsbuy-btn[data-fs="${pick.count}"]`);
+  await page.waitForTimeout(1500);
+  const scene = await page.evaluate(() => ({
+    open: !document.getElementById('buyBackdrop').hidden,
+    token: !!document.querySelector('#buyArt svg, #buyArt img'),
+    title: document.getElementById('buyTitle').textContent.replace(/\s+/g, ' ').trim(),
+    price: document.getElementById('buyPrice').textContent.replace(/\s/g, ' ').trim(),
+    orbit: document.querySelectorAll('#buyOrbit i').length,
+  }));
+  check('фриспины: покупка открывает сцену с жетоном', scene.open && scene.token, JSON.stringify(scene));
+  check('фриспины: в сцене число прокрутов', scene.title.startsWith(String(pick.count)), scene.title);
+  check('фриспины: цена в сцене та же, что на плитке', scene.price === pick.price, `${scene.price} / ${pick.price}`);
+  check('фриспины: кольцо жетонов по числу прокрутов', scene.orbit === Math.min(pick.count, 30), `жетонов ${scene.orbit}`);
+  await page.click('#buyCancel');
+  await page.waitForTimeout(400);
+  const after = await page.evaluate(() => ({
+    hidden: document.getElementById('buyBackdrop').hidden,
+    balance: document.getElementById('balanceValue')?.textContent || '',
+  }));
+  check('фриспины: «Отмена» закрывает сцену и ничего не списывает',
+        after.hidden && after.balance === before, JSON.stringify({ before, ...after }));
+
   await ensureOpenerClosed();
 }
 
@@ -1083,7 +1113,7 @@ check('показ выигрыша убирает за собой', stuckAfter.l
 /*
  * «Ещё раз» крутит ту же ленту сразу: обряд с тряской положен только первому
  * открытию. Выпадения игрока на экране кейса - карточками по три в ряд,
- * нажатие показывает предмет крупно. Пачка - не больше трёх кейсов.
+ * нажатие показывает предмет крупно. Пачка - не больше двух кейсов.
  */
 {
   await openCaseAndVerify('warmup_100');
@@ -1164,6 +1194,69 @@ check('показ выигрыша убирает за собой', stuckAfter.l
     await page.click('#countRow [data-step="-1"]');
     await page.waitForTimeout(80);
   }
+  await ensureOpenerClosed();
+}
+
+/* ---------- Авто: выключается своим же числом ---------- */
+
+/*
+ * Число авто выбирается и снимается повторным нажатием, а идущая серия
+ * останавливается нажатием на то же число в ряду серии: отдельная «СТОП»
+ * осталась, но искать её игрок не обязан.
+ */
+{
+  await ensureOpenerClosed();
+  await page.evaluate(() => fetch('/api/freespins/ack', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Telegram-Init-Data': '' },
+    body: '{}',
+  }).catch(() => {}));
+  await page.evaluate(() => {
+    const card = [...document.querySelectorAll('.case-card')].find((c) => c.dataset.case === 'warmup_100');
+    card.scrollIntoView({ block: 'center' });
+    card.click();
+  });
+  await page.waitForSelector('#doOpenBtn', { state: 'visible' });
+  await page.evaluate(() => document.getElementById('autoRow').scrollIntoView({ block: 'center' }));
+  await page.waitForTimeout(200);
+
+  const label = () => page.evaluate(() => document.getElementById('doOpenBtn').textContent.replace(/\s+/g, ' '));
+  await page.click('#autoRow .auto-btn[data-auto="10"]');
+  await page.waitForTimeout(150);
+  const on = await label();
+  await page.click('#autoRow .auto-btn[data-auto="10"]');
+  await page.waitForTimeout(150);
+  const off = await label();
+  check('авто: число включает серию', /10 раз/.test(on), on);
+  check('авто: повторное нажатие на число выключает её', !/10 раз/.test(off), off);
+
+  await page.click('#autoRow .auto-btn[data-auto="10"]');
+  await page.waitForTimeout(150);
+  await page.click('#doOpenBtn');
+  await page.waitForSelector('#autoRunRow .auto-btn.is-running', { state: 'visible', timeout: 10000 });
+  const run = await page.evaluate(() => ({
+    running: document.querySelector('#autoRunRow .is-running')?.dataset.auto,
+    others: [...document.querySelectorAll('#autoRunRow .auto-btn:not(.is-running)')].every((b) => b.disabled),
+  }));
+  check('авто: в ряду серии подсвечено её число', run.running === '10', JSON.stringify(run));
+  check('авто: другие числа во время серии не нажимаются', run.others);
+
+  await page.waitForTimeout(600);
+  await page.click('#autoRunRow .auto-btn.is-running');
+  await page.waitForFunction(() => {
+    const box = document.getElementById('batchSummary');
+    return !box.hidden || !document.getElementById('fsCollect').hidden;
+  }, null, { timeout: 180000 });
+  while (await page.evaluate(() => !document.getElementById('fsCollect').hidden)) {
+    await page.click('#fsCollect');
+    await page.waitForTimeout(800);
+  }
+  await page.waitForSelector('#batchSummary:not([hidden])', { timeout: 60000 });
+  const sub = await page.evaluate(() => document.querySelector('#batchSummary .batch-sub')?.textContent.replace(/\s+/g, ' ').trim() || '');
+  check('авто: нажатие на своё число останавливает серию',
+        /остановлено/.test(sub) && /из 10/.test(sub), sub);
+  await page.click('#autoClose');
+  await page.waitForTimeout(400);
   await ensureOpenerClosed();
 }
 

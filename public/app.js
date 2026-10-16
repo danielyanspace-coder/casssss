@@ -1864,7 +1864,7 @@ function renderFreeSpinBuy(c, locked) {
   }).join('');
 
   row.querySelectorAll('[data-fs]').forEach((btn) => {
-    btn.addEventListener('click', () => confirmBuyFreeSpins(c, Number(btn.dataset.fs)));
+    btn.addEventListener('click', () => confirmBuyFreeSpins(c, Number(btn.dataset.fs), btn));
   });
 }
 
@@ -1893,43 +1893,100 @@ function freeSpinPackPrice(c, pack) {
  * Покупка одним нажатием на такую сумму - это ловушка для промаха пальцем,
  * поэтому между нажатием и списанием стоит экран с ценой и остатком.
  */
-function confirmBuyFreeSpins(c, count) {
+/** Сколько жетонов кружит вокруг большого: больше тридцати сливаются в кольцо. */
+const BUY_ORBIT_MAX = 30;
+
+/** Уход сцены покупки: короткий, решение уже принято. */
+const BUY_SCENE_OUT_MS = 200;
+// Миг, когда жетон долетел (около 60% анимации bsToken в 0.9 с).
+const BUY_TOKEN_LAND_MS = 540;
+
+/**
+ * Покупка серии фриспинов - сцена, а не окно с таблицей.
+ *
+ * Плитка пачки срывается с того места, где её нажали, и разворачивается в
+ * крупный объёмный жетон; вокруг него по кругу встают жетоны, по одному на
+ * прокрут, - сколько их, видно глазами, а не только цифрой. Ниже коротко:
+ * какой кейс, сколько останется на счету, и золотая кнопка с ценой той же
+ * разметки, что «Открыть». Цена здесь - та же, что на плитке и на сервере.
+ */
+function confirmBuyFreeSpins(c, count, fromEl = null) {
   const pack = (state.config.freeSpinPacks || []).find((p) => p.count === count);
   if (!pack) return;
 
   const price = freeSpinPackPrice(c, pack);
-  const backdrop = document.getElementById('buyBackdrop');
+  const scene = document.getElementById('buyBackdrop');
+  const token = document.getElementById('buyArt');
 
-  document.getElementById('buyArt').textContent = String(count);
-  document.getElementById('buyTitle').textContent = 'Покупка фриспинов';
+  // Объёмный жетон из набора плюшек, а для числа, которого там нет (30), -
+  // присланная монета той же пачки. Пути целиком, чтобы их увидела сборка.
+  const FS_COINS = { 10: '/assets/ui/fs-coin-10.webp', 20: '/assets/ui/fs-coin-20.webp', 30: '/assets/ui/fs-coin-30.webp' };
+  token.innerHTML = itemArtHd(`perk/fs/${count}`)
+    || (FS_COINS[count] ? `<img src="${FS_COINS[count]}" alt="">` : `<b>${count}</b>`);
+  document.getElementById('buyTitle').innerHTML =
+    `<span class="bs-count">${count}</span><span class="bs-word">FREE SPINS</span>`;
+  document.getElementById('buyCase').textContent = `кейс «${c.name}»`;
+  const perSpin = Math.round(price / count);
   document.getElementById('buyRows').innerHTML = `
-    <div class="confirm-row"><span>Кейс</span><b>${esc(c.name)}</b></div>
-    <div class="confirm-row"><span>Прокрутов</span><b>${count}</b></div>
-    <div class="confirm-row"><span>К оплате</span><b class="gold">${money(price)}</b></div>
-    <div class="confirm-row"><span>Останется на счету</span>
-      <b>${money(Math.max(0, state.user.balance - price))}</b></div>
-  `;
+    <span>по ${money(perSpin)} за прокрут</span>
+    <span>останется ${money(Math.max(0, state.user.balance - price))}</span>`;
   document.getElementById('buyNote').textContent =
-    'Прокруты бесплатные и начнутся сразу. Внутри серии может выпасть что угодно '
-    + 'из этого кейса, включая новые фриспины.';
+    'Прокруты начнутся сразу. Внутри серии может выпасть что угодно из этого кейса, включая новые фриспины.';
+
+  // Жетоны вокруг: по одному на прокрут, каждый со своей задержкой появления.
+  const n = Math.min(count, BUY_ORBIT_MAX);
+  document.getElementById('buyOrbit').innerHTML = Array.from({ length: n }, (_, i) =>
+    `<i style="--a:${((i / n) * 360).toFixed(1)}deg;--d:${(300 + i * 28)}ms"></i>`).join('');
 
   const confirmBtn = document.getElementById('buyConfirm');
   const cancelBtn = document.getElementById('buyCancel');
-  confirmBtn.textContent = `Купить за ${money(price)}`;
-  confirmBtn.disabled = price > state.user.balance;
+  const short = price > state.user.balance;
+  confirmBtn.querySelector('.open-act > span').textContent = short ? 'Не хватает' : 'Купить';
+  document.getElementById('buySub').textContent = `${count} ${plural(count, 'прокрут', 'прокрута', 'прокрутов')}`;
+  document.getElementById('buyPrice').textContent = money(price);
+  confirmBtn.disabled = short;
+
+  // Жетон вылетает с плитки: сдвиг считается от её настоящего места.
+  scene.hidden = false;
+  scene.classList.remove('is-in', 'is-out');
+  const from = fromEl?.getBoundingClientRect();
+  const to = token.getBoundingClientRect();
+  if (from && from.width && to.width) {
+    token.style.setProperty('--fx', `${(from.left + from.width / 2 - (to.left + to.width / 2)).toFixed(0)}px`);
+    token.style.setProperty('--fy', `${(from.top + from.height / 2 - (to.top + to.height / 2)).toFixed(0)}px`);
+    token.style.setProperty('--fs', (from.height / to.height).toFixed(3));
+  } else {
+    token.style.setProperty('--fx', '0px');
+    token.style.setProperty('--fy', '60px');
+    token.style.setProperty('--fs', '0.4');
+  }
+  void scene.offsetWidth;
+  scene.classList.add('is-in');
+  requestAnimationFrame(() => fitOpenBtn(confirmBtn));
+  sndWhoosh(true);
+  // Жетон садится на место примерно к середине своей кривой: в этот миг
+  // вспышка искр, звон и раздача кольца.
+  setTimeout(() => {
+    if (scene.hidden || scene.classList.contains('is-out')) return;
+    sndDeal(4); sndChime();
+    const r = token.getBoundingClientRect();
+    sparkBurst(scene, r.left + r.width / 2, r.top + r.height / 2,
+      { n: 22, colors: ['#ffe58a', '#ffffff', '#c9a8ff'], dist: [70, 150], size: 5 });
+  }, BUY_TOKEN_LAND_MS);
 
   const close = () => {
-    backdrop.hidden = true;
+    if (scene.classList.contains('is-out')) return;
+    scene.classList.add('is-out');
     confirmBtn.onclick = null;
     cancelBtn.onclick = null;
-    backdrop.onclick = null;
+    scene.onclick = null;
+    setTimeout(() => { scene.hidden = true; scene.classList.remove('is-in', 'is-out'); }, BUY_SCENE_OUT_MS);
   };
 
   confirmBtn.onclick = () => { close(); buyFreeSpins(c.id, count); };
   cancelBtn.onclick = () => { close(); haptic('light'); };
-  backdrop.onclick = (e) => { if (e.target === backdrop) close(); };
-
-  backdrop.hidden = false;
+  // Закрывается нажатием мимо: по затемнению и пустому месту сцены.
+  scene.onclick = (e) => { if (!e.target.closest('.bs-actions, .bs-token, .bs-info')) close(); };
   haptic('light');
 }
 
@@ -2018,6 +2075,7 @@ addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
   motion().closeInspect();
   if (!document.getElementById('feedBackdrop').hidden) document.getElementById('feedSheetClose').click();
+  if (!document.getElementById('buyBackdrop').hidden) document.getElementById('buyCancel').click();
 });
 // Дисплейный шрифт шире запасного: приехал позже замера - меряем заново.
 document.fonts?.ready.then(() => fitOpenBtn());
@@ -2092,6 +2150,21 @@ async function runAutoOpen(caseId, times) {
   document.getElementById('openerCaseName').innerHTML =
     `${esc(c.name)} · <span>авто ×${times}</span>`;
 
+  /*
+   * Идущая серия подсвечена в том же ряду чисел, где её выбрали, с полосой
+   * прогресса. Нажатие на это число останавливает серию: игрок ищет
+   * выключатель там, где включал. Остальные числа во время серии молчат.
+   */
+  const runRow = document.getElementById('autoRunRow');
+  runRow.innerHTML = '<span class="auto-row-label">Авто</span>' + AUTO_COUNTS.map((k) =>
+    `<button class="auto-btn${k === times ? ' active is-running' : ''}" data-auto="${k}" ${k === times ? '' : 'disabled'}>
+      <span>${k}</span>${k === times ? '<small>стоп</small><i class="auto-progress"></i>' : ''}
+    </button>`).join('');
+  const runBtn = runRow.querySelector('.is-running');
+  const setProgress = (n) => runBtn?.style.setProperty('--p', `${Math.round((n / times) * 100)}%`);
+  setProgress(0);
+  if (runBtn) runBtn.onclick = () => document.getElementById('autoStop').click();
+
   // Обряд в серии играется один раз, на входе: трясти кейс перед каждым из
   // двадцати пяти прокрутов - это уже не событие, а задержка.
   if (hasRitual(c)) await playRitual(c);
@@ -2135,6 +2208,7 @@ async function runAutoOpen(caseId, times) {
     spent += data.totalSpent;
     won += data.totalWon;
     done++;
+    setProgress(done);
 
     applyUser(data.user);
     updateOpenerBalance();
@@ -2167,6 +2241,11 @@ document.getElementById('autoStop').addEventListener('click', () => {
   state.autoStop = true;
   haptic('medium');
   document.getElementById('autoLeft').textContent = 'останавливаем...';
+  const running = document.querySelector('#autoRunRow .is-running');
+  if (running) {
+    running.classList.add('is-stopping');
+    running.querySelector('small').textContent = 'стоим';
+  }
 });
 
 /** Итог серии: сколько прокрутов прошло, сколько потрачено и выиграно. */
@@ -6430,8 +6509,14 @@ function feedCardHtml(drop) {
   const color = tierColor(drop.tier);
   const art = tileArt(drop, color);
   // Ников в карточке нет: витрина показывает выигрыш, а не того, кто его снял.
-  return `<button class="feed-card rw-skin is-new" data-drop="${esc(String(drop.id))}"
-      ${skinAttrs(drop.skin || skinOfCase(drop.caseId))} style="--tier-color:${color}">
+  // Семейства и силуэта у плашки ленты нет, только материал рисунка. Лента
+  // бежит мимо глаз полосой из десятка плашек, и скосы, билеты и
+  // шестигранники разных форм подряд читались рваным краем, а не витриной
+  // (решение заказчика). Оформление предмета целиком видно, когда плашку
+  // нажали: открывается та же карточка, что в составе.
+  const skin = drop.skin || skinOfCase(drop.caseId) || DEFAULT_SKIN;
+  return `<button class="feed-card is-new" data-drop="${esc(String(drop.id))}"
+      data-material="${skin.material}" style="--tier-color:${color}">
     <span class="feed-art">${art}</span>
     <span class="feed-name">${esc(drop.name)}</span>
     <span class="feed-value">${money(drop.value)}</span>

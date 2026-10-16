@@ -818,6 +818,9 @@
             <span class="auto-left" id="autoLeft"></span>
             <button class="btn btn-outline btn-sm" id="autoStop">СТОП</button>
           </div>
+          <!-- Тот же ряд 10 / 25 / 50, что под кнопкой открытия: серия
+               останавливается нажатием на своё же число, а не только «СТОП». -->
+          <div class="auto-row auto-run-row" id="autoRunRow"></div>
           <div class="auto-total" id="autoTotal">0 ₽</div>
           <div class="auto-sub">выигрыш за серию</div>
           <div class="auto-log" id="autoLog"></div>
@@ -924,16 +927,30 @@
 
   <!-- Экран открытия кейса -->
 
-  <!-- Подтверждение покупки фриспинов -->
-  <div class="confirm-backdrop" id="buyBackdrop" hidden>
-    <div class="confirm-sheet">
-      <div class="confirm-art" id="buyArt" aria-hidden="true"></div>
-      <div class="confirm-title" id="buyTitle"></div>
-      <div class="confirm-rows" id="buyRows"></div>
-      <div class="confirm-note" id="buyNote"></div>
-      <div class="confirm-actions">
-        <button class="btn btn-outline" id="buyCancel">Отмена</button>
-        <button class="btn btn-primary" id="buyConfirm">Купить</button>
+  <!-- Покупка фриспинов: сцена, а не окно. Плитка пачки срывается с места
+       и становится крупным жетоном, вокруг кружат жетоны по числу прокрутов,
+       ниже - что покупается и за сколько. -->
+  <div class="buy-scene" id="buyBackdrop" hidden>
+    <div class="bs-dim"></div>
+    <div class="bs-rays" aria-hidden="true"></div>
+    <div class="bs-body">
+      <div class="bs-stage">
+        <div class="bs-orbit" id="buyOrbit" aria-hidden="true"></div>
+        <div class="bs-token" id="buyArt" aria-hidden="true"></div>
+      </div>
+      <div class="bs-info">
+        <div class="bs-eyebrow">серия фриспинов</div>
+        <div class="bs-title" id="buyTitle"></div>
+        <div class="bs-case" id="buyCase"></div>
+        <div class="bs-rows" id="buyRows"></div>
+        <div class="bs-note" id="buyNote"></div>
+      </div>
+      <div class="bs-actions">
+        <button class="take-btn" id="buyCancel">Отмена</button>
+        <button class="open-cta" id="buyConfirm">
+          <span class="open-act"><span>Купить</span><small id="buySub"></small></span>
+          <span class="open-price" id="buyPrice"></span>
+        </button>
       </div>
     </div>
   </div>
