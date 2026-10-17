@@ -371,7 +371,7 @@ export function adminDevices() {
 export function adminPayments(status = 'ALL') {
   expirePayments();
   const where = status === 'ALL' ? '' : 'WHERE p.status=?';
-  return db.prepare(`SELECT p.*,u.tg_id,u.username,u.first_name
+  return db.prepare(`SELECT p.*,u.tg_id,u.email,u.username,u.first_name
     FROM payment_requests p JOIN users u ON u.id=p.user_id ${where}
     ORDER BY p.id DESC LIMIT 100`).all(...(status === 'ALL' ? [] : [status]));
 }
@@ -438,7 +438,7 @@ export function supportChat(chatId) {
 }
 
 export function adminChats() {
-  return db.prepare(`SELECT c.*,p.payable_amount,p.status payment_status,u.tg_id,u.username,u.first_name
+  return db.prepare(`SELECT c.*,p.payable_amount,p.status payment_status,u.tg_id,u.email,u.username,u.first_name
     FROM support_chats c JOIN payment_requests p ON p.id=c.payment_id JOIN users u ON u.id=c.user_id
     ORDER BY c.updated_at DESC`).all();
 }

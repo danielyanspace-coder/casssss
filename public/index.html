@@ -3,18 +3,21 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>КЕЙСЫ · КРАШ · РУЛЕТКА</title>
-  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <title>LUCKYBOX · кейсы и казино</title>
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <meta name="theme-color" content="#120a1c">
+  <meta name="description" content="Кейсы, казино, краш, рулетка и апгрейд. Исход каждого раунда проверяется через provably fair. 18+.">
 
   <!--
     Шрифты семейств карточек.
 
     Берём ровно четыре начертания и только те веса, что используются: лишний
-    вес это лишние килобайты на мобильной сети, а мини-апп открывают с
-    телефона. display=swap обязателен - без него текст не виден, пока шрифт
+    вес это лишние килобайты на мобильной сети, а сайт чаще всего открывают
+    с телефона. display=swap обязателен - без него текст не виден, пока шрифт
     едет, и на плохой связи карточка несколько секунд стоит пустой.
 
-    Если шрифты не доедут (а в встроенном браузере Telegram такое бывает),
+    Если шрифты не доедут (на плохой мобильной связи такое бывает),
     всё остаётся читаемым: в каждом стеке стоит системный запасной, и вёрстка
     на него рассчитана. Проверять это надо именно так - выключив сеть на
     fonts.gstatic.com, а не глазами на быстром канале.
@@ -65,6 +68,13 @@
       <button class="balance-chip" id="balanceChip">
         <span class="balance-value" id="balanceValue">-</span>
       </button>
+      <!-- Гостю вместо баланса две кнопки. Сайт открыт без входа: кейсы,
+           казино и правила видны сразу, а вход нужен в момент первой ставки. -->
+      <div class="top-auth" id="topAuth" hidden>
+        <button class="btn btn-outline top-login" data-auth-open="login">Войти</button>
+        <button class="btn btn-primary top-register" data-auth-open="register">Регистрация</button>
+      </div>
+      <button class="account-btn" id="accountBtn" aria-label="Профиль" data-ico="people" hidden></button>
       <button class="menu-btn" id="menuBtn" aria-label="Меню" data-ico="grid"></button>
     </div>
   </header>
@@ -542,7 +552,7 @@
         <div class="payment-checkout" id="cryptoCheckout" hidden></div>
 
         <!-- СБП и карта через Sicilia. Оплата идёт в окне шлюза, открытом
-             отдельно от мини-аппа; здесь только сумма и ожидание. -->
+             отдельной вкладкой; здесь только сумма и ожидание. -->
         <div class="sicilia-create" id="siciliaCreate" hidden>
           <h2 class="section-title">Пополнение по СБП и с карты</h2>
           <input class="seed-input" id="siciliaAmount" type="number" inputmode="numeric" placeholder="Сумма, ₽">
@@ -777,7 +787,7 @@
 
           <div class="admin-pane" id="admin-users">
             <div class="admin-search">
-              <input class="seed-input" id="adminSearch" placeholder="ник, имя или Telegram ID">
+              <input class="seed-input" id="adminSearch" placeholder="почта, ник, имя или Telegram ID">
               <button class="btn btn-sm" id="adminSearchBtn">Найти</button>
             </div>
             <div id="adminUserList"></div>
@@ -1004,6 +1014,67 @@
 
   <!-- Первый заход: три экрана, объясняющие правила и первый шаг.
        Показывается один раз, отметка живёт в localStorage. -->
+  <!-- Вход, регистрация, сброс пароля и профиль: одно окно, разные панели
+       (data-auth-pane). Код - блок «ВХОД НА САЙТ» в app.js. -->
+  <div class="auth-backdrop" id="authBackdrop" hidden>
+    <div class="auth-card" role="dialog" aria-modal="true" aria-labelledby="authTitle">
+      <button class="auth-close" id="authClose" aria-label="Закрыть">&times;</button>
+      <img src="/assets/ui/logo.webp" alt="LUCKYBOX" class="auth-logo">
+      <div class="auth-title" id="authTitle">Вход</div>
+
+      <div class="auth-tabs" id="authTabs">
+        <button class="auth-tab" data-auth-tab="login">Вход</button>
+        <button class="auth-tab" data-auth-tab="register">Регистрация</button>
+      </div>
+
+      <form class="auth-form" id="authForm" novalidate>
+        <label class="auth-field" data-auth-field="nick">
+          <span>Ник</span>
+          <input id="authNick" name="nick" autocomplete="nickname" maxlength="24" placeholder="Как вас показывать в ленте">
+        </label>
+        <label class="auth-field" data-auth-field="email">
+          <span>Почта</span>
+          <input id="authEmail" name="email" type="email" autocomplete="email" inputmode="email" placeholder="you@mail.ru">
+        </label>
+        <label class="auth-field" data-auth-field="current">
+          <span>Текущий пароль</span>
+          <input id="authCurrent" name="current" type="password" autocomplete="current-password">
+        </label>
+        <label class="auth-field" data-auth-field="password">
+          <span id="authPasswordLabel">Пароль</span>
+          <span class="auth-pass">
+            <input id="authPassword" name="password" type="password" autocomplete="current-password" placeholder="Не короче 8 символов">
+            <button type="button" class="auth-eye" id="authEye" aria-label="Показать пароль" data-ico="eye"></button>
+          </span>
+        </label>
+        <label class="auth-check" data-auth-field="adult">
+          <input type="checkbox" id="authAdult">
+          <span>Мне есть 18 лет, я принимаю <a href="#" data-doc="terms">пользовательское соглашение</a></span>
+        </label>
+        <div class="auth-error" id="authError" role="alert" hidden></div>
+        <div class="auth-note" id="authNote" hidden></div>
+        <button type="submit" class="btn btn-primary auth-submit" id="authSubmit">Войти</button>
+        <button type="button" class="auth-link" id="authForgot">Забыли пароль?</button>
+      </form>
+
+      <div class="auth-or" id="authOr" hidden><span>или</span></div>
+      <!-- Сюда app.js вставляет официальный виджет Telegram Login. -->
+      <div class="auth-tg" id="authTelegram" hidden></div>
+
+      <!-- Профиль: как игрок входит и что ещё можно привязать. -->
+      <div class="auth-account" id="authAccount" hidden>
+        <div class="acc-row"><span>Ник</span><b id="accNick">-</b></div>
+        <div class="acc-row"><span>Почта</span><b id="accEmail">-</b></div>
+        <div class="acc-row"><span>Telegram</span><b id="accTelegram">-</b></div>
+        <div class="acc-hint" id="accTgHint" hidden>Привяжите Telegram: за подписку на наш канал
+          полагается бесплатный кейс, а бот напомнит о недокрученных фриспинах.</div>
+        <div class="auth-tg" id="accTelegramWidget" hidden></div>
+        <button class="btn btn-outline btn-wide" id="accPassword">Сменить пароль</button>
+        <button class="btn btn-outline btn-wide acc-logout" id="accLogout">Выйти</button>
+      </div>
+    </div>
+  </div>
+
   <div class="onb-backdrop" id="onbBackdrop" hidden>
     <div class="onb-card">
       <div class="onb-art" id="onbArt" aria-hidden="true"></div>

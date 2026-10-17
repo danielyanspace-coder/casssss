@@ -120,7 +120,7 @@ const config = {
     rtp: UPGRADE_CONFIG.rtp,
   },
   feed: { minMultiplier: FEED_MIN_MULTIPLIER, minValue: FEED_MIN_VALUE },
-  // Бесплатный кейс требует живого Telegram - в автономной сборке его нет.
+  // Бесплатный кейс проверяет подписку ботом Telegram - в автономной сборке его нет.
   freeCase: { enabled: false },
   bonus: { enabled: false },
   maxBatch: 2,
@@ -191,6 +191,8 @@ const bannerData = readFileSync(new URL('./public/assets/ui/case-porsche.webp', 
 // Присланные обложки уезжают в файл все разом: с диска относительных путей
 // нет. Список берётся из папки, чтобы добавленная обложка не потерялась.
 const menuData = readFileSync(new URL('./public/assets/menu.webp', import.meta.url)).toString('base64');
+// Значок вкладки: файл открывают с диска, и /favicon.png там не найдётся.
+const faviconData = readFileSync(new URL('./public/favicon.png', import.meta.url)).toString('base64');
 const coverDir = new URL('./public/assets/covers/', import.meta.url);
 /**
  * Обложки для автономной версии пережимаются мельче, чем для приложения.
@@ -709,8 +711,8 @@ function publicUser() {
   return {
     id: u.id, username: u.username, firstName: u.firstName,
     balance: u.balance,
-    // Кнопка «Админ» скрыта: в рабочей версии её видят только Telegram ID
-    // из ADMIN_TG_IDS. Посмотреть панель в демо - demoAdmin() в консоли.
+    // Кнопка «Админ» скрыта: в рабочей версии её видят только владельцы из
+    // ADMIN_TG_IDS и ADMIN_EMAILS и заведённые ими сотрудники. Посмотреть панель в демо - demoAdmin() в консоли.
     isAdmin: !!store.showAdmin,
     x2Perks: Object.entries(u.x2Perks || {})
       .filter(([, n]) => n > 0).map(([case_id, count]) => ({ case_id, count })),
@@ -726,6 +728,10 @@ function publicUser() {
     x10: { need: X10_OPENS, state: ['none', 'ready', 'used'][u.x10State || 0], ceiling: u.x10Ceiling || 0 },
     // В демо партнёр - это сам игрок, если его завели в админке под id 1.
     isPartner: (store.partners || []).some((p) => p.tg_id === '1'),
+    // Вход в демо условный: игрок один, и «вошёл» он любой почтой.
+    email: u.email || 'player@luckybox.demo',
+    hasPassword: true,
+    telegram: null,
     stats: {
       rounds: u.stats.rounds, spent: u.stats.spent, won: u.stats.won,
       bestMultiplier: Number(u.stats.bestMultiplier.toFixed(2)),
@@ -1028,7 +1034,10 @@ function demoUnique(rows, size) {
 }
 
 const routes = {
-  'GET /api/config': () => ({ ...CONFIG, open: demoOpen(), casino: { rtp: demoCasinoRtp(), configured: false } }),
+  'GET /api/config': () => ({
+    ...CONFIG, open: demoOpen(), casino: { rtp: demoCasinoRtp(), configured: false },
+    auth: { telegramBot: '', mail: false },
+  }),
 
   /* ---------- Казино ---------- */
 
@@ -1086,6 +1095,20 @@ const routes = {
   },
 
   'POST /api/me': () => ({ user: publicUser() }),
+  /*
+   * Вход. Сервера нет, проверять пароль не с чем, поэтому демо пускает любую
+   * почту и пароль от восьми символов - ровно с теми же отказами формы, что
+   * и рабочий сервер. Игрок в демо один: «выход» лишь прячет его до входа.
+   */
+  'POST /api/auth/login': (b) => demoSignIn(b, false),
+  'POST /api/auth/register': (b) => demoSignIn(b, true),
+  'POST /api/auth/telegram': () => ({ status: 401, body: { error: 'Вход через Telegram работает только на сайте' } }),
+  'POST /api/auth/logout': () => { store.loggedOut = true; save(); return { ok: true }; },
+  'POST /api/auth/forgot': () => ({ status: 503, body: { error: 'Восстановление по почте пока недоступно, напишите в поддержку' } }),
+  'POST /api/auth/password': (b) => {
+    if (String(b.password || '').length < 8) return { status: 400, body: { error: 'Пароль не короче 8 символов' } };
+    return { ok: true, user: publicUser() };
+  },
 
   // Аналитика в автономной сборке никуда не уходит: сервера нет, а ронять
   // интерфейс из-за счётчика нельзя.
@@ -1347,8 +1370,8 @@ const routes = {
   }),
 
   'POST /api/admin/partner/save': (body) => {
-    const tg = String(body.tg_id || '').trim();
-    if (!/^\\d+$/.test(tg)) return { status: 400, body: { error: 'Telegram ID - это число' } };
+    const tg = String(body.userKey ?? body.tg_id ?? '').trim();
+    if (!tg) return { status: 400, body: { error: 'Игрок не найден. Укажите почту, Telegram ID или номер игрока' } };
 
     const share = Math.min(100, Math.max(0, Number(body.share_pct) || 0));
     store.partners = store.partners || [];
@@ -1628,7 +1651,7 @@ const routes = {
 
   'POST /api/free-case/claim': () => ({
     status: 503,
-    body: { error: 'Бесплатный кейс работает только внутри Telegram' },
+    body: { error: 'Бесплатный кейс работает только на сайте' },
   }),
 
   'POST /api/crash/start': (body) => {
@@ -2095,7 +2118,7 @@ const routes = {
     const days = Math.min(90, Math.max(1, Math.trunc(Number(body.days) || 7)));
     const cohort = 40 * days;
     const shares = [1, 0.62, 0.34, 0.21, 0.14, 0.05];
-    const titles = ['Открыл приложение', 'Открыл кейс', 'Зашёл в кассу',
+    const titles = ['Зарегистрировался', 'Открыл кейс', 'Зашёл в кассу',
                     'Создал заявку', 'Пополнил', 'Заказал вывод'];
     const names = ['signup', 'case_open', 'cashier_view',
                    'deposit_created', 'deposit_paid', 'payout_created'];
@@ -2481,6 +2504,33 @@ function finishCrash(status, cashedAt) {
            net: payout - r.bet, balance: u.balance, user: publicUser() };
 }
 
+function demoSignIn(b, created) {
+  const email = String(b.email || '').trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) return { status: 400, body: { error: 'Проверьте адрес почты' } };
+  if (String(b.password || '').length < 8) return { status: 400, body: { error: 'Пароль не короче 8 символов' } };
+  if (created) {
+    const nick = String(b.nick || '').trim();
+    if (nick.length < 2) return { status: 400, body: { error: 'Ник: от 2 до 24 букв или цифр' } };
+    store.user.firstName = nick;
+  }
+  store.user.email = email;
+  store.loggedOut = false;
+  save();
+  return { ok: true, created, user: publicUser() };
+}
+
+/*
+ * Что видно без входа - то же, что открывает гостю сервер: конфиг, лента,
+ * каталог казино и сами ручки входа. Остальное отвечает 401, и клиент
+ * открывает окно входа точно так же, как на сайте.
+ */
+const GUEST_OPEN = new Set([
+  'GET /api/config', 'GET /api/feed',
+  'POST /api/casino/lobby', 'POST /api/casino/home', 'POST /api/casino/games',
+  'POST /api/auth/login', 'POST /api/auth/register', 'POST /api/auth/telegram',
+  'POST /api/auth/logout', 'POST /api/auth/forgot',
+]);
+
 /* ---------- Перехват fetch ---------- */
 
 const realFetch = window.fetch.bind(window);
@@ -2498,6 +2548,11 @@ window.fetch = async (input, init = {}) => {
   if (!handler) {
     return new Response(JSON.stringify({ error: 'Не найдено: ' + key }),
       { status: 404, headers: { 'Content-Type': 'application/json' } });
+  }
+
+  if (store.loggedOut && !GUEST_OPEN.has(key)) {
+    return new Response(JSON.stringify({ error: 'Войдите в аккаунт', code: 'AUTH' }),
+      { status: 401, headers: { 'Content-Type': 'application/json' } });
   }
 
   let body = {};
@@ -2540,7 +2595,8 @@ const page = `<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-<title>LUCKYBOX</title>
+<title>LUCKYBOX · кейсы и казино</title>
+<link rel="icon" type="image/png" href="data:image/png;base64,${faviconData}">
 <style>
 ${css}
 

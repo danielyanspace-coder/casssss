@@ -1,5 +1,5 @@
 /**
- * Клиент мини-аппа: кейсы, краш, рулетка, админка.
+ * Клиент сайта: кейсы, казино, краш, рулетка, вход, админка.
  *
  * Клиент НЕ решает исход. Он отправляет запрос, получает от сервера готовый
  * результат и лишь проигрывает анимацию. В краше точка взрыва вообще не
@@ -10,7 +10,7 @@ import {
   iconCases, iconCrash, iconRoulette, iconHistory, iconFair, iconAdmin,
   iconCoin, iconX2, iconGift, iconBolt, iconSearch, iconPlus, iconMinus,
   iconBlock, iconBack, iconTier, iconStar,
-  iconGrid, iconKey, iconPeople, iconMail, iconTelegram,
+  iconGrid, iconKey, iconPeople, iconMail, iconTelegram, iconEye,
   markF1, markITF, markGambling, markWorldGame,
   iconSlot,
 } from './icons.js';
@@ -33,7 +33,6 @@ import {
 import { createMotion, MOTION_NICE_AT } from './motion.js';
 import { medalSvg } from './medals.js';
 
-const tg = window.Telegram?.WebApp;
 const BEELINE_LOGO_SRC = window.__BEELINE_SRC || '/assets/banks/beeline.webp';
 
 const state = {
@@ -67,7 +66,7 @@ const ICONS = {
   coin: iconCoin, x2: iconX2, gift: iconGift, bolt: iconBolt,
   search: iconSearch, plus: iconPlus, minus: iconMinus,
   block: iconBlock, back: iconBack, grid: iconGrid,
-  key: iconKey, people: iconPeople, mail: iconMail, telegram: iconTelegram,
+  key: iconKey, people: iconPeople, mail: iconMail, telegram: iconTelegram, eye: iconEye,
   slot: iconSlot,
   markF1, markITF, markGambling, markWorldGame,
 };
@@ -84,21 +83,48 @@ function mountIcons(root = document) {
    API И УТИЛИТЫ
    ============================================================ */
 
-async function api(path, body) {
+/**
+ * Запрос к серверу. Сессия едет в httpOnly-cookie сама, заголовков входа нет.
+ *
+ * Ответ «войдите» (401 с кодом AUTH) открывает окно входа: гость видит сайт
+ * целиком, и вход спрашивается ровно в момент, когда без аккаунта дальше
+ * нельзя. Ошибка всё равно бросается - вызывающий код снимает свои флаги
+ * занятости как после любой неудачи.
+ */
+async function api(path, body, { quiet = false } = {}) {
   const res = await fetch(path, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Telegram-Init-Data': tg?.initData || '',
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body || {}),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.message || data.error || `Ошибка ${res.status}`);
+  if (!res.ok) {
+    const err = new Error(data.message || data.error || `Ошибка ${res.status}`);
+    err.status = res.status;
+    err.code = data.code;
+    err.data = data;
+    if (res.status === 401 && data.code === 'AUTH' && !quiet) {
+      openAuth(authDefaultPane());
+    }
+    throw err;
+  }
   return data;
 }
 
 const fmt = (n) => Number(n).toLocaleString('ru-RU');
+
+/**
+ * Как назвать игрока в панели: почта, Telegram ID или внутренний номер.
+ * На сайте у зарегистрированного по почте Telegram нет вовсе, и прежнее
+ * «ID ${tg_id}» печатало ему «ID null».
+ */
+function playerIdent(u, id = u?.id ?? u?.user_id) {
+  const bits = [];
+  if (u?.email) bits.push(u.email);
+  if (u?.tg_id != null) bits.push(`TG ${u.tg_id}`);
+  bits.push(`#${id}`);
+  return bits.join(' · ');
+}
 
 /**
  * Склонение существительного по числу: 1 активация, 2 активации, 5 активаций.
@@ -151,6 +177,9 @@ function tierColor(tier) {
 
 let toastTimer;
 function toast(message) {
+  // Поверх окна входа тост не нужен: окно само объясняет, что случилось, а
+  // строка «Войдите в аккаунт» под ним читалась бы как вторая ошибка.
+  if (!document.getElementById('authBackdrop')?.hidden) return;
   const el = document.getElementById('toast');
   el.classList.remove('toast-action');
   el.textContent = message;
@@ -185,6 +214,8 @@ function toastAction(message, label, onClick) {
  * нажатиями, и до неё доходили единицы. Теперь путь туда - одна кнопка.
  */
 function needMoney(need) {
+  // У гостя баланс ноль не потому, что деньги кончились: ему нужен вход.
+  if (state.guest) return openAuth(authDefaultPane());
   haptic('error');
   track('no_funds');
   toastAction(`Не хватает ${money(need)}`, 'Пополнить', () => {
@@ -199,11 +230,14 @@ function needMoney(need) {
  * его и вызывают.
  */
 function track(name) {
-  try { api('/api/track', { name }).catch(() => {}); } catch { /* не мешаем игре */ }
+  // События пишутся по игроку: у гостя аккаунта нет, и считать нечего.
+  if (state.guest) return;
+  try { api('/api/track', { name }, { quiet: true }).catch(() => {}); } catch { /* не мешаем игре */ }
 }
 
 /** Касса с сразу открытой вкладкой пополнения. */
 function openCashier() {
+  if (state.guest) return openAuth(authDefaultPane());
   switchView('wallet');
   const pane = document.getElementById('walletDepositPane');
   if (pane) {
@@ -212,11 +246,17 @@ function openCashier() {
   }
 }
 
+/*
+ * Отклик вибрацией. Сайт работает в обычном браузере, где из всего этого
+ * есть только navigator.vibrate - на Android. iOS и компьютер молчат, и это
+ * нормально: отклик дополняет звук и анимацию, а не заменяет их.
+ */
+const HAPTIC_MS = { light: 8, medium: 14, heavy: 22, success: [10, 40, 16], error: [24, 50, 24] };
+
 function haptic(type = 'light') {
   try {
-    if (type === 'success' || type === 'error') tg?.HapticFeedback?.notificationOccurred(type);
-    else tg?.HapticFeedback?.impactOccurred(type);
-  } catch { /* вне Telegram вибрации нет */ }
+    if (navigator.vibrate) navigator.vibrate(HAPTIC_MS[type] || HAPTIC_MS.light);
+  } catch { /* вибрации нет */ }
 }
 
 /** Падающие монеты на фоне - рисуются той же иконкой, что и баланс. */
@@ -1501,7 +1541,7 @@ function skinAttrs(visual) {
  * разных предмета получили бы одну картинку.
  *
  * Объём там рисуется слоями градиентов и бликом, а не SVG-фильтром: фильтр на
- * шестидесяти плитках ленты заметно тормозит во встроенном браузере Telegram.
+ * шестидесяти плитках ленты заметно тормозит в мобильном браузере.
  *
  * Прежние наборы (item-art64.js и мелкие мотивы медальоном) остались запасом
  * для того, у чего ключа нет: витринной плитки и выпадений, записанных до
@@ -3301,7 +3341,7 @@ const CRASH_MILESTONES = [2, 5, 10, 25, 50, 100];
  * Два холста: звёзды позади кривой и частицы впереди неё. Звёзды летят
  * навстречу ракете тем быстрее, чем выше множитель, - скорость видна
  * всем экраном, а не только числом. Частиц немного и живут они меньше
- * секунды: сцена должна оставаться лёгкой во встроенном браузере Telegram.
+ * секунды: сцена должна оставаться лёгкой в мобильном браузере.
  *
  * Цикл крутится, только пока раздел краша на экране: на спрятанном холсте
  * рисовать незачем.
@@ -4143,7 +4183,7 @@ async function loadAdminUsers() {
       <div class="user-avatar">${esc(letter)}</div>
       <div class="user-main">
         <div class="user-name">${esc(name)}${u.is_admin ? ' <span class="admin-tag">АДМИН</span>' : ''}</div>
-        <div class="user-meta">ID ${u.tg_id} · раундов ${fmt(u.total_rounds)}
+        <div class="user-meta">${esc(playerIdent(u))} · раундов ${fmt(u.total_rounds)}
           · RTP ${u.total_spent ? ((u.total_won / u.total_spent) * 100).toFixed(0) + '%' : '-'}</div>
       </div>
       <div class="user-bal">${fmt(u.balance)}</div>
@@ -4183,7 +4223,7 @@ async function openAdminUser(userId) {
       <button class="btn btn-outline" id="detailBack"><span data-ico="back"></span></button>
       <div style="flex:1">
         <div class="user-name" style="font-size:19px">${esc(name)}</div>
-        <div class="user-meta">Telegram ID ${u.tg_id} · внутренний #${u.id}</div>
+        <div class="user-meta">${esc(playerIdent(u))}</div>
       </div>
     </div>
 
@@ -4655,18 +4695,15 @@ async function loadAdminReports() {
 /**
  * Выгрузка отчёта файлом.
  *
- * Скачивание собрано вручную через Blob, а не ссылкой на ручку: авторизация
- * в мини-аппе идёт заголовком с подписью Telegram, а обычный переход по
- * ссылке заголовков не несёт и вернул бы 401.
+ * Скачивание собрано вручную через Blob, а не ссылкой на ручку: отчёт
+ * отдаётся только на POST, чтобы чужая страница не могла подсунуть ссылку
+ * на выгрузку и заставить браузер сотрудника её открыть.
  */
 async function boExport(kind) {
   try {
     const res = await fetch('/api/admin/export', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Telegram-Init-Data': tg?.initData || '',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ kind, days: state.admin.reportDays }),
     });
     if (!res.ok) throw new Error('Не удалось выгрузить');
@@ -4830,7 +4867,7 @@ async function loadAdminStaff() {
   const rows = d.rows.map((r) => {
     const name = r.username ? '@' + r.username : (r.first_name || 'Без имени');
     return `<tr class="${r.active ? '' : 'bo-off'}">
-      <td>${esc(name)}<div class="bo-sub">Telegram ID ${esc(r.tg_id)} · #${r.user_id}</div></td>
+      <td>${esc(name)}<div class="bo-sub">${esc(playerIdent(r, r.user_id))}</div></td>
       <td>${esc(roleName(r.role))}${r.added_by === null ? '<div class="bo-sub">из настроек сервера</div>' : ''}</td>
       <td class="num">${fmt(r.actions || 0)}</td>
       <td>${r.last_action ? boDateTime(r.last_action) : 'не заходил'}</td>
@@ -4900,9 +4937,9 @@ function renderStaffForm(row) {
     <div class="bo-settings">
       <label class="bo-field">
         <b>Кто</b>
-        <i>Telegram ID, ник или внутренний номер. Человек должен хотя бы раз открыть приложение.</i>
-        <input class="seed-input" id="staffKey" value="${row ? esc(row.tg_id) : ''}"
-               ${row ? 'readonly' : ''} placeholder="например 123456789 или @nickname">
+        <i>Почта, Telegram ID, ник или внутренний номер. Человек должен сначала зарегистрироваться на сайте.</i>
+        <input class="seed-input" id="staffKey" value="${row ? esc(row.email || row.tg_id || row.user_id) : ''}"
+               ${row ? 'readonly' : ''} placeholder="почта, 123456789 или @nickname">
       </label>
       <label class="bo-field">
         <b>Роль</b>
@@ -5179,7 +5216,7 @@ async function loadAdminPromos() {
           <select class="seed-input" id="pmPartner">
             <option value="">нет</option>
             ${partners.map((p) => `<option value="${p.partner.id}">${
-              esc(p.partner.name || p.partner.tg_id)}</option>`).join('')}
+              esc(p.partner.name || p.partner.email || p.partner.tg_id)}</option>`).join('')}
           </select></div>
         <div><label>Действует с</label>
           <input class="seed-input" id="pmFrom" type="date"></div>
@@ -5322,8 +5359,8 @@ async function loadAdminPartners() {
   box.innerHTML = `
     <div class="admin-form">
       <div class="form-grid">
-        <div><label>Telegram ID</label>
-          <input class="seed-input" id="ptTg" inputmode="numeric" placeholder="123456789"></div>
+        <div><label>Игрок</label>
+          <input class="seed-input" id="ptTg" placeholder="почта, Telegram ID или номер"></div>
         <div><label>Доля, %</label>
           <input class="seed-input" id="ptShare" type="number" min="0" max="100" value="30"></div>
         <div class="wide"><label>Имя</label>
@@ -5333,7 +5370,7 @@ async function loadAdminPartners() {
       </div>
       <button class="btn btn-primary btn-wide" id="ptSave">Сохранить партнёра</button>
       <div class="kpi-sub" style="margin-top:8px">
-        Партнёр видит свою статистику в приложении под этим же Telegram ID.
+        Партнёр видит свою статистику на сайте в своём аккаунте.
         Игроки привязываются к нему промокодом: у промокода надо выбрать партнёра.
       </div>
     </div>
@@ -5345,7 +5382,7 @@ async function loadAdminPartners() {
   document.getElementById('ptSave').addEventListener('click', async () => {
     try {
       await api('/api/admin/partner/save', {
-        tg_id: document.getElementById('ptTg').value,
+        userKey: document.getElementById('ptTg').value,
         share_pct: document.getElementById('ptShare').value,
         name: document.getElementById('ptName').value,
         note: document.getElementById('ptNote').value,
@@ -5376,7 +5413,7 @@ function partnerRowHtml(s) {
     <div style="display:flex;justify-content:space-between;gap:10px">
       <div>
         <div class="promo-code">${esc(p.name || 'Партнёр')}</div>
-        <div class="promo-meta">ID ${esc(p.tg_id)} · доля ${p.share_pct}%
+        <div class="promo-meta">${esc([p.email, p.tg_id != null ? `TG ${p.tg_id}` : ''].filter(Boolean).join(' · ') || 'аккаунт не найден')} · доля ${p.share_pct}%
           · рефералов ${fmt(s.referrals)} (играли ${fmt(s.active)})</div>
       </div>
       <div style="text-align:right">
@@ -5469,7 +5506,7 @@ async function loadAdminPayouts() {
         <b>${money(p.amount)}</b>
         <span class="payout-status ${p.status}">${STATUS_LABEL[p.status] || p.status}</span>
       </div>
-      <div class="payout-date">${esc(name)} · ID ${p.tg_id} ·
+      <div class="payout-date">${esc(name)} · ${esc(playerIdent(p, p.user_id))} ·
         баланс ${money(p.balance)} · ${new Date(p.created_at).toLocaleString('ru-RU')}</div>
       <div class="payout-requisites">${payoutRequisites(p, { full: true })}</div>
       ${p.comment ? `<div class="payout-comment">${esc(p.comment)}</div>` : ''}
@@ -5660,16 +5697,9 @@ const MENU_SUPPORT_HIT = { left: 4.82, top: 78.86, width: 90.36, height: 16.80 }
 /** Аккаунт поддержки в телеграме. Он же стоит ссылкой в подвале. */
 const SUPPORT_URL = COMPANY.support;
 
-/**
- * Открывает чат с поддержкой.
- *
- * Внутри телеграма ссылку отдаём самому клиенту: openTelegramLink оставляет
- * пользователя в приложении. В обычном браузере такого моста нет, там открываем
- * новой вкладкой.
- */
+/** Открывает чат с поддержкой новой вкладкой: сайт остаётся открытым. */
 function openSupport() {
-  if (tg?.openTelegramLink) tg.openTelegramLink(SUPPORT_URL);
-  else window.open(SUPPORT_URL, '_blank', 'noopener');
+  window.open(SUPPORT_URL, '_blank', 'noopener');
 }
 
 /**
@@ -6477,13 +6507,11 @@ async function loadSiciliaOptions() {
 }
 
 /*
- * Открыть окно оплаты вне мини-аппа. В Telegram это openLink: ссылка уходит
- * во внешний браузер, а мини-апп остаётся открытым и ждёт. Вне Telegram -
- * новая вкладка; её открываем ДО запроса к серверу (pending), иначе браузер
+ * Окно оплаты открывается отдельной вкладкой, а сайт остаётся открытым и
+ * ждёт. Вкладку открываем ДО запроса к серверу (pending), иначе браузер
  * сочтёт её всплывающим окном и заблокирует.
  */
 function openPaymentWindow(url, pending) {
-  if (tg?.openLink) { tg.openLink(url); return true; }
   if (pending && !pending.closed) { pending.location.href = url; return true; }
   return !!window.open(url, '_blank', 'noopener');
 }
@@ -6513,7 +6541,7 @@ document.getElementById('siciliaCreateBtn')?.addEventListener('click', async () 
   if (amount > siciliaState.max) return toast(`Максимум ${money(siciliaState.max)}`);
   const btn = document.getElementById('siciliaCreateBtn');
   btn.disabled = true;
-  const pending = tg?.openLink ? null : window.open('', '_blank');
+  const pending = window.open('', '_blank');
   try {
     const order = await api('/api/sicilia/create', { amount });
     const opened = openPaymentWindow(order.url, pending);
@@ -6545,7 +6573,7 @@ function showSiciliaCheckout(order, opened = true) {
       <div class="invoice-status" id="siciliaStatus"></div>
     </div>`;
   document.getElementById('siciliaReopen').addEventListener('click', async () => {
-    const pending = tg?.openLink ? null : window.open('', '_blank');
+    const pending = window.open('', '_blank');
     try {
       const again = await api('/api/sicilia/reopen', { id: order.id });
       openPaymentWindow(again.url, pending);
@@ -6604,10 +6632,10 @@ async function loadPayments() {
 
 async function loadAdminPayments() {
   try { const d=await api('/api/admin/payments',{status:'ALL'}); const x=d.dashboard;
-    document.getElementById('adminPaymentList').innerHTML=`<div class="admin-kpis"><div class="kpi"><div class="kpi-label">Оборот</div><div class="kpi-value">${money(x.turnover)}</div></div><div class="kpi"><div class="kpi-label">Успешно</div><div class="kpi-value">${x.paid}</div></div><div class="kpi"><div class="kpi-label">Ожидают / спорные</div><div class="kpi-value">${x.pending} / ${x.disputed}</div></div></div>${d.rows.map(p=>`<div class="payment-history"><div class="payout-head"><b>#${p.id} · ${esc(p.username||p.first_name||p.tg_id)}</b><span class="payment-status ${p.status}">${p.status}</span></div><div>Введено: ${money(p.original_amount)} · к оплате: ${money(p.payable_amount)}</div><small>${esc(p.bank)} · ${new Date(p.created_at).toLocaleString('ru-RU')}${p.sms_message?`<br>SMS: ${esc(p.sms_message)}`:''}</small></div>`).join('')}`;
+    document.getElementById('adminPaymentList').innerHTML=`<div class="admin-kpis"><div class="kpi"><div class="kpi-label">Оборот</div><div class="kpi-value">${money(x.turnover)}</div></div><div class="kpi"><div class="kpi-label">Успешно</div><div class="kpi-value">${x.paid}</div></div><div class="kpi"><div class="kpi-label">Ожидают / спорные</div><div class="kpi-value">${x.pending} / ${x.disputed}</div></div></div>${d.rows.map(p=>`<div class="payment-history"><div class="payout-head"><b>#${p.id} · ${esc(p.username||p.first_name||p.email||p.tg_id)}</b><span class="payment-status ${p.status}">${p.status}</span></div><div>Введено: ${money(p.original_amount)} · к оплате: ${money(p.payable_amount)}</div><small>${esc(p.bank)} · ${new Date(p.created_at).toLocaleString('ru-RU')}${p.sms_message?`<br>SMS: ${esc(p.sms_message)}`:''}</small></div>`).join('')}`;
   }catch(err){toast(err.message);}
 }
-async function loadAdminSupport(){try{const d=await api('/api/admin/support');document.getElementById('adminSupportList').innerHTML=d.rows.length?d.rows.map(c=>`<button class="payment-history admin-chat-open" data-chat="${c.id}">#${c.id} · ${esc(c.username||c.first_name||c.tg_id)} · ${money(c.payable_amount)} <span class="payment-status ${c.payment_status}">${c.payment_status}</span>${c.unread_admin?` · непрочитано ${c.unread_admin}`:''}</button>`).join(''):'<div class="empty">Обращений нет</div>';document.querySelectorAll('.admin-chat-open').forEach(b=>b.onclick=()=>openAdminChat(Number(b.dataset.chat)));}catch(err){toast(err.message);}}
+async function loadAdminSupport(){try{const d=await api('/api/admin/support');document.getElementById('adminSupportList').innerHTML=d.rows.length?d.rows.map(c=>`<button class="payment-history admin-chat-open" data-chat="${c.id}">#${c.id} · ${esc(c.username||c.first_name||c.email||c.tg_id)} · ${money(c.payable_amount)} <span class="payment-status ${c.payment_status}">${c.payment_status}</span>${c.unread_admin?` · непрочитано ${c.unread_admin}`:''}</button>`).join(''):'<div class="empty">Обращений нет</div>';document.querySelectorAll('.admin-chat-open').forEach(b=>b.onclick=()=>openAdminChat(Number(b.dataset.chat)));}catch(err){toast(err.message);}}
 async function openAdminChat(chatId){const d=await api('/api/admin/support/chat',{chatId});const box=document.getElementById('adminSupportList');box.innerHTML=`<button class="btn btn-sm" id="supportBack">Назад</button>${d.messages.map(m=>`<div class="support-message ${m.sender_type}"><b>${m.sender_type}</b><br>${esc(m.text||m.attachment_name)}</div>`).join('')}<textarea class="seed-input" id="adminSupportText"></textarea><button class="btn btn-primary" id="adminSupportSend">Ответить</button>`;document.getElementById('supportBack').onclick=loadAdminSupport;document.getElementById('adminSupportSend').onclick=async()=>{await api('/api/admin/support/message',{chatId,text:document.getElementById('adminSupportText').value});openAdminChat(chatId);};}
 async function loadAdminPaymentSettings(){try{const s=await api('/api/admin/payment-settings');const fields=[['beeline_phone','Номер Beeline'],['beeline_completed_limit','Лимит выполненных заявок, ₽ (0 - без лимита)'],['payment_ttl_minutes','Время жизни, мин'],['payment_markup_min','Надбавка от, ₽'],['payment_markup_max','Надбавка до, ₽'],['payment_min','Минимум, ₽'],['payment_max','Максимум, ₽']];const box=document.getElementById('adminPaymentSettings');box.innerHTML=`<div class="settings-grid">${fields.map(([k,l])=>`<label>${l}<input id="setting-${k}" value="${esc(s[k])}"></label>`).join('')}<p class="settings-help">Лимит считается отдельно по указанному номеру. Когда остаток меньше минимального пополнения, реквизит больше не выдаётся.</p><button class="btn btn-primary" id="savePaymentSettings">Сохранить</button></div><h3>Android-устройства</h3><div class="settings-grid device-register"><input id="deviceName" placeholder="Название, например Телефон кассы"><input id="deviceId" placeholder="ID, например beeline-1"><input id="deviceSecret" placeholder="Секрет - минимум 24 символа"><button class="btn btn-primary" id="registerDevice">Создать / обновить устройство</button></div><div id="deviceList"></div>`;document.getElementById('savePaymentSettings').onclick=async()=>{const values=Object.fromEntries(fields.map(([k])=>[k,document.getElementById(`setting-${k}`).value]));await api('/api/admin/payment-settings',{save:true,values});toast('Настройки сохранены');loadAdminPaymentSettings();};document.getElementById('registerDevice').onclick=async()=>{await api('/api/admin/payment-device/register',{name:document.getElementById('deviceName').value,deviceId:document.getElementById('deviceId').value,secret:document.getElementById('deviceSecret').value});toast('Устройство сохранено. Перенесите эти же ID и секрет в APK');loadAdminPaymentSettings();};const dev=await api('/api/admin/payment-devices');document.getElementById('deviceList').innerHTML=dev.rows.map(d=>`<div class="log-row"><span>${esc(d.name)}<br><small>${esc(d.device_id)}</small></span><b>${d.last_seen_at&&Date.now()-d.last_seen_at<300000?'● Online':'○ Offline'}</b></div>`).join('')||'<div class="empty">Добавьте первое устройство выше</div>';}catch(err){toast(err.message);}}
 
@@ -6643,7 +6671,8 @@ function startPaymentEvents(){
    */
   if (location.protocol !== 'http:' && location.protocol !== 'https:') return;
 
-  const es=new EventSource(`/api/payments/events?initData=${encodeURIComponent(tg?.initData||'')}`);
+  if (state.guest) return;
+  const es=new EventSource('/api/payments/events');
   es.addEventListener('payment.completed',async()=>{clearInterval(state.paymentTimer);clearInterval(siciliaState.poll);toast('Платёж успешно поступил. Средства зачислены на счёт.');sndCollect();haptic('success');const me=await api('/api/me');applyUser(me.user);loadWallet();});
 }
 
@@ -7011,13 +7040,13 @@ function renderFreeCase(info) {
   document.getElementById('freeCaseSub').textContent = waiting
     ? `следующий ${new Date(info.readyAt).toLocaleString('ru-RU',
         { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}`
-    : 'за подписку на канал';
+    : info.needsTelegram ? 'привяжите Telegram и подпишитесь на канал' : 'за подписку на канал';
 }
 
 async function loadFreeCase() {
   if (!state.config?.freeCase?.enabled) return;
   try {
-    renderFreeCase(await api('/api/free-case/state'));
+    renderFreeCase(await api('/api/free-case/state', null, { quiet: true }));
   } catch { /* раздел необязательный */ }
 }
 
@@ -7040,9 +7069,10 @@ document.getElementById('freeCase').addEventListener('click', async () => {
     // Не подписан - открываем канал, чтобы не искать его руками.
     const url = state.config?.freeCase?.channelUrl;
     if (url && /подпиш/i.test(err.message)) {
-      if (tg?.openTelegramLink) tg.openTelegramLink(url);
-      else window.open(url, '_blank', 'noopener');
+      window.open(url, '_blank', 'noopener');
     }
+    // Без Telegram подписку не проверить: ведём в профиль, где его привязывают.
+    if (err.code === 'TG_REQUIRED') openAccount();
     btn.disabled = false;
   }
 });
@@ -7743,19 +7773,324 @@ document.getElementById('onbNext').addEventListener('click', () => {
 });
 
 
+
+/* ============================================================
+   ВХОД НА САЙТ
+   ============================================================
+   Сайт открыт без входа: гость видит кейсы, казино, правила и ленту.
+   Аккаунт спрашивается в момент, когда без него дальше нельзя: ставка,
+   касса, промокод (api() ловит 401 и открывает это окно). Сессия живёт в
+   httpOnly-cookie, клиент её не видит и не хранит. */
+
+/*
+ * Гость - пустой игрок той же формы, что присылает сервер: весь остальной
+ * код читает state.user и не обязан знать про гостей. Баланс ноль, и
+ * needMoney/openCashier по флагу state.guest ведут не в кассу, а ко входу.
+ */
+function guestUser() {
+  return {
+    id: 0, username: null, firstName: null, balance: 0, isAdmin: false,
+    x2Perks: [], gambleStake: 0, gambleCase: null, vouchers: [],
+    wagerRequired: 0, depositsCount: 0, caseOpens: 0,
+    x10: { need: 0, state: 'none', ceiling: 0 }, isPartner: false,
+    email: null, hasPassword: false, telegram: null,
+    stats: { rounds: 0, spent: 0, won: 0, bestMultiplier: 0, profit: 0 },
+    fair: { serverSeedHash: '', clientSeed: '', nonce: 0, prevServerSeed: null, prevServerHash: null },
+  };
+}
+
+// Был ли на этом устройстве аккаунт: вернувшемуся первым показываем вход, а
+// не регистрацию. Только удобство, при пустом хранилище всё работает так же.
+const AUTH_SEEN_KEY = 'lb_had_account';
+function authDefaultPane() {
+  try { return localStorage.getItem(AUTH_SEEN_KEY) ? 'login' : 'register'; } catch { return 'register'; }
+}
+
+const AUTH_PANES = {
+  login: { title: 'Вход', submit: 'Войти', fields: ['email', 'password'], tabs: true, forgot: true, telegram: true },
+  register: { title: 'Регистрация', submit: 'Создать аккаунт', fields: ['nick', 'email', 'password', 'adult'], tabs: true, telegram: true },
+  forgot: { title: 'Восстановление пароля', submit: 'Прислать ссылку', fields: ['email'] },
+  reset: { title: 'Новый пароль', submit: 'Сохранить и войти', fields: ['password'] },
+  password: { title: 'Пароль', submit: 'Сохранить', fields: ['password'] },
+  account: { title: 'Профиль' },
+};
+
+const authUi = { pane: 'login', resetToken: '', busy: false };
+
+function authEl(id) { return document.getElementById(id); }
+
+function authFail(message) {
+  const box = authEl('authError');
+  box.textContent = message;
+  box.hidden = !message;
+}
+
+function openAuth(pane = 'login') {
+  closeMenu();
+  showAuthPane(pane);
+  authEl('authBackdrop').hidden = false;
+  // Фокус в первое поле: на компьютере сразу печатают, не ища мышью.
+  const first = authEl('authForm').querySelector('[data-auth-field]:not([hidden]) input');
+  if (first && matchMedia('(min-width: 1024px)').matches) first.focus();
+}
+
+function closeAuth() {
+  authEl('authBackdrop').hidden = true;
+  authFail('');
+}
+
+function showAuthPane(pane) {
+  authUi.pane = pane;
+  const def = AUTH_PANES[pane];
+  const user = state.user;
+  const isAccount = pane === 'account';
+
+  authEl('authTitle').textContent = def.title;
+  authEl('authTabs').hidden = !def.tabs;
+  document.querySelectorAll('[data-auth-tab]').forEach((b) => {
+    b.classList.toggle('active', b.dataset.authTab === pane);
+  });
+
+  // Смена пароля: у кого пароль уже есть, спрашиваем текущий; у пришедшего
+  // через Telegram пароля нет, и вместо него он задаёт почту для входа.
+  let fields = def.fields || [];
+  if (pane === 'password') {
+    fields = user?.hasPassword ? ['current', 'password'] : ['email', 'password'];
+    authEl('authTitle').textContent = user?.hasPassword ? 'Смена пароля' : 'Вход по почте';
+  }
+  authEl('authForm').hidden = isAccount;
+  document.querySelectorAll('[data-auth-field]').forEach((el) => {
+    el.hidden = !fields.includes(el.dataset.authField);
+  });
+  authEl('authPasswordLabel').textContent = pane === 'login' || pane === 'register' ? 'Пароль' : 'Новый пароль';
+  authEl('authPassword').autocomplete = pane === 'login' ? 'current-password' : 'new-password';
+  authEl('authSubmit').textContent = pane === 'password' && !user?.hasPassword ? 'Сохранить' : (def.submit || '');
+  authEl('authForgot').hidden = !def.forgot;
+  authFail('');
+
+  const note = authEl('authNote');
+  note.hidden = true;
+  if (pane === 'forgot') {
+    note.hidden = false;
+    note.textContent = state.config?.auth?.mail
+      ? 'Пришлём на почту ссылку для нового пароля. Она действует час.'
+      : 'Восстановление по почте пока недоступно. Напишите в поддержку, поможем вернуть доступ.';
+  }
+
+  const bot = state.config?.auth?.telegramBot;
+  authEl('authOr').hidden = !(def.telegram && bot);
+  authEl('authTelegram').hidden = !(def.telegram && bot);
+  if (def.telegram && bot) mountTelegramWidget(authEl('authTelegram'), 'login');
+
+  authEl('authAccount').hidden = !isAccount;
+  if (isAccount) renderAccount();
+}
+
+/*
+ * Официальный виджет Telegram Login. Он рисует свою кнопку в iframe и
+ * вызывает глобальную функцию с подписанными данными; подпись сервер
+ * проверяет токеном бота. request-access=write нужен боту: без разрешения
+ * писать первым он не смог бы напомнить о фриспинах.
+ *
+ * Работает только на домене, который указан боту в @BotFather (/setdomain).
+ */
+function mountTelegramWidget(box, mode) {
+  const bot = state.config?.auth?.telegramBot;
+  if (!bot) return;
+  window.lbTelegramAuth = (data) => onTelegramAuth(data, mode);
+  if (box.dataset.mounted === bot) return;
+  box.innerHTML = '';
+  const script = document.createElement('script');
+  script.async = true;
+  script.src = 'https://telegram.org/js/telegram-widget.js?22';
+  script.dataset.telegramLogin = bot;
+  script.dataset.size = 'large';
+  script.dataset.radius = '12';
+  script.dataset.requestAccess = 'write';
+  script.dataset.onauth = 'lbTelegramAuth(user)';
+  box.appendChild(script);
+  box.dataset.mounted = bot;
+}
+
+async function onTelegramAuth(data, mode) {
+  try {
+    const res = await api(mode === 'link' ? '/api/auth/link-telegram' : '/api/auth/telegram', { data });
+    if (mode === 'link') {
+      applyUser(res.user);
+      toast('Telegram привязан');
+      haptic('success');
+      showAuthPane('account');
+      loadFreeCase();
+      return;
+    }
+    signedIn(res.user, res.created);
+  } catch (err) {
+    authFail(err.message);
+    haptic('error');
+  }
+}
+
+function renderAccount() {
+  const u = state.user || {};
+  authEl('accNick').textContent = u.firstName || u.username || '-';
+  authEl('accEmail').textContent = u.email || 'не задана';
+  authEl('accTelegram').textContent = u.telegram
+    ? (u.telegram.username ? `@${u.telegram.username}` : 'привязан') : 'не привязан';
+  const bot = state.config?.auth?.telegramBot;
+  const canLink = !u.telegram && !!bot;
+  authEl('accTgHint').hidden = !canLink;
+  authEl('accTelegramWidget').hidden = !canLink;
+  if (canLink) mountTelegramWidget(authEl('accTelegramWidget'), 'link');
+  authEl('accPassword').textContent = u.hasPassword ? 'Сменить пароль' : 'Входить по почте и паролю';
+}
+
+function openAccount() {
+  if (state.guest) return openAuth(authDefaultPane());
+  openAuth('account');
+}
+
+/** Шапка: гостю - «Войти» и «Регистрация», игроку - баланс и профиль. */
+function renderAuthChrome() {
+  const guest = !!state.guest;
+  authEl('topAuth').hidden = !guest;
+  authEl('accountBtn').hidden = guest;
+  authEl('balanceChip').hidden = guest;
+  authEl('topDeposit').hidden = guest;
+  document.body.classList.toggle('is-guest', guest);
+}
+
+/** Сразу после входа: то, что гостю не запускалось. */
+function signedIn(user, created = false) {
+  const wasGuest = state.guest;
+  state.guest = false;
+  try { localStorage.setItem(AUTH_SEEN_KEY, '1'); } catch { /* приватное окно */ }
+  closeAuth();
+  applyUser(user);
+  renderFair();
+  renderAuthChrome();
+  haptic('success');
+  toast(created ? 'Аккаунт создан. Добро пожаловать!' : 'Вы вошли');
+  if (wasGuest) {
+    startPaymentEvents();
+    loadFreeCase();
+    startOnboarding();
+  }
+}
+
+async function submitAuth(event) {
+  event.preventDefault();
+  if (authUi.busy) return;
+  const v = (id) => authEl(id).value;
+  const pane = authUi.pane;
+  authFail('');
+
+  if (pane === 'register' && !authEl('authAdult').checked) {
+    authFail('Подтвердите, что вам есть 18 лет');
+    return;
+  }
+
+  authUi.busy = true;
+  authEl('authSubmit').disabled = true;
+  try {
+    if (pane === 'login') {
+      const res = await api('/api/auth/login', { email: v('authEmail'), password: v('authPassword') });
+      signedIn(res.user);
+    } else if (pane === 'register') {
+      const res = await api('/api/auth/register', {
+        email: v('authEmail'), password: v('authPassword'), nick: v('authNick'),
+      });
+      signedIn(res.user, true);
+    } else if (pane === 'forgot') {
+      if (!state.config?.auth?.mail) { openSupport(); return; }
+      const res = await api('/api/auth/forgot', { email: v('authEmail') });
+      const note = authEl('authNote');
+      note.textContent = res.message;
+      note.hidden = false;
+    } else if (pane === 'reset') {
+      const res = await api('/api/auth/reset', { token: authUi.resetToken, password: v('authPassword') });
+      authUi.resetToken = '';
+      signedIn(res.user);
+    } else if (pane === 'password') {
+      const res = await api('/api/auth/password', {
+        current: v('authCurrent'), password: v('authPassword'), email: v('authEmail'),
+      });
+      applyUser(res.user);
+      toast('Сохранено');
+      showAuthPane('account');
+    }
+    authEl('authPassword').value = '';
+    authEl('authCurrent').value = '';
+  } catch (err) {
+    authFail(err.message);
+    haptic('error');
+  } finally {
+    authUi.busy = false;
+    authEl('authSubmit').disabled = false;
+  }
+}
+
+function wireAuth() {
+  authEl('authForm').addEventListener('submit', submitAuth);
+  authEl('authClose').addEventListener('click', closeAuth);
+  authEl('authBackdrop').addEventListener('click', (e) => {
+    if (e.target.id === 'authBackdrop') closeAuth();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !authEl('authBackdrop').hidden) closeAuth();
+  });
+  document.querySelectorAll('[data-auth-tab]').forEach((b) => {
+    b.addEventListener('click', () => showAuthPane(b.dataset.authTab));
+  });
+  document.querySelectorAll('[data-auth-open]').forEach((b) => {
+    b.addEventListener('click', () => openAuth(b.dataset.authOpen));
+  });
+  authEl('authForgot').addEventListener('click', () => showAuthPane('forgot'));
+  authEl('authEye').addEventListener('click', () => {
+    const input = authEl('authPassword');
+    input.type = input.type === 'password' ? 'text' : 'password';
+  });
+  authEl('authForm').querySelectorAll('[data-doc]').forEach((a) => {
+    a.addEventListener('click', (e) => { e.preventDefault(); openDoc(a.dataset.doc); });
+  });
+  authEl('accountBtn').addEventListener('click', openAccount);
+  authEl('accPassword').addEventListener('click', () => showAuthPane('password'));
+  authEl('accLogout').addEventListener('click', async () => {
+    try { await api('/api/auth/logout'); } catch { /* cookie уйдёт и так */ }
+    // Перезагрузка, а не перерисовка: после выхода в памяти не должно
+    // остаться ничего от прежнего игрока - ни истории, ни открытой кассы.
+    location.reload();
+  });
+}
+
+/*
+ * Ссылка из письма сброса: /?reset=<токен>. Токен убираем из адресной
+ * строки сразу, чтобы он не остался в истории браузера и не ушёл в Referer.
+ */
+function takeResetToken() {
+  const params = new URLSearchParams(location.search);
+  const token = params.get('reset');
+  if (!token) return '';
+  params.delete('reset');
+  const rest = params.toString();
+  history.replaceState(null, '', location.pathname + (rest ? `?${rest}` : '') + location.hash);
+  return token;
+}
+
+/** Текущий игрок или null, если не вошёл. Окно входа здесь не открывается. */
+async function loadMe() {
+  try {
+    return (await api('/api/me', null, { quiet: true })).user;
+  } catch (err) {
+    if (err.status === 401) return null;
+    throw err;
+  }
+}
+
 /* ============================================================
    НАВИГАЦИЯ И СТАРТ
    ============================================================ */
 
 async function init() {
-  try {
-    tg?.ready();
-    tg?.expand();
-    if (tg?.setHeaderColor) tg.setHeaderColor('#0d0318');
-    if (tg?.setBackgroundColor) tg.setBackgroundColor('#0d0318');
-    if (tg?.disableVerticalSwipes) tg.disableVerticalSwipes();
-  } catch { /* обычный браузер */ }
-
   mountIcons();
   buildMoneyRain();
   buildFooter();
@@ -7766,17 +8101,22 @@ async function init() {
   wireFortune();
 
 
+  wireAuth();
+
   try {
     const [config, me] = await Promise.all([
       fetch('/api/config').then((r) => r.json()),
-      api('/api/me'),
+      loadMe(),
     ]);
 
     state.config = config;
-    state.user = me.user;
+    state.guest = !me;
+    const user = me || guestUser();
+    state.user = user;
+    renderAuthChrome();
     renderColorPicker();
     renderRouletteWheel();
-    applyUser(me.user);
+    applyUser(user);
     renderFair();
 
     wireBetPanel('crashBet', 'data-crash-add', 'data-crash-bet');
@@ -7793,9 +8133,14 @@ async function init() {
     renderUpgradeStage();
 
     startFeed();
-    startPaymentEvents();
-    loadFreeCase();
-    startOnboarding();
+    authUi.resetToken = takeResetToken();
+    if (authUi.resetToken) {
+      openAuth('reset');
+    } else if (!state.guest) {
+      startPaymentEvents();
+      loadFreeCase();
+      startOnboarding();
+    }
   } catch (err) {
     document.getElementById('app').innerHTML =
       `<div class="empty">Не удалось загрузить приложение.<br>${esc(err.message)}</div>`;
@@ -7817,7 +8162,7 @@ function fortuneSegmentCenter(index) {
 
 async function loadFortune() {
   try {
-    state.fortune.data = await api('/api/fortune/state');
+    state.fortune.data = await api('/api/fortune/state', null, { quiet: true });
   } catch {
     // Колесо необязательно: ивент просто останется на витрине.
     return;
@@ -7914,8 +8259,8 @@ function showFortuneSteps() {
   const s1 = document.getElementById('fortuneStep1');
   const s2 = document.getElementById('fortuneStep2');
 
-  // Первый шаг: вход в мини-приложение и есть регистрация. Красным он
-  // загорится у того, у кого авторизация не прошла и игрока попросту нет.
+  // Первый шаг: регистрация на сайте. Гостю колесо не загружается вовсе
+  // (fortune/state требует входа), поэтому красным он почти не горит.
   setFortuneStep(s1, d.registered, 'Выполнено', 'Не выполнено');
 
   const cycleDone = d.deposited && d.spinsLeft <= 0;

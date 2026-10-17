@@ -8,7 +8,7 @@
 # Логи:  journalctl -u luckybox -f
 
 [Unit]
-Description=LuckyBox - веб-сервер мини-аппа
+Description=LuckyBox - веб-сервер сайта
 # База лежит на диске, поэтому ждём смонтированную файловую систему и сеть.
 After=network-online.target
 Wants=network-online.target

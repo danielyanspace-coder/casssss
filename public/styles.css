@@ -1,7 +1,7 @@
 /* ============================================================
    LUCKYBOX - оформление
    Яркая неоново-фантазийная тема: розовый, фуксия, фиолетовый.
-   Mobile-first, крупные элементы - мини-аппы открывают с телефона.
+   Mobile-first, крупные элементы - сайт чаще открывают с телефона.
    ============================================================ */
 
 /*
@@ -3958,7 +3958,7 @@ div.mini-row { cursor: default; }
 /* ---------- Читалка документов ---------- */
 
 .doc-backdrop {
-  position: fixed; inset: 0; z-index: 95;
+  position: fixed; inset: 0; z-index: 140;
   background: rgba(6, 1, 12, 0.85);
   backdrop-filter: blur(5px);
   display: flex; align-items: flex-end;
@@ -5657,6 +5657,161 @@ div.mini-row { cursor: default; }
 
 .onb-actions { display: flex; gap: 10px; }
 .onb-actions .btn { flex: 1; padding: 14px; }
+
+/* ---------- Вход на сайт ---------- */
+
+/*
+ * Гостю в шапке две кнопки вместо баланса. На телефоне место в шапке
+ * дорогое, поэтому кнопки компактные, а «Войти» - контуром: главное
+ * действие нового посетителя - регистрация.
+ */
+.top-auth { display: flex; gap: 6px; }
+.top-auth .btn { padding: 9px 12px; font-size: 13px; border-radius: 12px; white-space: nowrap; }
+.top-auth .btn-outline { border-width: 1px; }
+
+.account-btn {
+  width: 36px; height: 36px;
+  border-radius: 11px;
+  display: grid; place-items: center;
+  background: rgba(20, 6, 34, 0.85);
+  border: 1px solid var(--line);
+}
+.account-btn svg { width: 18px; height: 18px; }
+.account-btn:active { transform: scale(0.94); }
+
+/*
+ * Окно входа выше остальных сцен: его открывает отказ сервера посреди любого
+ * действия, и спрятаться под сценой, которая его вызвала, оно не должно.
+ * Соглашение (.doc-backdrop) открывается из него и стоит ещё выше.
+ */
+.auth-backdrop {
+  position: fixed; inset: 0; z-index: 130;
+  background: rgba(6, 1, 12, 0.88);
+  backdrop-filter: blur(6px);
+  display: flex; align-items: center; justify-content: center;
+  padding: 16px;
+  overflow-y: auto;
+  animation: fade 0.2s;
+}
+
+.auth-card {
+  position: relative;
+  width: 100%;
+  max-width: 400px;
+  margin: auto;
+  background: var(--bg-soft);
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  padding: 24px 20px calc(20px + var(--safe-bottom));
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(224, 81, 140, 0.08);
+}
+
+.auth-close {
+  position: absolute; top: 10px; right: 10px;
+  width: 36px; height: 36px;
+  border: none; border-radius: 12px;
+  background: transparent; color: var(--muted);
+  font-size: 26px; line-height: 1;
+  cursor: pointer;
+}
+.auth-close:hover { color: var(--text); }
+
+.auth-logo { display: block; height: 34px; margin: 0 auto 10px; }
+.auth-title { text-align: center; font-size: 20px; font-weight: 900; margin-bottom: 16px; }
+
+.auth-tabs {
+  display: grid; grid-template-columns: 1fr 1fr;
+  padding: 4px; margin-bottom: 16px;
+  border-radius: 14px;
+  background: var(--card);
+}
+.auth-tab {
+  border: none; border-radius: 10px;
+  padding: 10px;
+  background: transparent; color: var(--muted);
+  font: inherit; font-weight: 800; font-size: 14px;
+  cursor: pointer;
+}
+.auth-tab.active { background: var(--card-hi); color: var(--text); }
+
+.auth-form { display: flex; flex-direction: column; gap: 12px; }
+
+.auth-field { display: flex; flex-direction: column; gap: 6px; }
+.auth-field > span:first-child { font-size: 13px; font-weight: 700; color: var(--muted); }
+.auth-field input {
+  width: 100%;
+  padding: 13px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--text);
+  font: inherit; font-size: 16px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.auth-field input:focus { border-color: var(--violet); }
+
+.auth-pass { position: relative; display: block; }
+.auth-pass input { padding-right: 46px; }
+.auth-eye {
+  position: absolute; top: 50%; right: 6px;
+  transform: translateY(-50%);
+  width: 36px; height: 36px;
+  border: none; background: transparent;
+  display: grid; place-items: center;
+  cursor: pointer;
+}
+.auth-eye svg { width: 20px; height: 20px; }
+
+.auth-check {
+  display: flex; gap: 10px; align-items: flex-start;
+  font-size: 13px; line-height: 1.45; color: var(--muted);
+}
+.auth-check input { width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--pink); flex: none; }
+.auth-check a { color: var(--text); }
+
+.auth-error {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(217, 90, 104, 0.12);
+  border: 1px solid rgba(217, 90, 104, 0.4);
+  color: #f2b7be;
+  font-size: 13px; line-height: 1.45;
+}
+.auth-note { font-size: 13px; line-height: 1.5; color: var(--muted); }
+
+.auth-submit { margin-top: 4px; }
+.auth-link {
+  align-self: center;
+  border: none; background: transparent;
+  color: var(--muted);
+  font: inherit; font-size: 13px; font-weight: 700;
+  cursor: pointer;
+}
+.auth-link:hover { color: var(--text); }
+
+.auth-or {
+  display: flex; align-items: center; gap: 12px;
+  margin: 16px 0 12px;
+  color: var(--muted); font-size: 12px; font-weight: 700;
+}
+.auth-or::before, .auth-or::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+
+/* Кнопку рисует сам Telegram в iframe, мы только ставим её по центру. */
+.auth-tg { display: flex; justify-content: center; min-height: 40px; }
+
+.auth-account { display: flex; flex-direction: column; }
+.acc-row {
+  display: flex; justify-content: space-between; gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 14px;
+}
+.acc-row span { color: var(--muted); }
+.acc-row b { text-align: right; overflow-wrap: anywhere; }
+.acc-hint { margin: 14px 0 10px; font-size: 13px; line-height: 1.5; color: var(--muted); }
+.auth-account .auth-tg { margin-bottom: 4px; }
+.acc-logout { color: var(--muted); }
 
 /* ---------- Воронка ---------- */
 
@@ -7463,7 +7618,7 @@ div.mini-row { cursor: default; }
    в одном кейсе принадлежат разным семействам, и по набору подписи их видно
    раньше, чем по цвету.
 
-   Веб-шрифты не подключаем: мини-апп открывают с телефона по мобильной сети,
+   Веб-шрифты не подключаем: сайт часто открывают с телефона по мобильной сети,
    и ради подписи в одиннадцать точек тянуть файл шрифта нельзя. Разницу дают
    системные стеки, регистр, разрядка и насыщенность - этого достаточно.
 

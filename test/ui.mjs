@@ -2286,6 +2286,82 @@ slotChecks: {
   }).then((r) => r.json()).catch(() => null));
 }
 
+/* ---------- Вход на сайт: гость, регистрация, выход ---------- */
+
+/*
+ * Отдельное окно браузера, чтобы не трогать игрока основного прогона. На
+ * сервере гостя делает заголовок X-Dev-Anon (без него DEV_MODE пускает любого
+ * тестовым игроком), в автономном файле - выход: заглушка помнит его в
+ * localStorage, а у нового окна хранилище своё.
+ */
+{
+  const isFile = URL_TARGET.startsWith('file:');
+  const ctx = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+    extraHTTPHeaders: isFile ? {} : { 'X-Dev-Anon': '1' },
+  });
+  const g = await ctx.newPage();
+  const errors = [];
+  g.on('pageerror', (e) => errors.push(e.message));
+  await g.goto(URL_TARGET, { waitUntil: 'domcontentloaded' });
+  await g.waitForSelector('.case-card', { timeout: 15000 });
+  if (isFile) {
+    await g.evaluate(() => fetch('/api/auth/logout', { method: 'POST' }));
+    await g.reload({ waitUntil: 'domcontentloaded' });
+    await g.waitForSelector('.case-card', { timeout: 15000 });
+  }
+  await g.waitForTimeout(400);
+
+  check('гость: в шапке «Войти» и «Регистрация»', await g.isVisible('#topAuth'));
+  check('гость: баланса в шапке нет', !(await g.isVisible('#balanceChip')));
+  check('гость: окно входа само не открывается', !(await g.isVisible('#authBackdrop')));
+
+  // Открыть кейс без аккаунта нельзя: вместо кассы и тоста - окно входа.
+  await g.evaluate(() => document.querySelector('.case-card').click());
+  await g.waitForTimeout(500);
+  await g.evaluate(() => document.getElementById('openBtn')?.click());
+  await g.waitForTimeout(500);
+  check('гость: попытка открыть кейс зовёт ко входу', await g.isVisible('#authBackdrop'));
+  check('гость: первым предлагается регистрация',
+    (await g.textContent('#authTitle')) === 'Регистрация');
+
+  // Без галочки 18+ форма не уходит.
+  await g.fill('#authNick', 'Гость');
+  await g.fill('#authEmail', `ui${Date.now()}@mail.ru`);
+  await g.fill('#authPassword', 'secret123');
+  await g.click('#authSubmit');
+  await g.waitForTimeout(300);
+  check('регистрация: без 18+ не проходит',
+    /18/.test(await g.textContent('#authError')) && await g.isVisible('#authBackdrop'));
+
+  await g.check('#authAdult');
+  await g.click('#authSubmit');
+  await g.waitForTimeout(900);
+  check('регистрация: окно закрылось', !(await g.isVisible('#authBackdrop')),
+    await g.textContent('#authError'));
+
+  // Шапка игрока видна на главной: экран кейса её перекрывает намеренно.
+  await g.reload({ waitUntil: 'domcontentloaded' });
+  await g.waitForSelector('.case-card', { timeout: 15000 });
+  await g.waitForTimeout(500);
+  if (await g.isVisible('#onbSkip')) await g.click('#onbSkip');
+  check('после входа: баланс вместо кнопок входа',
+    await g.isVisible('#balanceChip') && !(await g.isVisible('#topAuth')));
+
+  await g.click('#accountBtn');
+  await g.waitForTimeout(300);
+  check('профиль: открывается и показывает почту',
+    await g.isVisible('#authAccount') && /@mail\.ru/.test(await g.textContent('#accEmail')));
+  // Выход перезагружает страницу: ждём именно новую загрузку, а не старые плитки.
+  await Promise.all([g.waitForEvent('load'), g.click('#accLogout')]);
+  await g.waitForSelector('.case-card', { timeout: 15000 });
+  await g.waitForTimeout(500);
+  check('выход: снова гость', await g.isVisible('#topAuth') && !(await g.isVisible('#balanceChip')));
+
+  check('вход: нет ошибок скрипта', errors.length === 0, errors.slice(0, 2).join(' | '));
+  await ctx.close();
+}
+
 /* ---------- Итог ---------- */
 
 check('нет ошибок в консоли', consoleErrors.length === 0, consoleErrors.slice(0, 3).join(' | '));

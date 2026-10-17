@@ -1,5 +1,10 @@
 /**
- * Telegram-бот: вход в мини-апп и напоминания, зовущие игрока обратно.
+ * Telegram-бот: ссылка на сайт и напоминания, зовущие игрока обратно.
+ *
+ * Проект - сайт, а не мини-приложение: бот открывает его обычной ссылкой во
+ * внешнем браузере. Писать бот может только тем, кто вошёл через Telegram или
+ * привязал его в профиле: у зарегистрированного по почте адресата в Telegram
+ * нет (см. pendingSpinReminders и freeCaseReminders в db.js).
  *
  * Запускается отдельным процессом от сервера (npm run bot), потому что
  * веб-приложение должно работать и без запущенного бота - например, локально.
@@ -16,20 +21,25 @@ import { getCase } from './cases.js';
 import { isConfigured as freeCaseConfigured, FREE_CASE_COOLDOWN_MS } from './subscription.js';
 
 const token = process.env.TELEGRAM_TOKEN;
-const webAppUrl = process.env.WEBAPP_URL;
+const webAppUrl = process.env.SITE_URL || process.env.WEBAPP_URL;
 
+/*
+ * Бот на сайте необязателен: без токена работает вход по почте, а бот просто
+ * не нужен. Поэтому выход без ошибки - служба с Restart=on-failure тогда не
+ * перезапускает его каждые пять секунд и не засыпает журнал.
+ */
 if (!token) {
-  console.error('TELEGRAM_TOKEN не задан в .env');
-  process.exit(1);
+  console.log('TELEGRAM_TOKEN не задан: бот не нужен, выходим');
+  process.exit(0);
 }
 if (!webAppUrl || !webAppUrl.startsWith('https://')) {
-  console.error('WEBAPP_URL не задан или не https - Telegram открывает мини-аппы только по HTTPS');
+  console.error('SITE_URL не задан или не https: Telegram не даёт ставить в кнопки адрес без HTTPS');
   process.exit(1);
 }
 
 const bot = new Bot(token);
 
-const keyboard = new InlineKeyboard().webApp('Открыть кейсы', webAppUrl);
+const keyboard = new InlineKeyboard().url('Открыть LUCKYBOX', webAppUrl);
 
 bot.command('start', (ctx) =>
   ctx.reply(
@@ -51,7 +61,7 @@ bot.command('help', (ctx) =>
       '• Шансы одинаковы для всех и не зависят от вашей истории.\n' +
       '• Provably fair: хеш серверного seed показан заранее, ' +
       'после смены seed любой ролл можно пересчитать.\n\n' +
-      '/play - открыть приложение'
+      '/play - открыть сайт'
   )
 );
 
@@ -64,7 +74,7 @@ bot.catch((err) => console.error('Ошибка бота:', err));
 /**
  * Бот сам зовёт игрока обратно: недокрученные фриспины и снова доступный
  * бесплатный кейс - это уже оплаченные поводы вернуться, о которых игрок
- * просто не знает, пока не откроет приложение.
+ * просто не знает, пока не зайдёт на сайт.
  *
  * Почему это здесь, а не в сервере. Отправлять сообщения умеет только процесс
  * с токеном бота, а держать второй экземпляр Bot в веб-приложении значило бы
@@ -154,14 +164,16 @@ async function sweep() {
 }
 
 // Проход в try/catch: упавшее напоминание не должно ронять бота, из-за
-// которого игроки вообще попадают в приложение.
+// которого игроки вообще попадают на сайт.
 setInterval(() => { sweep().catch((err) => console.error('Проход напоминаний:', err)); },
   SWEEP_INTERVAL_MS);
 
-// Кнопка рядом с полем ввода - самый заметный вход в мини-апп.
-await bot.api.setChatMenuButton({
-  menu_button: { type: 'web_app', text: 'Кейсы', web_app: { url: webAppUrl } },
-});
+/*
+ * Кнопку мини-приложения рядом с полем ввода снимаем: она открыла бы сайт
+ * внутри Telegram, а сайт рассчитан на обычный браузер. Вход - ссылкой из
+ * сообщений и команды /play.
+ */
+await bot.api.setChatMenuButton({ menu_button: { type: 'commands' } });
 
-console.log('Бот запущен. Мини-апп:', webAppUrl);
+console.log('Бот запущен. Сайт:', webAppUrl);
 bot.start();

@@ -46,7 +46,7 @@ function decryptCard(value) {
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
     id                INTEGER PRIMARY KEY,
-    tg_id             TEXT    NOT NULL UNIQUE,
+    tg_id             TEXT    UNIQUE,
     username          TEXT,
     first_name        TEXT,
     balance           INTEGER NOT NULL DEFAULT 1000,
@@ -221,11 +221,11 @@ db.exec(`
     created_at       INTEGER NOT NULL
   );
 
-  -- Партнёры реферальной программы. Заводятся по Telegram ID: партнёр видит
-  -- свою статистику тем же аккаунтом, которым заходит в приложение.
+  -- Партнёры реферальной программы. Партнёр видит свою статистику тем же
+  -- аккаунтом, которым заходит на сайт (user_id, см. ниже).
   CREATE TABLE IF NOT EXISTS partners (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    tg_id      TEXT    NOT NULL UNIQUE,
+    tg_id      TEXT    UNIQUE,
     name       TEXT,
     share_pct  REAL    NOT NULL DEFAULT 30,
     is_active  INTEGER NOT NULL DEFAULT 1,
@@ -261,9 +261,9 @@ db.exec(`
     created_at INTEGER NOT NULL
   );
 
-  -- Собственная аналитика. Внешних счётчиков в мини-аппе нет и быть не может:
-  -- Telegram открывает приложение во встроенном браузере, где сторонние скрипты
-  -- половине игроков не загрузятся, а платить деньгами за то, что уже лежит в
+  -- Собственная аналитика. Внешних счётчиков нет намеренно: блокировщики
+  -- рекламы и встроенные браузеры мессенджеров режут сторонние скрипты, они
+  -- части игроков не загрузятся, а платить деньгами за то, что уже лежит в
   -- своей же базе, незачем. Событие - это только имя, игрок и момент; всё
   -- остальное (сумма, кейс, причина) кладётся в props отдельной строкой JSON,
   -- чтобы добавление нового события не требовало миграции.
@@ -370,7 +370,7 @@ db.exec(`
   /*
    * Незаконченная серия фриспинов слота.
    *
-   * Серия обязана пережить закрытие мини-аппа: её выдали за три scatter или
+   * Серия обязана пережить закрытие вкладки: её выдали за три scatter или
    * продали за деньги, и потерять её при обновлении страницы значит отнять
    * оплаченное. По той же причине здесь лежит ставка - фриспины крутятся на
    * ставке, действовавшей в момент запуска, а не на той, которую игрок
@@ -618,15 +618,116 @@ ensureColumn('users', 'deposits_count', 'INTEGER NOT NULL DEFAULT 0');
 // К какому партнёру привязан игрок. Ставится один раз, первым промокодом.
 ensureColumn('users', 'partner_id', 'INTEGER');
 
+/*
+ * ВХОД НА САЙТЕ. Проект начинался мини-приложением Telegram, и tg_id был
+ * единственным способом опознать игрока - отсюда NOT NULL. Теперь это сайт:
+ * игрок регистрируется почтой и паролем, а Telegram - второй способ входа и
+ * привязка для бонуса за подписку на канал. У зарегистрированного по почте
+ * tg_id нет вовсе.
+ *
+ * Ограничение NOT NULL в SQLite снимается только пересборкой таблицы. Делается
+ * это один раз, по правилам из документации SQLite: внешние ключи выключены,
+ * новая таблица создаётся из ТОГО ЖЕ текста схемы (в нём уже есть все
+ * колонки, добавленные через ALTER), строки копируются целиком, старая
+ * удаляется, новая получает её имя. Ссылки других таблиц на users(id) при
+ * этом остаются верными: они ссылаются по имени, а id переезжают как есть.
+ * После переноса сверяется число строк и сумма балансов: расхождение
+ * откатывает всю пересборку.
+ */
+function relaxNotNull(table, column) {
+  const info = db.prepare(`PRAGMA table_info(${table})`).all().find((c) => c.name === column);
+  if (!info || !info.notnull) return false;
+
+  const row = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?").get(table);
+  const pattern = new RegExp(`(\\b${column}\\s+TEXT\\s+)NOT NULL\\s+`, 'i');
+  if (!pattern.test(row.sql)) {
+    throw new Error(`Не удалось снять NOT NULL с ${table}.${column}: схема не та, что ожидалась`);
+  }
+  const tmp = `${table}__relax`;
+  const createSql = row.sql
+    .replace(pattern, '$1')
+    .replace(new RegExp(`^CREATE TABLE\\s+("?)${table}\\1`, 'i'), `CREATE TABLE ${tmp}`);
+  const indexes = db.prepare(`
+    SELECT sql FROM sqlite_master
+     WHERE tbl_name = ? AND type IN ('index', 'trigger') AND sql IS NOT NULL
+  `).all(table).map((r) => r.sql);
+  const fingerprint = () => db.prepare(
+    `SELECT COUNT(*) AS n${table === 'users' ? ', COALESCE(SUM(balance), 0) AS money' : ''} FROM ${table}`,
+  ).get();
+
+  db.pragma('foreign_keys = OFF');
+  try {
+    db.transaction(() => {
+      const before = fingerprint();
+      db.exec(`DROP TABLE IF EXISTS ${tmp}`);
+      db.exec(createSql);
+      db.exec(`INSERT INTO ${tmp} SELECT * FROM ${table}`);
+      db.exec(`DROP TABLE ${table}`);
+      db.exec(`ALTER TABLE ${tmp} RENAME TO ${table}`);
+      for (const sql of indexes) db.exec(sql);
+      const after = fingerprint();
+      if (JSON.stringify(before) !== JSON.stringify(after)) {
+        throw new Error(`Пересборка ${table}: данные разошлись, ${JSON.stringify(before)} -> ${JSON.stringify(after)}`);
+      }
+      const broken = db.pragma('foreign_key_check');
+      if (broken.length) throw new Error(`Пересборка ${table}: нарушены внешние ключи`);
+    })();
+  } finally {
+    db.pragma('foreign_keys = ON');
+  }
+  return true;
+}
+
+relaxNotNull('users', 'tg_id');
+// Почта хранится в нижнем регистре, сравнение точное: «Ivan@Mail.ru» и
+// «ivan@mail.ru» - один ящик, и два аккаунта на него - лазейка для второго
+// приветственного бонуса.
+ensureColumn('users', 'email', 'TEXT');
+ensureColumn('users', 'password_hash', 'TEXT');
+db.exec('CREATE UNIQUE INDEX IF NOT EXISTS users_email ON users(email) WHERE email IS NOT NULL');
+
+/*
+ * Партнёр раньше опознавался только по Telegram ID. Теперь он такой же игрок
+ * сайта и может не иметь Telegram вовсе, поэтому запись ссылается на аккаунт
+ * (user_id), а tg_id остаётся для заведённых по старому правилу.
+ */
+relaxNotNull('partners', 'tg_id');
+ensureColumn('partners', 'user_id', 'INTEGER REFERENCES users(id)');
+
+/*
+ * Сессии сайта. В базе лежит хеш токена, а не сам токен: копия базы, ушедшая
+ * не туда, не даёт войти ни в один аккаунт.
+ */
+db.exec(`
+  CREATE TABLE IF NOT EXISTS sessions (
+    token_hash TEXT    PRIMARY KEY,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    ip         TEXT,
+    user_agent TEXT
+  );
+  CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id);
+
+  -- Одноразовые ссылки сброса пароля. Тоже только хеш токена.
+  CREATE TABLE IF NOT EXISTS password_resets (
+    token_hash TEXT    PRIMARY KEY,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    used_at    INTEGER
+  );
+`);
+
 // Стартового баланса нет намеренно. Раньше новый игрок получал 1000 условных
 // единиц, и этого хватало, чтобы поставить их один раз и подать заявку на вывод,
 // не внеся ни рубля: отыгранное считается по ставкам, а откуда взялись деньги,
-// правило вывода не различает. Регистрация одноразовых Telegram-аккаунтов стоит
+// правило вывода не различает. Одноразовый ящик или Telegram-аккаунт стоит
 // дешевле такой выплаты, поэтому подарок убран целиком, а не уменьшен.
 // Новому игроку теперь дают не деньги, а поощрение за первое пополнение.
 //
-// Исключение ровно одно: DEV_MODE. В нём подпись Telegram не проверяется и все
-// запросы считаются запросами одного тестового игрока - ему нужен баланс,
+// Исключение ровно одно: DEV_MODE. В нём вход не требуется и все запросы без
+// сессии считаются запросами одного тестового игрока - ему нужен баланс,
 // иначе автотесты не сделают ни одной ставки. Переменной окружения для этого
 // нет намеренно: включить подарок на рабочем сервере можно только вместе с
 // выключенной авторизацией, а это уже не про баланс.
@@ -641,6 +742,29 @@ const insertUser = db.prepare(`
 
 const selectUser = db.prepare('SELECT * FROM users WHERE tg_id = ?');
 
+/** Новая строка игрока: свои seed-ы и событие регистрации. */
+function insertNewUser({ tgId = null, username = null, firstName = null, email = null, passwordHash = null }) {
+  const serverSeed = generateServerSeed();
+  const info = insertUser.run({
+    tg_id: tgId,
+    username,
+    first_name: firstName,
+    balance: DEV_START_BALANCE,
+    server_seed: serverSeed,
+    server_seed_hash: hashSeed(serverSeed),
+    client_seed: generateClientSeed(),
+    created_at: Date.now(),
+  });
+  if (email) {
+    db.prepare('UPDATE users SET email = ?, password_hash = ? WHERE id = ?')
+      .run(email, passwordHash, info.lastInsertRowid);
+  }
+  const created = getUserById(info.lastInsertRowid);
+  trackEvent(created.id, 'signup');
+  return created;
+}
+
+/** Вход через Telegram: находит игрока по tg_id или заводит нового. */
 export function getOrCreateUser(tgUser) {
   const tgId = String(tgUser.id);
   const existing = selectUser.get(tgId);
@@ -655,22 +779,123 @@ export function getOrCreateUser(tgUser) {
     return existing;
   }
 
-  const serverSeed = generateServerSeed();
-  insertUser.run({
-    tg_id: tgId,
-    username: tgUser.username || null,
-    first_name: tgUser.first_name || null,
-    balance: DEV_START_BALANCE,
-    server_seed: serverSeed,
-    server_seed_hash: hashSeed(serverSeed),
-    client_seed: generateClientSeed(),
-    created_at: Date.now(),
+  return insertNewUser({
+    tgId, username: tgUser.username || null, firstName: tgUser.first_name || null,
   });
-
-  const created = selectUser.get(tgId);
-  trackEvent(created.id, 'signup');
-  return created;
 }
+
+export function findUserByTgId(tgId) {
+  return selectUser.get(String(tgId)) || null;
+}
+
+export function findUserByEmail(email) {
+  return db.prepare('SELECT * FROM users WHERE email = ?').get(String(email || '')) || null;
+}
+
+/**
+ * Регистрация по почте. Почта уже приведена к нижнему регистру и проверена
+ * вызывающим, пароль уже захеширован. Ник ложится в first_name: username у
+ * нас - это @ник Telegram, и путать их нельзя, по username ищут в панели.
+ */
+export const createEmailUser = db.transaction(({ email, passwordHash, nick }) => {
+  if (findUserByEmail(email)) {
+    throw Object.assign(new Error('Эта почта уже зарегистрирована'), { code: 'EMAIL_TAKEN' });
+  }
+  return insertNewUser({ email, passwordHash, firstName: nick || null });
+});
+
+/**
+ * Привязка Telegram к аккаунту, заведённому по почте.
+ *
+ * Telegram, уже принадлежащий ДРУГОМУ аккаунту, не привязывается и аккаунты
+ * не сливаются: у каждого свои деньги, отыгрыш, история и seed-ы, и слияние
+ * означало бы правку балансов мимо денежных транзакций.
+ */
+export const linkTelegram = db.transaction((userId, tgUser) => {
+  const tgId = String(tgUser.id);
+  const owner = selectUser.get(tgId);
+  if (owner && owner.id !== userId) {
+    throw Object.assign(new Error('Этот Telegram уже привязан к другому аккаунту'), { code: 'TG_TAKEN' });
+  }
+  db.prepare('UPDATE users SET tg_id = ?, username = ? WHERE id = ?')
+    .run(tgId, tgUser.username || null, userId);
+  return getUserById(userId);
+});
+
+/** Почта и пароль для того, кто пришёл через Telegram. */
+export const setEmailLogin = db.transaction((userId, email, passwordHash) => {
+  const owner = findUserByEmail(email);
+  if (owner && owner.id !== userId) {
+    throw Object.assign(new Error('Эта почта уже зарегистрирована'), { code: 'EMAIL_TAKEN' });
+  }
+  db.prepare('UPDATE users SET email = ?, password_hash = ? WHERE id = ?').run(email, passwordHash, userId);
+  return getUserById(userId);
+});
+
+export function setPasswordHash(userId, passwordHash) {
+  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(passwordHash, userId);
+}
+
+/* ---------- Сессии ---------- */
+
+export function createSession({ tokenHash, userId, ttlMs, ip, userAgent }) {
+  const now = Date.now();
+  db.prepare(`INSERT INTO sessions (token_hash, user_id, created_at, expires_at, ip, user_agent)
+              VALUES (?, ?, ?, ?, ?, ?)`)
+    .run(tokenHash, userId, now, now + ttlMs, ip || null, String(userAgent || '').slice(0, 200) || null);
+}
+
+/** Живая сессия или null. Просроченные удаляются по пути. */
+export function sessionByHash(tokenHash) {
+  const row = db.prepare('SELECT * FROM sessions WHERE token_hash = ?').get(tokenHash);
+  if (!row) return null;
+  if (row.expires_at <= Date.now()) {
+    db.prepare('DELETE FROM sessions WHERE token_hash = ?').run(tokenHash);
+    return null;
+  }
+  return row;
+}
+
+export function extendSession(tokenHash, expiresAt) {
+  db.prepare('UPDATE sessions SET expires_at = ? WHERE token_hash = ?').run(expiresAt, tokenHash);
+}
+
+export function deleteSession(tokenHash) {
+  db.prepare('DELETE FROM sessions WHERE token_hash = ?').run(tokenHash);
+}
+
+/** Сменил пароль - остальные устройства выходят. Кроме того, где сменил. */
+export function deleteUserSessions(userId, exceptHash = '') {
+  db.prepare('DELETE FROM sessions WHERE user_id = ? AND token_hash <> ?').run(userId, exceptHash);
+}
+
+export function purgeExpiredSessions() {
+  const now = Date.now();
+  db.prepare('DELETE FROM sessions WHERE expires_at <= ?').run(now);
+  db.prepare('DELETE FROM password_resets WHERE expires_at <= ?').run(now);
+}
+
+/* ---------- Сброс пароля ---------- */
+
+export function createPasswordReset(userId, tokenHash, ttlMs) {
+  const now = Date.now();
+  // Новая ссылка отменяет прежние: в ящике может лежать старое письмо.
+  db.prepare('DELETE FROM password_resets WHERE user_id = ?').run(userId);
+  db.prepare(`INSERT INTO password_resets (token_hash, user_id, created_at, expires_at)
+              VALUES (?, ?, ?, ?)`).run(tokenHash, userId, now, now + ttlMs);
+}
+
+/** Тратит ссылку сброса: второй раз по ней пароль не сменить. */
+export const usePasswordReset = db.transaction((tokenHash, passwordHash) => {
+  const row = db.prepare('SELECT * FROM password_resets WHERE token_hash = ?').get(tokenHash);
+  if (!row || row.used_at || row.expires_at <= Date.now()) {
+    throw Object.assign(new Error('Ссылка недействительна или устарела'), { code: 'RESET_INVALID' });
+  }
+  db.prepare('UPDATE password_resets SET used_at = ? WHERE token_hash = ?').run(Date.now(), tokenHash);
+  setPasswordHash(row.user_id, passwordHash);
+  deleteUserSessions(row.user_id);
+  return getUserById(row.user_id);
+});
 
 export function getUserById(id) {
   return db.prepare('SELECT * FROM users WHERE id = ?').get(id);
@@ -1184,11 +1409,9 @@ export function fortuneState(userId) {
 
   return {
     /*
-     * Шаг «зарегистрируйтесь» выполнен самим фактом существования игрока: в
-     * мини-приложении вход происходит подписью Telegram, отдельной регистрации
-     * нет. Шаг оставлен, потому что он есть в макете заказчика, и он честно
-     * покажет невыполненным того, у кого авторизация не прошла: до этой
-     * функции такой запрос просто не доходит, и клиент рисует шаг красным.
+     * Шаг «зарегистрируйтесь» выполнен самим фактом существования игрока:
+     * без входа до этой функции запрос не доходит. Шаг оставлен, потому что
+     * он есть в макете заказчика.
      */
     registered: true,
     deposited: user.deposits_count > 0,
@@ -1916,7 +2139,7 @@ export function withdrawable(user) {
  * Порядок здесь не случайный: воронка ниже читает его сверху вниз.
  */
 export const FUNNEL_STEPS = [
-  { name: 'signup', title: 'Открыл приложение' },
+  { name: 'signup', title: 'Зарегистрировался' },
   { name: 'case_open', title: 'Открыл кейс' },
   { name: 'cashier_view', title: 'Зашёл в кассу' },
   { name: 'deposit_created', title: 'Создал заявку' },
@@ -1934,7 +2157,7 @@ const ALL_EVENTS = new Set([
   ...CLIENT_EVENTS,
   'deposit_first_bonus', 'promo_redeemed', 'freespins_bought', 'bot_reminder',
   'fortune_unlocked', 'fortune_spin', 'casino_launch',
-  'slot_spin', 'slot_jackpot', 'slot_bonus_bought',
+  'slot_spin', 'slot_jackpot', 'slot_bonus_bought', 'login',
 ]);
 
 const insertEvent = db.prepare(
@@ -2045,6 +2268,7 @@ export function pendingSpinReminders(minAgeMs, limit = 50) {
       JOIN users u ON u.id = s.user_id
      WHERE s.created_at <= ?
        AND u.is_blocked = 0
+       AND u.tg_id IS NOT NULL
        AND u.created_at >= ?
        AND NOT EXISTS (SELECT 1 FROM bot_notices n
                         WHERE n.user_id = u.id AND n.kind = 'freespins'
@@ -2066,6 +2290,7 @@ export function freeCaseReminders(cooldownMs, limit = 50) {
     SELECT id, tg_id, first_name, username, free_case_at
       FROM users
      WHERE is_blocked = 0
+       AND tg_id IS NOT NULL
        AND created_at >= ?
        AND (free_case_at = 0 OR free_case_at + ? <= ?)
        AND NOT EXISTS (SELECT 1 FROM bot_notices n
@@ -2221,8 +2446,18 @@ export function myPromoRedemptions(userId, limit = 20) {
    ПАРТНЁРЫ
    ============================================================ */
 
-export function getPartnerByTgId(tgId) {
-  return db.prepare('SELECT * FROM partners WHERE tg_id = ?').get(String(tgId)) || null;
+/**
+ * Партнёр, которым является игрок. Ищется по аккаунту, а для записей,
+ * заведённых по Telegram ID до появления входа на сайте, по tg_id.
+ */
+export function getPartnerForUser(user) {
+  if (!user) return null;
+  return db.prepare(`
+    SELECT * FROM partners
+     WHERE user_id = ? OR (tg_id IS NOT NULL AND tg_id = ?)
+     ORDER BY user_id IS NULL
+     LIMIT 1
+  `).get(user.id, user.tg_id == null ? null : String(user.tg_id)) || null;
 }
 
 /**
@@ -2242,7 +2477,12 @@ export function getPartnerByTgId(tgId) {
  * программ, и она защищает от схемы «привёл себя, выиграл, забрал долю».
  */
 export function partnerStats(partnerId) {
-  const partner = db.prepare('SELECT * FROM partners WHERE id = ?').get(partnerId);
+  // Почта аккаунта нужна панели: у партнёра, пришедшего по почте, tg_id нет.
+  const partner = db.prepare(`
+    SELECT p.*, u.email AS email FROM partners p
+      LEFT JOIN users u ON u.id = p.user_id
+     WHERE p.id = ?
+  `).get(partnerId);
   if (!partner) return null;
 
   const totals = db.prepare(`
@@ -2361,27 +2601,39 @@ export function adminOverview() {
 export function adminUsers({ query = '', limit = 30, offset = 0 } = {}) {
   const like = `%${query}%`;
   const rows = db.prepare(`
-    SELECT id, tg_id, username, first_name, balance, total_rounds, total_spent,
+    SELECT id, tg_id, email, username, first_name, balance, total_rounds, total_spent,
            total_won, best_multiplier, is_admin, is_blocked, created_at
       FROM users
-     WHERE (? = '' OR username LIKE ? OR first_name LIKE ? OR tg_id LIKE ?)
+     WHERE (? = '' OR username LIKE ? OR first_name LIKE ? OR tg_id LIKE ? OR email LIKE ?)
      ORDER BY total_spent DESC, id ASC
      LIMIT ? OFFSET ?
-  `).all(query, like, like, like, limit, offset);
+  `).all(query, like, like, like, like, limit, offset);
 
   const total = db.prepare(`
     SELECT COUNT(*) AS n FROM users
-     WHERE (? = '' OR username LIKE ? OR first_name LIKE ? OR tg_id LIKE ?)
-  `).get(query, like, like, like).n;
+     WHERE (? = '' OR username LIKE ? OR first_name LIKE ? OR tg_id LIKE ? OR email LIKE ?)
+  `).get(query, like, like, like, like).n;
 
   return { rows, total };
+}
+
+/*
+ * Строка игрока для панели - без секретов. Хеш пароля не нужен никому, кроме
+ * проверки входа, а действующий серверный seed до смены раскрывать нельзя
+ * никому, включая поддержку: по нему предсказываются следующие исходы.
+ */
+const SECRET_USER_FIELDS = ['password_hash', 'server_seed'];
+function staffSafeUser(user) {
+  const out = { ...user };
+  for (const key of SECRET_USER_FIELDS) delete out[key];
+  return out;
 }
 
 export function adminUserDetail(userId) {
   const user = getUserById(userId);
   if (!user) return null;
   return {
-    user,
+    user: staffSafeUser(user),
     history: getHistory(userId, 30),
     vouchers: getVouchers(userId),
     notes: playerNotes(userId, 30),
@@ -2641,9 +2893,10 @@ export const adminSavePromo = db.transaction((adminId, data) => {
 
 export function adminListPromos() {
   return db.prepare(`
-    SELECT p.*, pa.name AS partner_name, pa.tg_id AS partner_tg
+    SELECT p.*, pa.name AS partner_name, COALESCE(pu.email, pa.tg_id) AS partner_tg
       FROM promocodes p
       LEFT JOIN partners pa ON pa.id = p.partner_id
+      LEFT JOIN users pu ON pu.id = pa.user_id
      ORDER BY p.id DESC
   `).all();
 }
@@ -2669,30 +2922,46 @@ export const adminDeletePromo = db.transaction((adminId, id) => {
 /* ---------- Админка: партнёры ---------- */
 
 export const adminSavePartner = db.transaction((adminId, data) => {
-  const tgId = String(data.tg_id || '').trim();
-  if (!/^\d+$/.test(tgId)) {
-    throw Object.assign(new Error('Telegram ID - это число'), { code: 'BAD' });
+  /*
+   * Партнёр - это игрок сайта. Его находят по почте, Telegram ID, нику или
+   * номеру, как сотрудника. Telegram ID без аккаунта всё ещё принимается:
+   * человек может зарегистрироваться позже, войдя через Telegram.
+   */
+  const key = String(data.userKey ?? data.tg_id ?? '').trim();
+  const user = key ? findUserByAnyId(key) : null;
+  if (!user && !/^\d+$/.test(key)) {
+    throw Object.assign(
+      new Error('Игрок не найден. Укажите почту, Telegram ID или номер игрока'),
+      { code: 'BAD' });
   }
+  const tgId = user ? (user.tg_id == null ? null : String(user.tg_id)) : key;
+  const userId = user ? user.id : null;
 
   const share = Math.min(100, Math.max(0, Number(data.share_pct) || 0));
-  const existing = db.prepare('SELECT id FROM partners WHERE tg_id = ?').get(tgId);
+  const existing = db.prepare(`
+    SELECT id FROM partners
+     WHERE (? IS NOT NULL AND user_id = ?) OR (? IS NOT NULL AND tg_id = ?)
+     LIMIT 1
+  `).get(userId, userId, tgId, tgId);
 
   if (existing) {
-    db.prepare(`UPDATE partners SET name = ?, share_pct = ?, is_active = ?, note = ?
+    db.prepare(`UPDATE partners SET name = ?, share_pct = ?, is_active = ?, note = ?,
+                       user_id = COALESCE(?, user_id), tg_id = COALESCE(?, tg_id)
                  WHERE id = ?`)
       .run(data.name || null, share, data.is_active === false ? 0 : 1,
-           data.note || null, existing.id);
+           data.note || null, userId, tgId, existing.id);
     return { id: existing.id, created: false };
   }
 
   const info = db.prepare(`
-    INSERT INTO partners (tg_id, name, share_pct, is_active, note, created_at)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run(tgId, data.name || null, share, data.is_active === false ? 0 : 1,
+    INSERT INTO partners (tg_id, user_id, name, share_pct, is_active, note, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(tgId, userId, data.name || null, share, data.is_active === false ? 0 : 1,
          data.note || null, Date.now());
 
   db.prepare(`INSERT INTO admin_log (admin_id, target_id, action, amount, note, created_at)
-              VALUES (?, 0, 'partner_add', NULL, ?, ?)`).run(adminId, tgId, Date.now());
+              VALUES (?, ?, 'partner_add', NULL, ?, ?)`)
+    .run(adminId, userId || 0, user?.email || tgId, Date.now());
 
   return { id: info.lastInsertRowid, created: true };
 });
@@ -2939,7 +3208,7 @@ export function adminPayouts(status = 'pending', limit = 60) {
            p.crypto_currency, p.crypto_network, p.crypto_address, p.crypto_amount,
            p.crypto_rate,
            p.comment, p.created_at, p.processing_at, p.resolved_at,
-           u.id AS user_id, u.tg_id, u.username, u.first_name, u.balance
+           u.id AS user_id, u.tg_id, u.email, u.username, u.first_name, u.balance
       FROM payouts p JOIN users u ON u.id = p.user_id
       ${where}
      ORDER BY p.id DESC LIMIT ?
@@ -2996,7 +3265,7 @@ export function staffRow(userId) {
 
 export function staffList() {
   return db.prepare(`
-    SELECT s.*, u.tg_id, u.username, u.first_name,
+    SELECT s.*, u.tg_id, u.email, u.username, u.first_name,
            (SELECT COUNT(*) FROM admin_log l WHERE l.admin_id = s.user_id) AS actions,
            (SELECT MAX(created_at) FROM admin_log l WHERE l.admin_id = s.user_id) AS last_action
       FROM staff s JOIN users u ON u.id = s.user_id
@@ -3012,12 +3281,12 @@ export function staffList() {
  * настроек - с появлением таблицы сотрудников это означало бы, что каждый
  * перезапуск выбрасывает из панели всю команду.
  */
-export const syncStaff = db.transaction((tgIds) => {
+export const syncStaff = db.transaction((ownerKeys) => {
   const now = Date.now();
-  const wanted = new Set(tgIds.map(String));
+  const wanted = new Set(ownerKeys.map(String));
 
-  for (const tgId of wanted) {
-    const user = db.prepare('SELECT id FROM users WHERE tg_id = ?').get(tgId);
+  for (const key of wanted) {
+    const user = findOwnerUser(key);
     if (!user) continue;   // ещё не заходил - запись появится при первом входе
     const existing = staffRow(user.id);
     if (!existing) {
@@ -3033,11 +3302,11 @@ export const syncStaff = db.transaction((tgIds) => {
   // и завели: сотрудника, которого добавил человек, переменная окружения не
   // трогает.
   const bootstrap = db.prepare(`
-    SELECT s.user_id, u.tg_id FROM staff s JOIN users u ON u.id = s.user_id
+    SELECT s.user_id, u.tg_id, u.email FROM staff s JOIN users u ON u.id = s.user_id
      WHERE s.added_by IS NULL
   `).all();
   for (const row of bootstrap) {
-    if (!wanted.has(String(row.tg_id))) {
+    if (!isOwnerKeyed(row, wanted)) {
       db.prepare('DELETE FROM staff WHERE user_id = ?').run(row.user_id);
     }
   }
@@ -3054,10 +3323,29 @@ export const syncStaff = db.transaction((tgIds) => {
   `);
 });
 
-/** Находит игрока по числовому id, tg_id или @нику - для добавления в команду. */
+/*
+ * Владельцы задаются в окружении списком ключей: Telegram ID (ADMIN_TG_IDS)
+ * или почтой (ADMIN_EMAILS). Ключ с @ - почта, иначе Telegram ID. По нику
+ * владельца не опознать: ник выбирает сам игрок, и чужой мог бы взять его.
+ */
+function findOwnerUser(key) {
+  return key.includes('@') ? findUserByEmail(key.toLowerCase()) : findUserByTgId(key);
+}
+
+export function isOwnerKeyed(user, keys) {
+  if (!user) return false;
+  for (const key of keys) {
+    if (key.includes('@') ? user.email && user.email === key.toLowerCase()
+      : user.tg_id != null && String(user.tg_id) === key) return true;
+  }
+  return false;
+}
+
+/** Находит игрока по почте, числовому id, tg_id или @нику - для панели. */
 export function findUserByAnyId(raw) {
   const key = String(raw || '').trim().replace(/^@/, '');
   if (!key) return null;
+  if (key.includes('@')) return findUserByEmail(key.toLowerCase());
   return db.prepare(`
     SELECT * FROM users
      WHERE tg_id = ? OR username = ? OR (CAST(id AS TEXT) = ?)
@@ -3069,7 +3357,7 @@ export const staffSave = db.transaction((actorId, data) => {
   const user = findUserByAnyId(data.userKey);
   if (!user) {
     throw Object.assign(
-      new Error('Игрок не найден. Он должен хотя бы раз открыть приложение'),
+      new Error('Игрок не найден. Он должен сначала зарегистрироваться на сайте'),
       { code: 'NOT_FOUND' });
   }
   const now = Date.now();
@@ -3426,7 +3714,7 @@ export function riskSignals({ limit = 40 } = {}) {
   // 3. Отдача игрока заметно выше заявленной при значимых оборотах. Само по
   //    себе это везение, но именно так выглядит и найденная дыра.
   const hotPlayers = db.prepare(`
-    SELECT id, tg_id, username, first_name, balance, total_spent, total_won,
+    SELECT id, tg_id, email, username, first_name, balance, total_spent, total_won,
            total_rounds, created_at
       FROM users
      WHERE total_spent > 20000 AND total_won > total_spent * 1.25
@@ -3437,7 +3725,7 @@ export function riskSignals({ limit = 40 } = {}) {
   //    вымывания бонусов.
   const quickCashout = db.prepare(`
     SELECT p.id, p.amount, p.status, p.created_at,
-           u.id AS user_id, u.tg_id, u.username, u.first_name,
+           u.id AS user_id, u.tg_id, u.email, u.username, u.first_name,
            u.total_spent, u.total_rounds
       FROM payouts p JOIN users u ON u.id = p.user_id
      WHERE p.status IN ('pending','processing')
@@ -3448,7 +3736,7 @@ export function riskSignals({ limit = 40 } = {}) {
   // 5. Свежие аккаунты с бонусом и без единой ставки: раздача на одноразовые
   //    номера выглядит именно так.
   const bonusOnly = db.prepare(`
-    SELECT u.id, u.tg_id, u.username, u.first_name, u.balance, u.created_at,
+    SELECT u.id, u.tg_id, u.email, u.username, u.first_name, u.balance, u.created_at,
            COUNT(r.id) AS redemptions
       FROM users u JOIN promo_redemptions r ON r.user_id = u.id
      WHERE u.total_rounds = 0 AND u.created_at > ?
