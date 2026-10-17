@@ -37,6 +37,10 @@ export function createCasino(deps) {
   // слоте раз в две-три секунды, а лишний запрос - лишняя батарея телефона.
   const BALANCE_POLL_MS = 4000;
   const SEARCH_DEBOUNCE_MS = 250;
+  // Не загрузилась обложка - одна повторная попытка через эту паузу. Сеть в
+  // браузере Telegram моргает, и без повтора разовый сбой убирал бы игру с
+  // витрины (Gates of Olympus пропадал с первого экрана).
+  const COVER_RETRY_MS = 1500;
 
   const ui = {
     lobby: null,           // вкладки, счётчики, провайдеры, отдача
@@ -151,28 +155,16 @@ export function createCasino(deps) {
 
   /* ---------- Плитка ---------- */
 
-  /*
-   * Запасная плитка, когда обложки нет на CDN агрегатора: название игры на
-   * своём цвете. Раньше на этом месте браузер ставил знак вопроса, и блок
-   * выглядел сломанным. Цвет из названия, а не случайный: при перерисовке
-   * плитка не меняет вид.
-   */
-  function blankArt(g) {
-    let h = 0;
-    for (const ch of String(g.name)) h = (h * 31 + ch.charCodeAt(0)) % 360;
-    return `<span class="cz-blank" style="--cz-h:${h}"><b>${esc(g.name)}</b><i>${esc(g.provider)}</i></span>`;
-  }
-
   function tileHtml(g, ref, { badge = true } = {}) {
     // Горизонтальная запасная обложка не обрезается под 3:4: она стоит
     // целиком поверх своей же размытой копии. Обрезка съела бы название.
-    const art = !g.cover ? blankArt(g) : g.vertical
+    const art = g.vertical
       ? `<img src="${g.cover}" alt="" loading="lazy" decoding="async">`
       : `<img class="cz-blur" src="${g.cover}" alt="" loading="lazy" decoding="async"><img class="cz-fit" src="${g.cover}" alt="" loading="lazy" decoding="async">`;
     // У «Лучших выигрышей» на плитке настоящий множитель раунда.
     const mult = badge && g.winMult ? `<span class="cz-mult">×${fmtN(g.winMult)}</span>` : '';
     return `<button class="cz-tile" data-ref="${ref}" data-game="${esc(g.id)}">
-      <span class="cz-art${!g.cover ? ' is-blank' : g.vertical ? '' : ' is-wide'}">
+      <span class="cz-art${g.vertical ? '' : ' is-wide'}">
         ${art}${mult}
         <span class="cz-hover">
           <span class="cz-play"><svg width="20" height="20" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" fill="#3a1d00"/></svg></span>
@@ -189,21 +181,29 @@ export function createCasino(deps) {
   const remember = (g) => { const id = `r${++refSeq}`; refs.set(id, g); return id; };
 
   /*
-   * Обложка не загрузилась у игрока. Сервер уже уводит такие игры в конец,
-   * но про часть он ещё не знает. Вертикальной нет - пробуем горизонтальную
-   * (g.alt), нет и её - запасная плитка. Плитка перерисовывается целиком:
-   * у горизонтальной своя разметка (подложка и картинка поверх).
+   * Обложка не загрузилась у игрока. Игры без обложки сервер в списки не
+   * отдаёт, но про часть он ещё не знает. Вертикальной нет - пробуем
+   * горизонтальную (g.alt); нет и её - плитка убирается совсем: игру без
+   * обложки заказчик решил не показывать, знак вопроса тем более. Сервер
+   * при этом запомнит 404, и в следующий раз игры в списке уже не будет.
    */
   function onCoverError(img) {
     const tile = img.closest('.cz-tile[data-ref]');
     const g = tile && refs.get(tile.dataset.ref);
-    if (!g || tile.dataset.fallback === 'blank') return;
-    const useAlt = g.alt && !tile.dataset.fallback;
-    const shown = useAlt ? { ...g, vertical: false, cover: g.alt } : { ...g, cover: null };
+    if (!g || !tile.isConnected) return;
+    if (!img.dataset.retried) {
+      img.dataset.retried = '1';
+      const src = img.getAttribute('src');
+      setTimeout(() => {
+        if (img.isConnected) img.src = `${src}${src.includes('?') ? '&' : '?'}retry=1`;
+      }, COVER_RETRY_MS);
+      return;
+    }
+    if (!g.alt || tile.dataset.fallback) { tile.remove(); return; }
     const fresh = document.createElement('div');
-    fresh.innerHTML = tileHtml(shown, tile.dataset.ref);
+    fresh.innerHTML = tileHtml({ ...g, vertical: false, cover: g.alt }, tile.dataset.ref);
     const next = fresh.firstElementChild;
-    next.dataset.fallback = useAlt ? 'alt' : 'blank';
+    next.dataset.fallback = 'alt';
     tile.replaceWith(next);
   }
 

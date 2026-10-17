@@ -12,7 +12,7 @@
 import { mkdirSync, existsSync, readFileSync, writeFileSync, renameSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { createHash } from 'node:crypto';
-import { saveCatalog, catalogStats, setCoverState, gamesWithoutCoverState } from './casino-db.js';
+import { saveCatalog, catalogStats, setCoverState, gamesWithoutCoverState, gamesWithoutCover } from './casino-db.js';
 
 /* ---------- Настройки ---------- */
 
@@ -560,6 +560,10 @@ export function checkCoversInBackground() {
       // Пачка без единого ответа - CDN недоступен: остальное в следующий раз.
       if (batch.length < BACKGROUND_PROBE_BATCH || known === 0) break;
     }
+    // Скрытые за отсутствие обложки - одним проходом: выложат картинку,
+    // и игра вернётся в лобби сама, к ближайшей синхронизации.
+    await probeCovers(gamesWithoutCover(), (g, state) => { if (state && state !== 'x') setCoverState(g.id, state); },
+      BACKGROUND_PROBE_CONCURRENCY);
     if (checked) console.log(`[casino] проверено обложек: ${checked}`);
   })().catch((err) => console.error('[casino] проверка обложек:', err.message))
     .finally(() => { probing = null; });

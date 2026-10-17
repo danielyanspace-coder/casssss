@@ -8666,21 +8666,6 @@ body.mo-receded .opener-scroll { filter: blur(4px) saturate(.55); transform: sca
 .cz-all-in { display: grid; justify-items: center; gap: 4px; color: var(--text); font: 600 14px/1 'Inter', 'Manrope', system-ui, sans-serif; }
 .cz-all-in b { font-size: 20px; font-weight: 800; color: #fff; }
 
-/* Запасная плитка без обложки: название крупно на своём цвете. */
-.cz-blank {
-  position: absolute; inset: 0; display: grid; align-content: center; justify-items: center; gap: 8px;
-  padding: 12px; text-align: center;
-  background:
-    radial-gradient(90% 70% at 50% 30%, hsl(var(--cz-h) 70% 45% / 0.55), transparent 70%),
-    linear-gradient(160deg, hsl(var(--cz-h) 45% 22%), hsl(calc(var(--cz-h) + 40) 50% 12%));
-}
-.cz-blank b {
-  display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
-  font: 800 15px/1.12 'Inter', 'Manrope', system-ui, sans-serif; letter-spacing: -0.2px; color: #fff;
-  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.45); word-break: break-word;
-}
-.cz-blank i { font-style: normal; font-size: 10.5px; font-weight: 600; color: rgba(255, 255, 255, 0.7); }
-
 /* Множитель настоящего раунда на плитке «Лучших выигрышей». */
 .cz-mult {
   position: absolute; left: 6px; top: 6px; z-index: 1;

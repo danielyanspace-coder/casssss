@@ -1178,7 +1178,8 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
 
   const lobby = await post('/api/casino/lobby');
   check('казино: лобби отдаётся', lobby.status === 200, `статус ${lobby.status}`);
-  check('казино: слотов больше пяти тысяч', lobby.data.counts?.slots > 5000, String(lobby.data.counts?.slots));
+  // Игры без обложки не считаются: их не показывают (см. ниже).
+  check('казино: слотов больше четырёх с половиной тысяч', lobby.data.counts?.slots > 4500, String(lobby.data.counts?.slots));
   // Живые столы показываются, только когда агрегатор их отдаёт агенту:
   // в списке разрешённых они есть, а открывает их партнёр.
   const liveProviders = (lobby.data.providers || []).filter((p) => p.kind === 'live');
@@ -1200,18 +1201,20 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
   check('казино: у первых игр вертикальная обложка и запасная горизонтальная',
     games.slice(0, 12).every((g) => g.vertical && g.cover && (g.alt === null || g.alt.endsWith('?w=1'))));
 
-  // Игры без обложки на CDN: плитка без картинки, и стоят они в конце.
+  // Игры без обложки на CDN не показываются (решение заказчика).
   const snapGames = JSON.parse(readFileSync(new URL('../server/casino-catalog.json', import.meta.url), 'utf8')).games;
   const bareGame = snapGames.find((g) => g.kind === 'slots' && g.cover_state === 'x');
-  const lastPage = await post('/api/casino/games', { kind: 'slots', offset: page.data.total - 5, limit: 5 });
-  check('казино: игры без обложки - в конце списка и без адреса картинки',
-    (lastPage.data.games || []).every((g) => g.cover === null),
-    (lastPage.data.games || []).map((g) => `${g.name}:${g.cover}`).join(' | '));
+  const visibleSlots = snapGames.filter((g) => g.kind === 'slots' && g.cover_state !== 'x').length;
+  check('казино: игр без обложки нет в лобби', page.data.total === visibleSlots, `${page.data.total} / ${visibleSlots}`);
+  check('казино: у каждой игры в списке есть обложка', games.every((g) => typeof g.cover === 'string' && g.cover));
   if (bareGame) {
     const found = await post('/api/casino/games', { q: bareGame.name, kind: 'slots' });
-    const row = (found.data.games || []).find((g) => g.id === bareGame.id);
-    check('казино: у игры без обложки cover пустой', row && row.cover === null, JSON.stringify(row));
+    check('казино: игру без обложки не найти поиском',
+      !(found.data.games || []).some((g) => g.id === bareGame.id), bareGame.name);
   }
+  check('казино: провайдер без единой обложки скрыт, счётчики без скрытых игр',
+    !(lobby.data.providers || []).some((p) => p.id === 'zitro')
+    && (lobby.data.providers || []).find((p) => p.id === 'merkur')?.count === 3);
   const fastAll = await post('/api/casino/games', { kind: 'fast', limit: 48 });
   const fastNames = (fastAll.data.games || []).map((g) => g.name);
   check('казино: Balloon последним в быстрых играх', fastNames[fastNames.length - 1] === 'Balloon', fastNames.join(' | '));
@@ -1246,7 +1249,8 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
   check('казино: «Все» блока - игры только этой категории',
         mw.data.total > 10 && mw.data.games.every((g) => /megaways/i.test(g.name)), String(mw.data.total));
   const fakeCat = await post('/api/casino/games', { kind: 'slots', category: 'нет-такой', limit: 5 });
-  check('казино: неизвестная категория не ломает список', fakeCat.status === 200 && fakeCat.data.total > 5000);
+  check('казино: неизвестная категория не ломает список',
+        fakeCat.status === 200 && fakeCat.data.total === lobby.data.counts?.slots, String(fakeCat.data.total));
   const liveHome = await post('/api/casino/home', { kind: 'live' });
   check('казино: вкладка Live отвечает и без столов', liveHome.status === 200 && Array.isArray(liveHome.data.blocks));
 

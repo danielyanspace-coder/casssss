@@ -469,6 +469,12 @@ export function gamesWithoutCoverState(limit = 500) {
                       ORDER BY seed_rank ASC LIMIT ?`).all(limit);
 }
 
+/** Скрытые за отсутствие обложки: их перепроверяют, вдруг картинку выложили. */
+export function gamesWithoutCover() {
+  return db.prepare(`SELECT id, img, img_vertical FROM casino_games
+                      WHERE active = 1 AND cover_state = 'x'`).all();
+}
+
 export function catalogStats() {
   return {
     games: db.prepare('SELECT COUNT(*) AS n FROM casino_games WHERE active = 1').get().n,
@@ -500,6 +506,14 @@ const POPULAR_WINDOW_MS = 7 * 24 * 3600 * 1000;
  *   4. наши ставки за неделю, топ агрегатора, стартовый список хитов.
  * Имена в SQL - из тех же списков, кавычки удваиваются.
  */
+/*
+ * ИГРЫ БЕЗ ОБЛОЖКИ НЕ ПОКАЗЫВАЮТСЯ (решение заказчика): ни в блоках, ни в
+ * поиске, ни в счётчиках провайдеров. Плитка с одним названием выглядела
+ * дырой в витрине. Из каталога они не удаляются: на них ссылается история,
+ * а появится картинка - фоновая проверка снимет признак, и игра вернётся.
+ */
+const VISIBLE_SQL = "COALESCE(g.cover_state, '') <> 'x'";
+
 const sqlList = (names) => names.map((n) => `'${n.toLowerCase().replace(/'/g, "''")}'`).join(', ');
 const FEATURED_SQL = FEATURED_GAMES.map((n, i) => `WHEN '${n.toLowerCase().replace(/'/g, "''")}' THEN ${i}`).join(' ');
 const COVER_SQL = `CASE g.cover_state WHEN 'x' THEN 2 WHEN 'w' THEN 1 WHEN 'v' THEN 0
@@ -541,7 +555,7 @@ function categoryWhere(cat, args) {
  * сортируются по дате появления.
  */
 export function casinoGames({ kind = '', provider = '', category = '', q = '', offset = 0, limit = 48 } = {}) {
-  const where = ['g.active = 1'];
+  const where = ['g.active = 1', VISIBLE_SQL];
   const args = { since: Date.now() - POPULAR_WINDOW_MS };
   const cat = category ? categoryById(category) : null;
   if (cat?.type === 'bigwins') {
@@ -593,7 +607,8 @@ function bigWins(kind, limit = BLOCK_SIZE) {
   const out = [];
   for (const r of rounds) {
     if (seen.has(r.game_id)) continue;
-    const g = db.prepare('SELECT * FROM casino_games WHERE id = ? AND active = 1 AND kind = ?').get(r.game_id, kind);
+    const g = db.prepare(`SELECT * FROM casino_games g WHERE id = ? AND active = 1 AND kind = ? AND ${VISIBLE_SQL}`)
+      .get(r.game_id, kind);
     if (!g) continue;
     seen.add(r.game_id);
     out.push({ ...g, heat: 0, win_kop: r.win, win_mult: Math.round((r.win / r.bet) * 10) / 10 });
@@ -648,9 +663,19 @@ export function casinoGame(id) {
   return db.prepare('SELECT * FROM casino_games WHERE id = ? AND active = 1').get(String(id || ''));
 }
 
+/*
+ * Счёт игр - только видимых: у Merkur 104 игры из 107 без обложки, и
+ * плитка «107 игр» вела бы на три. Провайдер, у которого не осталось ни
+ * одной видимой игры (Zitro), из списка пропадает.
+ */
 export function casinoProviders() {
-  return db.prepare(`SELECT * FROM casino_providers WHERE active = 1 AND game_count > 0
-                      ORDER BY sort ASC, game_count DESC`).all();
+  return db.prepare(`
+    SELECT p.*, v.n AS game_count
+      FROM casino_providers p
+      JOIN (SELECT provider_id, COUNT(*) AS n FROM casino_games g
+             WHERE g.active = 1 AND ${VISIBLE_SQL} GROUP BY provider_id) v ON v.provider_id = p.id
+     WHERE p.active = 1 AND v.n > 0
+     ORDER BY p.sort ASC, v.n DESC`).all();
 }
 
 /** Операции игрока для истории и панели, свежие первыми. */

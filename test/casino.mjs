@@ -332,9 +332,21 @@ const call = (list) => casinoWallet(list, { currency: 'RUB' });
   const holiday = cdb.casinoGames({ kind: 'slots', category: 'holiday', limit: 120 }).rows.map(rank);
   check('в блоке обложки не хуже следующей: без обложки - в конце',
     holiday.every((v, i) => i === 0 || v >= holiday[i - 1]), holiday.join(''));
-  const total = cdb.casinoGames({ kind: 'slots', limit: 1 }).total;
-  const last = cdb.casinoGames({ kind: 'slots', offset: total - 1, limit: 1 }).rows[0];
-  check('игры без обложки - в самом конце лобби', last.cover_state === 'x', `${last.name}: ${last.cover_state}`);
+  // Игры без обложки не показываются нигде: ни в списке, ни в поиске, ни в
+  // счётчиках провайдеров.
+  const hidden = db.prepare("SELECT * FROM casino_games WHERE active = 1 AND cover_state = 'x'").all();
+  const visible = db.prepare("SELECT COUNT(*) AS n FROM casino_games WHERE active = 1 AND kind = 'slots' AND COALESCE(cover_state, '') <> 'x'").get().n;
+  check('игры без обложки есть в снимке', hidden.length > 100, String(hidden.length));
+  check('игры без обложки не попадают в лобби', cdb.casinoGames({ kind: 'slots', limit: 1 }).total === visible);
+  check('игры без обложки не находятся поиском',
+    cdb.casinoGames({ q: hidden[0].name }).rows.every((r) => r.cover_state !== 'x'), hidden[0].name);
+  check('игры без обложки не попадают в блоки',
+    cdb.casinoHome('slots').every((b) => b.games.every((x) => x.cover_state !== 'x')));
+  const provs = new Map(cdb.casinoProviders().map((p) => [p.id, p.game_count]));
+  check('провайдер без единой обложки пропадает из списка', !provs.has('zitro'));
+  check('счётчик провайдера - только видимые игры', provs.get('merkur') === 3, String(provs.get('merkur')));
+  check('скрытая игра по-прежнему открывается по id (история)', !!cdb.casinoGame(hidden[0].id));
+  check('скрытые игры отдаются на перепроверку', cdb.gamesWithoutCover().length === hidden.length);
 
   // Признак обложки переживает синхронизацию, пока адреса картинок те же.
   const g = cdb.casinoGames({ kind: 'slots', limit: 1 }).rows[0];

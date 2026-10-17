@@ -1178,9 +1178,9 @@ function publicCasinoGame(g) {
     provider: g.provider_name,
     providerId: g.provider_id,
     kind: g.kind,
-    // Обложки нет нигде - клиент рисует запасную плитку, а не просит файл,
-    // которого нет. Вертикальной нет - плитка сразу горизонтальная.
-    cover: g.cover_state === 'x' ? null : `/casino/cover/${encodeURIComponent(g.id)}`,
+    // Игры без обложки в списки не попадают (VISIBLE_SQL в casino-db.js).
+    // Вертикальной нет - плитка сразу горизонтальная.
+    cover: `/casino/cover/${encodeURIComponent(g.id)}`,
     vertical: Boolean(g.img_vertical) && g.cover_state !== 'w' && g.cover_state !== 'x',
     // Запас на случай, если вертикальная не загрузится у игрока.
     alt: g.img_vertical && g.img && g.cover_state !== 'w' && g.cover_state !== 'x'

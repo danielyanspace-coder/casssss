@@ -66,9 +66,16 @@ validateSlots();
  * а файл сборки и так тяжёлый.
  */
 const casinoSnap = JSON.parse(read('./server/casino-catalog.json'));
+// Игры без обложки не показываются (VISIBLE_SQL в casino-db.js): в файл
+// сборки они не идут вовсе, и счётчики провайдеров считаются без них.
+const casinoVisible = casinoSnap.games.filter((g) => g.cover_state !== 'x');
+const casinoVisibleCount = new Map();
+for (const g of casinoVisible) casinoVisibleCount.set(g.provider_id, (casinoVisibleCount.get(g.provider_id) || 0) + 1);
 const casinoCatalog = {
-  providers: casinoSnap.providers.map((p) => ({ id: p.id, name: p.name, kind: p.kind, count: p.game_count, sort: p.sort })),
-  games: casinoSnap.games.map((g) => [g.id, g.name, g.provider_id, g.provider_name, g.kind,
+  providers: casinoSnap.providers
+    .filter((p) => casinoVisibleCount.get(p.id))
+    .map((p) => ({ id: p.id, name: p.name, kind: p.kind, count: casinoVisibleCount.get(p.id), sort: p.sort })),
+  games: casinoVisible.map((g) => [g.id, g.name, g.provider_id, g.provider_name, g.kind,
     g.img_vertical || g.img, g.img_vertical ? 1 : 0, g.img_wide || '', g.demo, g.freespin, g.seed_rank,
     g.rtp_mode === 'operator' ? 1 : 0, g.partner_top ?? null, g.partner_new ? 1 : 0,
     g.cover_state || '', g.img || '']),
@@ -966,12 +973,12 @@ function demoCasinoRtp() {
 function demoCasinoGame(row) {
   const [id, name, providerId, provider, kind, cover, vertical, wide, demo, freespin, , operator, , ,
     coverState, img] = row;
-  // Как publicCasinoGame на сервере: обложки нет - запасная плитка, нет
-  // вертикальной - сразу горизонтальная, иначе горизонтальная про запас.
-  const tall = Boolean(vertical) && coverState !== 'w' && coverState !== 'x';
+  // Как publicCasinoGame на сервере: нет вертикальной - сразу
+  // горизонтальная, иначе горизонтальная про запас.
+  const tall = Boolean(vertical) && coverState !== 'w';
   return {
     id, name, provider, providerId, kind,
-    cover: coverState === 'x' ? null : coverState === 'w' ? (img || cover) : cover,
+    cover: coverState === 'w' ? (img || cover) : cover,
     vertical: tall,
     alt: tall && img ? img : null,
     wide: wide || null,

@@ -1772,14 +1772,16 @@ check('честность: личная статистика убрана', fair
 
   /*
    * Обложка, которой нет на CDN: сервер отвечает 404, и плитка обязана
-   * показать горизонтальную обложку, а без неё - запасную плитку с
-   * названием, а не знак вопроса. Подменяем ответ для первой игры витрины
-   * (с сервером; в файле сборки обложки идут с CDN, и подменять там нечего).
+   * показать горизонтальную обложку, а без неё - исчезнуть, но не стоять
+   * со знаком вопроса. Подменяем ответ для игры витрины (с сервером; в
+   * файле сборки обложки идут с CDN, и подменять там нечего).
    */
   const onServer = await page.evaluate(() => location.protocol.startsWith('http'));
   let brokenId = null;
-  // Только вертикальная: запасная горизонтальная (?w=1) пусть грузится.
-  const brokenCover = (url) => brokenId && url.pathname === `/casino/cover/${encodeURIComponent(brokenId)}` && !url.search;
+  // Только вертикальная, и с повтором тоже: запасная горизонтальная (?w=1)
+  // пусть грузится.
+  const brokenCover = (url) => brokenId && url.pathname === `/casino/cover/${encodeURIComponent(brokenId)}`
+    && url.searchParams.get('w') !== '1';
   if (onServer) {
     brokenId = await page.evaluate(() => fetch('/api/casino/games', { method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Telegram-Init-Data': '' },
@@ -1809,20 +1811,20 @@ check('честность: личная статистика убрана', fair
     featured[0] === 'Gates of Olympus|Sugar Rush|The Dog House'
     && featured[1] === 'Sweet Bonanza|Starlight Princess|Big Bass Bonanza', featured.join(' / '));
   if (brokenId) {
-    // Все пути (запасная горизонтальная или плитка с названием) - не знак вопроса.
+    // Либо горизонтальная запасная, либо плитки нет вовсе - но не знак вопроса.
     await page.waitForFunction((id) => {
       const t = document.querySelector(`.cz-block[data-block="popular"] .cz-tile[data-game="${CSS.escape(id)}"]`);
-      return t && t.dataset.fallback;
+      return !t || t.dataset.fallback;
     }, brokenId, { timeout: 15000 }).catch(() => {});
     const fb = await page.evaluate((id) => {
       const t = document.querySelector(`.cz-block[data-block="popular"] .cz-tile[data-game="${CSS.escape(id)}"]`);
+      if (!t) return { removed: true };
       const imgs = [...t.querySelectorAll('img')];
       return { fallback: t.dataset.fallback || '', wide: t.querySelector('.cz-art').classList.contains('is-wide'),
-        blank: !!t.querySelector('.cz-blank'), src: imgs[0]?.getAttribute('src') || '' };
+        src: imgs[0]?.getAttribute('src') || '', loaded: imgs.every((i) => i.complete && i.naturalWidth > 0) };
     }, brokenId);
-    check('казино: пропавшая обложка заменяется горизонтальной или плиткой с названием',
-      (fb.fallback === 'alt' && fb.wide && /\?w=1$/.test(fb.src)) || (fb.fallback === 'blank' && fb.blank),
-      JSON.stringify(fb));
+    check('казино: пропавшая обложка заменяется горизонтальной, иначе плитка убирается',
+      fb.removed || (fb.fallback === 'alt' && fb.wide && /\?w=1$/.test(fb.src)), JSON.stringify(fb));
     await page.unroute(brokenCover);
   }
 
