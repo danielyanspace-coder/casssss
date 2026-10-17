@@ -7,11 +7,11 @@
  * id кейса: обложка одного и того же кейса всегда одинаковая, но соседние
  * не совпадают ни расположением монет, ни узором, ни формой сундука.
  *
- * Исключение одно — сезонный кейс: у него на обложке стоит готовый баннер,
- * присланный владельцем проекта (см. porscheCover).
+ * Исключения - кейсы с полем art: у них на обложке стоит готовая картинка,
+ * присланная владельцем проекта (см. PHOTO_COVERS в конце файла).
  */
 
-/** Хеш строки в 32-битное число — семя для генератора. */
+/** Хеш строки в 32-битное число - семя для генератора. */
 function hashString(str) {
   let h = 2166136261;
   for (let i = 0; i < str.length; i++) {
@@ -21,7 +21,7 @@ function hashString(str) {
   return h >>> 0;
 }
 
-/** mulberry32 — короткий и хорошо перемешивающий ГПСЧ. */
+/** mulberry32 - короткий и хорошо перемешивающий ГПСЧ. */
 function rng(seed) {
   let a = seed >>> 0;
   return () => {
@@ -194,10 +194,11 @@ function sparks(r, count, color) {
  * @param {{id:string, palette:string[], hasPerks:boolean}} caseData
  */
 export function caseCover(caseData) {
-  // Сезонные кейсы рисуются собственной обложкой: у них своя сцена, а не
-  // процедурный сундук. Диспетчеризация здесь, а не у вызывающего кода, —
-  // чтобы и приложение, и офлайн-сборка получили её без отдельной правки.
+  // Кейсы с присланной картинкой рисуются ею, а не процедурным сундуком.
+  // Диспетчеризация здесь, а не у вызывающего кода, - чтобы и приложение, и
+  // офлайн-сборка получили обложку без отдельной правки.
   if (caseData.art === 'porsche') return porscheCover(caseData);
+  if (caseArtSrc(caseData)) return artCover(caseData);
 
   const seed = hashString(caseData.id);
   const r = rng(seed);
@@ -250,40 +251,93 @@ export function caseCover(caseData) {
 }
 
 /* ============================================================
-   СЕЗОННАЯ ОБЛОЖКА: PORSCHE 911
-   ============================================================ */
-
-
-/* ============================================================
-   СЕЗОННАЯ ОБЛОЖКА
+   ОБЛОЖКИ-КАРТИНКИ
    ============================================================ */
 
 /**
- * Пути к картинкам сезонного кейса.
+ * Пути к присланным картинкам.
  *
  * В автономной сборке подменяются на data-URI: файл открывают с диска, где
  * относительных путей к папке assets уже нет. Сборка выставляет глобальные
- * переменные до подключения этого кода.
+ * переменные до подключения этого кода, поэтому читать их надо в момент
+ * вызова, а не при загрузке модуля.
  */
-const PORSCHE_BANNER_SRC = (typeof window !== 'undefined' && window.__PORSCHE_BANNER_SRC)
-  || '/assets/porsche-banner.webp';
-const PORSCHE_SRC = (typeof window !== 'undefined' && window.__PORSCHE_SRC)
-  || '/assets/porsche.webp';
+const asset = (globalName, path) => () =>
+  (typeof window !== 'undefined' && window[globalName]) || path;
 
-/** Вырезанная машина для плитки в ленте — баннер туда слишком широкий. */
-export function porschePhotoSrc() {
-  return PORSCHE_SRC;
+const porscheBannerSrc = asset('__PORSCHE_BANNER_SRC', '/assets/ui/case-porsche.webp');
+const porscheSrc = asset('__PORSCHE_SRC', '/assets/porsche.webp');
+
+/**
+ * Присланные обложки с прозрачным фоном.
+ *
+ * Ключ - это и значение поля art у кейса, и имя файла в public/assets/covers/.
+ */
+/**
+ * Путь к присланному арту кейса, или null, если арта нет.
+ *
+ * Признак «арт готов» - это artAspect: сервер проставляет его из art.json,
+ * куда пропорции пишет tools/case-covers.mjs при подготовке картинок. Списка
+ * имён здесь нет намеренно: он был бы третьей копией того же знания и
+ * разъезжался бы с папкой при каждом новом завозе обложек.
+ *
+ * Нужен не только обложке: экран кейса берёт ту же картинку себе в фон, чтобы
+ * не выглядеть одинаково у всех кейсов.
+ */
+export function caseArtSrc(caseData) {
+  const name = caseData?.art;
+  return name && name !== 'porsche' && caseData.artAspect ? artSrc(name) : null;
 }
 
 /**
- * Обложка сезонного кейса — готовый баннер, присланный владельцем проекта.
+ * Крупная обложка для сцены открытого кейса (tools/case-covers.mjs --stage).
  *
- * Своей графики здесь нет намеренно: на баннере уже есть и заголовок, и
- * плашка «сезонный кейс». Рисовать поверх него ещё один слой текста значило
- * бы спорить с макетом, поэтому карточка вокруг тоже отдаёт ему свои подписи
- * (см. featuredHtml).
+ * На сцене кейс стоит один и крупно, и обложка полки там растягивалась больше
+ * чем вдвое. Крупный файл тянется только для открытого кейса, по одному.
+ */
+export function caseStageSrc(caseData) {
+  const base = caseArtSrc(caseData);
+  if (!base) return null;
+  const inlined = typeof window !== 'undefined' && window.__STAGE_ART;
+  if (inlined) return inlined[caseData.art] || base;
+  return `/assets/covers/stage/${caseData.art}.webp`;
+}
+
+/** Автономная сборка складывает все обложки в один объект с data-URI. */
+function artSrc(name) {
+  const inlined = typeof window !== 'undefined' && window.__COVER_ART;
+  return (inlined && inlined[name]) || `/assets/covers/${name}.webp`;
+}
+
+/** Вырезанная машина для плитки в ленте - баннер туда слишком широкий. */
+export function porschePhotoSrc() {
+  return porscheSrc();
+}
+
+/**
+ * Обложка сезонного кейса - присланный постер.
+ *
+ * Он вертикальный и нарисован с собственным фоном, поэтому показывается
+ * целиком: высоту задаёт его пропорция (см. .featured-card.own-art в
+ * styles.css), а не число в пикселях.
  */
 export function porscheCover(caseData) {
   const alt = `Обложка кейса «${caseData.name}»`;
-  return `<img class="cover-photo" src="${PORSCHE_BANNER_SRC}" alt="${alt}">`;
+  return `<img class="cover-photo" src="${porscheBannerSrc()}" alt="${alt}">`;
+}
+
+/**
+ * Обложка-арт с прозрачным фоном.
+ *
+ * Подложки у неё нет: объект ложится прямо на фон карточки, поэтому рамки не
+ * видно и обложка выглядит частью интерфейса. Отсюда и object-fit: contain в
+ * стилях - при cover прозрачные поля обрезались бы вместе с объектом.
+ *
+ * Ленивая загрузка обязательна: обложек восемнадцать, и без неё первый экран
+ * тянул бы все полтора мегабайта разом.
+ */
+export function artCover(caseData) {
+  const alt = `Обложка кейса «${caseData.name}»`;
+  return `<img class="cover-art" src="${caseArtSrc(caseData)}" alt="${alt}"
+    loading="lazy" decoding="async">`;
 }

@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LUCKYBOX: меню</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;800&family=Manrope:wght@500;700;800&display=swap">
+<style>
+  :root {
+    --bg: #0b0216; --card: #170a2b; --line: rgba(255,255,255,.09);
+    --text: #f6f1ff; --muted: #a99cc4; --gold: #ffd34d; --violet: #a855f7; --cyan: #6bbdcc;
+    --disp: 'Unbounded', 'Manrope', system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; color: var(--text); font: 500 14px/1.45 'Manrope', system-ui, sans-serif;
+    background: radial-gradient(70% 50% at 50% 0%, #2a0f45, transparent 70%), var(--bg);
+    -webkit-font-smoothing: antialiased;
+  }
+  .page { max-width: 1280px; margin: 0 auto; padding: 40px 16px 60px; }
+  .page-head { text-align: center; max-width: 720px; margin: 0 auto 34px; }
+  .eyebrow { font-size: 11px; font-weight: 800; letter-spacing: .24em; text-transform: uppercase; color: #c9a8ff; }
+  h1 {
+    margin: 10px 0 12px; font: 800 clamp(26px, 6vw, 40px)/1.1 var(--disp);
+    background: linear-gradient(180deg, #fff8dc 10%, #ffd34d 55%, #d98a12 92%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .page-head p { color: #d4c8ea; margin: 0 auto; }
+  .common { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 18px; }
+  .common span { padding: 6px 11px; border-radius: 999px; font-size: 12px; font-weight: 700; color: #ffe58a;
+    background: rgba(255,211,77,.08); box-shadow: inset 0 0 0 1px rgba(255,211,77,.3); }
+
+  .concepts { display: flex; flex-wrap: wrap; justify-content: center; gap: 34px; }
+  .concept { width: 372px; max-width: 100%; }
+  .concept-name { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; }
+  .concept-name b { font: 800 13px/1 var(--disp); color: #3a1d00; background: linear-gradient(180deg,#fff3c4,#ffd34d 45%,#e8a024);
+    width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; flex: none; }
+  .concept-name h2 { margin: 0; font: 800 20px/1.2 var(--disp); }
+  .concept-name small { color: var(--muted); font-size: 12px; }
+  .notes { margin-top: 16px; font-size: 13.5px; color: #d4c8ea; }
+  .notes p { margin: 0 0 10px; }
+  .notes ul { margin: 0; padding-left: 18px; }
+  .notes li { margin-bottom: 4px; }
+  .plus { color: #7dffb3; font-weight: 800; }
+  .minus { color: #ff8aa0; font-weight: 800; }
+
+  /* ---------- Телефон ---------- */
+  .phone {
+    position: relative; width: 372px; max-width: 100%; height: 780px; border-radius: 46px; padding: 10px;
+    background: linear-gradient(160deg, #3a2a52, #120a1e 40%, #2a1c3e);
+    box-shadow: 0 40px 80px -30px rgba(0,0,0,.9), inset 0 0 0 1px rgba(255,255,255,.12);
+  }
+  .scr {
+    position: relative; height: 100%; border-radius: 37px; overflow: hidden;
+    background: radial-gradient(90% 50% at 50% 0%, #2a0f45, transparent 70%), #0b0216;
+  }
+  .scr::before { /* «челка» */
+    content: ''; position: absolute; left: 50%; top: 9px; width: 96px; height: 26px; margin-left: -48px;
+    border-radius: 14px; background: #000; z-index: 5;
+  }
+  .scr-in { position: absolute; inset: 0; padding: 46px 14px 14px; display: flex; flex-direction: column; gap: 10px; }
+  .top { display: flex; align-items: center; justify-content: space-between; }
+  .top img { height: 26px; }
+  .x { width: 36px; height: 36px; border-radius: 12px; display: grid; place-items: center; color: #d9c8ff;
+    background: rgba(255,255,255,.06); box-shadow: inset 0 0 0 1px rgba(255,255,255,.12); }
+  .x svg { width: 16px; height: 16px; }
+  .ico { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .metal {
+    background: linear-gradient(180deg, #fff6cf 0%, #ffd34d 42%, #c8781a 52%, #ffe9a0 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    filter: drop-shadow(0 1px 0 #7a4208) drop-shadow(0 4px 8px rgba(0,0,0,.5));
+  }
+  .gold-btn {
+    border-radius: 12px; padding: 9px 14px; font: 800 12px/1 var(--disp); color: #3a1d00;
+    background: linear-gradient(180deg, #fff3c4 0%, #ffd34d 38%, #e8a024 62%, #ffcf5a 100%);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.9), 0 3px 0 #8a4f08;
+  }
+  .quiet-btn { border-radius: 12px; padding: 9px 14px; font: 800 12px/1 var(--disp); color: #e6dcf5;
+    background: rgba(255,255,255,.06); box-shadow: inset 0 0 0 1px rgba(255,255,255,.14); }
+
+  /* ---------- A. Витрина ---------- */
+  .bal { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-radius: 16px;
+    background: rgba(255,255,255,.04); box-shadow: inset 0 0 0 1px var(--line); }
+  .bal small { display: block; font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); font-weight: 800; }
+  .bal b { font: 800 18px/1.2 var(--disp); }
+  .tile {
+    position: relative; overflow: hidden; border-radius: 18px; padding: 12px;
+    background: linear-gradient(160deg, #241040, #130824);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.08), inset 0 1px 0 rgba(255,255,255,.1), 0 10px 20px -14px #000;
+  }
+  .tile h3 { margin: 0; font: 800 14px/1.1 var(--disp); position: relative; }
+  .tile p { margin: 4px 0 0; font-size: 11px; color: var(--muted); position: relative; }
+  .hero-tile { height: 158px; display: flex; flex-direction: column; justify-content: flex-end;
+    background: radial-gradient(70% 90% at 75% 40%, rgba(255,170,60,.28), transparent 70%), linear-gradient(160deg, #2a1048, #140826);
+    box-shadow: inset 0 0 0 1px rgba(255,211,77,.35), inset 0 1px 0 rgba(255,255,255,.12), 0 14px 30px -18px #000; }
+  .hero-tile h3 { font-size: 22px; }
+  .fan { position: absolute; right: -6px; top: 6px; width: 210px; height: 140px; }
+  .fan img { position: absolute; width: 112px; filter: drop-shadow(0 10px 14px rgba(0,0,0,.7)); }
+  .fan img:nth-child(1) { left: 0; top: 22px; rotate: -12deg; }
+  .fan img:nth-child(2) { left: 88px; top: 26px; rotate: 10deg; }
+  .fan img:nth-child(3) { left: 40px; top: 0; width: 128px; z-index: 1; }
+  .chip { position: absolute; left: 12px; top: 12px; padding: 4px 9px; border-radius: 999px; font-size: 9.5px; font-weight: 800;
+    letter-spacing: .16em; color: #3a1d00; background: linear-gradient(180deg,#ffe58a,#e8a024); }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .grid2 .tile { height: 112px; display: flex; flex-direction: column; justify-content: flex-end; }
+  .pic { position: absolute; right: 8px; top: 8px; width: 62px; height: 62px; }
+  .pic svg { width: 100%; height: 100%; }
+  .live { position: absolute; right: 12px; top: 12px; font: 800 18px/1 var(--disp); color: #7dffb3; text-shadow: 0 0 14px rgba(125,255,179,.6); }
+  .crash-line { position: absolute; left: 0; right: 0; top: 30px; height: 36px; }
+  .badge { position: absolute; right: 8px; top: 8px; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; display: grid; place-items: center;
+    font-size: 11px; font-weight: 800; color: #fff; background: #ff3d71; box-shadow: 0 0 0 2px #140826; z-index: 2; }
+  .row-quiet { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: auto; }
+  .row-quiet div { display: flex; align-items: center; gap: 8px; padding: 12px; border-radius: 14px; font-weight: 800; font-size: 12.5px;
+    background: rgba(255,255,255,.04); box-shadow: inset 0 0 0 1px var(--line); color: #e6dcf5; }
+  .row-quiet .ico { width: 18px; height: 18px; color: var(--gold); }
+
+  /* ---------- B. Медальоны ---------- */
+  .b-title { font: 800 22px/1 var(--disp); }
+  .b-wallet { padding: 10px 14px 12px; border-radius: 18px; text-align: center;
+    background: radial-gradient(80% 90% at 50% 0%, rgba(255,200,70,.16), transparent 70%), linear-gradient(180deg, #1d0b33, #120620);
+    box-shadow: inset 0 0 0 1px rgba(255,211,77,.3), inset 0 1px 0 rgba(255,255,255,.1); }
+  .b-wallet small { font-size: 10px; letter-spacing: .2em; text-transform: uppercase; color: var(--muted); font-weight: 800; }
+  .b-wallet .sum { font: 800 24px/1.15 var(--disp); margin: 2px 0 8px; }
+  .b-wallet .btns { display: flex; gap: 8px; justify-content: center; }
+  .sec { font-size: 10px; font-weight: 800; letter-spacing: .24em; text-transform: uppercase; color: #c9a8ff; margin: 2px 4px -4px; }
+  .list { border-radius: 18px; overflow: hidden; background: rgba(255,255,255,.035); box-shadow: inset 0 0 0 1px var(--line); }
+  .li { display: flex; align-items: center; gap: 12px; padding: 7px 12px; }
+  .li + .li { border-top: 1px solid rgba(255,255,255,.06); }
+  .med { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; flex: none; color: #ffd34d;
+    background: radial-gradient(circle at 40% 30%, #3b1a6e, #1a0838);
+    box-shadow: inset 0 0 0 1.5px rgba(255,211,77,.65), 0 0 0 3px rgba(26,8,56,.9), 0 0 0 4px rgba(255,211,77,.22), 0 6px 12px -6px #000; }
+  .med .ico { width: 18px; height: 18px; }
+  .li b { display: block; font: 800 13px/1.15 var(--disp); }
+  .li small { display: block; color: var(--muted); font-size: 11px; margin-top: 2px; }
+  .li .meta { font-size: 11px; font-weight: 800; color: #d9c8ff; padding: 4px 8px; border-radius: 999px; background: rgba(255,255,255,.06); }
+  .li .meta.hot { color: #7dffb3; background: rgba(125,255,179,.1); }
+  .li .meta.new { color: #fff; background: #ff3d71; }
+  .chev { width: 8px; height: 8px; border-right: 2px solid #8e7ac0; border-top: 2px solid #8e7ac0; rotate: 45deg; flex: none; margin-left: 4px; }
+  .li .meta + .chev { margin-left: 8px; }
+  .li > div:nth-child(2) { min-width: 0; flex: 1; }
+
+  /* ---------- C. Док ---------- */
+  .home-ghost { position: absolute; inset: 46px 14px 0; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-content: start; opacity: .5; filter: blur(1.5px); }
+  .home-ghost .ban { grid-column: 1 / -1; height: 150px; border-radius: 18px; background: linear-gradient(120deg, #3a1460, #120626); }
+  .home-ghost img { width: 100%; }
+  .sheet { position: absolute; left: 0; right: 0; bottom: 84px; padding: 10px 14px 16px; border-radius: 26px 26px 0 0;
+    background: linear-gradient(180deg, #1f0c38, #130724); box-shadow: 0 -20px 40px -10px rgba(0,0,0,.8), inset 0 1px 0 rgba(255,255,255,.1); }
+  .handle { width: 40px; height: 4px; border-radius: 2px; background: rgba(255,255,255,.2); margin: 0 auto 10px; }
+  .sheet h3 { margin: 0 2px 10px; font: 800 17px/1 var(--disp); display: flex; justify-content: space-between; align-items: baseline; }
+  .sheet h3 small { font: 700 11px/1 'Manrope', sans-serif; color: var(--muted); }
+  .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .gt { position: relative; height: 104px; border-radius: 16px; overflow: hidden; padding: 8px; display: flex; flex-direction: column; justify-content: flex-end;
+    background: linear-gradient(160deg, #2a1350, #160a2a); box-shadow: inset 0 0 0 1px rgba(255,255,255,.08), inset 0 1px 0 rgba(255,255,255,.1); }
+  .gt b { font: 800 11.5px/1.1 var(--disp); position: relative; }
+  .gt .pic { width: 54px; height: 54px; right: 50%; margin-right: -27px; top: 8px; }
+  .dock { position: absolute; left: 10px; right: 10px; bottom: 10px; height: 68px; border-radius: 24px; display: flex; align-items: center; justify-content: space-around;
+    background: linear-gradient(180deg, rgba(36,16,64,.98), rgba(20,8,38,.98)); box-shadow: inset 0 0 0 1px rgba(255,255,255,.1), inset 0 1px 0 rgba(255,255,255,.12), 0 10px 30px -10px #000; }
+  .dk { position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 10px; font-weight: 800; color: #9f8ec7; width: 56px; }
+  .dk .ico { width: 22px; height: 22px; }
+  .dk.on { color: #fff; }
+  .dk.on::after { content: ''; position: absolute; bottom: -9px; width: 18px; height: 3px; border-radius: 2px; background: var(--gold); box-shadow: 0 0 10px var(--gold); }
+  .dk .badge { right: 6px; top: -6px; }
+  .coin { width: 58px; height: 58px; margin-top: -30px; border-radius: 50%; display: grid; place-items: center; color: #3a1d00;
+    background: radial-gradient(circle at 40% 30%, #fff6cf, #ffd34d 45%, #c8781a 90%);
+    box-shadow: 0 0 0 4px #160a2a, 0 0 0 5px rgba(255,211,77,.5), 0 10px 24px -6px rgba(255,170,40,.7), inset 0 2px 0 rgba(255,255,255,.7); }
+  .coin svg { width: 26px; height: 26px; stroke-width: 3; }
+  .dk.mid { color: var(--gold); }
+
+  @media (max-width: 420px) { .phone { height: 760px; } }
+</style>
+</head>
+<body>
+<div class="page">
+  <header class="page-head">
+    <div class="eyebrow">LUCKYBOX · меню</div>
+    <h1>Три направления меню</h1>
+    <p>Нынешнее меню собрано из картинки с мультяшными объёмными значками, и оно
+      выбивается из остального вида. Все три варианта нарисованы только тем, что уже
+      есть в проекте: обложки кейсов, наши объёмные рисунки, золото кнопки «Открыть»,
+      шрифт Unbounded. Выберите направление, дальше доведём до приложения.</p>
+    <div class="common"><span>без сгенерированных значков</span><span>подписи настоящим текстом</span><span>одна громкая кнопка на экран</span></div>
+  </header>
+
+  <div class="concepts" id="concepts"></div>
+</div>
+
+<script>
+const D = /*DATA*/;
+
+// Линейные значки одного набора: толщина 2, скруглённые концы. Тот же язык,
+// что у шагов в разделе «Честность игры».
+const I = {
+  cases: '<path d="M4 10h16v9a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z"/><path d="M4 10a8 5 0 0 1 16 0"/><path d="M10 13h4v3h-4z"/>',
+  up: '<path d="M12 19V6"/><path d="M6.5 11.5 12 6l5.5 5.5"/><path d="M5 20h14"/>',
+  crash: '<path d="M3 20c6 0 10-4 13-12"/><path d="M13 7.5l3.5-.5.6 3.4"/>',
+  wheel: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2.6"/><path d="M12 4v5.4M12 14.6V20M4 12h5.4M14.6 12H20"/>',
+  mini: '<rect x="4" y="4" width="7" height="7" rx="2"/><rect x="13" y="4" width="7" height="7" rx="2"/><rect x="4" y="13" width="7" height="7" rx="2"/><rect x="13" y="13" width="7" height="7" rx="2"/>',
+  wallet: '<rect x="3" y="6" width="18" height="13" rx="3"/><path d="M3 10h18"/><path d="M15.5 14.5h2"/>',
+  gift: '<rect x="4" y="11" width="16" height="9" rx="2"/><rect x="3" y="7" width="18" height="4" rx="1"/><path d="M12 7v13"/><path d="M12 7c-1.6-3.6-5.8-3-4.6-.2M12 7c1.6-3.6 5.8-3 4.6-.2"/>',
+  help: '<path d="M5 13v-1a7 7 0 0 1 14 0v1"/><rect x="3" y="13" width="4" height="6" rx="1.5"/><rect x="17" y="13" width="4" height="6" rx="1.5"/><path d="M19 19c0 2-3 2.5-5 2.5"/>',
+  fair: '<path d="M12 3 19 6v5c0 5-3 8-7 10-4-2-7-5-7-10V6z"/><path d="m9 12 2 2 4-4"/>',
+  slots: '<rect x="3" y="5" width="18" height="14" rx="3"/><path d="M9 5v14M15 5v14"/>',
+  more: '<circle cx="5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  close: '<path d="M6 6l12 12M18 6 6 18"/>',
+  home: '<path d="M4 11 12 4l8 7v8a1 1 0 0 1-1 1h-4v-6H9v6H5a1 1 0 0 1-1-1z"/>',
+};
+const ico = (k) => `<svg class="ico" viewBox="0 0 24 24">${I[k]}</svg>`;
+
+// Мини-сцены вместо значков: кривая краша и колесо рулетки нарисованы самой
+// механикой игры, а не картинкой «про игру».
+const crashSvg = `<svg class="crash-line" viewBox="0 0 160 60" preserveAspectRatio="none">
+  <defs><linearGradient id="cg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7dffb3" stop-opacity=".35"/><stop offset="1" stop-color="#7dffb3" stop-opacity="0"/></linearGradient></defs>
+  <path d="M0 58 C60 58 100 40 150 6 L150 60 L0 60z" fill="url(#cg)"/>
+  <path d="M0 58 C60 58 100 40 150 6" fill="none" stroke="#7dffb3" stroke-width="2.5"/>
+  <circle cx="150" cy="6" r="4" fill="#fff" stroke="#7dffb3" stroke-width="2"/></svg>`;
+const wheelSvg = (() => {
+  const n = 15, r = 30, parts = [];
+  for (let i = 0; i < n; i++) {
+    const a0 = (i / n) * Math.PI * 2 - Math.PI / 2, a1 = ((i + 1) / n) * Math.PI * 2 - Math.PI / 2;
+    const p = (a) => `${(32 + Math.cos(a) * r).toFixed(1)} ${(32 + Math.sin(a) * r).toFixed(1)}`;
+    const fill = i === 0 ? '#1fbf6b' : i % 2 ? '#d61f3c' : '#1b1028';
+    parts.push(`<path d="M32 32 L${p(a0)} A${r} ${r} 0 0 1 ${p(a1)}z" fill="${fill}"/>`);
+  }
+  return `<svg viewBox="0 0 64 64"><circle cx="32" cy="32" r="31" fill="#ffd34d"/>${parts.join('')}
+    <circle cx="32" cy="32" r="11" fill="#2a1350" stroke="#ffd34d" stroke-width="2"/><circle cx="32" cy="32" r="3" fill="#ffd34d"/></svg>`;
+})();
+const miniSvg = `<svg viewBox="0 0 64 64">
+  <rect x="6" y="6" width="24" height="24" rx="7" fill="#7c3aed"/><rect x="34" y="6" width="24" height="24" rx="7" fill="#e8a024"/>
+  <rect x="6" y="34" width="24" height="24" rx="7" fill="#0ea5a4"/><rect x="34" y="34" width="24" height="24" rx="7" fill="#e0335a"/>
+  <circle cx="18" cy="18" r="5" fill="#fff" opacity=".9"/><path d="M41 18h10M46 13v10" stroke="#3a1d00" stroke-width="3" stroke-linecap="round"/>
+  <path d="M12 46l6-6 6 6-6 6z" fill="#fff" opacity=".9"/><circle cx="46" cy="46" r="7" fill="none" stroke="#fff" stroke-width="3"/></svg>`;
+const slotsSvg = `<svg viewBox="0 0 64 64"><rect x="4" y="10" width="56" height="44" rx="10" fill="#ffd34d"/>
+  <rect x="9" y="15" width="46" height="34" rx="6" fill="#1b1028"/>
+  <g font-family="Unbounded,Manrope,sans-serif" font-weight="800" font-size="16" text-anchor="middle" fill="#ffd34d"><text x="17" y="38">7</text><text x="32" y="38" fill="#e0335a">7</text><text x="47" y="38">7</text></g>
+  <path d="M24.5 15v34M39.5 15v34" stroke="#ffd34d" stroke-opacity=".35"/></svg>`;
+
+const A = `
+<div class="scr"><div class="scr-in">
+  <div class="top"><img src="${D.logo}" alt="LUCKYBOX"><span class="x">${ico('close')}</span></div>
+  <div class="bal"><div><small>баланс</small><b class="metal">12 450 ₽</b></div><span class="gold-btn">Пополнить</span></div>
+  <div class="tile hero-tile">
+    <span class="chip">ГЛАВНОЕ</span>
+    <div class="fan"><img src="${D.covers.neon}" alt=""><img src="${D.covers.rio}" alt=""><img src="${D.covers.vault}" alt=""></div>
+    <h3>Кейсы</h3><p>68 кейсов · от 24 ₽</p>
+  </div>
+  <div class="grid2">
+    <div class="tile"><div class="pic">${D.art.x2a}</div><h3>Апгрейд</h3><p>поднять выигрыш</p></div>
+    <div class="tile">${crashSvg}<span class="live">×2.41</span><h3>Краш</h3><p>успеть забрать</p></div>
+    <div class="tile"><div class="pic">${wheelSvg}</div><h3>Рулетка</h3><p>красное и чёрное</p></div>
+    <div class="tile"><div class="pic">${miniSvg}</div><h3>Мини-игры</h3><p>пятьдесят коротких</p></div>
+    <div class="tile"><div class="pic">${D.art.credits}</div><h3>Касса</h3><p>пополнить и вывести</p></div>
+    <div class="tile"><span class="badge">2</span><div class="pic">${D.art.fs20a}</div><h3>Бонусы</h3><p>ждут вас</p></div>
+  </div>
+  <div class="row-quiet"><div>${ico('help')}Поддержка</div><div>${ico('fair')}Честность игры</div></div>
+</div></div>`;
+
+const row = (k, title, sub, meta = '', cls = '') => `<div class="li"><span class="med">${ico(k)}</span>
+  <div><b>${title}</b><small>${sub}</small></div>${meta ? `<span class="meta ${cls}">${meta}</span>` : ''}<span class="chev"></span></div>`;
+const B = `
+<div class="scr"><div class="scr-in">
+  <div class="top"><span class="b-title">Меню</span><span class="x">${ico('close')}</span></div>
+  <div class="b-wallet"><small>ваш баланс</small><div class="sum metal">12 450 ₽</div>
+    <div class="btns"><span class="gold-btn">Пополнить</span><span class="quiet-btn">Вывести</span></div></div>
+  <div class="sec">играть</div>
+  <div class="list">
+    ${row('cases', 'Кейсы', 'открыть и крутить', '68')}
+    ${row('mini', 'Мини-игры', 'пятьдесят коротких', '50')}
+    ${row('crash', 'Краш', 'успеть забрать', '×2.41', 'hot')}
+    ${row('wheel', 'Рулетка', 'красное и чёрное')}
+    ${row('up', 'Апгрейд', 'поднять выигрыш')}
+  </div>
+  <div class="sec">подарки</div>
+  <div class="list">${row('gift', 'Бонусы', 'фриспины и колесо', '2 новых', 'new')}</div>
+  <div class="sec">помощь</div>
+  <div class="list">${row('help', 'Поддержка', 'чат в Telegram')}${row('fair', 'Честность игры', 'проверить любой раунд')}</div>
+</div></div>`;
+
+const C = `
+<div class="scr">
+  <div class="home-ghost"><div class="ban"></div><img src="${D.covers.lucky}" alt=""><img src="${D.covers.spark}" alt=""><img src="${D.covers.monaco}" alt=""><img src="${D.covers.vault}" alt=""></div>
+  <div class="sheet"><div class="handle"></div>
+    <h3>Игры <small>кроме кейсов</small></h3>
+    <div class="grid3">
+      <div class="gt">${crashSvg.replace('class="crash-line"', 'class="crash-line" style="top:14px;height:44px"')}<b>Краш</b></div>
+      <div class="gt"><div class="pic">${wheelSvg}</div><b>Рулетка</b></div>
+      <div class="gt"><div class="pic">${D.art.x2b}</div><b>Апгрейд</b></div>
+      <div class="gt"><div class="pic">${miniSvg}</div><b>Мини-игры</b></div>
+      <div class="gt"><div class="pic">${slotsSvg}</div><b>Слоты</b></div>
+      <div class="gt"><div class="pic">${D.art.fs10}</div><b>Free Money</b></div>
+    </div>
+  </div>
+  <div class="dock">
+    <span class="dk">${ico('cases')}Кейсы</span>
+    <span class="dk on">${ico('mini')}Игры</span>
+    <span class="dk mid"><span class="coin"><svg class="ico" viewBox="0 0 24 24">${I.plus}</svg></span>Касса</span>
+    <span class="dk"><span class="badge">2</span>${ico('gift')}Бонусы</span>
+    <span class="dk">${ico('more')}Ещё</span>
+  </div>
+</div>`;
+
+const concepts = [
+  { n: 1, name: 'Витрина', sub: 'плитки с живыми сценами', html: A, notes: `
+    <p>Каждая плитка показывает саму игру, а не значок про неё: у кейсов настоящие
+      обложки, у краша бежит кривая с текущим множителем, у рулетки её колесо с
+      красными и чёрными секторами, у бонусов наш объёмный жетон фриспинов.</p>
+    <ul><li><span class="plus">+</span> ближе всего к нынешнему меню, игроки не потеряются</li>
+      <li><span class="plus">+</span> кейсы крупно и первыми: главный раздел выглядит главным</li>
+      <li><span class="minus">−</span> на маленьком телефоне плитки тесные</li></ul>` },
+  { n: 2, name: 'Медальоны', sub: 'список, как в дорогом приложении', html: B, notes: `
+    <p>Спокойный список по группам: играть, подарки, помощь. Значки в золотых
+      медальонах одного набора, справа живые подсказки: сколько кейсов, где
+      сейчас краш, сколько бонусов ждёт. Сверху баланс и две кнопки денег.</p>
+    <ul><li><span class="plus">+</span> самый «дорогой» и строгий, легко читается</li>
+      <li><span class="plus">+</span> новый раздел добавляется одной строкой</li>
+      <li><span class="minus">−</span> меньше азарта: меню становится навигацией, а не витриной</li></ul>` },
+  { n: 3, name: 'Док', sub: 'панель снизу и шторка игр', html: C, notes: `
+    <p>Меню не открывается отдельным экраном: внизу всегда стоит панель на пять
+      кнопок, в центре золотая монета кассы. «Игры» поднимают шторку с мини-сценами,
+      главный экран остаётся виден под ней.</p>
+    <ul><li><span class="plus">+</span> любой раздел в одно касание, как в мобильных казино</li>
+      <li><span class="plus">+</span> касса всегда под пальцем: пополнение в один тап</li>
+      <li><span class="minus">−</span> самая большая переделка навигации</li></ul>` },
+];
+
+document.getElementById('concepts').innerHTML = concepts.map((c) => `
+  <section class="concept">
+    <div class="concept-name"><b>${c.n}</b><div><h2>${c.name}</h2><small>${c.sub}</small></div></div>
+    <div class="phone">${c.html}</div>
+    <div class="notes">${c.notes}</div>
+  </section>`).join('');
+</script>
+</body>
+</html>

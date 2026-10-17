@@ -1,0 +1,86 @@
+# Прогон тестов на каждый push и pull request.
+#
+# ЗАЧЕМ. Над проектом работает несколько помощников, правки прилетают в разные
+# ветки и сходятся слиянием. Без прогона на стороне сервиса «у меня работало»
+# остаётся единственным доказательством, а платёжный модуль и математика
+# кейсов такого доказательства не выдерживают.
+name: Тесты
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    env:
+      # Тесты ходят в приложение как разработчик: подписи Telegram в CI взять
+      # неоткуда. В продакшене DEV_MODE обязан быть выключен.
+      DEV_MODE: 'true'
+      ADMIN_TG_IDS: '999000001'
+      # Ключ шифрования номеров карт: одноразовый, только для этого прогона.
+      PAYOUT_DATA_KEY: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
+      DB_PATH: './data/ci.db'
+      # Тесты шлют запросы вплотную, без пауз на анимацию, и на человеческих
+      # порогах упёрлись бы в собственный ограничитель частоты.
+      RATE_LIMIT_PLAY: '100000'
+      RATE_LIMIT_READ: '100000'
+      RATE_LIMIT_CASHIER: '100000'
+      RATE_LIMIT_GUESS: '100000'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Установка зависимостей
+        run: npm ci
+
+      - name: Браузер для проверок интерфейса
+        run: npx playwright install --with-deps chromium
+
+      # Математика, удвоители и платежи сервера не требуют.
+      - name: Математика кейсов и игр
+        run: npm run verify
+
+      - name: Удвоители
+        run: npm run test:x2
+
+      - name: Ограничитель частоты
+        run: npm run test:ratelimit
+
+      - name: Платежи
+        run: npm run test:payments
+
+      - name: Запуск сервера
+        run: |
+          node server/app.js > server.log 2>&1 &
+          for i in $(seq 1 40); do
+            curl -sf http://localhost:3000/api/config > /dev/null && exit 0
+            sleep 1
+          done
+          echo "Сервер не поднялся:"; cat server.log; exit 1
+
+      - name: Проверки API
+        run: npm run test:api
+
+      - name: Проверки интерфейса
+        run: npm run test:ui
+
+      - name: Автономная сборка
+        run: npm run demo
+
+      - name: Проверки интерфейса по автономной сборке
+        run: node test/ui.mjs "file://$PWD/dist/luckybox-demo.html"
+
+      - name: Резервное копирование работает
+        run: node deploy/backup.mjs
+
+      - name: Логи сервера при падении
+        if: failure()
+        run: cat server.log || true

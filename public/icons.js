@@ -167,7 +167,7 @@ export const GAME_ICONS = {
   roulette: iconRoulette,
 };
 
-/** Звезда для плюшек и меток — вместо символа ★ из эмодзи-диапазона. */
+/** Звезда для плюшек и меток - вместо символа ★ из эмодзи-диапазона. */
 export function iconStar(color = '#ffd60a') {
   return svg(`<path d="m12 3 2.7 5.9 6.4.7-4.8 4.3 1.3 6.3L12 17.1 6.4 20.2l1.3-6.3L2.9 9.6l6.4-.7L12 3Z" fill="${color}"/>`);
 }
@@ -179,7 +179,7 @@ export function iconRouletteMark(kind) {
   return svg('<rect x="5" y="5" width="14" height="14" rx="2" fill="#cbb6e8"/>');
 }
 
-/** Динамик — для переключателя звука. */
+/** Динамик - для переключателя звука. */
 export function iconSound(on = true) {
   const waves = on
     ? '<path d="M16.4 8.6a4.6 4.6 0 0 1 0 6.8M19 6a8 8 0 0 1 0 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>'
@@ -188,7 +188,7 @@ export function iconSound(on = true) {
       fill="currentColor"/>${waves}`);
 }
 
-/** Сетка 2×2 — кнопка меню в шапке. */
+/** Сетка 2×2 - кнопка меню в шапке. */
 export function iconGrid() {
   return svg(`<rect x="3.5" y="3.5" width="7.5" height="7.5" rx="2.2" fill="currentColor"/>
     <rect x="13" y="3.5" width="7.5" height="7.5" rx="2.2" fill="currentColor" opacity="0.75"/>
@@ -196,7 +196,21 @@ export function iconGrid() {
     <rect x="13" y="13" width="7.5" height="7.5" rx="2.2" fill="currentColor"/>`);
 }
 
-/** Ключ — счётчик открытых кейсов. */
+/**
+ * Слот: три барабана в корпусе.
+ *
+ * Рисуется тремя полосами разной высоты, а не «вишенками»: вишня это
+ * конкретный символ конкретной игры, а значок обязан говорить про механику.
+ */
+export function iconSlot() {
+  return svg(`<rect x="3" y="4.5" width="18" height="15" rx="2.6" fill="none"
+      stroke="currentColor" stroke-width="1.9"/>
+    <rect x="6" y="8" width="3.4" height="8" rx="1.1" fill="currentColor"/>
+    <rect x="10.3" y="8" width="3.4" height="5.4" rx="1.1" fill="currentColor" opacity="0.72"/>
+    <rect x="14.6" y="8" width="3.4" height="7" rx="1.1" fill="currentColor" opacity="0.86"/>`);
+}
+
+/** Ключ - счётчик открытых кейсов. */
 export function iconKey(color = '#ffd60a') {
   return svg(`<circle cx="8" cy="8" r="4.4" fill="none" stroke="${color}" stroke-width="2.1"/>
     <path d="m11.2 11.2 8 8" stroke="${color}" stroke-width="2.1" stroke-linecap="round"/>
@@ -204,7 +218,7 @@ export function iconKey(color = '#ffd60a') {
       stroke-linecap="round"/>`);
 }
 
-/** Три фигурки — счётчик игроков. */
+/** Три фигурки - счётчик игроков. */
 export function iconPeople(color = '#00f0ff') {
   return svg(`<circle cx="12" cy="7.6" r="3.1" fill="${color}"/>
     <path d="M6.4 19.4c0-3.1 2.5-5.2 5.6-5.2s5.6 2.1 5.6 5.2Z" fill="${color}"/>
@@ -216,7 +230,7 @@ export function iconPeople(color = '#00f0ff') {
       stroke-width="1.7" stroke-linecap="round" opacity="0.55"/>`);
 }
 
-/** Конверт — перед адресом почты в подвале. */
+/** Конверт - перед адресом почты в подвале. */
 export function iconMail(color = 'currentColor') {
   return svg(`<rect x="2.6" y="5" width="18.8" height="14" rx="2.6" fill="none"
       stroke="${color}" stroke-width="1.9"/>
@@ -230,4 +244,70 @@ export function iconTelegram(color = '#00f0ff') {
       4.6 3.4c.8.6 1.5.2 1.7-.8l3-13.9c.2-1-.5-1.5-1.4-1Z" fill="${color}"/>
     <path d="M8.2 14.6 17.6 8l-6.9 7.1-.4 3.4" fill="none" stroke="#0d0316" stroke-width="1"
       opacity="0.35" stroke-linejoin="round"/>`);
+}
+
+/* ============================================================
+   ЗНАКИ ПАРТНЁРОВ В ПОДВАЛЕ
+   ============================================================
+
+   Это СОБСТВЕННЫЕ стилизованные знаки, а не официальные логотипы
+   правообладателей. Рисовать здесь настоящие эмблемы Формулы-1 и ITF нельзя:
+   это зарегистрированные товарные знаки, и ставить их на сайт без договора
+   означает заявлять партнёрство, которого нет. Поэтому знаки нарисованы как
+   сдержанные буквенные марки одного набора - они читаются как ряд партнёров и
+   не выдают себя за чужую эмблему.
+
+   Все четыре красятся через currentColor: в подвале они приглушённые. */
+
+/*
+ * Все четыре знака нарисованы в одной коробке 76x24: разная ширина заставляла
+ * бы подгонять каждый отдельным правилом в стилях, а так они выстраиваются
+ * ряд в ряд сами.
+ */
+
+/** Стилизованная марка Формулы-1: наклонные полосы и «F1». */
+export function markF1() {
+  return svg(`<g transform="skewX(-14)">
+      <rect x="10" y="6.4" width="19" height="3.4" rx="1.2" fill="currentColor"/>
+      <rect x="7" y="11.4" width="16" height="3.4" rx="1.2" fill="currentColor" opacity="0.72"/>
+      <rect x="4" y="16.4" width="13" height="3.4" rx="1.2" fill="currentColor" opacity="0.45"/>
+    </g>
+    <text x="52" y="18" font-family="Arial Black, Arial, sans-serif" font-size="15"
+      font-weight="900" font-style="italic" fill="currentColor"
+      text-anchor="middle">F1</text>`, '0 0 76 24');
+}
+
+/** Марка теннисной федерации: мяч со швом и буквы ITF. */
+export function markITF() {
+  return svg(`<circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="1.8"/>
+    <path d="M5.2 6.6A9 9 0 0 1 5.2 17.4" fill="none" stroke="currentColor"
+      stroke-width="1.5" opacity="0.8"/>
+    <path d="M18.8 6.6a9 9 0 0 0 0 10.8" fill="none" stroke="currentColor"
+      stroke-width="1.5" opacity="0.8"/>
+    <text x="50" y="17.4" font-family="Arial, sans-serif" font-size="14" font-weight="800"
+      letter-spacing="1" fill="currentColor" text-anchor="middle">ITF</text>`, '0 0 76 24');
+}
+
+/** Ответственная игра: восемнадцать в круге и подпись. */
+export function markGambling() {
+  return svg(`<circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="1.8"/>
+    <text x="12" y="16" font-family="Arial, sans-serif" font-size="9.5" font-weight="800"
+      fill="currentColor" text-anchor="middle">18</text>
+    <text x="49" y="11" font-family="Arial, sans-serif" font-size="7.6" font-weight="700"
+      letter-spacing="0.9" fill="currentColor" text-anchor="middle">GAMBLING</text>
+    <text x="49" y="19.4" font-family="Arial, sans-serif" font-size="6.6" font-weight="500"
+      letter-spacing="1.6" fill="currentColor" text-anchor="middle" opacity="0.82">AWARE</text>`,
+  '0 0 76 24');
+}
+
+/** Знак «World Game»: шар с меридианами и подпись. */
+export function markWorldGame() {
+  return svg(`<circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="1.8"/>
+    <path d="M4 12h16" fill="none" stroke="currentColor" stroke-width="1.3" opacity="0.8"/>
+    <path d="M12 4c2.6 2.6 2.6 13.4 0 16M12 4c-2.6 2.6-2.6 13.4 0 16"
+      fill="none" stroke="currentColor" stroke-width="1.3" opacity="0.8"/>
+    <text x="49" y="11" font-family="Arial, sans-serif" font-size="7.8" font-weight="700"
+      letter-spacing="1.2" fill="currentColor" text-anchor="middle">WORLD</text>
+    <text x="49" y="19.6" font-family="Arial, sans-serif" font-size="7.8" font-weight="700"
+      letter-spacing="1.2" fill="currentColor" text-anchor="middle">GAME</text>`, '0 0 76 24');
 }

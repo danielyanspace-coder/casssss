@@ -1,0 +1,35 @@
+# Бот LuckyBox.
+#
+# Отдельный процесс, а не часть сервера: у бота долгоживущее соединение с
+# Telegram, и его перезапуск не должен ронять игру, а перезапуск игры - бота.
+#
+#   sudo cp deploy/luckybox-bot.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now luckybox-bot
+
+[Unit]
+Description=LuckyBox - Telegram-бот
+After=network-online.target luckybox.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=luckybox
+Group=luckybox
+WorkingDirectory=/srv/luckybox
+EnvironmentFile=/srv/luckybox/.env
+ExecStart=/usr/bin/node server/bot.js
+
+Restart=always
+RestartSec=5
+StartLimitIntervalSec=120
+StartLimitBurst=8
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/luckybox/data
+
+[Install]
+WantedBy=multi-user.target

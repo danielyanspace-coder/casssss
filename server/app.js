@@ -16,6 +16,7 @@ import { randomUUID } from 'node:crypto';
 
 import {
   CASES, CATEGORIES, getCase, pickItem, publicCase, validateCases, TIERS,
+  FREESPIN_PACKS, freeSpinPackPrice,
 } from './cases.js';
 import {
   CRASH_CONFIG,
@@ -36,6 +37,23 @@ import {
   validateUpgrade,
 } from './games.js';
 import { computeRoll, generateClientSeed } from './fair.js';
+import { timingSafeEqual } from 'node:crypto';
+import {
+  casinoWallet, CASINO_STATUS, userBalanceRub, casinoPlayerId, casinoExcluded,
+  casinoGames, casinoGame, casinoProviders, casinoHistory, casinoSummary, kopToRub, casinoHome,
+  setCoverState,
+} from './casino-db.js';
+import { CASINO_TABS, categoryById } from './casino-categories.js';
+import {
+  casinoEnv, casinoConfigured, startCatalogSync, syncCatalog, syncStatus, launchGame, coverFile,
+} from './casino.js';
+import {
+  FORTUNE_SEGMENTS, SEGMENT_DEG, SEGMENTS_START_DEG, validateFortune,
+  GIFT_CASE_MAX_PRICE, PERCENT_MIN, PERCENT_MAX, VOUCHER_MIN, VOUCHER_MAX, CASH_PRIZE,
+} from './fortune.js';
+import { limits } from './ratelimit.js';
+import * as crypto from './crypto.js';
+import * as sicilia from './sicilia.js';
 import {
   BONUS_CONFIG,
   claimBonus,
@@ -46,12 +64,19 @@ import {
   getUserById,
   playCaseRound,
   playCaseBatch,
+  buyFreeSpins,
   playInstantRound,
   rotateServerSeed,
   setClientSeed,
   startCrashRound,
-  getVouchers,
-  syncAdmins,
+  getVouchers, getX2Perks,
+  fortuneState, fortuneHistory, playFortuneSpin,
+  syncStaff, staffRow, staffList, staffSave, staffRemove, findUserByAnyId,
+  playerNotes, addPlayerNote, deletePlayerNote,
+  getPlayerLimits, setPlayerLimits, dayActivity, LIMIT_COOLDOWN_MS,
+  settingsAll, setting, saveSettings,
+  adminJournal, revenueDaily, caseReport as caseRevenueReport, riskSignals,
+  logAdmin,
   adminOverview,
   adminUsers,
   adminUserDetail,
@@ -65,7 +90,7 @@ import {
   getDeposits,
   getPayouts,
   pendingPayoutTotal,
-  createPayout,
+  createPayout, withdrawable,
   cancelPayout,
   resolvePayout,
   startPayout,
@@ -75,10 +100,41 @@ import {
   grantFreeCase,
   freeCaseState,
   recentPublicDrops,
+  redeemPromo,
+  pendingDepositBonus,
+  myPromoRedemptions,
+  getPartnerByTgId,
+  partnerStats,
+  partnerReferrals,
+  partnerPayoutHistory,
+  adminSavePromo,
+  adminListPromos,
+  adminDeletePromo,
+  adminSavePartner,
+  adminListPartners,
+  adminPayPartner,
+  savePendingSpins,
+  x10Rules,
+  getPendingSpins,
+  clearPendingSpins,
+  trackEvent, funnelStats, eventTotals, CLIENT_EVENTS,
+  firstDepositRules,
+  getSlotSession, playSlotSpin, buySlotBonus, playSlotFreeSpin, awardSlotJackpot,
 } from './db.js';
+import {
+  SLOTS, getSlot, publicSlot, slotCard, validateSlots,
+  LINES as SLOT_LINES,
+  gridFrom, evaluate as evaluateSlot, jackpotFrom, jackpotRoll, offsetsFrom,
+} from './slots.js';
+import { validateSkins } from './card-skins.js';
 import { resolveUser } from './auth.js';
 import {
-  startFeed, getFeed, FEED_CONFIG, FEED_MIN_MULTIPLIER, FEED_MIN_VALUE,
+  PERMISSIONS, PERMISSION_GROUPS, ROLES, ROLE_BY_ID, permissionsFor, balanceCapFor,
+  canManage, assignableRoles, publicRoles, isPermission,
+} from './staff.js';
+import {
+  startFeed, getFeed, FEED_CONFIG, FEED_MIN_MULTIPLIER, FEED_MIN_VALUE, FEED_PLAIN_MIN_VALUE,
+  FEED_REAL_SHARE,
 } from './feed.js';
 import {
   isConfigured as subscriptionConfigured,
@@ -93,20 +149,38 @@ import {
   supportChat, adminChats,
 } from './payments.js';
 
-// Если математика поехала — падаем на старте, до первого игрока.
+// Если математика поехала - падаем на старте, до первого игрока.
 const caseReport = validateCases();
 const gameReport = validateGames();
 const gambleReport = validateGamble();
 const upgradeReport = validateUpgrade();
+const slotReport = validateSlots();
+/*
+ * Опечатка в названии семейства или материала иначе всплывёт на экране
+ * игрока: карточка останется без поверхности, и это заметят не сразу.
+ */
+const skinReport = validateSkins();
+validateFortune();
 
-// Администраторы задаются Telegram ID через настройки — не через базу,
+// Администраторы задаются Telegram ID через настройки - не через базу,
 // чтобы права нельзя было получить, дописав себе строку в таблицу.
 const ADMIN_TG_IDS = String(process.env.ADMIN_TG_IDS || '')
   .split(',').map((s) => s.trim()).filter(Boolean);
-syncAdmins(ADMIN_TG_IDS);
+syncStaff(ADMIN_TG_IDS);
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
+
+/*
+ * За nginx все запросы приходят с адреса самого nginx. Без этой строки
+ * ограничитель частоты считал бы всех безымянных клиентов за одного и рубил
+ * бы вход целиком, а в логах стоял бы один и тот же 127.0.0.1.
+ *
+ * Число - сколько прокси перед приложением. Один nginx на том же сервере это
+ * 1. Если добавите Cloudflare или второй балансировщик, увеличьте: доверять
+ * всей цепочке (`true`) нельзя, заголовок подделывается кем угодно.
+ */
+app.set('trust proxy', Number(process.env.TRUST_PROXY_HOPS || 1));
 
 app.use(express.json({ limit: '8mb', verify: (req, res, buffer) => { req.rawBody = buffer.toString('utf8'); } }));
 app.use(express.static(join(__dirname, '..', 'public'), { maxAge: '1h' }));
@@ -114,27 +188,112 @@ app.use(express.static(join(__dirname, '..', 'public'), { maxAge: '1h' }));
 function auth(req, res, next) {
   const result = resolveUser(req);
   if (!result.ok) return res.status(401).json({ error: result.error });
+
+  // Закрытая регистрация касается только НОВЫХ: у того, кто уже заходил,
+  // доступ отбирать не за что, а закрывают приём обычно на время разбора.
+  if (!setting('registration_open') && !findUserByAnyId(String(result.user.id))) {
+    return res.status(403).json({ error: 'Регистрация новых игроков временно закрыта' });
+  }
+
   const player = getOrCreateUser(result.user);
 
-  // Права админа берутся из настроек при каждом запросе: убрали ID из
-  // ADMIN_TG_IDS — доступ пропал сразу, без перезапуска чужих сессий.
-  const shouldBeAdmin = ADMIN_TG_IDS.includes(String(player.tg_id));
-  if (!!player.is_admin !== shouldBeAdmin) {
-    syncAdmins(ADMIN_TG_IDS);
+  /*
+   * Владельцы задаются Telegram ID в настройках, и список сверяется при
+   * каждом запросе того, кто в нём есть или должен был быть: убрали ID из
+   * ADMIN_TG_IDS - доступ пропал сразу, без перезапуска.
+   *
+   * Сверка идёт только для владельцев. Остальных сотрудников заводит человек
+   * через панель, и переменная окружения их не касается.
+   */
+  const inEnv = ADMIN_TG_IDS.includes(String(player.tg_id));
+  const bootstrapRow = staffRow(player.id);
+  const bootstrapMismatch = inEnv
+    ? !bootstrapRow || (bootstrapRow.added_by === null && bootstrapRow.role !== 'owner')
+    : !!(bootstrapRow && bootstrapRow.added_by === null);
+  if (bootstrapMismatch) {
+    syncStaff(ADMIN_TG_IDS);
     req.player = getUserById(player.id);
   } else {
     req.player = player;
   }
 
+  req.staff = staffRow(req.player.id);
+  req.perms = permissionsFor(req.staff);
+
   if (req.player.is_blocked) {
     return res.status(403).json({ error: 'Аккаунт заблокирован' });
   }
-  next();
+  maintenanceGate(req, res, next);
 }
 
-/** Пропускает дальше только администратора. */
+/**
+ * Режим обслуживания.
+ *
+ * Стоит ПОСЛЕ auth, а не до: сотрудники обязаны входить в закрытую площадку,
+ * иначе включивший работы сам себя из панели и выгонит. Заглушка отдаётся
+ * кодом 503, чтобы клиент отличал её от обычной ошибки.
+ *
+ * Список исключений короткий и не случайный: /api/me и /api/config нужны
+ * клиенту, чтобы вообще показать экран с заглушкой.
+ */
+/**
+ * Минимум вывода: настройка панели, а если её не трогали - значение сервера.
+ *
+ * Ноль означает «как в настройках сервера», а не «выводить можно копейку»:
+ * пустое поле в панели не должно молча открывать вывод на любую сумму.
+ */
+function minPayoutNow() {
+  return setting('min_payout') || MIN_PAYOUT;
+}
+
+const MAINTENANCE_OPEN = new Set(['/api/me', '/api/config', '/api/track']);
+
+function maintenanceGate(req, res, next) {
+  if (!setting('maintenance')) return next();
+  if (req.perms && req.perms.size > 0) return next();
+  if (MAINTENANCE_OPEN.has(req.path)) return next();
+  return res.status(503).json({
+    error: 'Идут технические работы. Загляните чуть позже',
+    maintenance: true,
+  });
+}
+
+/**
+ * Выключатель игры из панели.
+ *
+ * Прятать раздел на клиенте мало: раздел открывается прямым запросом, а
+ * выключают игру обычно потому, что в ней что-то не так. Поэтому отказ
+ * стоит на сервере, а клиент по тому же признаку прячет вход, чтобы игрок
+ * не упирался в кнопку, которая всегда ругается.
+ */
+function gameGate(key) {
+  return (req, res, next) => {
+    if (setting(`games_${key}`)) return next();
+    res.status(503).json({ error: 'Игра временно недоступна' });
+  };
+}
+
+/**
+ * Проверка права.
+ *
+ * Не «пропустить админа», а именно право: дальше по коду ни одна ручка не
+ * должна спрашивать про роль. Как только появляется `if (role === 'admin')`,
+ * набор прав перестаёт быть правдой о том, кто что может.
+ */
+function need(permission) {
+  return (req, res, next) => {
+    if (!req.perms || !req.perms.has(permission)) {
+      return res.status(403).json({ error: 'Недостаточно прав', need: permission });
+    }
+    next();
+  };
+}
+
+/** Есть ли у человека хоть какой-то доступ в панель. */
 function adminOnly(req, res, next) {
-  if (!req.player.is_admin) return res.status(403).json({ error: 'Недостаточно прав' });
+  if (!req.perms || req.perms.size === 0) {
+    return res.status(403).json({ error: 'Недостаточно прав' });
+  }
   next();
 }
 
@@ -143,12 +302,26 @@ function publicUser(user) {
     id: user.id,
     username: user.username,
     firstName: user.first_name,
-    balance: user.balance,
+    // Целые рубли плюс копейки казино (users.balance_kop, см. casino-db.js).
+    balance: userBalanceRub(user),
     isAdmin: !!user.is_admin,
-    x2CaseId: user.x2_case_id,
+    x2Perks: getX2Perks(user.id),
     gambleStake: user.gamble_stake,
     gambleCase: user.gamble_case,
     vouchers: getVouchers(user.id),
+    // Долг по обороту закрывает вывод, поэтому игрок должен его видеть.
+    wagerRequired: user.wager_required || 0,
+    // По нему клиент решает, показывать ли предложение первого пополнения.
+    depositsCount: user.deposits_count || 0,
+    // Медаль «Десятикратный»: сколько платных открытий сделано, сколько надо,
+    // и состояние награды (none / ready / used) с потолком цены кейса.
+    caseOpens: user.case_opens || 0,
+    x10: {
+      need: x10Rules().opens,
+      state: ['none', 'ready', 'used'][user.x10_state || 0],
+      ceiling: user.x10_ceiling || 0,
+    },
+    isPartner: Boolean(getPartnerByTgId(user.tg_id)),
     stats: {
       rounds: user.total_rounds,
       spent: user.total_spent,
@@ -216,7 +389,29 @@ app.get('/api/config', (req, res) => {
     freeCase: subscriptionConfig(),
     bonus: { enabled: false },
     maxBatch: MAX_BATCH,
-    minPayout: MIN_PAYOUT,
+    freeSpinPacks: FREESPIN_PACKS,
+    minPayout: minPayoutNow(),
+    // Выключатели из панели: клиент по ним прячет разделы, сервер по ним же
+    // отказывает. Прятать без отказа нельзя - раздел открывается прямым
+    // запросом; отказывать без пряток можно, но игрок будет тыкать в кнопку,
+    // которая всегда ругается.
+    open: {
+      payouts: setting('payouts_open'),
+      deposits: setting('deposits_open'),
+      cases: setting('games_cases'),
+      crash: setting('games_crash'),
+      roulette: setting('games_roulette'),
+      upgrade: setting('games_upgrade'),
+      fortune: setting('games_fortune'),
+      slots: setting('games_slots'),
+      casino: setting('games_casino'),
+    },
+    // Отдача слотов казино - та же настройка, что уходит агрегатору при
+    // запуске. По ней раздел «Честность» и плитки показывают число.
+    casino: { rtp: casinoRtp(), configured: casinoConfigured() },
+    // Условия приветственного бонуса нужны клиенту, чтобы показать их в кассе
+    // до пополнения, а не после.
+    firstDeposit: firstDepositRules(),
   });
 });
 
@@ -226,11 +421,29 @@ app.get('/api/config', (req, res) => {
 
 /**
  * Лента открыта без авторизации: она видна и до входа в Telegram.
- * Наружу уходят только ник, кейс и предмет — ни ID, ни балансов.
+ * Наружу уходят только ник, кейс и предмет - ни ID, ни балансов.
  */
-app.get('/api/feed', (req, res) => {
+/**
+ * Оформление и рисунок для настоящего выпадения.
+ *
+ * В таблице раундов лежит только название предмета, а витрина показывает
+ * карточку целиком. Ищем предмет в его кейсе по названию: внутри одного кейса
+ * названия не повторяются (это проверяет validateCases).
+ */
+function withItemLook(drop) {
+  const item = getCase(drop.caseId)?.items.find((it) => it.name === drop.name);
+  return item ? { ...drop, skin: drop.skin || item.skin, art: drop.art || item.art } : drop;
+}
+
+app.get('/api/feed', limits.read, (req, res) => {
   const limit = Math.min(Math.max(Number(req.query.limit) || 24, 1), 40);
-  const real = recentPublicDrops(limit, FEED_MIN_MULTIPLIER, FEED_MIN_VALUE);
+  // Свои выпадения игрок должен видеть в ленте наравне с выдуманными, поэтому
+  // порог тут только по сумме - тот же, ниже которого выпадение выглядит
+  // поломкой, а не скромным выигрышем.
+  // Доля настоящих ограничена: иначе игрок, открывший подряд четыре десятка
+  // кейсов, вытесняет из витрины всё остальное - см. FEED_REAL_SHARE.
+  const real = recentPublicDrops(Math.ceil(limit * FEED_REAL_SHARE), FEED_PLAIN_MIN_VALUE)
+    .map(withItemLook);
   const shown = FEED_CONFIG.synthetic ? getFeed(limit) : [];
 
   // Настоящие выпадения идут первыми при равной свежести.
@@ -238,21 +451,68 @@ app.get('/api/feed', (req, res) => {
     .sort((a, b) => b.at - a.at)
     .slice(0, limit);
 
-  res.json({ drops: merged, minMultiplier: FEED_MIN_MULTIPLIER, minValue: FEED_MIN_VALUE });
+  res.json({
+    drops: merged,
+    minMultiplier: FEED_MIN_MULTIPLIER,
+    minValue: FEED_MIN_VALUE,
+    bigShare: FEED_CONFIG.bigShare,
+  });
 });
 
 app.post('/api/me', auth, (req, res) => {
   res.json({ user: publicUser(req.player) });
 });
 
+/**
+ * События, которые может отправить только клиент: заход в кассу, упор в
+ * нехватку средств, пройденный онбординг. Сервер о них не знает - они
+ * происходят целиком в интерфейсе.
+ *
+ * Имя проверяется по белому списку CLIENT_EVENTS, а свойства не принимаются
+ * вовсе: иначе в таблицу можно было бы насыпать что угодно и любого размера.
+ * Ограничитель тот же, что у чтения: событие дешевле любого запроса к базе.
+ */
+app.post('/api/track', auth, limits.read, (req, res) => {
+  const name = String(req.body?.name || '');
+  if (!CLIENT_EVENTS.has(name)) return res.status(400).json({ error: 'Неизвестное событие' });
+  trackEvent(req.player.id, name);
+  res.json({ ok: true });
+});
+
 /* ============================================================
    КЕЙСЫ
    ============================================================ */
 
-/** Сколько одинаковых кейсов можно открыть за раз. */
-const MAX_BATCH = 5;
+/**
+ * Несколько серий фриспинов одной пачки - одна серия для показа.
+ *
+ * Только склейка: каждая серия уже посчитана и зачислена в транзакции своего
+ * открытия. Бонуса за совпадение нет - он не входит в отдачу кейса. Та же
+ * функция стоит в public/app.js, клиент склеивает свежий ответ сам.
+ */
+function mergeFreeSpinGrants(grants) {
+  if (grants.length === 1) return grants[0];
+  return {
+    type: 'freespins',
+    caseId: grants[0].caseId,
+    count: grants.reduce((n, g) => n + (g.count || g.spins.length), 0),
+    capped: grants.some((g) => g.capped),
+    spins: grants.flatMap((g) => g.spins),
+    total: grants.reduce((n, g) => n + (g.total || 0), 0),
+    parts: grants.map((g) => g.count || g.spins.length),
+  };
+}
 
-app.post('/api/open', auth, (req, res) => {
+/**
+ * Сколько одинаковых кейсов можно открыть за раз.
+ *
+ * Два - решение заказчика. Сначала было пять, но пять лент приходилось
+ * сжимать втрое, и предмет на них было не разглядеть; потом три, теперь две:
+ * обе ленты в полный размер и целиком на экране телефона вместе с итогом.
+ */
+const MAX_BATCH = 2;
+
+app.post('/api/open', auth, limits.play, gameGate('cases'), (req, res) => {
   const caseData = getCase(req.body?.caseId);
   if (!caseData) return res.status(404).json({ error: 'Кейс не найден' });
 
@@ -295,8 +555,16 @@ app.post('/api/open', auth, (req, res) => {
       kind: result.item.kind,
       value: result.payout,
       tier: result.item.tier,
+      // Без оформления выигрышная плитка ленты рисовалась видом кейса, а та же
+      // карточка в составе - видом предмета, и игрок видел два разных приза.
+      skin: result.item.skin,
+      art: result.item.art,
       perkLabel: result.item.perkLabel,
       multiplier: Number((result.payout / caseData.price).toFixed(2)),
+      // Номинал предмета до удвоителя. Лента показывает его, а удвоение
+      // играется отдельно, когда она встала: на плитке стоит та же сумма,
+      // что в составе кейса, и видно, что именно добавил удвоитель.
+      baseValue: result.item.value,
     },
     granted: result.granted.map((g) => ({
       ...g,
@@ -304,11 +572,27 @@ app.post('/api/open', auth, (req, res) => {
     })),
     free: result.free,
     x2Applied: result.x2Applied,
+    x10Applied: result.x10Applied,
     net: result.totalPayout - (result.free ? 0 : caseData.price),
     fair: { roll: result.roll, nonce: result.nonce },
   }));
 
   const last = results[results.length - 1];
+
+  // Выпавшая серия тоже может остаться недосмотренной. Серии с разных лент
+  // пачки клиент показывает одной общей, и сохраняется она так же: раньше
+  // хранилась только последняя, и вышедший посреди двойной серии игрок при
+  // возвращении видел половину.
+  const pending = opened.flatMap((o) => o.granted).filter((g) => g.type === 'freespins');
+  if (pending.length) savePendingSpins(user.id, caseData.id, mergeFreeSpinGrants(pending));
+
+  // Выигрыш фриспинов реально зачислен на баланс в той же транзакции, что и
+  // сам предмет, - его нельзя терять при подсчёте суммы пачки, иначе итог
+  // на экране разойдётся с тем, что реально начислено.
+  const freeSpinsTotal = (o) =>
+    o.granted.find((g) => g.type === 'freespins')?.total || 0;
+
+  trackEvent(user.id, 'case_open', { caseId: caseData.id, count, price: caseData.price });
 
   res.json({
     count,
@@ -316,8 +600,66 @@ app.post('/api/open', auth, (req, res) => {
     // Поля одиночного открытия сохранены: на них опирается вся анимация.
     ...opened[0],
     totalSpent: opened.reduce((s, o) => s + (o.free ? 0 : caseData.price), 0),
-    totalWon: opened.reduce((s, o) => s + o.item.value, 0),
+    totalWon: opened.reduce((s, o) => s + o.item.value + freeSpinsTotal(o), 0),
     balance: last.balance,
+    user: publicUser(getUserById(user.id)),
+  });
+});
+
+/**
+ * Покупка серии фриспинов.
+ *
+ * Цену считает сервер, клиент её только показывает: иначе подобранным запросом
+ * можно было бы купить серию за свою цену.
+ */
+app.post('/api/freespins/buy', auth, limits.play, gameGate('cases'), (req, res) => {
+  const caseData = getCase(req.body?.caseId);
+  if (!caseData) return res.status(404).json({ error: 'Кейс не найден' });
+
+  if (caseData.availableFrom && Date.now() < caseData.availableFrom) {
+    const starts = new Date(caseData.availableFrom).toLocaleDateString('ru-RU');
+    return res.status(403).json({ error: `Кейс откроется ${starts}` });
+  }
+
+  const count = Math.trunc(Number(req.body?.count));
+  const cost = freeSpinPackPrice(caseData, count);
+  if (!cost) return res.status(400).json({ error: 'Такой пачки нет' });
+
+  const user = req.player;
+  if (user.balance < cost) return sendInsufficient(res, cost - user.balance);
+
+  let result;
+  try {
+    result = buyFreeSpins(user.id, caseData, count, cost,
+      (serverSeed, clientSeed, nonce) => {
+        const roll = computeRoll(serverSeed, clientSeed, nonce);
+        return { item: pickItem(caseData, roll), roll };
+      });
+  } catch (err) {
+    if (err.code === 'INSUFFICIENT_FUNDS') return sendInsufficient(res, cost - user.balance);
+    throw err;
+  }
+
+  const grant = {
+    type: 'freespins',
+    caseId: caseData.id,
+    count: result.count,
+    capped: result.capped,
+    spins: result.spins,
+    total: result.total,
+  };
+
+  // Серию запоминаем до того, как игрок её досмотрит: закроет кейс на середине
+  // - при следующем заходе она доиграется, а не пропадёт.
+  savePendingSpins(user.id, caseData.id, grant);
+  trackEvent(user.id, 'freespins_bought', { caseId: caseData.id, count: result.count, cost: result.cost });
+
+  res.json({
+    // Форма ответа повторяет выдачу фриспинов из кейса: клиент проигрывает их
+    // той же анимацией, что и выпавшие.
+    grant,
+    cost: result.cost,
+    balance: result.balance,
     user: publicUser(getUserById(user.id)),
   });
 });
@@ -326,7 +668,7 @@ app.post('/api/open', auth, (req, res) => {
    РУЛЕТКА
    ============================================================ */
 
-app.post('/api/roulette', auth, (req, res) => {
+app.post('/api/roulette', auth, limits.play, gameGate('roulette'), (req, res) => {
   const bet = parseBet(req.body?.bet);
   const color = String(req.body?.color || '');
 
@@ -351,8 +693,8 @@ app.post('/api/roulette', auth, (req, res) => {
         game: 'roulette',
         title: 'Рулетка',
         subtitle: won
-          ? `${labelOf(landed)} — забрал ${payout}`
-          : `${labelOf(landed)} — мимо`,
+          ? `${labelOf(landed)} - забрал ${payout}`
+          : `${labelOf(landed)} - мимо`,
         payout,
         tier: won ? (landed === 'green' ? 'unique' : 'epic') : 'common',
         roll,
@@ -386,7 +728,7 @@ function labelOf(colorId) {
    КРАШ
    ============================================================ */
 
-app.post('/api/crash/start', auth, (req, res) => {
+app.post('/api/crash/start', auth, limits.play, gameGate('crash'), (req, res) => {
   const bet = parseBet(req.body?.bet);
   if (!bet) return res.status(400).json({ error: 'Некорректная ставка' });
 
@@ -404,7 +746,7 @@ app.post('/api/crash/start', auth, (req, res) => {
     throw err;
   }
 
-  // crashPoint намеренно не отдаём — иначе клиент знал бы будущее.
+  // crashPoint намеренно не отдаём - иначе клиент знал бы будущее.
   res.json({
     roundId: round.roundId,
     startedAt: round.startedAt,
@@ -417,7 +759,7 @@ app.post('/api/crash/start', auth, (req, res) => {
 
 /**
  * Опрос состояния раунда. Клиент дёргает это каждые ~150 мс, чтобы узнать,
- * не взорвалось ли — раньше времени точку краша он получить не может.
+ * не взорвалось ли - раньше времени точку краша он получить не может.
  */
 app.post('/api/crash/state', auth, (req, res) => {
   const round = getCrashRound(Number(req.body?.roundId), req.player.id);
@@ -452,7 +794,7 @@ app.post('/api/crash/state', auth, (req, res) => {
   });
 });
 
-app.post('/api/crash/cashout', auth, (req, res) => {
+app.post('/api/crash/cashout', auth, limits.play, (req, res) => {
   const round = getCrashRound(Number(req.body?.roundId), req.player.id);
   if (!round) return res.status(404).json({ error: 'Раунд не найден' });
   if (round.status !== 'running') {
@@ -489,16 +831,141 @@ app.post('/api/crash/cashout', auth, (req, res) => {
   });
 });
 
+/**
+ * Незавершённая серия фриспинов.
+ *
+ * Деньги за неё уже на балансе, поэтому это только показ: клиент доигрывает
+ * прокруты и подтверждает через /api/freespins/ack.
+ */
+app.post('/api/freespins/pending', auth, (req, res) => {
+  res.json({ pending: getPendingSpins(req.player.id) });
+});
+
+app.post('/api/freespins/ack', auth, (req, res) => {
+  clearPendingSpins(req.player.id);
+  res.json({ ok: true });
+});
+
+/* ============================================================
+   ПРОМОКОДЫ
+   ============================================================ */
+
+/** Кейс для промокода описывается ровно тем, что нужно хранилищу. */
+function promoCaseResolver(caseId) {
+  const c = getCase(caseId);
+  return c ? { name: c.name, price: c.price, rtp: c.rtp } : null;
+}
+
+app.post('/api/promo/redeem', auth, limits.guess, (req, res) => {
+  let result;
+  try {
+    result = redeemPromo(req.player.id, req.body?.code, promoCaseResolver);
+  } catch (err) {
+    if (err.code === 'PROMO' || err.code === 'BAD') {
+      return res.status(400).json({ error: err.message });
+    }
+    throw err;
+  }
+
+  trackEvent(req.player.id, 'promo_redeemed', { type: result?.type });
+  res.json({ result, user: publicUser(getUserById(req.player.id)) });
+});
+
+/** Всё, что показывается в разделе «Бонусы». */
+app.post('/api/promo/state', auth, (req, res) => {
+  res.json({
+    pendingDeposit: pendingDepositBonus(req.player.id),
+    history: myPromoRedemptions(req.player.id),
+    wagerRequired: req.player.wager_required || 0,
+  });
+});
+
+/* ============================================================
+   ПАРТНЁРУ
+   ============================================================ */
+
+/**
+ * Статистика партнёра для него самого.
+ *
+ * Партнёр опознаётся по Telegram ID своего аккаунта: отдельного входа нет,
+ * он открывает то же приложение, что и игроки.
+ */
+app.post('/api/partner/stats', auth, limits.read, (req, res) => {
+  const partner = getPartnerByTgId(req.player.tg_id);
+  if (!partner) return res.status(403).json({ error: 'Вы не партнёр' });
+
+  const stats = partnerStats(partner.id);
+  res.json({
+    ...stats,
+    referrals: partnerReferrals(partner.id),
+    referralCount: stats.referrals,
+    payouts: partnerPayoutHistory(partner.id),
+    promos: adminListPromos().filter((p) => p.partner_id === partner.id)
+      .map((p) => ({ code: p.code, type: p.type, used: p.used_count })),
+  });
+});
+
+/* ============================================================
+   АДМИНКА: ПРОМОКОДЫ И ПАРТНЁРЫ
+   ============================================================ */
+
+app.post('/api/admin/promos', auth, need('promo.view'), (req, res) => {
+  res.json({ rows: adminListPromos(), cases: CASES.map((c) => ({ id: c.id, name: c.name, price: c.price })) });
+});
+
+app.post('/api/admin/promo/save', auth, need('promo.edit'), (req, res) => {
+  try {
+    res.json(adminSavePromo(req.player.id, req.body || {}));
+  } catch (err) {
+    if (err.code === 'BAD') return res.status(400).json({ error: err.message });
+    throw err;
+  }
+});
+
+app.post('/api/admin/promo/delete', auth, need('promo.edit'), (req, res) => {
+  try {
+    res.json(adminDeletePromo(req.player.id, Number(req.body?.id)));
+  } catch (err) {
+    if (err.code === 'NOT_FOUND') return res.status(404).json({ error: err.message });
+    throw err;
+  }
+});
+
+app.post('/api/admin/partners', auth, need('partners.view'), (req, res) => {
+  res.json({ rows: adminListPartners() });
+});
+
+app.post('/api/admin/partner/save', auth, need('partners.edit'), (req, res) => {
+  try {
+    res.json(adminSavePartner(req.player.id, req.body || {}));
+  } catch (err) {
+    if (err.code === 'BAD') return res.status(400).json({ error: err.message });
+    throw err;
+  }
+});
+
+app.post('/api/admin/partner/pay', auth, need('partners.pay'), (req, res) => {
+  try {
+    res.json(adminPayPartner(req.player.id, Number(req.body?.partnerId),
+                             req.body?.amount, req.body?.comment));
+  } catch (err) {
+    if (err.code === 'BAD' || err.code === 'NOT_FOUND') {
+      return res.status(400).json({ error: err.message });
+    }
+    throw err;
+  }
+});
+
 /* ============================================================
    ПРОЧЕЕ
    ============================================================ */
 
-// Бонус по таймеру отключён — раздача единиц обесценивала ставку.
-app.post('/api/bonus', auth, (req, res) => {
+// Бонус по таймеру отключён - раздача единиц обесценивала ставку.
+app.post('/api/bonus', auth, limits.play, (req, res) => {
   res.status(410).json({ error: 'disabled', message: 'Бонус больше не выдаётся' });
 });
 
-app.post('/api/history', auth, (req, res) => {
+app.post('/api/history', auth, limits.read, (req, res) => {
   const caseTitle = req.body?.caseTitle ? String(req.body.caseTitle).slice(0, 64) : null;
   const limit = Math.min(60, Math.max(1, Number(req.body?.limit) || 60));
   res.json({ history: getHistory(req.player.id, limit, caseTitle) });
@@ -508,24 +975,39 @@ app.post('/api/history', auth, (req, res) => {
    КАССА
    ============================================================ */
 
-app.post('/api/wallet', auth, (req, res) => {
+app.post('/api/wallet', auth, limits.read, (req, res) => {
   const pending = pendingPayoutTotal(req.player.id);
   res.json({
     balance: req.player.balance,
     pending,
-    // Заявка списывает сумму сразу, поэтому доступное к выводу — это и есть
-    // текущий баланс; ожидающие заявки показываются отдельной строкой.
-    available: req.player.balance,
-    minPayout: MIN_PAYOUT,
+    /*
+     * Доступное к выводу: весь баланс, если пополнение прокручено ставками, и
+     * ноль, пока не прокручено. Заявка списывает сумму сразу, поэтому
+     * ожидающие показываются отдельной строкой и здесь уже не участвуют.
+     */
+    available: withdrawable(req.player),
+    // Сколько ещё надо поставить, чтобы открылся вывод. Игрок должен видеть
+    // расстояние до цели, а не только слово «нельзя».
+    depositDebt: req.player.deposit_debt || 0,
+    wagerProgress: req.player.wager_progress,
+    minPayout: minPayoutNow(),
     deposits: getDeposits(req.player.id),
     payouts: getPayouts(req.player.id),
   });
 });
 
-app.post('/api/payout/create', auth, (req, res) => {
+app.post('/api/payout/create', auth, limits.cashier, (req, res) => {
+  if (!setting('payouts_open')) {
+    return res.status(503).json({ error: 'Приём заявок на вывод временно закрыт' });
+  }
   const amount = Math.trunc(Number(req.body?.amount));
   if (!Number.isFinite(amount) || amount <= 0) {
     return res.status(400).json({ error: 'Укажите сумму вывода' });
+  }
+  if (amount < minPayoutNow()) {
+    return res.status(400).json({
+      error: `Минимальная сумма вывода ${minPayoutNow().toLocaleString('ru-RU')}`,
+    });
   }
 
   try {
@@ -534,17 +1016,30 @@ app.post('/api/payout/create', auth, (req, res) => {
       phone: req.body?.phone,
       bank: req.body?.bank,
       cardNumber: req.body?.cardNumber,
+      cryptoCurrency: req.body?.cryptoCurrency,
+      cryptoNetwork: req.body?.cryptoNetwork,
+      cryptoAddress: req.body?.cryptoAddress,
+      cryptoAmount: req.body?.cryptoAmount,
+      cryptoRate: req.body?.cryptoRate,
     });
+    trackEvent(req.player.id, 'payout_created', { amount, method: req.body?.method });
     res.json({ ...result, user: publicUser(getUserById(req.player.id)) });
   } catch (err) {
-    if (['MIN','INSUFFICIENT_FUNDS','BAD_PHONE','BAD_BANK','BAD_CARD','BAD_METHOD','PAYOUT_KEY_MISSING'].includes(err.code)) {
+    // Ожидаемые отказы: игроку показывается сообщение, а не «что-то пошло не
+    // так». WAGER - невыполненный отыгрыш бонуса, остальные - проверки
+    // реквизитов платёжного модуля.
+    if ([
+      'MIN', 'INSUFFICIENT_FUNDS', 'WAGER', 'WAGER_PROGRESS',
+      'BAD_PHONE', 'BAD_BANK', 'BAD_CARD', 'BAD_METHOD', 'PAYOUT_KEY_MISSING',
+      'BAD_CURRENCY', 'BAD_NETWORK', 'BAD_ADDRESS', 'BAD_RATE',
+    ].includes(err.code)) {
       return res.status(400).json({ error: err.code, message: err.message });
     }
     throw err;
   }
 });
 
-app.post('/api/payout/cancel', auth, (req, res) => {
+app.post('/api/payout/cancel', auth, limits.cashier, (req, res) => {
   try {
     const result = cancelPayout(req.player.id, Number(req.body?.id));
     res.json({ ...result, user: publicUser(getUserById(req.player.id)) });
@@ -559,7 +1054,7 @@ app.post('/api/payout/cancel', auth, (req, res) => {
    РИСК-ИГРА
    ============================================================ */
 
-app.post('/api/gamble/pick', auth, (req, res) => {
+app.post('/api/gamble/pick', auth, limits.play, (req, res) => {
   const index = Math.trunc(Number(req.body?.index));
   if (!Number.isInteger(index) || index < 0 || index >= GAMBLE_CONFIG.cards) {
     return res.status(400).json({ error: 'Некорректный выбор карты' });
@@ -587,7 +1082,7 @@ app.post('/api/gamble/pick', auth, (req, res) => {
   });
 });
 
-app.post('/api/gamble/skip', auth, (req, res) => {
+app.post('/api/gamble/skip', auth, limits.play, (req, res) => {
   clearGamble(req.player.id);
   res.json({ user: publicUser(getUserById(req.player.id)) });
 });
@@ -596,12 +1091,12 @@ app.post('/api/gamble/skip', auth, (req, res) => {
    АПГРЕЙД
    ============================================================ */
 
-app.post('/api/upgrade', auth, (req, res) => {
+app.post('/api/upgrade', auth, limits.play, gameGate('upgrade'), (req, res) => {
   const stake = parseBet(req.body?.stake);
   const multiplier = Number(req.body?.multiplier);
 
   if (!stake || stake < UPGRADE_CONFIG.minStake) {
-    return res.status(400).json({ error: `Минимальная ставка — ${UPGRADE_CONFIG.minStake}` });
+    return res.status(400).json({ error: `Минимальная ставка - ${UPGRADE_CONFIG.minStake}` });
   }
   if (!UPGRADE_CONFIG.multipliers.includes(multiplier)) {
     return res.status(400).json({ error: 'Недоступный множитель' });
@@ -617,7 +1112,7 @@ app.post('/api/upgrade', auth, (req, res) => {
     return {
       game: 'upgrade',
       title: 'Апгрейд',
-      subtitle: won ? `x${multiplier} — попал` : `x${multiplier} — мимо`,
+      subtitle: won ? `x${multiplier} - попал` : `x${multiplier} - мимо`,
       payout: won ? target : 0,
       tier: won ? 'legendary' : 'common',
       roll,
@@ -630,7 +1125,7 @@ app.post('/api/upgrade', auth, (req, res) => {
     stake,
     target,
     multiplier,
-    // Угол стрелки: ролл — это доля круга от верхней точки. Сектор выигрыша
+    // Угол стрелки: ролл - это доля круга от верхней точки. Сектор выигрыша
     // клиент рисует сам от нуля до chance, поэтому картинка проверяема.
     chance,
     balance: result.balance,
@@ -643,17 +1138,494 @@ app.post('/api/upgrade', auth, (req, res) => {
    БЕСПЛАТНЫЙ КЕЙС ЗА ПОДПИСКУ
    ============================================================ */
 
+/* ============================================================
+   КОЛЕСО ФОРТУНЫ
+   ============================================================ */
+
+/**
+ * Состояние колеса: шаги, остаток прокрутов, когда следующий.
+ *
+ * Описание секторов отдаётся вместе с состоянием, а не лежит в клиенте:
+ * иначе при правке весов пришлось бы помнить про два места, и колесо
+ * останавливалось бы не на том, что показало окно выигрыша.
+ */
+/* ============================================================
+   МИНИ-ИГРЫ
+   ============================================================ */
+
+/* ============================================================
+   КАЗИНО: ИГРЫ ПРОВАЙДЕРОВ
+   ============================================================ */
+
+/*
+ * Пределы отдачи, которые разрешает кабинет агрегатора. Настройку панели
+ * зажимаем в них: число вне пределов агрегатор молча заменил бы своим, и
+ * «Честность» показывала бы не то, что применено.
+ */
+const CASINO_RTP_MIN = Number(process.env.CASINO_RTP_MIN || 70);
+const CASINO_RTP_MAX = Number(process.env.CASINO_RTP_MAX || 80);
+
+function casinoRtp() {
+  const v = Number(setting('casino_rtp')) || CASINO_RTP_MIN;
+  return Math.min(CASINO_RTP_MAX, Math.max(CASINO_RTP_MIN, v));
+}
+
+/* Карточка игры для клиента. Ссылки на обложки - наши, а не CDN агрегатора:
+   у нас они пережаты и не зависят от того, отвечает ли их CDN. */
+function publicCasinoGame(g) {
+  return {
+    id: g.id,
+    name: g.name,
+    provider: g.provider_name,
+    providerId: g.provider_id,
+    kind: g.kind,
+    // Игры без обложки в списки не попадают (VISIBLE_SQL в casino-db.js).
+    // Вертикальной нет - плитка сразу горизонтальная.
+    cover: `/casino/cover/${encodeURIComponent(g.id)}`,
+    vertical: Boolean(g.img_vertical) && g.cover_state !== 'w' && g.cover_state !== 'x',
+    // Запас на случай, если вертикальная не загрузится у игрока.
+    alt: g.img_vertical && g.img && g.cover_state !== 'w' && g.cover_state !== 'x'
+      ? `/casino/cover/${encodeURIComponent(g.id)}?w=1` : null,
+    wide: g.img_wide ? `/casino/wide/${encodeURIComponent(g.id)}` : null,
+    demo: Boolean(g.demo),
+    freespin: Boolean(g.freespin),
+    // Число отдачи только там, где оно наше. У живых столов и NovaPlay его
+    // задаёт провайдер, и приписать им нашу цифру значило бы соврать.
+    rtp: g.rtp_mode === 'operator' ? casinoRtp() : null,
+    // Только у «Лучших выигрышей»: настоящий раунд, множитель и сумма.
+    ...(g.win_mult ? { winMult: g.win_mult, winAmount: kopToRub(g.win_kop) } : {}),
+  };
+}
+
+const CASINO_KINDS = ['slots', 'live', 'fast'];
+const CASINO_PAGE_MAX = 96;
+
+app.post('/api/casino/lobby', auth, limits.read, gameGate('casino'), (req, res) => {
+  const providers = casinoProviders();
+  const counts = Object.fromEntries(CASINO_KINDS.map((k) => [k, 0]));
+  for (const p of providers) counts[p.kind] = (counts[p.kind] || 0) + p.game_count;
+  res.json({
+    rtp: casinoRtp(),
+    configured: casinoConfigured(),
+    // Вкладки показываются все три, даже пустая: заказчик держит «Live
+    // казино» в меню, а пустая вкладка честно говорит, что столы готовятся.
+    tabs: CASINO_TABS,
+    counts,
+    providers: providers.map((p) => ({ id: p.id, name: p.name, kind: p.kind, count: p.game_count })),
+  });
+});
+
+/* Лобби вкладки: блоки с первыми играми каждого. Полный список блока -
+   /api/casino/games с category. */
+app.post('/api/casino/home', auth, limits.read, gameGate('casino'), (req, res) => {
+  const kind = CASINO_KINDS.includes(req.body?.kind) ? req.body.kind : 'slots';
+  res.json({
+    kind,
+    blocks: casinoHome(kind).map((b) => ({ ...b, games: b.games.map(publicCasinoGame) })),
+  });
+});
+
+app.post('/api/casino/games', auth, limits.read, gameGate('casino'), (req, res) => {
+  const b = req.body || {};
+  const kind = CASINO_KINDS.includes(b.kind) ? b.kind : '';
+  const category = typeof b.category === 'string' && categoryById(b.category) ? b.category : '';
+  const { total, rows } = casinoGames({
+    kind,
+    provider: typeof b.provider === 'string' ? b.provider.slice(0, 80) : '',
+    category,
+    q: typeof b.q === 'string' ? b.q.trim().slice(0, 60) : '',
+    offset: Math.max(0, Math.trunc(Number(b.offset) || 0)),
+    limit: Math.min(CASINO_PAGE_MAX, Math.max(1, Math.trunc(Number(b.limit) || 48))),
+  });
+  res.json({ total, games: rows.map(publicCasinoGame) });
+});
+
+/**
+ * Запуск игры.
+ *
+ * Игрок у агрегатора - lb<наш id>, не tg_id. Деньги в игре не лежат: каждое
+ * списание и начисление агрегатор присылает нам в /api/casino/wallet, и
+ * баланс остаётся только здесь.
+ */
+app.post('/api/casino/launch', auth, limits.play, gameGate('casino'), async (req, res) => {
+  const game = casinoGame(req.body?.gameId);
+  if (!game) return res.status(404).json({ error: 'Игра не найдена' });
+  const demo = req.body?.demo === true;
+  if (demo && !game.demo) return res.status(400).json({ error: 'У этой игры нет демо' });
+  if (!casinoConfigured()) return res.status(503).json({ error: 'Казино ещё не подключено' });
+  if (!demo && casinoExcluded(req.player.id)) {
+    return res.status(403).json({ error: 'Вы установили перерыв в игре. Казино откроется по его окончании' });
+  }
+
+  try {
+    const result = await launchGame({
+      game,
+      playerId: casinoPlayerId(req.player.id),
+      demo,
+      ip: req.ip?.replace(/^::ffff:/, '') || '',
+      country: req.get('cf-ipcountry') || '',
+      rtp: casinoRtp(),
+      lobbyUrl: process.env.PUBLIC_URL || '',
+    });
+    if (!result.ok) {
+      console.error('[casino] запуск', game.id, result.status, result.message);
+      return res.status(503).json({ error: 'Игра временно недоступна. Попробуйте позже' });
+    }
+    trackEvent(req.player.id, 'casino_launch', { gameId: game.id, demo });
+    res.json({ url: result.url, html: result.html, game: publicCasinoGame(game), demo });
+  } catch (err) {
+    console.error('[casino] запуск', game.id, err.message);
+    res.status(503).json({ error: 'Игра временно недоступна. Попробуйте позже' });
+  }
+});
+
+app.post('/api/casino/history', auth, limits.read, (req, res) => {
+  res.json({
+    rows: casinoHistory(req.player.id, 40).map((r) => ({
+      id: r.id, method: r.method, game: r.game_name || r.game_id, amount: kopToRub(r.amount_kop),
+      free: Boolean(r.free_round), rolledBack: Boolean(r.rolled_back), at: r.created_at,
+    })),
+    balance: userBalanceRub(getUserById(req.player.id)),
+  });
+});
+
+/*
+ * Обложки. Без авторизации: картинки публичные, а браузер грузит их тегом
+ * img, который заголовков Telegram не несёт. Кешируются надолго: имя файла
+ * - хеш адреса картинки, новая обложка придёт под новым именем.
+ */
+const COVER_MAX_AGE = 7 * 24 * 3600;
+
+/*
+ * choose(game) -> { src, missing }: какую картинку отдать и какой признак
+ * поставить игре, если файла на CDN нет. Признак: вертикальной нет - есть
+ * надежда на горизонтальную ('w'); нет горизонтальной - обложки нет ('x').
+ * По нему лобби уводит игру в конец списка.
+ */
+async function sendCover(req, res, choose) {
+  const game = casinoGame(req.params.id);
+  if (!game) return res.status(404).end();
+  const { src, missing } = choose(game);
+  const cover = await coverFile(src);
+  if (!cover) return res.status(404).end();
+  if (cover.missing) {
+    if (missing) setCoverState(game.id, missing);
+    return res.status(404).end();
+  }
+  if (cover.redirect) return res.redirect(302, cover.redirect);
+  res.set('Cache-Control', `public, max-age=${COVER_MAX_AGE}, immutable`);
+  res.type('image/webp').sendFile(cover.file);
+}
+
+/*
+ * ?w=1 - горизонтальная обложка вместо вертикальной. Клиент просит её, когда
+ * вертикальная не загрузилась; сервер и сам отдаёт горизонтальную, если
+ * проверка уже знает, что вертикальной нет.
+ */
+app.get('/casino/cover/:id', (req, res, next) => sendCover(req, res, (g) => {
+  const horizontal = req.query.w === '1' || g.cover_state === 'w' || !g.img_vertical;
+  return horizontal
+    ? { src: { ...g, img_vertical: null }, missing: 'x' }
+    : { src: g, missing: 'w' };
+}).catch(next));
+// Широкая - для окна запуска. Её отсутствие обложку плитки не отменяет.
+app.get('/casino/wide/:id', (req, res, next) =>
+  sendCover(req, res, (g) => ({ src: { ...g, img_vertical: g.img_wide || g.img_vertical }, missing: null }))
+    .catch(next));
+
+app.post('/api/admin/casino', auth, need('games.manage'), (req, res) => {
+  const day = 24 * 3600 * 1000;
+  res.json({
+    sync: syncStatus(),
+    configured: casinoConfigured(),
+    rtp: casinoRtp(),
+    rtpRange: [CASINO_RTP_MIN, CASINO_RTP_MAX],
+    today: casinoSummary(Date.now() - day),
+    week: casinoSummary(Date.now() - 7 * day),
+    month: casinoSummary(Date.now() - 30 * day),
+  });
+});
+
+app.post('/api/admin/casino/sync', auth, need('games.manage'), async (req, res) => {
+  if (!casinoConfigured()) return res.status(400).json({ error: 'Не заданы ключи агрегатора' });
+  res.json({ sync: await syncCatalog() });
+});
+
+/* ============================================================
+   СЛОТЫ
+   ============================================================ */
+
+/**
+ * Ставка слота обязана делиться на двадцать линий без остатка.
+ *
+ * Выплаты внутри заданы в ставках НА ЛИНИЮ. Если общая ставка не делится,
+ * линейная становится дробной, и выигрыш приходится округлять на каждой
+ * линии по отдельности - тогда сумма на экране перестаёт сходиться с
+ * таблицей. Поэтому список ставок закрытый и весь делится на двадцать.
+ */
+function slotLineBet(slot, raw) {
+  const bet = parseBet(raw);
+  if (!bet || !slot.bets.includes(bet)) return null;
+  return { total: bet, line: bet / SLOT_LINES };
+}
+
+/** Слот из запроса или 400. */
+function askSlot(req, res) {
+  const slot = getSlot(req.body?.slotId);
+  if (!slot) { res.status(400).json({ error: 'Слот не найден' }); return null; }
+  return slot;
+}
+
+app.post('/api/slots', auth, limits.read, (req, res) => {
+  res.json({ slots: SLOTS.map(slotCard) });
+});
+
+app.post('/api/slot', auth, limits.read, (req, res) => {
+  const slot = askSlot(req, res);
+  if (!slot) return;
+
+  const session = getSlotSession(req.player.id);
+  /*
+   * Серия показывается только в СВОЕЙ игре. Бонус куплен или выигран в
+   * конкретном слоте, и его ставка с лентами относится к нему же: доигрывать
+   * его в другой игре означало бы платить по чужой таблице.
+   *
+   * Серии, заведённые до появления второй игры, лежат с пустым slot_id и
+   * доигрываются там, куда игрок зайдёт: отнимать оплаченные вращения из-за
+   * нашего обновления не за что.
+   */
+  const mine = session && (!session.slot_id || session.slot_id === slot.id);
+
+  res.json({
+    slot: publicSlot(slot),
+    session: mine ? {
+      spinsLeft: session.spins_left,
+      lineBet: session.line_bet,
+      totalBet: session.line_bet * SLOT_LINES,
+      totalWin: session.total_win,
+      bought: Boolean(session.bought),
+    } : null,
+  });
+});
+
+app.post('/api/slot/spin', auth, limits.play, gameGate('slots'), (req, res) => {
+  const slot = askSlot(req, res);
+  if (!slot) return;
+  const bet = slotLineBet(slot, req.body?.bet);
+  if (!bet) return res.status(400).json({ error: 'Такой ставки нет' });
+
+  const user = req.player;
+  if (user.balance < bet.total) return sendInsufficient(res, bet.total - user.balance);
+
+  let result;
+  try {
+    result = playSlotSpin(user.id, slot.id, bet.total, (serverSeed, clientSeed, nonce) => {
+      const roll = computeRoll(serverSeed, clientSeed, nonce);
+      const offsets = offsetsFrom(roll, slot.strips);
+      const grid = gridFrom(slot, offsets);
+      const outcome = evaluateSlot(slot, grid, bet.line);
+      const payout = outcome.lineWin + outcome.scatterWin;
+      const multiplier = payout / bet.total;
+
+      return {
+        game: 'slot',
+        title: slot.name,
+        subtitle: outcome.triggered
+          ? `${outcome.scatters} SCATTER - фриспины`
+          : payout > 0 ? `Выигрыш ×${multiplier.toFixed(2)}` : 'Без выигрыша',
+        payout,
+        tier: multiplier >= 50 ? 'unique'
+            : multiplier >= 20 ? 'mythic'
+            : multiplier >= 5 ? 'epic'
+            : payout > 0 ? 'rare' : 'common',
+        roll,
+        offsets,
+        grid,
+        wins: outcome.wins,
+        lineWin: outcome.lineWin,
+        scatterWin: outcome.scatterWin,
+        scatters: outcome.scatters,
+        freeSpins: outcome.triggered ? slot.freeSpins : 0,
+        lines: SLOT_LINES,
+        multiplier,
+      };
+    });
+  } catch (err) {
+    if (err.code === 'INSUFFICIENT_FUNDS') return sendInsufficient(res, bet.total - user.balance);
+    if (err.code === 'BAD') return res.status(400).json({ error: err.message });
+    throw err;
+  }
+
+  /*
+   * Джекпот разыгрывается ПОСЛЕ прокрута и отдельной транзакцией: он не
+   * зависит от того, что выпало на барабанах, и его отдача посчитана
+   * отдельным слагаемым (см. jackpotBudget в server/slot-engine.js).
+   */
+  const jackpot = jackpotFrom(slot, jackpotRoll(result.roll), bet.total);
+  let balance = result.balance;
+  if (jackpot) {
+    balance = awardSlotJackpot(user.id, jackpot, bet.total, result.nonce);
+    trackEvent(user.id, 'slot_jackpot',
+               { slot: slot.id, id: jackpot.id, amount: jackpot.amount, bet: bet.total });
+  }
+
+  trackEvent(user.id, 'slot_spin', { slot: slot.id, bet: bet.total, payout: result.payout });
+
+  res.json({
+    slotId: slot.id,
+    offsets: result.offsets,
+    grid: result.grid,
+    wins: result.wins,
+    lineWin: result.lineWin,
+    scatterWin: result.scatterWin,
+    scatters: result.scatters,
+    payout: result.payout,
+    freeSpins: result.freeSpins,
+    jackpot: jackpot ? { id: jackpot.id, name: jackpot.name, amount: jackpot.amount } : null,
+    bet: bet.total,
+    lineBet: bet.line,
+    roll: result.roll,
+    nonce: result.nonce,
+    balance,
+    user: publicUser(getUserById(user.id)),
+  });
+});
+
+app.post('/api/slot/free', auth, limits.play, gameGate('slots'), (req, res) => {
+  const slot = askSlot(req, res);
+  if (!slot) return;
+
+  const user = req.player;
+  let result;
+  try {
+    result = playSlotFreeSpin(user.id, (serverSeed, clientSeed, nonce, session) => {
+      const roll = computeRoll(serverSeed, clientSeed, nonce);
+      const offsets = offsetsFrom(roll, slot.strips);
+      // Во фриспинах wild расширяется на весь барабан - это и есть бонус.
+      const grid = gridFrom(slot, offsets, { expandWild: true });
+      const outcome = evaluateSlot(slot, grid, session.line_bet, { free: true });
+
+      return {
+        title: slot.name,
+        roll,
+        offsets,
+        grid,
+        wins: outcome.wins,
+        lineWin: outcome.lineWin,
+        scatterWin: outcome.scatterWin,
+        scatters: outcome.scatters,
+        payout: outcome.lineWin + outcome.scatterWin,
+      };
+    });
+  } catch (err) {
+    if (err.code === 'BAD') return res.status(400).json({ error: err.message });
+    throw err;
+  }
+
+  res.json({
+    slotId: slot.id,
+    offsets: result.offsets,
+    grid: result.grid,
+    wins: result.wins,
+    lineWin: result.lineWin,
+    scatterWin: result.scatterWin,
+    scatters: result.scatters,
+    payout: result.payout,
+    spinsLeft: result.spinsLeft,
+    sessionWin: result.sessionWin,
+    roll: result.roll,
+    nonce: result.nonce,
+    balance: result.balance,
+    user: publicUser(getUserById(user.id)),
+  });
+});
+
+app.post('/api/slot/buy', auth, limits.play, gameGate('slots'), (req, res) => {
+  const slot = askSlot(req, res);
+  if (!slot) return;
+  const bet = slotLineBet(slot, req.body?.bet);
+  if (!bet) return res.status(400).json({ error: 'Такой ставки нет' });
+
+  const price = slot.buyBonusPrice * bet.total;
+  const user = req.player;
+  if (user.balance < price) return sendInsufficient(res, price - user.balance);
+
+  let result;
+  try {
+    result = buySlotBonus(user.id, slot.id, price, bet.line, slot.freeSpins, slot.name);
+  } catch (err) {
+    if (err.code === 'INSUFFICIENT_FUNDS') return sendInsufficient(res, price - user.balance);
+    if (err.code === 'BAD') return res.status(400).json({ error: err.message });
+    throw err;
+  }
+
+  trackEvent(user.id, 'slot_bonus_bought', { slot: slot.id, bet: bet.total, price });
+
+  res.json({
+    slotId: slot.id,
+    price,
+    spinsLeft: result.session.spins_left,
+    lineBet: bet.line,
+    balance: result.balance,
+    user: publicUser(getUserById(user.id)),
+  });
+});
+
+app.post('/api/fortune/state', auth, limits.read, (req, res) => {
+  res.json({
+    ...fortuneState(req.player.id),
+    history: fortuneHistory(req.player.id),
+    wheel: {
+      segments: FORTUNE_SEGMENTS.map((s) => ({ index: s.index, type: s.type, label: s.label })),
+      segmentDeg: SEGMENT_DEG,
+      startDeg: SEGMENTS_START_DEG,
+    },
+    prizes: {
+      percentMin: PERCENT_MIN, percentMax: PERCENT_MAX,
+      voucherMin: VOUCHER_MIN, voucherMax: VOUCHER_MAX,
+      cash: CASH_PRIZE, giftCaseMaxPrice: GIFT_CASE_MAX_PRICE,
+    },
+  });
+});
+
+/**
+ * Прокрут. Ограничитель тот же, что у кассы: денежная ручка, и дёргать её
+ * вплотную незачем - всё равно раз в сутки.
+ */
+app.post('/api/fortune/spin', auth, limits.cashier, gameGate('fortune'), (req, res) => {
+  let result;
+  try {
+    result = playFortuneSpin(req.player.id, CASES);
+  } catch (err) {
+    if (err.code === 'FORTUNE_EMPTY' || err.code === 'FORTUNE_COOLDOWN') {
+      return res.status(400).json({ error: err.code, message: err.message, readyAt: err.readyAt });
+    }
+    throw err;
+  }
+
+  const c = result.prize.caseId ? getCase(result.prize.caseId) : null;
+  res.json({
+    prize: {
+      ...result.prize,
+      caseName: c?.name || null,
+      casePrice: c?.price || 0,
+    },
+    user: publicUser(getUserById(req.player.id)),
+    state: fortuneState(req.player.id),
+  });
+});
+
 app.post('/api/free-case/state', auth, (req, res) => {
   if (!subscriptionConfigured()) return res.json({ enabled: false });
   const state = freeCaseState(req.player.id, FREE_CASE_COOLDOWN_MS);
   res.json({ enabled: true, ...subscriptionConfig(), ...state });
 });
 
-app.post('/api/free-case/claim', auth, async (req, res) => {
+app.post('/api/free-case/claim', auth, limits.cashier, async (req, res) => {
   if (!subscriptionConfigured()) {
     return res.status(503).json({
       error: 'Бесплатный кейс ещё не настроен',
-      message: 'Раздел включится, когда будут заданы канал и кейс — см. NEDOSTATOK.md',
+      message: 'Раздел включится, когда будут заданы канал и кейс - см. NEDOSTATOK.md',
     });
   }
 
@@ -665,7 +1637,7 @@ app.post('/api/free-case/claim', auth, async (req, res) => {
   const check = await isSubscribed(req.player.tg_id);
 
   if (!check.ok) {
-    // Сеть или права бота — это наша проблема, а не игрока, и говорить
+    // Сеть или права бота - это наша проблема, а не игрока, и говорить
     // ему «вы не подписаны» в такой ситуации нельзя.
     const message = check.reason === 'network'
       ? 'Telegram не ответил, попробуйте ещё раз'
@@ -706,7 +1678,7 @@ app.post('/api/fair/client-seed', auth, (req, res) => {
   res.json({ user: publicUser(getUserById(req.player.id)) });
 });
 
-app.post('/api/fair/rotate', auth, (req, res) => {
+app.post('/api/fair/rotate', auth, limits.guess, (req, res) => {
   const result = rotateServerSeed(req.player.id);
   res.json({ ...result, user: publicUser(getUserById(req.player.id)) });
 });
@@ -715,24 +1687,35 @@ app.post('/api/fair/rotate', auth, (req, res) => {
    АДМИНКА
    ============================================================ */
 
-app.post('/api/admin/overview', auth, adminOnly, (req, res) => {
+app.post('/api/admin/overview', auth, need('reports.view'), (req, res) => {
   res.json({ ...adminOverview(), recent: adminRecentRounds(30) });
 });
 
-app.post('/api/admin/users', auth, adminOnly, (req, res) => {
+/**
+ * Воронка: сколько игроков дошло до каждого шага.
+ *
+ * Период ограничен сверху: запрос за всё время прочитал бы таблицу событий
+ * целиком, а она растёт быстрее всех остальных.
+ */
+app.post('/api/admin/funnel', auth, need('reports.view'), (req, res) => {
+  const days = Math.min(90, Math.max(1, Math.trunc(Number(req.body?.days) || 7)));
+  res.json({ funnel: funnelStats(days), events: eventTotals(days) });
+});
+
+app.post('/api/admin/users', auth, need('players.view'), (req, res) => {
   const query = String(req.body?.query || '').slice(0, 64);
   const limit = Math.min(100, Math.max(1, Number(req.body?.limit) || 30));
   const offset = Math.max(0, Number(req.body?.offset) || 0);
   res.json(adminUsers({ query, limit, offset }));
 });
 
-app.post('/api/admin/user', auth, adminOnly, (req, res) => {
+app.post('/api/admin/user', auth, need('players.view'), (req, res) => {
   const detail = adminUserDetail(Number(req.body?.userId));
   if (!detail) return res.status(404).json({ error: 'Игрок не найден' });
   res.json(detail);
 });
 
-app.post('/api/admin/balance', auth, adminOnly, (req, res) => {
+app.post('/api/admin/balance', auth, need('players.balance'), (req, res) => {
   const targetId = Number(req.body?.userId);
   const amount = Math.trunc(Number(req.body?.amount));
 
@@ -743,9 +1726,25 @@ app.post('/api/admin/balance', auth, adminOnly, (req, res) => {
     return res.status(400).json({ error: 'Слишком большая сумма' });
   }
 
+  /*
+   * Потолок одной правки. Он не про недоверие к поддержке, а про опечатку:
+   * компенсация зависшего прокрута на 500 с промахом в три нуля уходит без
+   * единой проверки, и заметят её в отчёте через неделю. Подтверждение здесь
+   * не помогло бы - его нажимают не глядя.
+   */
+  const cap = balanceCapFor(req.staff);
+  if (cap > 0 && Math.abs(amount) > cap) {
+    return res.status(403).json({
+      error: `Правка больше ${cap.toLocaleString('ru-RU')} вам недоступна`,
+    });
+  }
+
   try {
+    // asDeposit=false - это корректировка: деньги доходят без долга по обороту.
+    // По умолчанию начисление считается пополнением и требует отыгрыша.
     const result = adminAdjustBalance(
-      req.player.id, targetId, amount, String(req.body?.note || '').slice(0, 200)
+      req.player.id, targetId, amount, String(req.body?.note || '').slice(0, 200),
+      { asDeposit: req.body?.asDeposit !== false }
     );
     res.json(result);
   } catch (err) {
@@ -754,7 +1753,7 @@ app.post('/api/admin/balance', auth, adminOnly, (req, res) => {
   }
 });
 
-app.post('/api/admin/block', auth, adminOnly, (req, res) => {
+app.post('/api/admin/block', auth, need('players.block'), (req, res) => {
   const targetId = Number(req.body?.userId);
   if (targetId === req.player.id) {
     return res.status(400).json({ error: 'Нельзя заблокировать самого себя' });
@@ -767,7 +1766,7 @@ app.post('/api/admin/block', auth, adminOnly, (req, res) => {
   }
 });
 
-app.post('/api/admin/voucher', auth, adminOnly, (req, res) => {
+app.post('/api/admin/voucher', auth, need('players.gift'), (req, res) => {
   const targetId = Number(req.body?.userId);
   const caseId = String(req.body?.caseId || '');
   const count = Math.min(100, Math.max(1, Math.trunc(Number(req.body?.count) || 1)));
@@ -782,13 +1781,22 @@ app.post('/api/admin/voucher', auth, adminOnly, (req, res) => {
   }
 });
 
-app.post('/api/admin/payouts', auth, adminOnly, (req, res) => {
+app.post('/api/admin/payouts', auth, need('finance.payouts.view'), async (req, res) => {
   const status = ['pending', 'processing', 'paid', 'rejected', 'cancelled', 'all']
     .includes(req.body?.status) ? req.body.status : 'pending';
-  res.json({ rows: adminPayouts(status), stats: payoutStats() });
+  const rows = adminPayouts(status);
+  // Код банка шлюза подбирается по названию из заявки; не нашли - админ
+  // выберет сам. Отправка в шлюз показывается рядом с заявкой.
+  const banks = sicilia.isConfigured() ? await sicilia.banks() : [];
+  res.json({
+    rows: rows.map((r) => ({ ...r, gatewayBank: r.method === 'sbp' ? sicilia.matchBank(r.bank, banks) : null })),
+    gateway: sicilia.gatewayPayouts(rows.map((r) => r.id)),
+    siciliaReady: sicilia.isConfigured(),
+    stats: payoutStats(),
+  });
 });
 
-app.post('/api/admin/payout/resolve', auth, adminOnly, (req, res) => {
+app.post('/api/admin/payout/resolve', auth, need('finance.payouts.resolve'), (req, res) => {
   const id = Number(req.body?.id);
   const status = String(req.body?.status || '');
   const comment = String(req.body?.comment || '').slice(0, 300);
@@ -805,6 +1813,238 @@ app.post('/api/admin/payout/resolve', auth, adminOnly, (req, res) => {
       return res.status(400).json({ error: err.message });
     }
     throw err;
+  }
+});
+
+/* ============================================================
+   КРИПТОКАССА HELEKET
+   ============================================================ */
+
+/**
+ * Что доступно к оплате: монеты, сети и курсы.
+ *
+ * Курсы отдаются здесь же, а не отдельной ручкой: интерфейсу они нужны ровно
+ * в тот момент, когда он рисует список монет, и второй запрос был бы лишним
+ * походом по сети ради тех же данных.
+ */
+app.post('/api/crypto/options', auth, limits.read, async (req, res) => {
+  if (!crypto.isConfigured()) return res.json({ enabled: false, coins: [], rates: {} });
+  try {
+    const [coins, rates] = await Promise.all([crypto.coins(), crypto.rates()]);
+    res.json({
+      enabled: true,
+      coins,
+      rates,
+      min: crypto.CRYPTO_MIN,
+      max: crypto.CRYPTO_MAX,
+    });
+  } catch (err) {
+    res.status(503).json({ error: err.code || 'GATEWAY_ERROR', message: err.message });
+  }
+});
+
+app.post('/api/crypto/create', auth, limits.cashier, async (req, res) => {
+  if (!setting('deposits_open')) {
+    return res.status(503).json({ error: 'Приём пополнений временно закрыт' });
+  }
+
+  try {
+    const payment = await crypto.createDeposit(
+      req.player.id, req.body?.amount, req.body?.currency, req.body?.network
+    );
+    res.status(201).json(payment);
+  } catch (err) {
+    const status = err.code === 'GATEWAY_UNREACHABLE' || err.code === 'NOT_CONFIGURED' ? 503 : 400;
+    res.status(status).json({ error: err.code || 'CRYPTO_ERROR', message: err.message });
+  }
+});
+
+app.post('/api/crypto/list', auth, limits.read, (req, res) => {
+  res.json({ rows: crypto.listDeposits(req.player.id) });
+});
+
+/**
+ * Сверка платежа со шлюзом по просьбе игрока.
+ *
+ * Нужна, когда вебхук не дошёл: сеть моргнула, приложение перезапускалось.
+ * Без неё деньги висели бы до ручного разбора, а игрок видел бы «ожидание»
+ * при уже отправленном переводе.
+ */
+app.post('/api/crypto/refresh', auth, limits.cashier, async (req, res) => {
+  try {
+    const result = await crypto.refreshDeposit(req.body?.id, req.player.id);
+    if (result.credited) {
+      emitPayment(req.player.id, 'payment.completed', { source: 'crypto' });
+    }
+    res.json({ ...result, user: publicUser(getUserById(req.player.id)) });
+  } catch (err) {
+    const status = err.code === 'NOT_FOUND' ? 404 : 400;
+    res.status(status).json({ error: err.code || 'CRYPTO_ERROR', message: err.message });
+  }
+});
+
+/**
+ * Вебхук шлюза.
+ *
+ * Отвечаем 200 на всё, что подписано нашим ключом, даже если платёж уже был
+ * зачислен: шлюз повторяет доставку до успешного ответа, и на любой другой
+ * код он будет ломиться снова и снова. Защита от повторного зачисления живёт
+ * в базе, а не в коде ответа.
+ */
+app.post('/api/webhooks/heleket', limits.webhook, (req, res) => {
+  if (!crypto.webhookIpAllowed(req.ip)) {
+    return res.status(403).json({ error: 'Чужой адрес' });
+  }
+  if (!crypto.verifyWebhook(req.body)) {
+    return res.status(401).json({ error: 'Подпись не совпала' });
+  }
+
+  try {
+    const result = crypto.applyWebhook(req.body);
+    if (result.credited) emitPayment(result.userId, 'payment.completed', { source: 'crypto' });
+    res.json({ ok: true });
+  } catch (err) {
+    if (err.code === 'NOT_FOUND') return res.status(200).json({ ok: true, unknown: true });
+    throw err;
+  }
+});
+
+/* ============================================================
+   СБП И КАРТА: ШЛЮЗ SICILIA
+   ============================================================ */
+
+/*
+ * Пополнение через платёжное окно шлюза, открытое отдельно от мини-аппа
+ * (решение заказчика). Сервер подписывает ссылку, клиент её открывает,
+ * деньги приходят колбэком и сверкой. Подробности - в server/sicilia.js.
+ */
+app.post('/api/sicilia/options', auth, limits.read, (req, res) => {
+  const env = sicilia.siciliaEnv();
+  res.json({ enabled: sicilia.payinReady(env), min: env.min, max: env.max });
+});
+
+app.post('/api/sicilia/create', auth, limits.cashier, (req, res) => {
+  if (!setting('deposits_open')) return res.status(503).json({ error: 'Приём пополнений временно закрыт' });
+  try {
+    res.status(201).json(sicilia.createDeposit(req.player.id, req.body?.amount));
+  } catch (err) {
+    res.status(err.code === 'NOT_CONFIGURED' ? 503 : 400).json({ error: err.message, code: err.code });
+  }
+});
+
+/* Ссылка на то же окно ещё раз: игрок закрыл его, не заплатив. */
+app.post('/api/sicilia/reopen', auth, limits.cashier, (req, res) => {
+  try {
+    res.json(sicilia.reopenDeposit(req.body?.id, req.player.id));
+  } catch (err) {
+    res.status(err.code === 'NOT_FOUND' ? 404 : 400).json({ error: err.message, code: err.code });
+  }
+});
+
+app.post('/api/sicilia/list', auth, limits.read, (req, res) => {
+  res.json({ rows: sicilia.listDeposits(req.player.id) });
+});
+
+app.post('/api/sicilia/refresh', auth, limits.cashier, async (req, res) => {
+  try {
+    const result = await sicilia.refreshDeposit(req.body?.id, req.player.id);
+    if (result.credited) emitPayment(req.player.id, 'payment.completed', { source: 'sicilia' });
+    res.json({ ...result, user: publicUser(getUserById(req.player.id)) });
+  } catch (err) {
+    const status = err.code === 'NOT_FOUND' ? 404 : err.code === 'GATEWAY_UNREACHABLE' ? 503 : 400;
+    res.status(status).json({ error: err.message, code: err.code });
+  }
+});
+
+/**
+ * Колбэк шлюза: и пополнения, и выплаты (у выплат адрес задаётся в кабинете
+ * один на все, у пополнений мы передаём его в ссылке окна).
+ *
+ * Подпись колбэка статуса не покрывает, поэтому сам колбэк ничего не решает:
+ * сервер переспрашивает статус у шлюза своей подписью. Не смогли спросить -
+ * отвечаем 503, и шлюз повторит; деньги не теряются и сверкой по расписанию.
+ */
+app.post('/api/webhooks/sicilia', limits.webhook, async (req, res) => {
+  if (!sicilia.callbackIpAllowed(req.ip)) return res.status(403).json({ error: 'Чужой адрес' });
+  if (!sicilia.verifyCallback(req.body)) return res.status(401).json({ error: 'Подпись не совпала' });
+  try {
+    const result = await sicilia.handleCallback(req.body);
+    if (result.credited) emitPayment(result.userId, 'payment.completed', { source: 'sicilia' });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[sicilia] колбэк:', err.message);
+    res.status(err.code === 'NOT_FOUND' ? 200 : 503).json({ ok: false });
+  }
+});
+
+/* Панель: готовность шлюза, баланс мерчанта и коды банков для выплат. */
+app.post('/api/admin/sicilia', auth, need('finance.payouts.view'), async (req, res) => {
+  const env = sicilia.siciliaEnv();
+  let balance = null;
+  let balanceError = '';
+  if (sicilia.isConfigured(env)) {
+    try { balance = await sicilia.merchantBalance(); } catch (err) { balanceError = err.message; }
+  }
+  const banks = await sicilia.banks();
+  res.json({
+    configured: sicilia.isConfigured(env),
+    payin: sicilia.payinReady(env),
+    balance,
+    balanceError,
+    banks,
+  });
+});
+
+app.post('/api/admin/sicilia/payout', auth, need('finance.payouts.resolve'), async (req, res) => {
+  try {
+    const gateway = await sicilia.sendPayout(req.player.id, Number(req.body?.id), req.body?.bank);
+    res.json({ gateway, stats: payoutStats() });
+  } catch (err) {
+    const status = err.code === 'NOT_FOUND' ? 404 : err.code === 'NOT_CONFIGURED' || err.code === 'GATEWAY_UNREACHABLE' ? 503 : 400;
+    res.status(status).json({ error: err.message, code: err.code });
+  }
+});
+
+/**
+ * Кошелёк казино: вызовы агрегатора на каждую ставку, выигрыш и отмену.
+ *
+ * Отвечаем всегда кодом 200 и statusCode в теле - так устроен их протокол;
+ * HTTP-ошибку агрегатор воспринял бы как сбой сети и повторял бы вызов.
+ * Повтор не страшен (casino-db.js отвечает на него кодом 9), но лишний.
+ *
+ * Защита двойная: адрес их сервера (CASINO_CALLBACK_IPS) и наш же ключ
+ * агента в заголовке. Ограничителя частоты здесь нет намеренно: вызовов по
+ * одному на каждый прокрут каждого игрока, и упереться в собственный лимит
+ * значило бы отказать в выигрыше.
+ */
+function sameSecret(a, b) {
+  const x = Buffer.from(String(a || ''));
+  const y = Buffer.from(String(b || ''));
+  return x.length === y.length && x.length > 0 && timingSafeEqual(x, y);
+}
+
+app.post('/api/casino/wallet', (req, res) => {
+  const env = casinoEnv();
+  const ip = String(req.ip || '').replace(/^::ffff:/, '');
+  if (env.callbackIps.length && !env.callbackIps.includes(ip)) {
+    console.error('[casino] кошелёк: чужой адрес', ip);
+    return res.status(403).json({ statusCode: CASINO_STATUS.INVALID_CREDENTIALS, message: 'Forbidden' });
+  }
+  if (!sameSecret(req.get('x-agent-name'), env.agent) || !sameSecret(req.get('x-agent-token'), env.token)) {
+    return res.json({ statusCode: CASINO_STATUS.INVALID_CREDENTIALS, message: 'Invalid credentials' });
+  }
+
+  try {
+    const result = casinoWallet(req.body, { currency: env.currency });
+    res.json({
+      statusCode: result.statusCode,
+      message: result.statusCode === 0 ? 'Success' : String(result.statusCode),
+      balance: result.balance ?? null,
+      bonusBalance: 0,
+    });
+  } catch (err) {
+    console.error('[casino] кошелёк:', err);
+    res.json({ statusCode: CASINO_STATUS.GENERIC, message: 'Generic error' });
   }
 });
 
@@ -827,11 +2067,15 @@ app.get('/api/payments/events', auth, (req, res) => {
   req.on('close', () => { clearInterval(keepalive); set.delete(res); if (!set.size) paymentStreams.delete(req.player.id); });
 });
 
-app.post('/api/payments/create', auth, (req, res) => {
+app.post('/api/payments/create', auth, limits.cashier, (req, res) => {
+  if (!setting('deposits_open')) {
+    return res.status(503).json({ error: 'Приём пополнений временно закрыт' });
+  }
+
   try { res.status(201).json(createPayment(req.player.id, req.body?.amount, String(req.body?.bank || ''))); }
   catch (err) { res.status(400).json({ error: err.code || 'PAYMENT_ERROR', message: err.message }); }
 });
-app.post('/api/payments/list', auth, (req, res) => res.json({ rows: listPayments(req.player.id) }));
+app.post('/api/payments/list', auth, limits.read, (req, res) => res.json({ rows: listPayments(req.player.id) }));
 app.post('/api/payments/get', auth, (req, res) => {
   const row = getPayment(Number(req.body?.id), req.player.id);
   if (!row) return res.status(404).json({ error: 'Заявка не найдена' }); res.json(row);
@@ -844,27 +2088,27 @@ function deviceAuth(req, res, next) {
     req.deviceId = req.get('X-Device-Id'); next();
   } catch (err) { res.status(err.status || 401).json({ error: err.message }); }
 }
-app.post('/api/webhooks/beeline', deviceAuth, (req, res) => {
+app.post('/api/webhooks/beeline', limits.webhook, deviceAuth, (req, res) => {
   try {
     const result = processBeelineSms({ amount: req.body?.amount, message: String(req.body?.message || ''), deviceId: req.deviceId });
     emitPayment(result.userId, 'payment.completed', result); res.json({ ok: true, ...result });
   } catch (err) { res.status(err.status || 400).json({ error: err.message }); }
 });
-app.post('/api/webhooks/beeline/heartbeat', deviceAuth, (req, res) => { heartbeat(req.deviceId); res.json({ ok: true, serverTime: Date.now() }); });
+app.post('/api/webhooks/beeline/heartbeat', limits.webhook, deviceAuth, (req, res) => { heartbeat(req.deviceId); res.json({ ok: true, serverTime: Date.now() }); });
 
 app.post('/api/support/open', auth, (req, res) => res.status(201).json(openDispute(req.player.id, Number(req.body?.paymentId))));
 app.post('/api/support/chat', auth, (req, res) => {
   const data = supportChat(Number(req.body?.chatId));
   if (!data.chat || data.chat.user_id !== req.player.id) return res.status(404).json({ error: 'Чат не найден' }); res.json(data);
 });
-app.post('/api/support/message', auth, (req, res) => {
+app.post('/api/support/message', auth, limits.cashier, (req, res) => {
   const data = supportChat(Number(req.body?.chatId));
   if (!data.chat || data.chat.user_id !== req.player.id) return res.status(404).json({ error: 'Чат не найден' });
   addSupportMessage(data.chat.id, 'USER', req.player.id, String(req.body?.text || '').slice(0, 2000),
     req.body?.attachmentUrl, String(req.body?.attachmentName || '').slice(0, 200));
   res.status(201).json(supportChat(data.chat.id));
 });
-app.post('/api/support/upload', auth, (req, res) => {
+app.post('/api/support/upload', auth, limits.cashier, (req, res) => {
   const mime=String(req.body?.mime||''), name=String(req.body?.name||'file').replace(/[^\p{L}\p{N}._-]/gu,'_').slice(0,100);
   const allowed={'image/jpeg':'jpg','image/png':'png','image/webp':'webp','application/pdf':'pdf'};
   if (!allowed[mime]) return res.status(400).json({error:'Разрешены JPG, PNG, WebP и PDF'});
@@ -879,20 +2123,210 @@ app.get('/api/support/files/:file', auth, (req,res) => {
   res.sendFile(join(__dirname,'..','data','support-uploads',file));
 });
 
-app.post('/api/admin/payments', auth, adminOnly, (req, res) => res.json({ rows: adminPayments(String(req.body?.status || 'ALL')), dashboard: paymentDashboard() }));
-app.post('/api/admin/payment-settings', auth, adminOnly, (req, res) => {
+app.post('/api/admin/payments', auth, need('finance.payments.view'), (req, res) => res.json({ rows: adminPayments(String(req.body?.status || 'ALL')), dashboard: paymentDashboard() }));
+app.post('/api/admin/payment-settings', auth, need('finance.settings'), (req, res) => {
   try { res.json(req.body?.save ? updatePaymentSettings(req.body.values || {}) : paymentSettings()); }
   catch (err) { res.status(400).json({ error: err.message }); }
 });
-app.post('/api/admin/payment-devices', auth, adminOnly, (req, res) => res.json({ rows: adminDevices() }));
-app.post('/api/admin/payment-device/register', auth, adminOnly, (req, res) => {
+app.post('/api/admin/payment-devices', auth, need('finance.settings'), (req, res) => res.json({ rows: adminDevices() }));
+app.post('/api/admin/payment-device/register', auth, need('finance.settings'), (req, res) => {
   const id=String(req.body?.deviceId||'').trim(), secret=String(req.body?.secret||'');
-  if (!id || secret.length < 24) return res.status(400).json({ error: 'ID обязателен, секрет — минимум 24 символа' });
+  if (!id || secret.length < 24) return res.status(400).json({ error: 'ID обязателен, секрет - минимум 24 символа' });
   registerDevice(id, String(req.body?.name||id).slice(0,80), secret); res.status(201).json({ ok:true });
 });
-app.post('/api/admin/support', auth, adminOnly, (req, res) => res.json({ rows: adminChats() }));
-app.post('/api/admin/support/chat', auth, adminOnly, (req, res) => res.json(supportChat(Number(req.body?.chatId))));
-app.post('/api/admin/support/message', auth, adminOnly, (req, res) => {
+/* ============================================================
+   БЭК-ОФИС: СОТРУДНИКИ, ЖУРНАЛ, НАСТРОЙКИ, РИСК, ОТЧЁТЫ
+   ============================================================ */
+
+/**
+ * Что этот сотрудник может. Клиент рисует панель по этому ответу и ничего
+ * не додумывает: раздела, на который нет права, он просто не строит.
+ *
+ * Это удобство, а не защита. Защита - need() на каждой ручке: спрятанный
+ * раздел открывается одной строкой в консоли браузера.
+ */
+app.post('/api/admin/me', auth, adminOnly, (req, res) => {
+  const role = ROLE_BY_ID.get(req.staff?.role);
+  res.json({
+    role: req.staff?.role || null,
+    roleName: role?.name || '',
+    permissions: [...req.perms],
+    balanceCap: balanceCapFor(req.staff),
+    note: req.staff?.note || '',
+    sections: {
+      players: req.perms.has('players.view'),
+      finance: req.perms.has('finance.payouts.view') || req.perms.has('finance.payments.view'),
+      promo: req.perms.has('promo.view') || req.perms.has('partners.view'),
+      support: req.perms.has('support.view'),
+      risk: req.perms.has('risk.view'),
+      reports: req.perms.has('reports.view'),
+      journal: req.perms.has('journal.view'),
+      staff: req.perms.has('staff.manage'),
+      settings: req.perms.has('settings.manage'),
+    },
+  });
+});
+
+app.post('/api/admin/staff', auth, need('staff.manage'), (req, res) => {
+  res.json({
+    rows: staffList(),
+    roles: publicRoles(),
+    assignable: assignableRoles(req.perms, req.staff?.role).map((r) => r.id),
+    permissions: PERMISSIONS,
+    groups: PERMISSION_GROUPS,
+    // Выдать можно только то, что есть у себя: иначе любой, кому доверили
+    // заводить поддержку, за два шага выписывает себе реквизиты приёма.
+    grantable: [...req.perms],
+    meId: req.player.id,
+  });
+});
+
+app.post('/api/admin/staff/save', auth, need('staff.manage'), (req, res) => {
+  const body = req.body || {};
+  const role = String(body.role || '');
+  if (!ROLE_BY_ID.has(role)) return res.status(400).json({ error: 'Неизвестная роль' });
+
+  const allowedRoles = assignableRoles(req.perms, req.staff?.role).map((r) => r.id);
+  if (!allowedRoles.includes(role)) {
+    return res.status(403).json({ error: 'Эта роль вам недоступна' });
+  }
+
+  const extra = (Array.isArray(body.extra) ? body.extra : []).filter(isPermission);
+  const denied = (Array.isArray(body.denied) ? body.denied : []).filter(isPermission);
+  const notMine = extra.filter((p) => !req.perms.has(p));
+  if (notMine.length) {
+    return res.status(403).json({ error: `Нельзя выдать то, чего нет у вас: ${notMine.join(', ')}` });
+  }
+
+  const target = findUserByAnyId(body.userKey);
+  if (target) {
+    const existing = staffRow(target.id);
+    if (existing && !canManage(req.perms, req.staff?.role, existing.role)) {
+      return res.status(403).json({ error: 'Эту запись вам править нельзя' });
+    }
+    // Снять права самому себе можно только по ошибке, и это ошибка, после
+    // которой в панель никто не войдёт. Поэтому нельзя.
+    if (target.id === req.player.id && body.active === false) {
+      return res.status(400).json({ error: 'Нельзя выключить самого себя' });
+    }
+  }
+
+  try {
+    res.json({ rows: staffSave(req.player.id, { ...body, role, extra, denied }) });
+  } catch (err) {
+    if (err.code === 'NOT_FOUND') return res.status(404).json({ error: err.message });
+    throw err;
+  }
+});
+
+app.post('/api/admin/staff/remove', auth, need('staff.manage'), (req, res) => {
+  const userId = Number(req.body?.userId);
+  if (userId === req.player.id) {
+    return res.status(400).json({ error: 'Нельзя удалить самого себя' });
+  }
+  const existing = staffRow(userId);
+  if (!existing) return res.status(404).json({ error: 'Сотрудник не найден' });
+  if (!canManage(req.perms, req.staff?.role, existing.role)) {
+    return res.status(403).json({ error: 'Эту запись вам править нельзя' });
+  }
+  res.json({ rows: staffRemove(req.player.id, userId) });
+});
+
+app.post('/api/admin/journal', auth, need('journal.view'), (req, res) => {
+  res.json(adminJournal({
+    limit: Math.min(200, Math.max(1, Number(req.body?.limit) || 80)),
+    offset: Math.max(0, Number(req.body?.offset) || 0),
+    adminId: Math.max(0, Number(req.body?.adminId) || 0),
+    action: String(req.body?.action || '').slice(0, 40),
+  }));
+});
+
+app.post('/api/admin/settings', auth, need('settings.manage'), (req, res) => {
+  res.json({ rows: settingsAll() });
+});
+
+app.post('/api/admin/settings/save', auth, need('settings.manage'), (req, res) => {
+  res.json({ rows: saveSettings(req.player.id, req.body?.patch || {}) });
+});
+
+app.post('/api/admin/player/note', auth, need('players.notes'), (req, res) => {
+  const userId = Number(req.body?.userId);
+  try {
+    res.json({ notes: addPlayerNote(req.player.id, userId, req.body?.text, req.body?.pinned) });
+  } catch (err) {
+    if (err.code === 'BAD') return res.status(400).json({ error: err.message });
+    throw err;
+  }
+});
+
+app.post('/api/admin/player/note/delete', auth, need('players.notes'), (req, res) => {
+  try {
+    res.json({ notes: deletePlayerNote(req.player.id, Number(req.body?.noteId)) });
+  } catch (err) {
+    if (err.code === 'NOT_FOUND') return res.status(404).json({ error: err.message });
+    throw err;
+  }
+});
+
+app.post('/api/admin/player/limits', auth, need('players.limits'), (req, res) => {
+  const userId = Number(req.body?.userId);
+  if (!getUserById(userId)) return res.status(404).json({ error: 'Игрок не найден' });
+  res.json({
+    limits: setPlayerLimits(req.player.id, userId, req.body?.patch || {}),
+    day: dayActivity(userId),
+    cooldownMs: LIMIT_COOLDOWN_MS,
+  });
+});
+
+app.post('/api/admin/risk', auth, need('risk.view'), (req, res) => {
+  res.json(riskSignals({ limit: Math.min(100, Math.max(5, Number(req.body?.limit) || 40)) }));
+});
+
+app.post('/api/admin/reports', auth, need('reports.view'), (req, res) => {
+  const days = Math.min(180, Math.max(1, Number(req.body?.days) || 30));
+  res.json({ days, daily: revenueDaily(days), cases: caseRevenueReport(days) });
+});
+
+/**
+ * Выгрузка в CSV.
+ *
+ * Разделитель - точка с запятой, кодировка с BOM: Excel в русской локали
+ * открывает запятую как разделитель дробной части и складывает всю строку в
+ * одну ячейку. Это не придирка, это первое, обо что спотыкается любой отчёт.
+ */
+app.post('/api/admin/export', auth, need('reports.view'), (req, res) => {
+  const kind = String(req.body?.kind || 'daily');
+  const days = Math.min(180, Math.max(1, Number(req.body?.days) || 30));
+  const date = (t) => new Date(t).toISOString().slice(0, 10);
+
+  let head = [];
+  let rows = [];
+  if (kind === 'cases') {
+    head = ['кейс', 'открытий', 'игроков', 'поставлено', 'выплачено', 'доход', 'отдача'];
+    rows = caseRevenueReport(days).map((r) => [
+      r.title, r.opened, r.players, r.wagered, r.paid, r.ggr,
+      r.rtp === null ? '' : (r.rtp * 100).toFixed(2)]);
+  } else {
+    head = ['дата', 'раундов', 'игроков', 'поставлено', 'выплачено', 'доход',
+            'отдача', 'пополнено', 'выведено', 'чистый приход', 'регистраций'];
+    rows = revenueDaily(days).map((r) => [
+      date(r.day), r.rounds, r.players, r.wagered, r.paid, r.ggr,
+      r.rtp === null ? '' : (r.rtp * 100).toFixed(2),
+      r.deposits, r.payouts, r.net, r.signups]);
+  }
+
+  const escape = (v) => {
+    const text = String(v ?? '');
+    return /[";\n]/.test(text) ? '"' + text.replace(/"/g, '""') + '"' : text;
+  };
+  const csv = '\ufeff' + [head, ...rows].map((r) => r.map(escape).join(';')).join('\r\n');
+  logAdmin(req.player.id, 0, 'export', { note: kind, meta: { days, rows: rows.length } });
+  res.type('text/csv; charset=utf-8').send(csv);
+});
+
+app.post('/api/admin/support', auth, need('support.view'), (req, res) => res.json({ rows: adminChats() }));
+app.post('/api/admin/support/chat', auth, need('support.view'), (req, res) => res.json(supportChat(Number(req.body?.chatId))));
+app.post('/api/admin/support/message', auth, need('support.reply'), (req, res) => {
   addSupportMessage(Number(req.body?.chatId),'ADMIN',req.player.id,String(req.body?.text||'').slice(0,2000),req.body?.attachmentUrl,String(req.body?.attachmentName||'').slice(0,200));
   res.status(201).json(supportChat(Number(req.body?.chatId)));
 });
@@ -906,15 +2340,23 @@ const PORT = Number(process.env.PORT || 3000);
 
 app.listen(PORT, () => {
   startFeed();
+  startCatalogSync();
+  sicilia.startReconcile((userId) => emitPayment(userId, 'payment.completed', { source: 'sicilia' }));
 
   console.log(`\n  LUCKYBOX запущен на http://localhost:${PORT}`);
   if (process.env.DEV_MODE === 'true') {
-    console.log('  DEV_MODE включён — подпись Telegram не проверяется.');
+    console.log('  DEV_MODE включён - подпись Telegram не проверяется.');
   }
   console.log(`  Краш RTP: ${(gameReport.crashRtp * 100).toFixed(2)}%  ` +
               `Рулетка RTP: ${(gameReport.rouletteRtp * 100).toFixed(2)}%  ` +
               `Риск-игра RTP: ${(gambleReport.rtp * 100).toFixed(2)}%  ` +
               `Апгрейд RTP: ${(upgradeReport.rtp * 100).toFixed(2)}%`);
+  for (const r of slotReport) {
+    console.log(`  Слот ${r['слот']}: отдача ${r['отдача всего']}, ` +
+                `бонус раз в ${r['бонус раз в']} прокрутов, ` +
+                `покупка бонуса ${r['цена бонуса']}`);
+  }
+  console.log(`  Оформление карточек: ${skinReport.families} семейств на ${skinReport.tiers} ступеней редкости`);
   console.log(`  Витрина: ${FEED_CONFIG.synthetic ? 'выдуманные выпадения включены' : 'только живые игроки'}` +
               `, порог x${FEED_CONFIG.minMultiplier}, пул ${FEED_CONFIG.poolSize}`);
   console.log(`  Бесплатный кейс за подписку: ${subscriptionConfigured() ? 'настроен' : 'выключен (нет канала/кейса)'}\n`);

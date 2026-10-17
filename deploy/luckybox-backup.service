@@ -1,0 +1,25 @@
+# Разовый прогон резервного копирования. Запускается таймером, не вручную.
+#
+#   sudo cp deploy/luckybox-backup.{service,timer} /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now luckybox-backup.timer
+#
+# Проверить: systemctl list-timers luckybox-backup
+# Прогнать сейчас: sudo systemctl start luckybox-backup
+
+[Unit]
+Description=LuckyBox - резервная копия базы
+
+[Service]
+Type=oneshot
+User=luckybox
+Group=luckybox
+WorkingDirectory=/srv/luckybox
+EnvironmentFile=/srv/luckybox/.env
+ExecStart=/usr/bin/node deploy/backup.mjs
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/luckybox/data
