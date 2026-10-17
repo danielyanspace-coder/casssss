@@ -1,12 +1,14 @@
 /**
- * Два баннера раздела «Казино».
+ * Слайд «Большие джекпоты каждый день».
  *
  *   NODE_USE_ENV_PROXY=1 node tools/promo-banners.mjs <папка со шрифтами>
  *     ->  public/assets/ui/hero-jackpot.webp   (1600x800, слайд-шоу)
- *     ->  public/assets/ui/promo-cases.webp    (900x782, пара под слайд-шоу)
+ *
+ * Квадратные «Казино» и «Кейсы» рисует tools/promo-squares.mjs.
  *
  * В папке шрифтов: inter-cyr.woff2, inter-lat.woff2 (Inter 800) и
- * mont-cyr.woff2, mont-lat.woff2 (Montserrat 800). Шрифты передаются файлами:
+ * mont-cyr.woff2, mont-lat.woff2 (Montserrat 800, общий с promo-squares.mjs).
+ * Шрифты передаются файлами:
  * рисует безголовый браузер, и не доехавший шрифт навсегда впечатался бы
  * запасным. По два файла на начертание, потому что Google режет шрифт по
  * алфавитам, и в кириллическом наборе нет цифр.
@@ -17,11 +19,6 @@
  * Карточки - настоящие обложки самых популярных слотов лобби. Квадратные
  * 1004x1004 обрезаются под 3:4: вертикальные у этих игр всего 330x420 и на
  * баннере в 1600 точек расплылись бы.
- *
- * «Кейсы» - пара к Free Money на экране казино, тем же языком, что
- * квадратные «Казино» и «Бонусы»: плита со скруглением, белый заголовок,
- * под ним предмет. Предмет - три настоящие обложки кейсов, вырезанные по
- * контуру, с крупной сцены (public/assets/covers/stage).
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -137,35 +134,3 @@ await render(`<!doctype html><html><head><style>
   ${coin(1430, 120, 34, 20)}${coin(1500, 560, 26, -15, 0.95)}${coin(935, 600, 30, 10)}
   ${coin(840, 150, 18, 0, 0.8)}${coin(1395, 690, 20, 0, 0.85)}
 </body></html>`, 1600, 800, 'hero-jackpot.webp', false);
-
-/* ---------- Кейсы ---------- */
-
-const caseArt = (name) => `data:image/webp;base64,${b64(join(ROOT, 'public/assets/covers/stage', `${name}.webp`))}`;
-
-await render(`<!doctype html><html><head><style>
-  ${fontFaces}
-  * { box-sizing: border-box; margin: 0; }
-  html, body { width: 900px; height: 782px; background: transparent; overflow: hidden; }
-  /* Плита как у квадратных «Казино» и «Бонусы»: те же размеры и скругление. */
-  .plate { position: absolute; left: 6px; top: 6px; right: 6px; bottom: 6px; border-radius: 44px; overflow: hidden;
-    background:
-      radial-gradient(75% 55% at 50% 82%, rgba(255, 196, 64, 0.30), transparent 70%),
-      radial-gradient(85% 70% at 50% 78%, #4a1d6e 0%, #241034 52%, #120a1c 100%);
-    border: 4px solid #6b3fa0; }
-  h1 { position: absolute; left: 0; right: 0; top: 64px; text-align: center;
-    font-family: M, sans-serif; font-weight: 800; font-size: 142px; letter-spacing: -2px; color: #fff; }
-  img { position: absolute; filter: drop-shadow(0 26px 30px rgba(0, 0, 0, 0.6)); }
-  .l { width: 330px; left: 50px; top: 315px; transform: rotate(-8deg); }
-  .r { width: 330px; right: 50px; top: 315px; transform: rotate(8deg); }
-  .m { width: 470px; left: 215px; top: 255px; filter: drop-shadow(0 30px 40px rgba(0, 0, 0, 0.7)) drop-shadow(0 0 40px rgba(255, 196, 64, 0.35)); }
-  .shadow { position: absolute; left: 150px; right: 150px; bottom: 34px; height: 70px; border-radius: 50%;
-    background: radial-gradient(closest-side, rgba(0, 0, 0, 0.55), transparent); }
-</style></head><body>
-  <div class="plate">
-    <div class="shadow"></div>
-    <h1>Кейсы</h1>
-  </div>
-  <img class="l" src="${caseArt('neon')}">
-  <img class="r" src="${caseArt('treasure')}">
-  <img class="m" src="${caseArt('megabox')}">
-</body></html>`, 900, 782, 'promo-cases.webp', true);

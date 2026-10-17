@@ -1769,10 +1769,62 @@ check('честность: личная статистика убрана', fair
   await ensureOpenerClosed();
   await page.click('#brandHome');
   await page.waitForTimeout(300);
+
+  /*
+   * Обложка, которой нет на CDN: сервер отвечает 404, и плитка обязана
+   * показать горизонтальную обложку, а без неё - запасную плитку с
+   * названием, а не знак вопроса. Подменяем ответ для первой игры витрины
+   * (с сервером; в файле сборки обложки идут с CDN, и подменять там нечего).
+   */
+  const onServer = await page.evaluate(() => location.protocol.startsWith('http'));
+  let brokenId = null;
+  // Только вертикальная: запасная горизонтальная (?w=1) пусть грузится.
+  const brokenCover = (url) => brokenId && url.pathname === `/casino/cover/${encodeURIComponent(brokenId)}` && !url.search;
+  if (onServer) {
+    brokenId = await page.evaluate(() => fetch('/api/casino/games', { method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Telegram-Init-Data': '' },
+      body: JSON.stringify({ kind: 'slots', limit: 3 }) })
+      .then((r) => r.json()).then((d) => d.games[2].id));
+    await page.route(brokenCover, (route) => route.fulfill({ status: 404, body: '' }));
+  }
+
   await page.evaluate(() => document.getElementById('promoCasino').scrollIntoView({ block: 'center' }));
   await page.click('#promoCasino');
   await page.waitForSelector('.cz-block[data-block="popular"] .cz-tile[data-game]', { timeout: 15000 });
   await page.waitForTimeout(500);
+
+  // Сверяем то, что видно глазами: две строки ленты, как на скриншоте заказчика.
+  const featured = await page.evaluate(() => {
+    const tiles = [...document.querySelectorAll('.cz-block[data-block="popular"] .cz-tile[data-game]')].slice(0, 6);
+    const rows = new Map();
+    for (const t of tiles) {
+      const top = Math.round(t.getBoundingClientRect().top);
+      if (!rows.has(top)) rows.set(top, []);
+      rows.get(top).push([t.getBoundingClientRect().left, t.querySelector('.cz-name').textContent]);
+    }
+    return [...rows.entries()].sort((a, b) => a[0] - b[0])
+      .map(([, r]) => r.sort((a, b) => a[0] - b[0]).map((x) => x[1]).join('|'));
+  });
+  check('казино: «Популярные» открывает витрина заказчика, как на его скриншоте',
+    featured[0] === 'Gates of Olympus|Sugar Rush|The Dog House'
+    && featured[1] === 'Sweet Bonanza|Starlight Princess|Big Bass Bonanza', featured.join(' / '));
+  if (brokenId) {
+    // Все пути (запасная горизонтальная или плитка с названием) - не знак вопроса.
+    await page.waitForFunction((id) => {
+      const t = document.querySelector(`.cz-block[data-block="popular"] .cz-tile[data-game="${CSS.escape(id)}"]`);
+      return t && t.dataset.fallback;
+    }, brokenId, { timeout: 15000 }).catch(() => {});
+    const fb = await page.evaluate((id) => {
+      const t = document.querySelector(`.cz-block[data-block="popular"] .cz-tile[data-game="${CSS.escape(id)}"]`);
+      const imgs = [...t.querySelectorAll('img')];
+      return { fallback: t.dataset.fallback || '', wide: t.querySelector('.cz-art').classList.contains('is-wide'),
+        blank: !!t.querySelector('.cz-blank'), src: imgs[0]?.getAttribute('src') || '' };
+    }, brokenId);
+    check('казино: пропавшая обложка заменяется горизонтальной или плиткой с названием',
+      (fb.fallback === 'alt' && fb.wide && /\?w=1$/.test(fb.src)) || (fb.fallback === 'blank' && fb.blank),
+      JSON.stringify(fb));
+    await page.unroute(brokenCover);
+  }
 
   const lobby = await page.evaluate(() => {
     const pop = document.querySelector('.cz-block[data-block="popular"]');
@@ -1832,6 +1884,9 @@ check('честность: личная статистика убрана', fair
   await page.waitForSelector('.cz-block[data-block="popular-fast"] .cz-tile[data-game]', { timeout: 15000 });
   const fastNames = await page.evaluate(() => [...document.querySelectorAll('#czBody .cz-name')].map((n) => n.textContent));
   check('казино: быстрые игры своей вкладкой', fastNames.some((n) => /aviator/i.test(n)), fastNames.slice(0, 4).join(' | '));
+  const fastPopular = await page.evaluate(() => [...document.querySelectorAll(
+    '.cz-block[data-block="popular-fast"] .cz-tile[data-game] .cz-name')].map((n) => n.textContent));
+  check('казино: Balloon в конце быстрых игр', fastPopular[fastPopular.length - 1] === 'Balloon', fastPopular.join(' | '));
   check('казино: чипы новой вкладки видны с начала',
     await page.evaluate(() => document.getElementById('czChips').scrollLeft === 0));
 

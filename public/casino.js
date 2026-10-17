@@ -151,16 +151,28 @@ export function createCasino(deps) {
 
   /* ---------- Плитка ---------- */
 
+  /*
+   * Запасная плитка, когда обложки нет на CDN агрегатора: название игры на
+   * своём цвете. Раньше на этом месте браузер ставил знак вопроса, и блок
+   * выглядел сломанным. Цвет из названия, а не случайный: при перерисовке
+   * плитка не меняет вид.
+   */
+  function blankArt(g) {
+    let h = 0;
+    for (const ch of String(g.name)) h = (h * 31 + ch.charCodeAt(0)) % 360;
+    return `<span class="cz-blank" style="--cz-h:${h}"><b>${esc(g.name)}</b><i>${esc(g.provider)}</i></span>`;
+  }
+
   function tileHtml(g, ref, { badge = true } = {}) {
     // Горизонтальная запасная обложка не обрезается под 3:4: она стоит
     // целиком поверх своей же размытой копии. Обрезка съела бы название.
-    const art = g.vertical
+    const art = !g.cover ? blankArt(g) : g.vertical
       ? `<img src="${g.cover}" alt="" loading="lazy" decoding="async">`
       : `<img class="cz-blur" src="${g.cover}" alt="" loading="lazy" decoding="async"><img class="cz-fit" src="${g.cover}" alt="" loading="lazy" decoding="async">`;
     // У «Лучших выигрышей» на плитке настоящий множитель раунда.
     const mult = badge && g.winMult ? `<span class="cz-mult">×${fmtN(g.winMult)}</span>` : '';
     return `<button class="cz-tile" data-ref="${ref}" data-game="${esc(g.id)}">
-      <span class="cz-art${g.vertical ? '' : ' is-wide'}">
+      <span class="cz-art${!g.cover ? ' is-blank' : g.vertical ? '' : ' is-wide'}">
         ${art}${mult}
         <span class="cz-hover">
           <span class="cz-play"><svg width="20" height="20" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" fill="#3a1d00"/></svg></span>
@@ -175,6 +187,25 @@ export function createCasino(deps) {
   const refs = new Map();
   let refSeq = 0;
   const remember = (g) => { const id = `r${++refSeq}`; refs.set(id, g); return id; };
+
+  /*
+   * Обложка не загрузилась у игрока. Сервер уже уводит такие игры в конец,
+   * но про часть он ещё не знает. Вертикальной нет - пробуем горизонтальную
+   * (g.alt), нет и её - запасная плитка. Плитка перерисовывается целиком:
+   * у горизонтальной своя разметка (подложка и картинка поверх).
+   */
+  function onCoverError(img) {
+    const tile = img.closest('.cz-tile[data-ref]');
+    const g = tile && refs.get(tile.dataset.ref);
+    if (!g || tile.dataset.fallback === 'blank') return;
+    const useAlt = g.alt && !tile.dataset.fallback;
+    const shown = useAlt ? { ...g, vertical: false, cover: g.alt } : { ...g, cover: null };
+    const fresh = document.createElement('div');
+    fresh.innerHTML = tileHtml(shown, tile.dataset.ref);
+    const next = fresh.firstElementChild;
+    next.dataset.fallback = useAlt ? 'alt' : 'blank';
+    tile.replaceWith(next);
+  }
 
   /* ---------- Лобби: блоки-ленты ---------- */
 
@@ -449,6 +480,10 @@ export function createCasino(deps) {
     };
     r.addEventListener('click', onClick);
     $('czSeg').addEventListener('click', onClick);
+    // Событие error у картинки не всплывает: ловим на погружении.
+    r.addEventListener('error', (e) => {
+      if (e.target.tagName === 'IMG' && e.target.closest('.cz-art')) onCoverError(e.target);
+    }, true);
 
     r.addEventListener('input', (e) => {
       if (e.target.id !== 'czQ') return;
@@ -498,7 +533,8 @@ export function createCasino(deps) {
     if (!g) return;
     haptic('light');
     const sheet = $('czSheet');
-    $('czSheetArt').style.backgroundImage = `url("${g.wide || g.cover}")`;
+    const sheetArt = g.wide || g.cover;
+    $('czSheetArt').style.backgroundImage = sheetArt ? `url("${sheetArt}")` : 'none';
     $('czSheetArt').classList.toggle('is-cover', !g.wide);
     $('czSheetName').textContent = g.name;
     $('czSheetProv').textContent = g.provider;

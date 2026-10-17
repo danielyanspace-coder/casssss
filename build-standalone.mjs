@@ -26,6 +26,7 @@ import { SETTING_DEFS } from './server/settings-defs.js';
 import { validateSlots } from './server/slots.js';
 import {
   CASINO_TABS, CASINO_CATEGORIES, POPULAR_SIZE, BLOCK_SIZE, PROVIDER_BLOCKS, MIN_BLOCK_GAMES,
+  FEATURED_GAMES, BURIED_GAMES,
 } from './server/casino-categories.js';
 import {
   FORTUNE_SEGMENTS, SEGMENT_DEG, SEGMENTS_START_DEG,
@@ -69,7 +70,8 @@ const casinoCatalog = {
   providers: casinoSnap.providers.map((p) => ({ id: p.id, name: p.name, kind: p.kind, count: p.game_count, sort: p.sort })),
   games: casinoSnap.games.map((g) => [g.id, g.name, g.provider_id, g.provider_name, g.kind,
     g.img_vertical || g.img, g.img_vertical ? 1 : 0, g.img_wide || '', g.demo, g.freespin, g.seed_rank,
-    g.rtp_mode === 'operator' ? 1 : 0, g.partner_top ?? null, g.partner_new ? 1 : 0]),
+    g.rtp_mode === 'operator' ? 1 : 0, g.partner_top ?? null, g.partner_new ? 1 : 0,
+    g.cover_state || '', g.img || '']),
 };
 /*
  * Правила блоков лобби - те же объекты, что читает сервер
@@ -79,6 +81,7 @@ const casinoCatalog = {
 const casinoRules = {
   tabs: CASINO_TABS, categories: CASINO_CATEGORIES,
   popularSize: POPULAR_SIZE, blockSize: BLOCK_SIZE, providerBlocks: PROVIDER_BLOCKS, minBlock: MIN_BLOCK_GAMES,
+  featured: FEATURED_GAMES.map((n) => n.toLowerCase()), buried: BURIED_GAMES.map((n) => n.toLowerCase()),
 };
 
 const config = {
@@ -961,9 +964,17 @@ function demoCasinoRtp() {
  * CDN агрегатора напрямую: пережимающего их сервера здесь нет.
  */
 function demoCasinoGame(row) {
-  const [id, name, providerId, provider, kind, cover, vertical, wide, demo, freespin, , operator] = row;
+  const [id, name, providerId, provider, kind, cover, vertical, wide, demo, freespin, , operator, , ,
+    coverState, img] = row;
+  // Как publicCasinoGame на сервере: обложки нет - запасная плитка, нет
+  // вертикальной - сразу горизонтальная, иначе горизонтальная про запас.
+  const tall = Boolean(vertical) && coverState !== 'w' && coverState !== 'x';
   return {
-    id, name, provider, providerId, kind, cover, vertical: Boolean(vertical), wide: wide || null,
+    id, name, provider, providerId, kind,
+    cover: coverState === 'x' ? null : coverState === 'w' ? (img || cover) : cover,
+    vertical: tall,
+    alt: tall && img ? img : null,
+    wide: wide || null,
     demo: Boolean(demo), freespin: Boolean(freespin), rtp: operator ? demoCasinoRtp() : null,
   };
 }
@@ -972,7 +983,18 @@ function demoCasinoGame(row) {
  * Порядок популярности как на сервере, только без наших ставок (их в файле
  * нет): топ агрегатора, затем стартовый список хитов, затем название.
  */
-const demoPopular = (a, b) => ((a[12] ?? 1e6) - (b[12] ?? 1e6)) || (a[10] - b[10]) || a[1].localeCompare(b[1]);
+/* Тот же порядок, что POPULAR_ORDER в casino-db.js: закопанные в конец,
+   затем обложка (вертикальная, горизонтальная, никакой), витрина
+   заказчика, топ агрегатора, хиты. */
+const demoCoverRank = (g) => (g[14] === 'x' ? 2 : g[14] === 'w' ? 1 : g[14] === 'v' ? 0 : g[6] ? 0 : 1);
+const demoFeatured = (g) => {
+  const i = CASINO_RULES.featured.indexOf(g[1].toLowerCase());
+  return i < 0 ? CASINO_RULES.featured.length : i;
+};
+const demoBuried = (g) => (CASINO_RULES.buried.includes(g[1].toLowerCase()) ? 1 : 0);
+const demoPopular = (a, b) => (demoBuried(a) - demoBuried(b)) || (demoCoverRank(a) - demoCoverRank(b))
+  || (demoFeatured(a) - demoFeatured(b))
+  || ((a[12] ?? 1e6) - (b[12] ?? 1e6)) || (a[10] - b[10]) || a[1].localeCompare(b[1]);
 const demoCatRe = new Map();
 function demoCasinoRows({ kind = '', provider = '', category = '', q = '' }) {
   const cat = CASINO_RULES.categories.find((c) => c.id === category) || null;

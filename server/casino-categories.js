@@ -84,6 +84,37 @@ export const CASINO_CATEGORIES = [
  */
 export const PROVIDER_BLOCKS = 4;
 
+/*
+ * ПЕРВОЕ ВПЕЧАТЛЕНИЕ. Заказчик сам выбрал игры, которые открывают
+ * «Популярные»: у всех шести настоящая вертикальная обложка, и лобби с них
+ * выглядит витриной, а не списком.
+ *
+ * Порядок записан ПО КОЛОНКАМ. Лента «Популярных» в две строки и
+ * заполняется сверху вниз (grid-auto-flow: column), поэтому этот список
+ * встаёт ровно как на скриншоте заказчика:
+ *   Gates of Olympus | Sugar Rush         | The Dog House
+ *   Sweet Bonanza    | Starlight Princess | Big Bass Bonanza
+ */
+export const FEATURED_GAMES = [
+  'Gates of Olympus', 'Sweet Bonanza', 'Sugar Rush', 'Starlight Princess', 'The Dog House', 'Big Bass Bonanza',
+];
+
+/* Игры, которые всегда стоят в конце любого списка (решение заказчика). */
+export const BURIED_GAMES = ['Balloon'];
+
+/*
+ * Место обложки в порядке: сначала игры с вертикальной обложкой, потом с
+ * горизонтальной на размытой подложке, в самом конце - без обложки вовсе.
+ * cover_state ставит проверка (probeCovers в casino.js); пока её не было,
+ * судим по тому, есть ли адрес вертикальной.
+ */
+export function coverRank(state, hasVertical) {
+  if (state === 'x') return 2;
+  if (state === 'w') return 1;
+  if (state === 'v') return 0;
+  return hasVertical ? 0 : 1;
+}
+
 export const categoryById = (id) => CASINO_CATEGORIES.find((c) => c.id === id) || null;
 export const categoriesFor = (kind) => CASINO_CATEGORIES.filter((c) => c.kind === kind);
 

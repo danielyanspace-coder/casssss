@@ -41,6 +41,7 @@ import { timingSafeEqual } from 'node:crypto';
 import {
   casinoWallet, CASINO_STATUS, userBalanceRub, casinoPlayerId, casinoExcluded,
   casinoGames, casinoGame, casinoProviders, casinoHistory, casinoSummary, kopToRub, casinoHome,
+  setCoverState,
 } from './casino-db.js';
 import { CASINO_TABS, categoryById } from './casino-categories.js';
 import {
@@ -1177,8 +1178,13 @@ function publicCasinoGame(g) {
     provider: g.provider_name,
     providerId: g.provider_id,
     kind: g.kind,
-    cover: `/casino/cover/${encodeURIComponent(g.id)}`,
-    vertical: Boolean(g.img_vertical),
+    // Обложки нет нигде - клиент рисует запасную плитку, а не просит файл,
+    // которого нет. Вертикальной нет - плитка сразу горизонтальная.
+    cover: g.cover_state === 'x' ? null : `/casino/cover/${encodeURIComponent(g.id)}`,
+    vertical: Boolean(g.img_vertical) && g.cover_state !== 'w' && g.cover_state !== 'x',
+    // Запас на случай, если вертикальная не загрузится у игрока.
+    alt: g.img_vertical && g.img && g.cover_state !== 'w' && g.cover_state !== 'x'
+      ? `/casino/cover/${encodeURIComponent(g.id)}?w=1` : null,
     wide: g.img_wide ? `/casino/wide/${encodeURIComponent(g.id)}` : null,
     demo: Boolean(g.demo),
     freespin: Boolean(g.freespin),
@@ -1289,20 +1295,42 @@ app.post('/api/casino/history', auth, limits.read, (req, res) => {
  */
 const COVER_MAX_AGE = 7 * 24 * 3600;
 
-async function sendCover(req, res, pick) {
+/*
+ * choose(game) -> { src, missing }: какую картинку отдать и какой признак
+ * поставить игре, если файла на CDN нет. Признак: вертикальной нет - есть
+ * надежда на горизонтальную ('w'); нет горизонтальной - обложки нет ('x').
+ * По нему лобби уводит игру в конец списка.
+ */
+async function sendCover(req, res, choose) {
   const game = casinoGame(req.params.id);
   if (!game) return res.status(404).end();
-  const cover = await coverFile(pick(game));
+  const { src, missing } = choose(game);
+  const cover = await coverFile(src);
   if (!cover) return res.status(404).end();
+  if (cover.missing) {
+    if (missing) setCoverState(game.id, missing);
+    return res.status(404).end();
+  }
   if (cover.redirect) return res.redirect(302, cover.redirect);
   res.set('Cache-Control', `public, max-age=${COVER_MAX_AGE}, immutable`);
   res.type('image/webp').sendFile(cover.file);
 }
 
-app.get('/casino/cover/:id', (req, res, next) => sendCover(req, res, (g) => g).catch(next));
-// Широкая - для окна запуска: подменяем источник, остальное то же.
+/*
+ * ?w=1 - горизонтальная обложка вместо вертикальной. Клиент просит её, когда
+ * вертикальная не загрузилась; сервер и сам отдаёт горизонтальную, если
+ * проверка уже знает, что вертикальной нет.
+ */
+app.get('/casino/cover/:id', (req, res, next) => sendCover(req, res, (g) => {
+  const horizontal = req.query.w === '1' || g.cover_state === 'w' || !g.img_vertical;
+  return horizontal
+    ? { src: { ...g, img_vertical: null }, missing: 'x' }
+    : { src: g, missing: 'w' };
+}).catch(next));
+// Широкая - для окна запуска. Её отсутствие обложку плитки не отменяет.
 app.get('/casino/wide/:id', (req, res, next) =>
-  sendCover(req, res, (g) => ({ ...g, img_vertical: g.img_wide || g.img_vertical })).catch(next));
+  sendCover(req, res, (g) => ({ src: { ...g, img_vertical: g.img_wide || g.img_vertical }, missing: null }))
+    .catch(next));
 
 app.post('/api/admin/casino', auth, need('games.manage'), (req, res) => {
   const day = 24 * 3600 * 1000;

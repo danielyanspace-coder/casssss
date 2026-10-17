@@ -19,7 +19,10 @@
  * 0.30000000000000004, и через тысячу ставок касса разошлась бы с игроком.
  */
 import { db, getUserById, consumeWager, getPlayerLimits } from './db.js';
-import { categoryById, categoriesFor, POPULAR_SIZE, BLOCK_SIZE, PROVIDER_BLOCKS, MIN_BLOCK_GAMES } from './casino-categories.js';
+import {
+  categoryById, categoriesFor, POPULAR_SIZE, BLOCK_SIZE, PROVIDER_BLOCKS, MIN_BLOCK_GAMES,
+  FEATURED_GAMES, BURIED_GAMES,
+} from './casino-categories.js';
 
 /* ---------- Схема ---------- */
 
@@ -127,6 +130,12 @@ ensureColumn('casino_games', 'first_seen_at', 'INTEGER');
 ensureColumn('casino_games', 'partner_top', 'INTEGER');
 ensureColumn('casino_games', 'partner_new', 'INTEGER NOT NULL DEFAULT 0');
 db.exec('UPDATE casino_games SET first_seen_at = updated_at WHERE first_seen_at IS NULL');
+/*
+ * cover_state - есть ли у игры обложка на CDN агрегатора: 'v' вертикальная,
+ * 'w' только горизонтальная, 'x' никакой, NULL - ещё не проверяли. Ставит
+ * probeCovers (casino.js); по нему лобби ставит игры без обложки в конец.
+ */
+ensureColumn('casino_games', 'cover_state', 'TEXT');
 
 /*
  * REGEXP для тематических блоков. SQLite своего не имеет; шаблоны те же, что
@@ -421,11 +430,19 @@ export const saveCatalog = db.transaction((providers, games) => {
   const putGame = db.prepare(`
     INSERT INTO casino_games (id, name, provider_id, provider_name, source, kind, img, img_vertical,
                               img_wide, demo, freespin, buybonus, jackpot, rtp_mode, seed_rank,
-                              original_id, partner_top, partner_new, first_seen_at, active, updated_at)
+                              original_id, partner_top, partner_new, first_seen_at, cover_state,
+                              active, updated_at)
     VALUES (@id, @name, @provider_id, @provider_name, @source, @kind, @img, @img_vertical,
             @img_wide, @demo, @freespin, @buybonus, @jackpot, @rtp_mode, @seed_rank,
-            @original_id, @partner_top, @partner_new, @updated_at, 1, @updated_at)
-    ON CONFLICT(id) DO UPDATE SET name=excluded.name, provider_id=excluded.provider_id,
+            @original_id, @partner_top, @partner_new, @updated_at, @cover_state, 1, @updated_at)
+    ON CONFLICT(id) DO UPDATE SET
+      -- Признак обложки переживает синхронизацию, пока не сменились адреса
+      -- картинок: иначе каждые шесть часов весь каталог проверялся бы заново.
+      cover_state = CASE
+        WHEN casino_games.img IS excluded.img AND casino_games.img_vertical IS excluded.img_vertical
+        THEN COALESCE(excluded.cover_state, casino_games.cover_state)
+        ELSE excluded.cover_state END,
+      name=excluded.name, provider_id=excluded.provider_id,
       provider_name=excluded.provider_name, source=excluded.source, kind=excluded.kind,
       img=excluded.img, img_vertical=excluded.img_vertical, img_wide=excluded.img_wide,
       demo=excluded.demo, freespin=excluded.freespin, buybonus=excluded.buybonus,
@@ -435,9 +452,22 @@ export const saveCatalog = db.transaction((providers, games) => {
   `);
   // first_seen_at при обновлении не трогаем: это дата появления, а не правки.
   for (const g of games) {
-    putGame.run({ original_id: null, partner_top: null, partner_new: 0, ...g, updated_at: now });
+    putGame.run({ original_id: null, partner_top: null, partner_new: 0, cover_state: null, ...g, updated_at: now });
   }
 });
+
+/** Ставит признак обложки после проверки (см. probeCovers в casino.js). */
+export function setCoverState(id, state) {
+  if (!['v', 'w', 'x'].includes(state)) return;
+  db.prepare('UPDATE casino_games SET cover_state = ? WHERE id = ?').run(state, String(id));
+}
+
+/** Игры, обложку которых ещё не проверяли: сначала те, что выше в лобби. */
+export function gamesWithoutCoverState(limit = 500) {
+  return db.prepare(`SELECT id, img, img_vertical FROM casino_games
+                      WHERE active = 1 AND cover_state IS NULL
+                      ORDER BY seed_rank ASC LIMIT ?`).all(limit);
+}
 
 export function catalogStats() {
   return {
@@ -460,8 +490,29 @@ const POPULAR_WINDOW_MS = 7 * 24 * 3600 * 1000;
  * стартовому порядку хитов (seed_rank). Пока ставок нет, порядок целиком
  * задаёт стартовый список, а по мере игры его сменяет настоящий спрос.
  */
-/* Порядок «популярные»: наши ставки за неделю, топ агрегатора, хиты. */
-const POPULAR_ORDER = 'heat DESC, COALESCE(g.partner_top, 1000000) ASC, g.seed_rank ASC, g.name COLLATE NOCASE ASC';
+/*
+ * Порядок «популярные», по старшинству:
+ *   1. игры из BURIED_GAMES - в самый конец (решение заказчика);
+ *   2. обложка: вертикальная, потом горизонтальная, без обложки - в конец
+ *      (coverRank в casino-categories.js, тот же порядок у автономной сборки).
+ *      Первый экран не должен начинаться с размытой подложки или пустой плитки;
+ *   3. витрина заказчика (FEATURED_GAMES) - в начало;
+ *   4. наши ставки за неделю, топ агрегатора, стартовый список хитов.
+ * Имена в SQL - из тех же списков, кавычки удваиваются.
+ */
+const sqlList = (names) => names.map((n) => `'${n.toLowerCase().replace(/'/g, "''")}'`).join(', ');
+const FEATURED_SQL = FEATURED_GAMES.map((n, i) => `WHEN '${n.toLowerCase().replace(/'/g, "''")}' THEN ${i}`).join(' ');
+const COVER_SQL = `CASE g.cover_state WHEN 'x' THEN 2 WHEN 'w' THEN 1 WHEN 'v' THEN 0
+                   ELSE (CASE WHEN g.img_vertical IS NOT NULL THEN 0 ELSE 1 END) END`;
+const POPULAR_ORDER = [
+  `(CASE WHEN lower(g.name) IN (${sqlList(BURIED_GAMES)}) THEN 1 ELSE 0 END) ASC`,
+  `${COVER_SQL} ASC`,
+  `(CASE lower(g.name) ${FEATURED_SQL} ELSE ${FEATURED_GAMES.length} END) ASC`,
+  'heat DESC',
+  'COALESCE(g.partner_top, 1000000) ASC',
+  'g.seed_rank ASC',
+  'g.name COLLATE NOCASE ASC',
+].join(', ');
 
 /*
  * «Новинки»: список новых релизов агрегатора или игра, пришедшая в каталог

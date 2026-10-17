@@ -286,14 +286,18 @@ const call = (list) => casinoWallet(list, { currency: 'RUB' });
   // По провайдеру, а не по названию: «Sports...» бывает и у обычного слота.
   check('снимок: без спорта', !snap.games.some((x) => /sport/i.test(x.provider_id)));
 
-  // Популярность: ставки недели обгоняют стартовый порядок.
+  // Популярность: ставки недели обгоняют стартовый порядок - сразу за
+  // витриной заказчика, которая стоит первой по его решению.
   cdb.saveCatalog(snap.providers, snap.games);
-  const before = cdb.casinoGames({ kind: 'slots', limit: 3 }).rows.map((r) => r.id);
+  const lead = cats.FEATURED_GAMES.length;
+  const before = cdb.casinoGames({ kind: 'slots', limit: lead + 1 }).rows.map((r) => r.id);
   const tail = cdb.casinoGames({ kind: 'slots', offset: 900, limit: 1 }).rows[0];
   const u = player(1000);
   for (let i = 0; i < 3; i++) call([tx('bet', u, { amount: 1, gameId: tail.id })]);
-  const after = cdb.casinoGames({ kind: 'slots', limit: 3 }).rows.map((r) => r.id);
-  check('популярность: игра со ставками недели встаёт первой', after[0] === tail.id && before[0] !== tail.id);
+  const after = cdb.casinoGames({ kind: 'slots', limit: lead + 1 }).rows.map((r) => r.id);
+  check('популярность: игра со ставками недели встаёт сразу за витриной',
+    tail.cover_state === 'v' && after[lead] === tail.id && before[lead] !== tail.id
+    && after.slice(0, lead).join() === before.slice(0, lead).join());
   check('поиск по названию', cdb.casinoGames({ q: 'olympus' }).rows.every((r) => /olympus/i.test(r.name)));
   check('поиск экранирует % и _', cdb.casinoGames({ q: '%' }).total === 0);
 
@@ -306,6 +310,45 @@ const call = (list) => casinoWallet(list, { currency: 'RUB' });
   const fn = withFront.games.find((x) => x.id === '21');
   check('витрина: место в топе агрегатора сохранено', ft?.partner_top === 1 && fn?.partner_top === null);
   check('витрина: новинка агрегатора помечена', fn?.partner_new === 1 && ft?.partner_new === 0);
+}
+
+/* ---------- Обложки и порядок ---------- */
+
+{
+  // Витрина заказчика открывает «Популярные», ровно в его порядке.
+  const top = cdb.casinoGames({ kind: 'slots', limit: cats.FEATURED_GAMES.length }).rows.map((r) => r.name);
+  check('популярные: первые - витрина заказчика', top.join('|') === cats.FEATURED_GAMES.join('|'), top.join(' | '));
+
+  // Balloon в конце любого списка быстрых игр.
+  const fast = cdb.casinoGames({ kind: 'fast', limit: 50 }).rows.map((r) => r.name);
+  check('быстрые игры: Balloon последним', fast[fast.length - 1] === 'Balloon', fast.slice(-3).join(' | '));
+  const crash = cdb.casinoGames({ kind: 'fast', category: 'crash', limit: 50 }).rows.map((r) => r.name);
+  check('блок краш-игр: Balloon последним', crash[crash.length - 1] === 'Balloon', crash.join(' | '));
+
+  // Обложка решает порядок: вертикальные, горизонтальные, без обложки.
+  const rank = (r) => cats.coverRank(r.cover_state, Boolean(r.img_vertical));
+  const all = cdb.casinoGames({ kind: 'slots', limit: 120, offset: 0 }).rows;
+  check('популярные: сначала игры с вертикальной обложкой', all.slice(0, 60).every((r) => rank(r) === 0));
+  const holiday = cdb.casinoGames({ kind: 'slots', category: 'holiday', limit: 120 }).rows.map(rank);
+  check('в блоке обложки не хуже следующей: без обложки - в конце',
+    holiday.every((v, i) => i === 0 || v >= holiday[i - 1]), holiday.join(''));
+  const total = cdb.casinoGames({ kind: 'slots', limit: 1 }).total;
+  const last = cdb.casinoGames({ kind: 'slots', offset: total - 1, limit: 1 }).rows[0];
+  check('игры без обложки - в самом конце лобби', last.cover_state === 'x', `${last.name}: ${last.cover_state}`);
+
+  // Признак обложки переживает синхронизацию, пока адреса картинок те же.
+  const g = cdb.casinoGames({ kind: 'slots', limit: 1 }).rows[0];
+  cdb.setCoverState(g.id, 'w');
+  const snapAgain = JSON.parse(readFileSync(new URL('../server/casino-catalog.json', import.meta.url), 'utf8'));
+  cdb.saveCatalog(snapAgain.providers, snapAgain.games.map((x) => ({ ...x, cover_state: null })));
+  check('признак обложки сохраняется при синхронизации', cdb.casinoGame(g.id).cover_state === 'w');
+  cdb.saveCatalog(snapAgain.providers, snapAgain.games.map((x) => (x.id === g.id
+    ? { ...x, cover_state: null, img_vertical: `${x.img_vertical}?new` } : { ...x, cover_state: null })));
+  check('новая картинка - признак сбрасывается до проверки', cdb.casinoGame(g.id).cover_state === null);
+  cdb.setCoverState(g.id, 'nonsense');
+  check('чужой признак не записывается', cdb.casinoGame(g.id).cover_state === null);
+  check('непроверенные игры отдаются на проверку', cdb.gamesWithoutCoverState(5).some((x) => x.id === g.id));
+  cdb.saveCatalog(snapAgain.providers, snapAgain.games);
 }
 
 /* ---------- Блоки лобби ---------- */

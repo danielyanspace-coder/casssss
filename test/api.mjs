@@ -1190,11 +1190,31 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
   const page = await post('/api/casino/games', { kind: 'slots', limit: 48 });
   const games = page.data.games || [];
   check('казино: страница из 48 игр', games.length === 48, String(games.length));
-  // Порядок популярности: топ витрины агрегатора, затем наши хиты. Ставок в
-  // свежей базе нет, поэтому первым обязан стоять первый из топа витрины.
-  const snapTop = JSON.parse(readFileSync(new URL('../server/casino-catalog.json', import.meta.url), 'utf8'))
-    .games.filter((g) => g.kind === 'slots' && g.partner_top != null).sort((a, b) => a.partner_top - b.partner_top)[0];
-  check('казино: первым идёт топ агрегатора', !snapTop || games[0]?.id === snapTop.id, `${games[0]?.name} / ${snapTop?.name}`);
+  // «Популярные» открывает витрина, выбранная заказчиком, в его порядке.
+  // Список по колонкам двухстрочной ленты, см. FEATURED_GAMES.
+  const featured = ['Gates of Olympus', 'Sweet Bonanza', 'Sugar Rush', 'Starlight Princess', 'The Dog House',
+    'Big Bass Bonanza'];
+  check('казино: первыми идут игры витрины заказчика',
+    games.slice(0, featured.length).map((g) => g.name).join('|') === featured.join('|'),
+    games.slice(0, featured.length).map((g) => g.name).join(' | '));
+  check('казино: у первых игр вертикальная обложка и запасная горизонтальная',
+    games.slice(0, 12).every((g) => g.vertical && g.cover && (g.alt === null || g.alt.endsWith('?w=1'))));
+
+  // Игры без обложки на CDN: плитка без картинки, и стоят они в конце.
+  const snapGames = JSON.parse(readFileSync(new URL('../server/casino-catalog.json', import.meta.url), 'utf8')).games;
+  const bareGame = snapGames.find((g) => g.kind === 'slots' && g.cover_state === 'x');
+  const lastPage = await post('/api/casino/games', { kind: 'slots', offset: page.data.total - 5, limit: 5 });
+  check('казино: игры без обложки - в конце списка и без адреса картинки',
+    (lastPage.data.games || []).every((g) => g.cover === null),
+    (lastPage.data.games || []).map((g) => `${g.name}:${g.cover}`).join(' | '));
+  if (bareGame) {
+    const found = await post('/api/casino/games', { q: bareGame.name, kind: 'slots' });
+    const row = (found.data.games || []).find((g) => g.id === bareGame.id);
+    check('казино: у игры без обложки cover пустой', row && row.cover === null, JSON.stringify(row));
+  }
+  const fastAll = await post('/api/casino/games', { kind: 'fast', limit: 48 });
+  const fastNames = (fastAll.data.games || []).map((g) => g.name);
+  check('казино: Balloon последним в быстрых играх', fastNames[fastNames.length - 1] === 'Balloon', fastNames.join(' | '));
   check('казино: обложки наши, а не CDN агрегатора', games.every((g) => g.cover.startsWith('/casino/cover/')));
   check('казино: у слотов показана наша отдача', games.every((g) => g.rtp === config.casino.rtp));
 

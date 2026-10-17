@@ -12,7 +12,7 @@
 import { mkdirSync, existsSync, readFileSync, writeFileSync, renameSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { createHash } from 'node:crypto';
-import { saveCatalog, catalogStats } from './casino-db.js';
+import { saveCatalog, catalogStats, setCoverState, gamesWithoutCoverState } from './casino-db.js';
 
 /* ---------- Настройки ---------- */
 
@@ -339,6 +339,7 @@ export function syncCatalog() {
       if (!built.games.length) throw new Error('агрегатор вернул пустой каталог');
       saveCatalog(built.providers, built.games);
       lastSync = { at: Date.now(), ok: true, message: '', games: built.games.length };
+      checkCoversInBackground();
     } catch (err) {
       console.error('[casino] синхронизация каталога:', err.message);
       // Агрегатор лежит при первом же старте - лобби не должно быть пустым:
@@ -381,6 +382,8 @@ export function startCatalogSync() {
     }
     return;
   }
+  // Проверка обложек, прерванная перезапуском, продолжается с того же места.
+  checkCoversInBackground();
   const hours = Math.max(1, casinoEnv().syncHours);
   syncCatalog();
   setInterval(syncCatalog, hours * 3600 * 1000).unref();
@@ -462,6 +465,9 @@ export async function coverFile(game) {
     for (let i = 0; i < RETRIES; i++) {
       try {
         const res = await fetch(src, { signal: AbortSignal.timeout(TIMEOUT_MS) });
+        // Файла нет на CDN - повторять незачем: ответ будет тот же, а игрок
+        // всё это время смотрит на пустую плитку.
+        if (res.status >= 400 && res.status < 500) return { missing: true, vertical };
         if (!res.ok) throw new Error(`обложка ${res.status}`);
         const buf = Buffer.from(await res.arrayBuffer());
         const out = await (await sharp())(buf)
@@ -486,3 +492,88 @@ export async function coverFile(game) {
 }
 
 export const readCover = (file) => readFileSync(file);
+
+/*
+ * ПРОВЕРКА ОБЛОЖЕК. Часть картинок каталога на CDN агрегатора отсутствует
+ * (у Tomhorn и Zitro десятки: адрес есть, файл отвечает 404), и на плитке
+ * вместо обложки вставал знак вопроса. Проверка ставит игре признак:
+ *   'v' - вертикальная обложка есть;
+ *   'w' - вертикальной нет или она не грузится, есть горизонтальная;
+ *   'x' - не грузится ни одна.
+ * По признаку лобби ставит игры с настоящей обложкой вперёд, а без неё -
+ * в конец списка, и клиент не просит картинку, которой нет.
+ *
+ * Сетевой сбой - не приговор: признак ставится только по ответу сервера
+ * (4xx), иначе игра на минуту недоступного CDN навсегда ушла бы в конец.
+ */
+export const COVER_PROBE_CONCURRENCY = 16;
+const PROBE_TIMEOUT_MS = 20_000;
+
+async function coverAlive(url) {
+  if (!url) return false;
+  for (let i = 0; i < 2; i++) {
+    try {
+      let res = await fetch(url, { method: 'HEAD', signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) });
+      // Не все CDN отвечают на HEAD: тогда спрашиваем сам файл.
+      if (res.status === 405 || res.status === 501) {
+        res = await fetch(url, { signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) });
+        await res.arrayBuffer().catch(() => {});
+      }
+      if (res.ok) return true;
+      if (res.status >= 400 && res.status < 500) return false;
+    } catch { /* сбой сети - попробуем ещё раз */ }
+  }
+  return null;
+}
+
+/** Признак обложки одной игры или null, если CDN не ответил. */
+export async function probeCover(game) {
+  if (game.img_vertical) {
+    const v = await coverAlive(game.img_vertical);
+    if (v) return 'v';
+    if (v === null) return null;
+  }
+  const w = await coverAlive(game.img);
+  if (w === null) return null;
+  return w ? 'w' : 'x';
+}
+
+/*
+ * Фоновая проверка после синхронизации: только игры без признака, пачками,
+ * тихо (BACKGROUND_PROBE_CONCURRENCY запросов разом) - CDN агрегатора общий
+ * с игроками, и проверка не должна отнимать у них скорость.
+ */
+const BACKGROUND_PROBE_CONCURRENCY = 4;
+const BACKGROUND_PROBE_BATCH = 200;
+let probing = null;
+
+export function checkCoversInBackground() {
+  if (probing || process.env.CASINO_COVER_PROBE === '0') return probing;
+  probing = (async () => {
+    let checked = 0;
+    for (;;) {
+      const batch = gamesWithoutCoverState(BACKGROUND_PROBE_BATCH);
+      let known = 0;
+      await probeCovers(batch, (g, state) => { if (state) { setCoverState(g.id, state); known++; } },
+        BACKGROUND_PROBE_CONCURRENCY);
+      checked += known;
+      // Пачка без единого ответа - CDN недоступен: остальное в следующий раз.
+      if (batch.length < BACKGROUND_PROBE_BATCH || known === 0) break;
+    }
+    if (checked) console.log(`[casino] проверено обложек: ${checked}`);
+  })().catch((err) => console.error('[casino] проверка обложек:', err.message))
+    .finally(() => { probing = null; });
+  return probing;
+}
+
+/** Проверяет игры пачкой; onResult(game, state) зовётся по мере ответов. */
+export async function probeCovers(games, onResult, concurrency = COVER_PROBE_CONCURRENCY) {
+  let next = 0;
+  const worker = async () => {
+    while (next < games.length) {
+      const g = games[next++];
+      onResult(g, await probeCover(g));
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(concurrency, games.length) }, worker));
+}
