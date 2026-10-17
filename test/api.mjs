@@ -33,6 +33,13 @@ async function post(path, body, headers = {}) {
 const get = async (path) => (await fetch(BASE + path)).json();
 
 const config = await get('/api/config');
+
+/* ---------- Живость для сторожа ---------- */
+{
+  const res = await fetch(BASE + '/api/health');
+  const data = await res.json().catch(() => ({}));
+  check('health: сервер и база отвечают', res.status === 200 && data.ok === true, JSON.stringify(data));
+}
 const me = (await post('/api/me')).data.user;
 
 console.log(`Базовый адрес: ${BASE}`);

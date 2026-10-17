@@ -66,7 +66,7 @@ sudo bash deploy/install.sh ваш-домен.ru
 Дальше:
 
 ```bash
-sudo nano /srv/luckybox/.env        # ADMIN_EMAILS, BEELINE_PHONE, по желанию TELEGRAM_*, SMTP_URL
+sudo nano /srv/luckybox/.env        # ключи по списку deploy/SECRETS.md
 sudo systemctl start luckybox luckybox-bot
 curl -sf https://ваш-домен.ru/api/config > /dev/null && echo "сервер отвечает"
 ```

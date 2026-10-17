@@ -12,6 +12,7 @@
 import { chromium } from 'playwright';
 import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { LICENSE } from '../public/legal.js';
 
 const URL_TARGET = process.argv[2] || 'http://localhost:3000';
 
@@ -106,13 +107,15 @@ if (newcomer) {
     await page.evaluate(() => [...document.querySelectorAll('#onbDots i')][1]?.classList.contains('on')));
 
   check('первый заход: на экране честности назван регулятор',
-    /лицензии\s+Кюрасао/i.test(await page.textContent('#onbText')));
+    (await page.textContent('#onbText')).includes(`лицензии ${LICENSE.authority}`));
   check('первый заход: сказано, что лицензия регулирует выплаты',
     /регулирует выплаты/i.test(await page.textContent('#onbText')));
-  // Номер лицензии не заполнен, и выдуманного тут быть не должно: пока в
-  // legal.js пусто, строка обязана обходиться без номера.
-  check('первый заход: номер лицензии не выдуман',
-    !/№\s*\S/.test(await page.textContent('#onbText')));
+  // Номер показывается ровно тот, что записан в legal.js по документу
+  // заказчика, и никакой другой: пустой - строка без номера.
+  {
+    const shown = /№\s*(\S+?)\./.exec(await page.textContent('#onbText'))?.[1] || '';
+    check('первый заход: номер лицензии из legal.js', shown === LICENSE.number, shown);
+  }
 
   await page.click('#onbNext');
   await page.waitForTimeout(150);
@@ -2070,7 +2073,7 @@ slotChecks: {
 
   /*
    * Не молчаливый пропуск, а понятная ошибка. Включить раздел может только
-   * сотрудник с правом finance.settings, и если прогон идёт по серверу, где
+   * сотрудник с правом settings.manage, и если прогон идёт по серверу, где
    * тестовый игрок не владелец, проверки слотов просто не состоятся - об
    * этом надо сказать вслух, а не отрапортовать зелёным.
    */

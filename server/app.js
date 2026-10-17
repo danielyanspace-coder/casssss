@@ -10,9 +10,8 @@
 import 'dotenv/config';
 import express from 'express';
 import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { randomUUID } from 'node:crypto';
+import { dirname, join, resolve } from 'node:path';
+import { existsSync, writeFileSync, rmSync } from 'node:fs';
 
 import {
   CASES, CATEGORIES, getCase, pickItem, publicCase, validateCases, TIERS,
@@ -103,7 +102,7 @@ import {
   redeemPromo,
   pendingDepositBonus,
   myPromoRedemptions,
-  getPartnerForUser, isOwnerKeyed, createEmailUser, findUserByEmail, findUserByTgId,
+  db, getPartnerForUser, isOwnerKeyed, createEmailUser, findUserByEmail, findUserByTgId,
   linkTelegram, setEmailLogin, setPasswordHash, deleteUserSessions, purgeExpiredSessions,
   createPasswordReset, usePasswordReset,
   partnerStats,
@@ -136,6 +135,10 @@ import {
 } from './auth.js';
 import { isMailConfigured, sendMail } from './mailer.js';
 import {
+  alert, countError, inform, startOpsBot, twoFactorRequired, sessionConfirmed, twoFactorState,
+  createLink, requestApproval, confirmByCode, challengeStatus,
+} from './ops.js';
+import {
   PERMISSIONS, PERMISSION_GROUPS, ROLES, ROLE_BY_ID, permissionsFor, balanceCapFor,
   canManage, assignableRoles, publicRoles, isPermission,
 } from './staff.js';
@@ -149,13 +152,6 @@ import {
   subscriptionConfig,
   FREE_CASE_COOLDOWN_MS,
 } from './subscription.js';
-import {
-  createPayment, getPayment, listPayments, verifyDeviceRequest, processBeelineSms,
-  heartbeat, registerDevice, adminDevices, adminPayments, paymentDashboard,
-  paymentSettings, updatePaymentSettings, openDispute, addSupportMessage,
-  supportChat, adminChats,
-} from './payments.js';
-
 // Если математика поехала - падаем на старте, до первого игрока.
 const caseReport = validateCases();
 const gameReport = validateGames();
@@ -225,6 +221,8 @@ function auth(req, res, next) {
     req.player = player;
   }
 
+  // Хеш сессии нужен подтверждению входа в панель: оно живёт у сессии.
+  req.sessionHash = result.viaSession ? currentSessionHash(req) : '';
   req.staff = staffRow(req.player.id);
   req.perms = permissionsFor(req.staff);
 
@@ -305,16 +303,35 @@ function need(permission) {
     if (!req.perms || !req.perms.has(permission)) {
       return res.status(403).json({ error: 'Недостаточно прав', need: permission });
     }
-    next();
+    adminConfirmed(req, res, next);
   };
 }
 
+/**
+ * Вход в панель подтверждён в служебном боте (server/ops.js).
+ *
+ * Стоит внутри need() и adminOnly(), а не отдельным слоем: через них идёт
+ * каждая ручка /api/admin/*, и новая ручка не может забыть проверку. Тестовый
+ * игрок DEV_MODE без сессии проходит: у него нет сессии, к которой привязать
+ * подтверждение, а на рабочем сервере DEV_MODE выключен.
+ */
+function adminConfirmed(req, res, next) {
+  if (!twoFactorRequired()) return next();
+  if (process.env.DEV_MODE === 'true' && !req.sessionHash) return next();
+  if (sessionConfirmed(req.sessionHash)) return next();
+  return res.status(403).json({ error: 'Подтвердите вход в панель в Telegram', code: 'ADMIN_2FA' });
+}
+
 /** Есть ли у человека хоть какой-то доступ в панель. */
-function adminOnly(req, res, next) {
+function staffOnly(req, res, next) {
   if (!req.perms || req.perms.size === 0) {
     return res.status(403).json({ error: 'Недостаточно прав' });
   }
   next();
+}
+
+function adminOnly(req, res, next) {
+  staffOnly(req, res, () => adminConfirmed(req, res, next));
 }
 
 function publicUser(user) {
@@ -382,6 +399,19 @@ function sendInsufficient(res, need) {
 /* ============================================================
    КОНФИГ И ИГРОК
    ============================================================ */
+
+/*
+ * Проверка живости для сторожа (deploy/watchdog.mjs) и внешнего монитора.
+ * Ходит в базу: процесс, который отвечает, но базу не видит, тоже сломан.
+ */
+app.get('/api/health', (req, res) => {
+  try {
+    db.prepare('SELECT 1').get();
+    res.json({ ok: true, uptime: Math.round(process.uptime()) });
+  } catch (err) {
+    res.status(503).json({ ok: false, error: err.message });
+  }
+});
 
 app.get('/api/config', (req, res) => {
   res.json({
@@ -627,6 +657,7 @@ app.post('/api/auth/forgot', authGate, limits.auth, async (req, res) => {
     });
   } catch (err) {
     console.error('Письмо сброса не ушло:', err.message);
+    alert('mail', `Почта: письмо сброса пароля не ушло (${err.message}). Проверьте RESEND_API_KEY и домен в Resend.`);
     return res.status(502).json({ error: 'Письмо не отправилось, попробуйте позже' });
   }
   done();
@@ -1452,12 +1483,20 @@ app.post('/api/casino/launch', auth, limits.play, gameGate('casino'), async (req
     });
     if (!result.ok) {
       console.error('[casino] запуск', game.id, result.status, result.message);
+      // Пустой баланс агента у партнёра запирает ВСЕ игры разом - это не
+      // сбой одной игры, а повод разбудить владельца.
+      if (/balance must be greater than zero/i.test(String(result.message))) {
+        alert('casino:agent-balance', 'Казино: у агента пустой баланс у агрегатора, игры не запускаются. Пополните баланс агента в кабинете Databetrix.');
+      } else {
+        countError('casino:launch', `Казино: игры не запускаются (${result.status} ${result.message || ''})`, { threshold: 5 });
+      }
       return res.status(503).json({ error: 'Игра временно недоступна. Попробуйте позже' });
     }
     trackEvent(req.player.id, 'casino_launch', { gameId: game.id, demo });
     res.json({ url: result.url, html: result.html, game: publicCasinoGame(game), demo });
   } catch (err) {
     console.error('[casino] запуск', game.id, err.message);
+    countError('casino:launch-net', `Казино: агрегатор не отвечает на запуск (${err.message})`, { threshold: 5 });
     res.status(503).json({ error: 'Игра временно недоступна. Попробуйте позже' });
   }
 });
@@ -2231,13 +2270,18 @@ app.post('/api/casino/wallet', (req, res) => {
     });
   } catch (err) {
     console.error('[casino] кошелёк:', err);
+    // Ошибка кошелька - это ставка или выигрыш, которые не прошли.
+    alert('casino:wallet', `Казино: ошибка кошелька, ставки и выигрыши могут не проходить.\n${err.message}`);
     res.json({ statusCode: CASINO_STATUS.GENERIC, message: 'Generic error' });
   }
 });
 
 /* ============================================================
-   ПОПОЛНЕНИЯ BEELINE, REALTIME И ФИНАНСОВАЯ ПОДДЕРЖКА
-   ============================================================ */
+   ПОТОК СОБЫТИЙ О ПЛАТЕЖАХ
+   ============================================================
+   Колбэк шлюза приходит на сервер раньше, чем игрок вернётся из окна
+   оплаты. Открытая касса узнаёт о зачислении по этому потоку и сразу
+   обновляет баланс, не дожидаясь своего опроса. */
 
 const paymentStreams = new Map();
 function emitPayment(userId, event, data) {
@@ -2254,73 +2298,6 @@ app.get('/api/payments/events', auth, (req, res) => {
   req.on('close', () => { clearInterval(keepalive); set.delete(res); if (!set.size) paymentStreams.delete(req.player.id); });
 });
 
-app.post('/api/payments/create', auth, limits.cashier, (req, res) => {
-  if (!setting('deposits_open')) {
-    return res.status(503).json({ error: 'Приём пополнений временно закрыт' });
-  }
-
-  try { res.status(201).json(createPayment(req.player.id, req.body?.amount, String(req.body?.bank || ''))); }
-  catch (err) { res.status(400).json({ error: err.code || 'PAYMENT_ERROR', message: err.message }); }
-});
-app.post('/api/payments/list', auth, limits.read, (req, res) => res.json({ rows: listPayments(req.player.id) }));
-app.post('/api/payments/get', auth, (req, res) => {
-  const row = getPayment(Number(req.body?.id), req.player.id);
-  if (!row) return res.status(404).json({ error: 'Заявка не найдена' }); res.json(row);
-});
-
-function deviceAuth(req, res, next) {
-  try {
-    verifyDeviceRequest({ deviceId: req.get('X-Device-Id'), timestamp: req.get('X-Timestamp'),
-      nonce: req.get('X-Nonce'), signature: req.get('X-Signature'), rawBody: req.rawBody || '' });
-    req.deviceId = req.get('X-Device-Id'); next();
-  } catch (err) { res.status(err.status || 401).json({ error: err.message }); }
-}
-app.post('/api/webhooks/beeline', limits.webhook, deviceAuth, (req, res) => {
-  try {
-    const result = processBeelineSms({ amount: req.body?.amount, message: String(req.body?.message || ''), deviceId: req.deviceId });
-    emitPayment(result.userId, 'payment.completed', result); res.json({ ok: true, ...result });
-  } catch (err) { res.status(err.status || 400).json({ error: err.message }); }
-});
-app.post('/api/webhooks/beeline/heartbeat', limits.webhook, deviceAuth, (req, res) => { heartbeat(req.deviceId); res.json({ ok: true, serverTime: Date.now() }); });
-
-app.post('/api/support/open', auth, (req, res) => res.status(201).json(openDispute(req.player.id, Number(req.body?.paymentId))));
-app.post('/api/support/chat', auth, (req, res) => {
-  const data = supportChat(Number(req.body?.chatId));
-  if (!data.chat || data.chat.user_id !== req.player.id) return res.status(404).json({ error: 'Чат не найден' }); res.json(data);
-});
-app.post('/api/support/message', auth, limits.cashier, (req, res) => {
-  const data = supportChat(Number(req.body?.chatId));
-  if (!data.chat || data.chat.user_id !== req.player.id) return res.status(404).json({ error: 'Чат не найден' });
-  addSupportMessage(data.chat.id, 'USER', req.player.id, String(req.body?.text || '').slice(0, 2000),
-    req.body?.attachmentUrl, String(req.body?.attachmentName || '').slice(0, 200));
-  res.status(201).json(supportChat(data.chat.id));
-});
-app.post('/api/support/upload', auth, limits.cashier, (req, res) => {
-  const mime=String(req.body?.mime||''), name=String(req.body?.name||'file').replace(/[^\p{L}\p{N}._-]/gu,'_').slice(0,100);
-  const allowed={'image/jpeg':'jpg','image/png':'png','image/webp':'webp','application/pdf':'pdf'};
-  if (!allowed[mime]) return res.status(400).json({error:'Разрешены JPG, PNG, WebP и PDF'});
-  let bytes; try { bytes=Buffer.from(String(req.body?.base64||''),'base64'); } catch { return res.status(400).json({error:'Файл повреждён'}); }
-  if (!bytes.length || bytes.length>5*1024*1024) return res.status(400).json({error:'Размер файла: до 5 МБ'});
-  const dir=join(__dirname,'..','data','support-uploads'); mkdirSync(dir,{recursive:true});
-  const file=`${req.player.id}-${randomUUID()}.${allowed[mime]}`; writeFileSync(join(dir,file),bytes,{flag:'wx'});
-  res.status(201).json({url:`/api/support/files/${file}`,name});
-});
-app.get('/api/support/files/:file', auth, (req,res) => {
-  const file=String(req.params.file); if(!new RegExp(`^${req.player.id}-[0-9a-f-]+\\.(jpg|png|webp|pdf)$`,'i').test(file)) return res.status(404).end();
-  res.sendFile(join(__dirname,'..','data','support-uploads',file));
-});
-
-app.post('/api/admin/payments', auth, need('finance.payments.view'), (req, res) => res.json({ rows: adminPayments(String(req.body?.status || 'ALL')), dashboard: paymentDashboard() }));
-app.post('/api/admin/payment-settings', auth, need('finance.settings'), (req, res) => {
-  try { res.json(req.body?.save ? updatePaymentSettings(req.body.values || {}) : paymentSettings()); }
-  catch (err) { res.status(400).json({ error: err.message }); }
-});
-app.post('/api/admin/payment-devices', auth, need('finance.settings'), (req, res) => res.json({ rows: adminDevices() }));
-app.post('/api/admin/payment-device/register', auth, need('finance.settings'), (req, res) => {
-  const id=String(req.body?.deviceId||'').trim(), secret=String(req.body?.secret||'');
-  if (!id || secret.length < 24) return res.status(400).json({ error: 'ID обязателен, секрет - минимум 24 символа' });
-  registerDevice(id, String(req.body?.name||id).slice(0,80), secret); res.status(201).json({ ok:true });
-});
 /* ============================================================
    БЭК-ОФИС: СОТРУДНИКИ, ЖУРНАЛ, НАСТРОЙКИ, РИСК, ОТЧЁТЫ
    ============================================================ */
@@ -2332,6 +2309,52 @@ app.post('/api/admin/payment-device/register', auth, need('finance.settings'), (
  * Это удобство, а не защита. Защита - need() на каждой ручке: спрятанный
  * раздел открывается одной строкой в консоли браузера.
  */
+/* ---------- Подтверждение входа в панель (служебный бот) ---------- */
+
+app.post('/api/admin/2fa/status', auth, staffOnly, (req, res) => {
+  res.json(twoFactorState(req.player.id, req.sessionHash));
+});
+
+/*
+ * Ссылка привязки. Сменить уже привязанный Telegram можно только из
+ * подтверждённой сессии: иначе украденный пароль позволил бы перевесить
+ * подтверждения на чужой Telegram.
+ */
+app.post('/api/admin/2fa/link', auth, staffOnly, (req, res) => {
+  const st = twoFactorState(req.player.id, req.sessionHash);
+  if (st.linked && st.required && !st.confirmed) {
+    return res.status(403).json({ error: 'Telegram уже привязан. Сменить его можно после подтверждения входа' });
+  }
+  const url = createLink(req.player.id);
+  if (!url) return res.status(503).json({ error: 'Служебный бот ещё не готов, попробуйте через минуту' });
+  res.json({ url });
+});
+
+app.post('/api/admin/2fa/request', auth, staffOnly, limits.auth, async (req, res) => {
+  try {
+    res.json(await requestApproval(req.player.id, req.sessionHash, { ip: req.ip, userAgent: req.get('user-agent') }));
+  } catch (err) {
+    res.status(err.code === 'NOT_LINKED' || err.code === 'NO_SESSION' ? 400 : 502)
+      .json({ error: err.code === 'TG_ERROR' ? 'Telegram не ответил, попробуйте ещё раз' : err.message });
+  }
+});
+
+app.post('/api/admin/2fa/poll', auth, staffOnly, (req, res) => {
+  res.json({
+    status: challengeStatus(Number(req.body?.id), req.player.id),
+    confirmed: sessionConfirmed(req.sessionHash),
+  });
+});
+
+app.post('/api/admin/2fa/code', auth, staffOnly, limits.auth, (req, res) => {
+  try {
+    confirmByCode(Number(req.body?.id), req.player.id, req.body?.code);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message, code: err.code });
+  }
+});
+
 app.post('/api/admin/me', auth, adminOnly, (req, res) => {
   const role = ROLE_BY_ID.get(req.staff?.role);
   res.json({
@@ -2342,9 +2365,8 @@ app.post('/api/admin/me', auth, adminOnly, (req, res) => {
     note: req.staff?.note || '',
     sections: {
       players: req.perms.has('players.view'),
-      finance: req.perms.has('finance.payouts.view') || req.perms.has('finance.payments.view'),
+      finance: req.perms.has('finance.payouts.view'),
       promo: req.perms.has('promo.view') || req.perms.has('partners.view'),
-      support: req.perms.has('support.view'),
       risk: req.perms.has('risk.view'),
       reports: req.perms.has('reports.view'),
       journal: req.perms.has('journal.view'),
@@ -2511,21 +2533,51 @@ app.post('/api/admin/export', auth, need('reports.view'), (req, res) => {
   res.type('text/csv; charset=utf-8').send(csv);
 });
 
-app.post('/api/admin/support', auth, need('support.view'), (req, res) => res.json({ rows: adminChats() }));
-app.post('/api/admin/support/chat', auth, need('support.view'), (req, res) => res.json(supportChat(Number(req.body?.chatId))));
-app.post('/api/admin/support/message', auth, need('support.reply'), (req, res) => {
-  addSupportMessage(Number(req.body?.chatId),'ADMIN',req.player.id,String(req.body?.text||'').slice(0,2000),req.body?.attachmentUrl,String(req.body?.attachmentName||'').slice(0,200));
-  res.status(201).json(supportChat(Number(req.body?.chatId)));
-});
-
 app.use((err, req, res, next) => {
   console.error('Ошибка запроса:', err);
+  if (!err.status || err.status >= 500) {
+    countError('http:500', `Сервер отвечает ошибками 500. Последняя: ${req.method} ${req.path}: ${err.message}`);
+  }
   res.status(err.status || 500).json({ error: err.status ? err.message : 'Внутренняя ошибка сервера' });
 });
 
 const PORT = Number(process.env.PORT || 3000);
 
+/*
+ * Падение процесса. Необработанная ошибка - это состояние, в котором дальше
+ * работать нельзя: оповещаем и выходим, systemd поднимет сервер заново.
+ * Пауза перед выходом даёт оповещению уйти.
+ */
+const CRASH_EXIT_DELAY_MS = 3000;
+process.on('uncaughtException', (err) => {
+  console.error('Необработанная ошибка:', err);
+  alert('process:crash', `Сервер упал: ${err.message}. systemd перезапустит его.`);
+  setTimeout(() => process.exit(1), CRASH_EXIT_DELAY_MS);
+});
+process.on('unhandledRejection', (err) => {
+  console.error('Необработанный отказ промиса:', err);
+  countError('process:rejection', `Необработанная ошибка в фоне: ${err?.message || err}`, { threshold: 3 });
+});
+
+/*
+ * Метка «процесс работает» рядом с базой. Штатная остановка (выкат,
+ * systemctl restart) её снимает. Если при старте метка на месте - прошлый
+ * процесс умер сам, и об этом надо сказать: иначе перезапуски после падений
+ * проходят незамеченными, пока не станут постоянными.
+ */
+const RUN_MARK = join(dirname(resolve(process.env.DB_PATH || './data/app.db')), '.running');
+const crashedBefore = existsSync(RUN_MARK);
+try { writeFileSync(RUN_MARK, String(process.pid)); } catch { /* только для разбора */ }
+for (const sig of ['SIGTERM', 'SIGINT']) {
+  process.on(sig, () => {
+    try { rmSync(RUN_MARK, { force: true }); } catch { /* пусть */ }
+    process.exit(0);
+  });
+}
+
 app.listen(PORT, () => {
+  startOpsBot();
+  if (crashedBefore) inform('Сервер перезапустился после сбоя: прошлый процесс не остановился штатно. Причина - в journalctl -u luckybox.');
   startFeed();
   startCatalogSync();
   sicilia.startReconcile((userId) => emitPayment(userId, 'payment.completed', { source: 'sicilia' }));

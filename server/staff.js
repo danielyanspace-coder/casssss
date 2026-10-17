@@ -31,7 +31,6 @@ export const PERMISSION_GROUPS = [
   { id: 'players', name: 'Игроки' },
   { id: 'finance', name: 'Финансы' },
   { id: 'promo', name: 'Промо и партнёры' },
-  { id: 'support', name: 'Поддержка' },
   { id: 'risk', name: 'Риск и контроль' },
   { id: 'system', name: 'Система' },
 ];
@@ -47,18 +46,12 @@ export const PERMISSIONS = [
 
   { id: 'finance.payouts.view', group: 'finance', label: 'Видеть заявки на вывод' },
   { id: 'finance.payouts.resolve', group: 'finance', label: 'Проводить и отклонять выводы' },
-  { id: 'finance.payments.view', group: 'finance', label: 'Видеть приём платежей' },
-  { id: 'finance.settings', group: 'finance', label: 'Реквизиты и устройства приёма',
-    hint: 'Самое опасное право в панели: меняет, куда приходят деньги' },
 
   { id: 'promo.view', group: 'promo', label: 'Смотреть промокоды' },
   { id: 'promo.edit', group: 'promo', label: 'Создавать и выключать промокоды' },
   { id: 'partners.view', group: 'promo', label: 'Смотреть партнёров' },
   { id: 'partners.edit', group: 'promo', label: 'Заводить и править партнёров' },
   { id: 'partners.pay', group: 'promo', label: 'Выплачивать партнёрам' },
-
-  { id: 'support.view', group: 'support', label: 'Читать обращения' },
-  { id: 'support.reply', group: 'support', label: 'Отвечать в обращениях' },
 
   { id: 'risk.view', group: 'risk', label: 'Сигналы риска и мультиаккаунты' },
   { id: 'journal.view', group: 'risk', label: 'Журнал действий сотрудников' },
@@ -101,10 +94,9 @@ export const ROLES = [
   {
     id: 'admin',
     name: 'Администратор',
-    description: 'Всё, кроме управления сотрудниками и реквизитов приёма.',
+    description: 'Всё, кроме управления сотрудниками.',
     balanceCap: 0,
-    permissions: PERMISSION_IDS.filter(
-      (p) => p !== 'staff.manage' && p !== 'finance.settings'),
+    permissions: PERMISSION_IDS.filter((p) => p !== 'staff.manage'),
   },
   {
     id: 'finance',
@@ -113,7 +105,7 @@ export const ROLES = [
     balanceCap: 0,
     permissions: [
       'players.view', 'players.notes',
-      'finance.payouts.view', 'finance.payouts.resolve', 'finance.payments.view',
+      'finance.payouts.view', 'finance.payouts.resolve',
       'partners.view', 'partners.pay',
       'reports.view', 'journal.view',
     ],
@@ -121,12 +113,11 @@ export const ROLES = [
   {
     id: 'support',
     name: 'Поддержка',
-    description: 'Обращения, карточка игрока, мелкие компенсации до 5 000.',
+    description: 'Карточка игрока, заметки, мелкие компенсации до 5 000.',
     balanceCap: 5000,
     permissions: [
       'players.view', 'players.notes', 'players.balance', 'players.gift',
       'players.limits',
-      'support.view', 'support.reply',
       'promo.view',
     ],
   },
@@ -159,7 +150,7 @@ export const ROLES = [
     balanceCap: 0,
     permissions: [
       'players.view',
-      'finance.payouts.view', 'finance.payments.view',
+      'finance.payouts.view',
       'promo.view', 'partners.view',
       'reports.view', 'journal.view',
     ],

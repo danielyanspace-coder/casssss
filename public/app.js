@@ -33,7 +33,6 @@ import {
 import { createMotion, MOTION_NICE_AT } from './motion.js';
 import { medalSvg } from './medals.js';
 
-const BEELINE_LOGO_SRC = window.__BEELINE_SRC || '/assets/banks/beeline.webp';
 
 const state = {
   config: null,
@@ -46,7 +45,7 @@ const state = {
   rouletteHistory: [],
   view: 'cases',
   admin: { tab: 'overview', users: [], query: '', funnelDays: 7, perms: new Set(), me: null, reportDays: 30 },
-  paymentBank: 'sber', paymentTimer: null, payment: null,
+  depositChosen: false,
   withdrawMethod: 'sbp',
   /*
    * Колесо фортуны. Лежит здесь, а не отдельной константой внизу файла:
@@ -105,6 +104,11 @@ async function api(path, body, { quiet = false } = {}) {
     err.data = data;
     if (res.status === 401 && data.code === 'AUTH' && !quiet) {
       openAuth(authDefaultPane());
+    }
+    // Подтверждение входа в панель истекло посреди работы: показываем экран
+    // подтверждения вместо разделов, а не россыпь ошибок «нет доступа».
+    if (res.status === 403 && data.code === 'ADMIN_2FA' && state.view === 'admin') {
+      renderAdminGate();
     }
     throw err;
   }
@@ -4436,13 +4440,9 @@ const BO_SECTIONS = [
   { id: 'risk', name: 'Риск', group: 'Игроки', need: 'risk.view', load: () => loadAdminRisk() },
 
   { id: 'payouts', name: 'Выводы', group: 'Финансы', need: 'finance.payouts.view', load: () => loadAdminPayouts() },
-  { id: 'payments', name: 'Пополнения', group: 'Финансы', need: 'finance.payments.view', load: () => loadAdminPayments() },
-  { id: 'payment-settings', name: 'Приём платежей', group: 'Финансы', need: 'finance.settings', load: () => loadAdminPaymentSettings() },
 
   { id: 'promos', name: 'Промокоды', group: 'Промо', need: 'promo.view', load: () => loadAdminPromos() },
   { id: 'partners', name: 'Партнёры', group: 'Промо', need: 'partners.view', load: () => loadAdminPartners() },
-
-  { id: 'support', name: 'Обращения', group: 'Поддержка', need: 'support.view', load: () => loadAdminSupport() },
 
   { id: 'casino', name: 'Казино', group: 'Система', need: 'games.manage', load: () => loadAdminCasino() },
   { id: 'settings', name: 'Настройки', group: 'Система', need: 'settings.manage', load: () => loadAdminSettings() },
@@ -4474,7 +4474,109 @@ function boOpen(id) {
  * панель, собранная один раз при загрузке страницы, показывала бы вчерашние
  * права до перезагрузки.
  */
+/* ---------- Подтверждение входа в панель ---------- */
+
+/*
+ * Если на сервере включён служебный бот, панель открывается только после
+ * подтверждения в Telegram (server/ops.js). Экран сам опрашивает сервер и
+ * открывает панель, как только в боте нажали «Это я».
+ */
+const GATE_POLL_MS = 2000;
+const gateState = { poll: 0, id: 0 };
+
+function showAdminShell(open) {
+  document.getElementById('boGate').hidden = open;
+  document.getElementById('boShell').hidden = !open;
+  if (open) clearInterval(gateState.poll);
+}
+
+/** true - панель можно открывать. */
+async function adminGateOk() {
+  let st;
+  try { st = await api('/api/admin/2fa/status'); }
+  catch (err) { toast(err.message); return false; }
+  if (!st.required || st.confirmed) { showAdminShell(true); return true; }
+  renderAdminGate(st);
+  return false;
+}
+
+async function renderAdminGate(st) {
+  clearInterval(gateState.poll);
+  if (!st) {
+    try { st = await api('/api/admin/2fa/status'); } catch (err) { toast(err.message); return; }
+  }
+  showAdminShell(false);
+  const box = document.getElementById('boGate');
+
+  if (!st.linked) {
+    box.innerHTML = `
+      <div class="bo-gate-card">
+        <div class="bo-gate-title">Привяжите Telegram</div>
+        <p>Вход в панель подтверждается в служебном боте${st.bot ? ` <b>@${esc(st.bot)}</b>` : ''}.
+          Откройте его по кнопке ниже и нажмите Start - бот запомнит этот Telegram.
+          Сюда же будут приходить оповещения о сбоях.</p>
+        <button class="btn btn-primary btn-wide" id="gateLink">Открыть служебного бота</button>
+        <button class="btn btn-outline btn-wide" id="gateLinked">Я нажал Start</button>
+      </div>`;
+    document.getElementById('gateLink').onclick = async () => {
+      const tab = window.open('', '_blank');
+      try {
+        const { url } = await api('/api/admin/2fa/link');
+        if (tab && !tab.closed) tab.location.href = url; else window.open(url, '_blank', 'noopener');
+      } catch (err) { tab?.close(); toast(err.message); }
+    };
+    document.getElementById('gateLinked').onclick = () => initAdminPanel();
+    return;
+  }
+
+  box.innerHTML = `
+    <div class="bo-gate-card">
+      <div class="bo-gate-title">Подтвердите вход</div>
+      <p>Мы отправим запрос в служебного бота${st.bot ? ` <b>@${esc(st.bot)}</b>` : ''}.
+        Нажмите там «Это я» - панель откроется сама. Не пришло - введите код из сообщения.</p>
+      <button class="btn btn-primary btn-wide" id="gateSend">Отправить запрос в Telegram</button>
+      <div class="bo-gate-wait" id="gateWait" hidden>
+        <div class="bo-gate-status" id="gateStatus">Ждём подтверждения в Telegram…</div>
+        <div class="bo-gate-code">
+          <input class="seed-input" id="gateCode" inputmode="numeric" maxlength="6" placeholder="Код из сообщения">
+          <button class="btn btn-outline" id="gateCodeBtn">Подтвердить</button>
+        </div>
+      </div>
+    </div>`;
+
+  const status = (text) => { document.getElementById('gateStatus').textContent = text; };
+  document.getElementById('gateSend').onclick = async () => {
+    const btn = document.getElementById('gateSend');
+    btn.disabled = true;
+    try {
+      const r = await api('/api/admin/2fa/request');
+      gateState.id = r.id;
+      document.getElementById('gateWait').hidden = false;
+      btn.textContent = 'Отправить ещё раз';
+      status('Ждём подтверждения в Telegram…');
+      clearInterval(gateState.poll);
+      gateState.poll = setInterval(async () => {
+        if (state.view !== 'admin') { clearInterval(gateState.poll); return; }
+        try {
+          const p = await api('/api/admin/2fa/poll', { id: gateState.id });
+          if (p.confirmed) { clearInterval(gateState.poll); initAdminPanel(); return; }
+          if (p.status === 'denied') { clearInterval(gateState.poll); status('Вход отклонён в Telegram. Сессия закрыта.'); }
+          if (p.status === 'expired' || p.status === 'burned') { clearInterval(gateState.poll); status('Запрос устарел, отправьте новый.'); }
+        } catch { /* сеть моргнула - следующий опрос */ }
+      }, GATE_POLL_MS);
+    } catch (err) { toast(err.message); }
+    btn.disabled = false;
+  };
+  document.getElementById('gateCodeBtn').onclick = async () => {
+    try {
+      await api('/api/admin/2fa/code', { id: gateState.id, code: document.getElementById('gateCode').value });
+      initAdminPanel();
+    } catch (err) { status(err.message); haptic('error'); }
+  };
+}
+
 async function initAdminPanel() {
+  if (!(await adminGateOk())) return;
   let me;
   try { me = await api('/api/admin/me'); }
   catch (err) { toast(err.message); return; }
@@ -5988,8 +6090,9 @@ async function loadWallet() {
     const el = document.getElementById(id);
     if (el && !el.children.length) el.innerHTML = '<span class="skel skel-line"></span>'.repeat(3);
   }
-  // Вкладка «СБП и карта» появляется, только если шлюз настроен на сервере.
-  loadSiciliaOptions();
+  // Первый заход в кассу открывает способ пополнения сам: Sicilia, если
+  // шлюз настроен, иначе криптовалюту. Дальше игрок переключает сам.
+  if (!state.depositChosen) { state.depositChosen = true; openDefaultDeposit(); }
   try { w = await api('/api/wallet'); }
   catch (err) { toast(err.message); return; }
 
@@ -6023,7 +6126,6 @@ async function loadWallet() {
   }
 
   renderPayoutList(w.payouts);
-  loadPayments();
 
   /*
    * Игроку важно не только сколько доступно, но и почему ноль. Молчаливое
@@ -6156,11 +6258,6 @@ document.getElementById('walletDeposit').addEventListener('click', () => {
   haptic('light');
 });
 
-document.querySelectorAll('[data-bank]').forEach((btn) => btn.addEventListener('click', () => {
-  state.paymentBank = btn.dataset.bank;
-  document.querySelectorAll('[data-bank]').forEach(b => b.classList.toggle('active', b === btn));
-}));
-document.querySelector('[data-bank="sber"]')?.classList.add('active');
 /* ============================================================
    КРИПТОКАССА
    ============================================================ */
@@ -6331,9 +6428,7 @@ function renderCryptoQuick() {
 
 async function openCryptoDeposit() {
   const box = document.getElementById('cryptoCreate');
-  document.getElementById('paymentCreate').hidden = true;
-  document.getElementById('paymentCheckout').hidden = true;
-  box.hidden = false;
+  showDepositPane('cryptoCreate');
 
   await loadCryptoOptions();
   if (!cryptoState.enabled || !cryptoState.coins.length) {
@@ -6454,7 +6549,7 @@ function showCryptoCheckout(p) {
 }
 
 /* Способы пополнения: у каждого свой экран, открыт ровно один. */
-const DEPOSIT_PANES = ['paymentCreate', 'paymentCheckout', 'cryptoCreate', 'cryptoCheckout', 'siciliaCreate', 'siciliaCheckout'];
+const DEPOSIT_PANES = ['cryptoCreate', 'cryptoCheckout', 'siciliaCreate', 'siciliaCheckout'];
 function showDepositPane(...ids) {
   for (const id of DEPOSIT_PANES) {
     const el = document.getElementById(id);
@@ -6470,15 +6565,18 @@ document.querySelector('[data-payment-method="crypto"]')?.addEventListener('clic
   markDepositMethod('crypto');
   clearInterval(siciliaState.poll);
   openCryptoDeposit();
-  document.getElementById('siciliaCreate').hidden = true;
-  document.getElementById('siciliaCheckout').hidden = true;
 });
 
-document.querySelector('[data-payment-method="card"]')?.addEventListener('click', () => {
-  markDepositMethod('card');
-  clearInterval(siciliaState.poll);
-  showDepositPane('paymentCreate');
-});
+/*
+ * Способов пополнения два: СБП и карта через Sicilia и криптовалюта. Первым
+ * открывается Sicilia, если шлюз настроен: рублёвой оплатой пользуется
+ * большинство. Не настроен - касса сразу открывает криптовалюту.
+ */
+async function openDefaultDeposit() {
+  await loadSiciliaOptions();
+  if (siciliaState.enabled) openSiciliaDeposit();
+  else { markDepositMethod('crypto'); openCryptoDeposit(); }
+}
 
 /* ---------- СБП и карта: шлюз Sicilia ---------- */
 
@@ -6619,49 +6717,6 @@ async function checkSicilia(order, byHand) {
   }
 }
 
-async function loadPayments() {
-  try {
-    const { rows } = await api('/api/payments/list');
-    document.getElementById('paymentList').innerHTML = rows.length ? rows.map(p => `
-      <div class="payment-history"><div class="payout-head"><b>Заявка #${p.id} · ${money(p.original_amount)}</b>
-      <span class="payment-status ${p.status}">${p.status}</span></div>
-      <small>К оплате ${money(p.payable_amount)} · ${new Date(p.created_at).toLocaleString('ru-RU')}</small></div>`).join('') : '';
-    const active = rows.find(p => p.status === 'PENDING'); if (active) showPayment(active);
-  } catch (err) { toast(err.message); }
-}
-
-async function loadAdminPayments() {
-  try { const d=await api('/api/admin/payments',{status:'ALL'}); const x=d.dashboard;
-    document.getElementById('adminPaymentList').innerHTML=`<div class="admin-kpis"><div class="kpi"><div class="kpi-label">Оборот</div><div class="kpi-value">${money(x.turnover)}</div></div><div class="kpi"><div class="kpi-label">Успешно</div><div class="kpi-value">${x.paid}</div></div><div class="kpi"><div class="kpi-label">Ожидают / спорные</div><div class="kpi-value">${x.pending} / ${x.disputed}</div></div></div>${d.rows.map(p=>`<div class="payment-history"><div class="payout-head"><b>#${p.id} · ${esc(p.username||p.first_name||p.email||p.tg_id)}</b><span class="payment-status ${p.status}">${p.status}</span></div><div>Введено: ${money(p.original_amount)} · к оплате: ${money(p.payable_amount)}</div><small>${esc(p.bank)} · ${new Date(p.created_at).toLocaleString('ru-RU')}${p.sms_message?`<br>SMS: ${esc(p.sms_message)}`:''}</small></div>`).join('')}`;
-  }catch(err){toast(err.message);}
-}
-async function loadAdminSupport(){try{const d=await api('/api/admin/support');document.getElementById('adminSupportList').innerHTML=d.rows.length?d.rows.map(c=>`<button class="payment-history admin-chat-open" data-chat="${c.id}">#${c.id} · ${esc(c.username||c.first_name||c.email||c.tg_id)} · ${money(c.payable_amount)} <span class="payment-status ${c.payment_status}">${c.payment_status}</span>${c.unread_admin?` · непрочитано ${c.unread_admin}`:''}</button>`).join(''):'<div class="empty">Обращений нет</div>';document.querySelectorAll('.admin-chat-open').forEach(b=>b.onclick=()=>openAdminChat(Number(b.dataset.chat)));}catch(err){toast(err.message);}}
-async function openAdminChat(chatId){const d=await api('/api/admin/support/chat',{chatId});const box=document.getElementById('adminSupportList');box.innerHTML=`<button class="btn btn-sm" id="supportBack">Назад</button>${d.messages.map(m=>`<div class="support-message ${m.sender_type}"><b>${m.sender_type}</b><br>${esc(m.text||m.attachment_name)}</div>`).join('')}<textarea class="seed-input" id="adminSupportText"></textarea><button class="btn btn-primary" id="adminSupportSend">Ответить</button>`;document.getElementById('supportBack').onclick=loadAdminSupport;document.getElementById('adminSupportSend').onclick=async()=>{await api('/api/admin/support/message',{chatId,text:document.getElementById('adminSupportText').value});openAdminChat(chatId);};}
-async function loadAdminPaymentSettings(){try{const s=await api('/api/admin/payment-settings');const fields=[['beeline_phone','Номер Beeline'],['beeline_completed_limit','Лимит выполненных заявок, ₽ (0 - без лимита)'],['payment_ttl_minutes','Время жизни, мин'],['payment_markup_min','Надбавка от, ₽'],['payment_markup_max','Надбавка до, ₽'],['payment_min','Минимум, ₽'],['payment_max','Максимум, ₽']];const box=document.getElementById('adminPaymentSettings');box.innerHTML=`<div class="settings-grid">${fields.map(([k,l])=>`<label>${l}<input id="setting-${k}" value="${esc(s[k])}"></label>`).join('')}<p class="settings-help">Лимит считается отдельно по указанному номеру. Когда остаток меньше минимального пополнения, реквизит больше не выдаётся.</p><button class="btn btn-primary" id="savePaymentSettings">Сохранить</button></div><h3>Android-устройства</h3><div class="settings-grid device-register"><input id="deviceName" placeholder="Название, например Телефон кассы"><input id="deviceId" placeholder="ID, например beeline-1"><input id="deviceSecret" placeholder="Секрет - минимум 24 символа"><button class="btn btn-primary" id="registerDevice">Создать / обновить устройство</button></div><div id="deviceList"></div>`;document.getElementById('savePaymentSettings').onclick=async()=>{const values=Object.fromEntries(fields.map(([k])=>[k,document.getElementById(`setting-${k}`).value]));await api('/api/admin/payment-settings',{save:true,values});toast('Настройки сохранены');loadAdminPaymentSettings();};document.getElementById('registerDevice').onclick=async()=>{await api('/api/admin/payment-device/register',{name:document.getElementById('deviceName').value,deviceId:document.getElementById('deviceId').value,secret:document.getElementById('deviceSecret').value});toast('Устройство сохранено. Перенесите эти же ID и секрет в APK');loadAdminPaymentSettings();};const dev=await api('/api/admin/payment-devices');document.getElementById('deviceList').innerHTML=dev.rows.map(d=>`<div class="log-row"><span>${esc(d.name)}<br><small>${esc(d.device_id)}</small></span><b>${d.last_seen_at&&Date.now()-d.last_seen_at<300000?'● Online':'○ Offline'}</b></div>`).join('')||'<div class="empty">Добавьте первое устройство выше</div>';}catch(err){toast(err.message);}}
-
-function showPayment(p) {
-  state.payment = p; const box = document.getElementById('paymentCheckout'); box.hidden = false;
-  document.getElementById('paymentCreate').hidden = true; clearInterval(state.paymentTimer);
-  const paint = () => {
-    const left = Math.max(0, p.expires_at - Date.now()), mm = String(Math.floor(left/60000)).padStart(2,'0'), ss=String(Math.floor(left/1000)%60).padStart(2,'0');
-    if (!left) { clearInterval(state.paymentTimer); box.innerHTML='<h2>Вы не успели, повторите оплату снова</h2><button class="btn btn-primary" id="paidDispute">Я оплатил</button>'; document.getElementById('paidDispute').onclick=()=>openPaymentDispute(p.id); loadPayments(); return; }
-    box.innerHTML=`<div>Время на оплату</div><div class="payment-timer">${mm}:${ss}</div><h2>Оплатите мобильную связь</h2>
-      <div class="beeline-brand"><img src="${BEELINE_LOGO_SRC}" alt="Билайн"></div>
-      <div class="payment-requisite"><span>Оператор</span><b>Beeline</b></div><div class="payment-requisite"><span>Номер</span><b>${esc(p.phone)}</b></div>
-      <div class="payment-requisite"><span>Сумма</span><b>${money(p.payable_amount)}</b></div><p>Оплатите точную сумму на указанный номер. После получения платежа средства зачислятся автоматически.</p>`;
-  }; paint(); state.paymentTimer=setInterval(paint,1000);
-}
-document.getElementById('paymentCreateBtn').addEventListener('click', async () => {
-  try { const p=await api('/api/payments/create',{amount:Number(document.getElementById('paymentAmount').value),bank:state.paymentBank}); showPayment(p); loadPayments(); }
-  catch(err){toast(err.message);haptic('error');}
-});
-async function openPaymentDispute(paymentId) {
-  try { const chat=await api('/api/support/open',{paymentId}); const data=await api('/api/support/chat',{chatId:chat.id});
-    const box=document.getElementById('paymentCheckout'); box.innerHTML=`<h2>Финансовая поддержка #${chat.id}</h2><div>${data.messages.map(m=>`<div class="support-message ${m.sender_type}">${esc(m.text||m.attachment_name)}</div>`).join('')}</div><textarea class="seed-input" id="supportText" placeholder="Сообщение"></textarea><input id="supportFile" type="file" accept="image/jpeg,image/png,image/webp,application/pdf"><button class="btn btn-primary" id="supportSend">Отправить</button>`;
-    document.getElementById('supportSend').onclick=async()=>{let attachmentUrl,attachmentName;const f=document.getElementById('supportFile').files[0];if(f){const base64=await new Promise((ok,no)=>{const r=new FileReader();r.onload=()=>ok(String(r.result).split(',')[1]);r.onerror=no;r.readAsDataURL(f)});const up=await api('/api/support/upload',{name:f.name,mime:f.type,base64});attachmentUrl=up.url;attachmentName=up.name;}await api('/api/support/message',{chatId:chat.id,text:document.getElementById('supportText').value,attachmentUrl,attachmentName});openPaymentDispute(paymentId);};
-  } catch(err){toast(err.message);}
-}
-
 function startPaymentEvents(){
   /*
    * Поток событий имеет смысл только когда страницу отдаёт сервер. В
@@ -6673,7 +6728,7 @@ function startPaymentEvents(){
 
   if (state.guest) return;
   const es=new EventSource('/api/payments/events');
-  es.addEventListener('payment.completed',async()=>{clearInterval(state.paymentTimer);clearInterval(siciliaState.poll);toast('Платёж успешно поступил. Средства зачислены на счёт.');sndCollect();haptic('success');const me=await api('/api/me');applyUser(me.user);loadWallet();});
+  es.addEventListener('payment.completed',async()=>{clearInterval(siciliaState.poll);toast('Платёж успешно поступил. Средства зачислены на счёт.');sndCollect();haptic('success');const me=await api('/api/me');applyUser(me.user);loadWallet();});
 }
 
 document.getElementById('walletWithdraw').addEventListener('click', () => {

@@ -34,8 +34,8 @@ import {
   db, getUserById, registerDeposit, trackEvent, payoutForGateway, startPayout, completePayout,
 } from './db.js';
 
-/* Журнал balance_transactions создаёт модуль платежей Beeline - см. crypto.js. */
-import './payments.js';
+/* Журнал balance_transactions общий для шлюзов и создаётся в db.js. */
+import { alert, countError } from './ops.js';
 
 /*
  * Настройки читаются при каждом вызове, а не при загрузке модуля: их правят в
@@ -156,12 +156,20 @@ async function call(method, path, body, { headers = {} } = {}) {
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
   } catch (err) {
+    countError('sicilia:down', `Sicilia не отвечает: ${err.message}`, { threshold: 3 });
     throw Object.assign(new Error('Платёжный шлюз временно недоступен'), { code: 'GATEWAY_UNREACHABLE', cause: err });
   }
   const json = await res.json().catch(() => ({}));
   if (!res.ok) {
     const message = json.message || json.error
       || (json.errors && Object.values(json.errors).flat().join('; ')) || `Шлюз ответил ${res.status}`;
+    // 401 и 403 - не сбой сети, а настройка: ключ или белый список адресов
+    // шлюза. Сами они не пройдут, нужен человек.
+    if (res.status === 401 || res.status === 403) {
+      alert('sicilia:auth', `Sicilia отказывает (${res.status}): ${message}. Проверьте ключ и белый список IP сервера у шлюза.`);
+    } else if (res.status >= 500) {
+      countError('sicilia:5xx', `Sicilia отвечает ошибкой ${res.status}: ${message}`, { threshold: 3 });
+    }
     throw Object.assign(new Error(message), { code: 'GATEWAY_ERROR', status: res.status });
   }
   return json;
@@ -549,6 +557,7 @@ export function startReconcile(onCredited) {
       for (const r of fresh) onCredited?.(r.user_id);
     } catch (err) {
       console.error('[sicilia] сверка:', err.message);
+      alert('sicilia:reconcile', `Sicilia: сверка платежей не прошла (${err.message}). Потерянные колбэки не досчитываются.`);
     }
   }, RECONCILE_MS).unref();
 }

@@ -32,6 +32,7 @@ import { join, dirname, basename } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { createGzip } from 'node:zlib';
 import { pipeline } from 'node:stream/promises';
+import { alertRecipients, notifyAll, siteLabel } from '../server/ops-notify.js';
 
 const DB_PATH = process.env.DB_PATH || './data/app.db';
 const OUT_DIR = process.env.BACKUP_DIR || join(dirname(DB_PATH), 'backups');
@@ -42,10 +43,24 @@ const KEEP = Number(process.env.BACKUP_KEEP || 14);
 /** Куда отправить копию с машины. Пусто - никуда, только локально. */
 const REMOTE = process.env.RCLONE_REMOTE || '';
 
-if (!existsSync(DB_PATH)) {
-  console.error(`База не найдена: ${DB_PATH}`);
+/*
+ * Сбой копии - повод для оповещения: о несделанной копии узнают обычно в тот
+ * день, когда она понадобилась. Получателей берём из той же базы, без неё -
+ * только общий чат OPS_ALERT_CHAT_ID.
+ */
+async function fail(message) {
+  console.error(message);
+  let ids = [];
+  try {
+    const rdb = new Database(DB_PATH, { readonly: true, fileMustExist: true });
+    ids = alertRecipients(rdb);
+    rdb.close();
+  } catch { ids = alertRecipients({ prepare: () => ({ all: () => [] }) }); }
+  await notifyAll(ids, `СБОЙ · ${siteLabel()}\nКопия базы не сделана: ${message}`);
   process.exit(1);
 }
+
+if (!existsSync(DB_PATH)) await fail(`база не найдена: ${DB_PATH}`);
 
 mkdirSync(OUT_DIR, { recursive: true });
 
@@ -55,9 +70,13 @@ mkdirSync(OUT_DIR, { recursive: true });
 const stamp = new Date().toISOString().replace(/[:.]/g, '-');
 const target = join(OUT_DIR, `app-${stamp}.db`);
 
-const db = new Database(DB_PATH, { readonly: true });
-await db.backup(target);
-db.close();
+try {
+  const db = new Database(DB_PATH, { readonly: true });
+  await db.backup(target);
+  db.close();
+} catch (err) {
+  await fail(`снимок не снялся: ${err.message}`);
+}
 
 /*
  * Целостность проверяем сразу: копия, о которой узнаёшь при восстановлении,
@@ -77,9 +96,8 @@ for (const tail of ['-wal', '-shm']) {
 }
 
 if (integrity !== 'ok') {
-  console.error(`Копия повреждена (${integrity}), удаляю: ${target}`);
   unlinkSync(target);
-  process.exit(1);
+  await fail(`копия повреждена (${integrity}) и удалена`);
 }
 
 const raw = statSync(target).size;
@@ -112,8 +130,7 @@ if (REMOTE) {
     execFileSync('rclone', ['copy', packed, REMOTE], { stdio: 'inherit' });
     console.log(`Отправлено в ${REMOTE}/${basename(packed)}`);
   } catch (err) {
-    console.error(`Не удалось отправить копию в ${REMOTE}: ${err.message}`);
-    process.exit(1);
+    await fail(`не отправилась в ${REMOTE}: ${err.message}. Локальная копия есть.`);
   }
 } else {
   console.log('RCLONE_REMOTE не задан: копия осталась только на этом сервере.');

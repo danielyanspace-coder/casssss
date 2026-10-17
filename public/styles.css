@@ -1982,6 +1982,24 @@ main { position: relative; z-index: 2; padding: 18px; }
 
 .bo-shell { display: block; }
 
+/* Подтверждение входа в панель: одна карточка по центру, пока панель скрыта. */
+.bo-gate { display: flex; justify-content: center; padding: 24px 0; }
+.bo-gate-card {
+  width: 100%; max-width: 440px;
+  padding: 24px 20px;
+  border-radius: 20px;
+  border: 1px solid var(--line);
+  background: var(--bg-soft);
+}
+.bo-gate-title { font-size: 20px; font-weight: 900; margin-bottom: 10px; }
+.bo-gate-card p { color: var(--muted); font-size: 14px; line-height: 1.55; margin: 0 0 14px; }
+.bo-gate-card p b { color: var(--text); }
+.bo-gate-card .btn-wide { margin-top: 10px; }
+.bo-gate-wait { margin-top: 16px; }
+.bo-gate-status { font-size: 14px; font-weight: 700; margin-bottom: 10px; }
+.bo-gate-code { display: flex; gap: 8px; }
+.bo-gate-code .seed-input { flex: 1; letter-spacing: 0.2em; }
+
 .bo-nav {
   display: flex; gap: 14px;
   overflow-x: auto; scrollbar-width: none;
@@ -5432,8 +5450,7 @@ div.mini-row { cursor: default; }
   .upg-picker { grid-template-columns: repeat(8, 1fr); }
   .feed { --feed-w: 116px; }
 }
-.deposit-methods,.bank-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0}.payment-method,.bank-grid button{padding:8px;border:1px solid #4b3a62;border-radius:12px;background:#fff;color:#191321;min-height:72px;display:flex;align-items:center;justify-content:center;gap:8px;overflow:hidden}.bank-grid button img{display:block;width:100%;height:54px;object-fit:contain}.bank-grid button.active{border-color:#ffd60a;box-shadow:0 0 0 2px #ffd60a}.payment-method{background:#181124;color:#fff}.payment-method.active{border-color:#ffd60a;box-shadow:0 0 0 1px #ffd60a}.any-bank-icon{font-size:28px;color:#6b4bb4;transform:rotate(-8deg)}.bank-grid [data-bank="any"] span:last-child{font-weight:700;line-height:1.15}.payment-method small{display:block;color:#8f829e}.payment-create .seed-input{width:100%;box-sizing:border-box;margin:8px 0}.payment-checkout{padding:18px;border:1px solid #ffd60a;border-radius:16px;background:linear-gradient(145deg,#201629,#15101d);text-align:center;margin:12px 0}.payment-timer{font-size:34px;font-weight:800;color:#ffd60a}.payment-requisite{display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid #392d45}.payment-requisite b{font-size:18px}.payment-status{padding:5px 9px;border-radius:99px;font-size:11px}.payment-status.PAID{background:#154b37;color:#61f1ac}.payment-status.PENDING{background:#5b4610;color:#ffd966}.payment-status.EXPIRED,.payment-status.MANUAL_REVIEW{background:#5b2028;color:#ff8b99}.payment-history{padding:12px;margin:8px 0;background:#191321;border-radius:12px}.support-message{padding:9px 11px;margin:6px 0;border-radius:10px;background:#2a2035}.support-message.USER{text-align:right;background:#44315b}.settings-grid{display:grid;gap:10px}.settings-grid label{display:grid;gap:4px;color:#ac9fba}.settings-grid input{padding:10px;border-radius:8px;border:1px solid #4b3a62;background:#17111f;color:#fff}
-.beeline-brand{width:min(280px,100%);margin:8px auto 14px;padding:8px 14px;background:#fff;border-radius:14px;box-sizing:border-box}.beeline-brand img{display:block;width:100%;height:64px;object-fit:contain}
+.deposit-methods{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0}.payment-method{padding:8px;border:1px solid #4b3a62;border-radius:12px;min-height:72px;display:flex;align-items:center;justify-content:center;gap:8px;overflow:hidden;background:#181124;color:#fff}.payment-method.active{border-color:#ffd60a;box-shadow:0 0 0 1px #ffd60a}.payment-method small{display:block;color:#8f829e}.payment-checkout{padding:18px;border:1px solid #ffd60a;border-radius:16px;background:linear-gradient(145deg,#201629,#15101d);text-align:center;margin:12px 0}.payment-status{padding:5px 9px;border-radius:99px;font-size:11px}.payment-status.PAID{background:#154b37;color:#61f1ac}.payment-status.PENDING{background:#5b4610;color:#ffd966}.payment-status.EXPIRED,.payment-status.MANUAL_REVIEW{background:#5b2028;color:#ff8b99}.payment-history{padding:12px;margin:8px 0;background:#191321;border-radius:12px}.settings-grid{display:grid;gap:10px}.settings-grid label{display:grid;gap:4px;color:#ac9fba}.settings-grid input{padding:10px;border-radius:8px;border:1px solid #4b3a62;background:#17111f;color:#fff}
 
 /* ============================================================
    КРИПТОКАССА
@@ -6523,7 +6540,6 @@ div.mini-row { cursor: default; }
   #view-wallet > .wallet-actions { grid-area: acts; margin: 0; }
   #view-wallet > .wallet-pane { grid-area: pane; margin: 0; }
 
-  .bank-grid { grid-template-columns: repeat(3, 1fr); }
   .coin-grid { grid-template-columns: repeat(6, 1fr); }
 
   /* ---------- Админка ---------- */
