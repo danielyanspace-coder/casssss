@@ -20,9 +20,12 @@ sudo -u "$APP_USER" env $(grep -v '^#' "$APP_DIR/.env" | xargs -d '\n') \
 
 echo "==> Свежий код ($BRANCH)"
 cd "$APP_DIR"
-git fetch --all
-git checkout "$BRANCH"
-git pull --ff-only origin "$BRANCH"
+# Код принадлежит пользователю службы, а выкат идёт от root: без
+# safe.directory git откажется работать с «чужим» репозиторием.
+GIT="git -c safe.directory=$APP_DIR"
+$GIT fetch --all
+$GIT checkout "$BRANCH"
+$GIT pull --ff-only origin "$BRANCH"
 
 echo "==> Зависимости"
 npm ci --omit=dev
