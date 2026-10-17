@@ -1,5 +1,5 @@
 /**
- * Вход на сайт: пароли, Telegram, сессии, привязки и перенос старой базы.
+ * Вход на сайт: пароли, Telegram, сессии, привязки, письма и перенос старой базы.
  *
  *   npm run test:auth
  *
@@ -317,6 +317,48 @@ const tokenFrom = (res) => /lb_session=([^;]*)/.exec(res.cookies.at(-1) || '')?.
   const rows = db.freeCaseReminders(0, 100);
   check('бот: игрок без Telegram не в рассылке', !rows.some((r) => r.id === petr.id));
   check('бот: привязавший Telegram в рассылке', rows.some((r) => r.id === ivan.id));
+}
+
+/* ---------- 12. Письма через Resend ---------- */
+
+{
+  // Сеть подменена: настоящих писем тест не шлёт.
+  const realFetch = globalThis.fetch;
+  const calls = [];
+  let replies = [];
+  globalThis.fetch = async (url, opts) => {
+    calls.push({ url: String(url), headers: opts.headers, body: JSON.parse(opts.body) });
+    const r = replies.shift() || { status: 200, body: { id: 'ok' } };
+    return { ok: r.status < 400, status: r.status, json: async () => r.body };
+  };
+  process.env.RESEND_API_KEY = 're_test';
+  delete process.env.MAIL_FROM;
+  const mailer = await import('../server/mailer.js');
+
+  check('почта: с ключом Resend включена', mailer.isMailConfigured());
+  const sent = await mailer.sendMail({ to: 'a@b.ru', subject: 'Тема', text: 'Текст' });
+  const first = calls[0];
+  check('почта: ушла в API Resend с ключом', first?.url === 'https://api.resend.com/emails'
+    && first.headers.Authorization === 'Bearer re_test' && sent.id === 'ok');
+  check('почта: до подтверждения домена отправитель onboarding@resend.dev',
+    /onboarding@resend\.dev/.test(first?.body.from));
+
+  calls.length = 0;
+  replies = [{ status: 500, body: {} }, { status: 200, body: { id: 'second' } }];
+  const retried = await mailer.sendMail({ to: 'a@b.ru', subject: 'Т', text: 'Т' });
+  check('почта: сбой Resend повторяется', retried.id === 'second' && calls.length === 2);
+  check('почта: повтор с тем же ключом идемпотентности',
+    calls[0].headers['Idempotency-Key'] && calls[0].headers['Idempotency-Key'] === calls[1].headers['Idempotency-Key']);
+
+  calls.length = 0;
+  replies = [{ status: 403, body: { message: 'domain not verified' } }];
+  let refused = null;
+  try { await mailer.sendMail({ to: 'a@b.ru', subject: 'Т', text: 'Т' }); } catch (err) { refused = err; }
+  check('почта: отказ 403 не повторяется и доходит до вызывающего',
+    refused?.status === 403 && calls.length === 1);
+
+  delete process.env.RESEND_API_KEY;
+  globalThis.fetch = realFetch;
 }
 
 /* ---------- Итог ---------- */
