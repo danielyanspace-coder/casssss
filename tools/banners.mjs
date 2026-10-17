@@ -2,7 +2,7 @@
  * Подготовка присланной графики: баннеры первого экрана, логотип и колесо
  * фортуны.
  *
- * Исходники лежат в корне репозитория под именами с телефона
+ * Исходники лежат в assets-src/ui/ под именами с телефона
  * (BCA613B3-....png и так далее). Скрипт переводит их в WebP и кладёт в
  * public/assets/ui/ под понятными именами.
  *
@@ -43,7 +43,7 @@ import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { chromium } from 'playwright';
 
 const OUT = new URL('../public/assets/ui/', import.meta.url);
-const ROOT = new URL('../', import.meta.url);
+const ROOT = new URL('../assets-src/ui/', import.meta.url);
 
 const WIDE_SIDE = 1600;
 const SQUARE_SIDE = 900;

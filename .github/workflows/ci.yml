@@ -76,7 +76,7 @@ jobs:
         run: npm run demo
 
       - name: Проверки интерфейса по автономной сборке
-        run: node test/ui.mjs "file://$PWD/dist/luckybox-demo.html"
+        run: node test/ui.mjs "file://$PWD/dist/luckybox.html"
 
       - name: Резервное копирование работает
         run: node deploy/backup.mjs

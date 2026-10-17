@@ -43,13 +43,13 @@ echo "==> Файлы в $APP_DIR"
 mkdir -p "$APP_DIR"
 # Копируем без .git и локальных данных: на сервере нужен только рабочий код.
 #
-# Отдельно исключаются присланные исходники обложек в корне: это 235 МБ
-# больших PNG, из которых уже собраны webp в public/assets/covers. Серверу они
-# не нужны ни для чего - нужны только при перегенерации обложек, а её делают
-# на своей машине.
+# Отдельно исключаются присланные исходники картинок (assets-src): это 235 МБ
+# больших PNG, из которых уже собраны webp в public/assets. Серверу они не
+# нужны ни для чего - нужны только при перегенерации картинок, а её делают на
+# своей машине.
 rsync -a --delete \
   --exclude '.git' --exclude 'node_modules' --exclude 'data' --exclude 'dist' \
-  --exclude '/*.png' --exclude 'android-gateway' \
+  --exclude 'assets-src' --exclude 'android-gateway' \
   "$SRC"/ "$APP_DIR"/
 mkdir -p "$APP_DIR/data/backups"
 
