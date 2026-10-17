@@ -1,7 +1,7 @@
 /**
  * Подготовка присланных обложек кейсов к показу в приложении.
  *
- * Исходники лежат в корне репозитория (Пыль.png, Вестерос.png и так далее) -
+ * Исходники лежат в assets-src/covers/ (Пыль.png, Вестерос.png и так далее) -
  * это присланные рендеры с прозрачным фоном. Скрипт переводит их в WebP с
  * сохранённой альфой и кладёт в public/assets/covers/.
  *
@@ -218,7 +218,7 @@ const art = {};
 const hist = {};
 
 for (const [file, name] of Object.entries(MAP)) {
-  const src = new URL(`../${file}`, import.meta.url);
+  const src = new URL(`../assets-src/covers/${file}`, import.meta.url);
   const dataUri = 'data:image/png;base64,' + readFileSync(src).toString('base64');
 
   const out = await page.evaluate(async ({

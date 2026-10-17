@@ -2,7 +2,7 @@
  * Разбор присланного макета слота TREASURE ISLAND на отдельные картинки.
  *
  * Исходник - один PNG 1536x1024 с полностью отрисованным экраном игры
- * (31AC3515-BA76-4FE9-B90B-16739902E946.png в корне репозитория). Целиком он
+ * (assets-src/slots/31AC3515-BA76-4FE9-B90B-16739902E946.png). Целиком он
  * в проект не идёт: это макет, а не интерфейс. Скрипт вырезает из него
  * символы, логотип, доски рамки, слои фона и карточки механик, а всё
  * остальное - панели, кнопки, плашки джекпотов - собирается вёрсткой.
@@ -28,7 +28,7 @@ import { mkdirSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const SRC = process.argv[2]
-  || fileURLToPath(new URL('../31AC3515-BA76-4FE9-B90B-16739902E946.png', import.meta.url));
+  || fileURLToPath(new URL('../assets-src/slots/31AC3515-BA76-4FE9-B90B-16739902E946.png', import.meta.url));
 const OUT = fileURLToPath(new URL('../public/assets/ui/', import.meta.url));
 
 if (!existsSync(SRC)) {

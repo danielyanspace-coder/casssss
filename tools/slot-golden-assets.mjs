@@ -1,8 +1,8 @@
 /**
  * Разбор присланного макета слота GOLDEN LEGACY на отдельные картинки.
  *
- * Исходник - один PNG 1536x1024 (4854D818-1A44-4209-A778-E30D33A16C0E.png в
- * корне репозитория). В отличие от первого макета это не один экран, а целый
+ * Исходник - один PNG 1536x1024
+ * (assets-src/slots/4854D818-1A44-4209-A778-E30D33A16C0E.png). В отличие от первого макета это не один экран, а целый
  * набор: слева вверху игра, справа таблица выплат, снизу рядом все окна -
  * меню, настройки, покупка бонуса, автоигра, бесплатные вращения, BIG WIN,
  * линия выигрыша, выбор ставки, «недостаточно средств».
@@ -29,7 +29,7 @@ import { mkdirSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const SRC = process.argv[2]
-  || fileURLToPath(new URL('../4854D818-1A44-4209-A778-E30D33A16C0E.png', import.meta.url));
+  || fileURLToPath(new URL('../assets-src/slots/4854D818-1A44-4209-A778-E30D33A16C0E.png', import.meta.url));
 const OUT = fileURLToPath(new URL('../public/assets/ui/', import.meta.url));
 
 if (!existsSync(SRC)) {

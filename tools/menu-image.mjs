@@ -1,7 +1,7 @@
 /**
  * Подготовка присланной картинки меню.
  *
- * Исходник (Меню.png) - снимок экрана целиком: лист меню сверху, под ним
+ * Исходник (assets-src/ui/Меню.png) - снимок экрана целиком: лист меню сверху, под ним
  * размытая страница. Нужен только сам лист.
  *
  * Запуск: node tools/menu-image.mjs
@@ -28,7 +28,7 @@ const browser = await chromium.launch({
 const page = await browser.newPage();
 
 const menuUri = 'data:image/png;base64,'
-  + readFileSync(new URL('../Меню.png', import.meta.url)).toString('base64');
+  + readFileSync(new URL('../assets-src/ui/Меню.png', import.meta.url)).toString('base64');
 
 const menu = await page.evaluate(async ({ dataUri, box, W }) => {
   const img = new Image();

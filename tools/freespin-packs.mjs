@@ -1,7 +1,7 @@
 /**
  * Разбор присланного дизайна выбора фриспинов на части.
  *
- * Исходник (Фриспины.png) - готовая картинка на 1536x1024 с ценами кейса
+ * Исходник (assets-src/ui/Фриспины.png) - готовая картинка на 1536x1024 с ценами кейса
  * «Пыль». Целиком её поставить нельзя: цены у каждого кейса свои, а на
  * телефоне такая широкая картинка ужимается так, что подписи становятся с
  * пиксель. Поэтому картинка разбирается на неизменные части - заголовок и три
@@ -59,7 +59,7 @@ const browser = await chromium.launch({
 const page = await browser.newPage();
 
 const dataUri = 'data:image/png;base64,'
-  + readFileSync(new URL('../Фриспины.png', import.meta.url)).toString('base64');
+  + readFileSync(new URL('../assets-src/ui/Фриспины.png', import.meta.url)).toString('base64');
 
 for (const part of PARTS) {
   const out = await page.evaluate(async ({ dataUri, part, KEY_THRESHOLD, FEATHER }) => {

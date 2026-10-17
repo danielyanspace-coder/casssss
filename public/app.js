@@ -1110,7 +1110,7 @@ function openCase(caseId) {
    * кнопка с ценой отдельной плашкой и переключатель авто. Раньше это были
    * три ряда: пять плашек иксов, шесть плашек авто и розовая кнопка, где цена
    * читалась последней словом капсом. Заказчик выбрал вариант «Пульт» из
-   * демо (tools/open-button-demo.html).
+   * нескольких показанных ему отдельным демо.
    */
   const maxCount = state.config.maxBatch || 2;
   const countVal = document.getElementById('countVal');
