@@ -29,6 +29,7 @@ jobs:
       RATE_LIMIT_READ: '100000'
       RATE_LIMIT_CASHIER: '100000'
       RATE_LIMIT_GUESS: '100000'
+      RATE_LIMIT_AUTH: '100000'
 
     steps:
       - uses: actions/checkout@v4
@@ -56,6 +57,9 @@ jobs:
 
       - name: Платежи
         run: npm run test:payments
+
+      - name: Вход на сайт
+        run: npm run test:auth
 
       - name: Запуск сервера
         run: |

@@ -49,7 +49,7 @@ const MERCHANT = process.env.HELEKET_MERCHANT || '';
 const API_KEY = process.env.HELEKET_API_KEY || '';
 
 /** Публичный адрес приложения: нужен шлюзу, чтобы прислать вебхук и вернуть игрока. */
-const WEBAPP_URL = (process.env.WEBAPP_URL || '').replace(/\/+$/, '');
+const WEBAPP_URL = (process.env.SITE_URL || process.env.WEBAPP_URL || '').replace(/\/+$/, '');
 
 /** Нижняя и верхняя границы пополнения криптой, рублей. */
 export const CRYPTO_MIN = Number(process.env.CRYPTO_MIN || 500);

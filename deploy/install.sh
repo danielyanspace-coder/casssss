@@ -64,9 +64,9 @@ if [ ! -f "$APP_DIR/.env" ]; then
   # получить отказ на первой же заявке по карте, и уже с живыми игроками.
   KEY=$(openssl rand -hex 32)
   sed -i "s|^PAYOUT_DATA_KEY=.*|PAYOUT_DATA_KEY=$KEY|" "$APP_DIR/.env"
-  sed -i "s|^WEBAPP_URL=.*|WEBAPP_URL=https://$DOMAIN|" "$APP_DIR/.env"
+  sed -i "s|^SITE_URL=.*|SITE_URL=https://$DOMAIN|" "$APP_DIR/.env"
   echo "    Создан $APP_DIR/.env, ключ выплат сгенерирован."
-  echo "    ЗАПОЛНИТЕ РУКАМИ: TELEGRAM_TOKEN, ADMIN_TG_IDS, BEELINE_PHONE."
+  echo "    ЗАПОЛНИТЕ РУКАМИ: ADMIN_EMAILS или ADMIN_TG_IDS, BEELINE_PHONE; по желанию TELEGRAM_TOKEN и SMTP_URL."
 else
   echo "    .env уже есть, не трогаю."
 fi
@@ -108,9 +108,10 @@ cat <<EOF
 Установка закончена. Осталось:
 
 1. Заполнить $APP_DIR/.env
-     TELEGRAM_TOKEN  - токен от @BotFather
-     ADMIN_TG_IDS    - ваш Telegram ID (узнать у @userinfobot)
+     ADMIN_EMAILS    - почта, с которой вы зарегистрируетесь (владелец панели)
      BEELINE_PHONE   - номер для приёма платежей
+     TELEGRAM_TOKEN, TELEGRAM_BOT_USERNAME - для входа через Telegram и бота
+     SMTP_URL, MAIL_FROM - для восстановления пароля по почте
    DEV_MODE обязан остаться false.
 
 2. Запустить:

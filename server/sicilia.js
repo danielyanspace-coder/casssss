@@ -8,7 +8,7 @@
  * ПОПОЛНЕНИЕ - ЧЕРЕЗ ИХ ПЛАТЁЖНОЕ ОКНО, ОТКРЫТОЕ ОТДЕЛЬНО (решение
  * заказчика). Мы не создаём ордер сами и не рисуем реквизиты: сервер
  * подписывает ссылку на окно (sum, invid, merchant, callback_url), клиент
- * открывает её вне мини-аппа, ордер заводит само окно. Строка в нашей базе
+ * открывает её отдельной вкладкой, ордер заводит само окно. Строка в нашей базе
  * появляется ДО того, как игрок ушёл в окно: колбэк находит её по invid.
  *
  * КОЛБЭКУ ОДНОМУ НЕ ВЕРИМ. Подпись колбэка - sha256('sum:invid:apiKey'), и
@@ -52,7 +52,7 @@ export function siciliaEnv() {
     max: Number(process.env.SICILIA_MAX || 300_000),
     ttlMs: Number(process.env.SICILIA_ORDER_TTL_MIN || 30) * 60_000,
     callbackIps: String(process.env.SICILIA_CALLBACK_IPS || '').split(',').map((s) => s.trim()).filter(Boolean),
-    webapp: String(process.env.WEBAPP_URL || '').replace(/\/+$/, ''),
+    webapp: String(process.env.SITE_URL || process.env.WEBAPP_URL || '').replace(/\/+$/, ''),
   };
 }
 

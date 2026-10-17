@@ -1,5 +1,5 @@
 /**
- * HTTP-сервер мини-аппа: отдаёт статику и обслуживает игровое API.
+ * HTTP-сервер сайта: отдаёт статику, вход и игровое API.
  *
  * Важное правило: исход считает ТОЛЬКО сервер. Клиент получает готовый
  * результат и лишь проигрывает анимацию. В краше точка взрыва вообще не
@@ -103,7 +103,9 @@ import {
   redeemPromo,
   pendingDepositBonus,
   myPromoRedemptions,
-  getPartnerByTgId,
+  getPartnerForUser, isOwnerKeyed, createEmailUser, findUserByEmail, findUserByTgId,
+  linkTelegram, setEmailLogin, setPasswordHash, deleteUserSessions, purgeExpiredSessions,
+  createPasswordReset, usePasswordReset,
   partnerStats,
   partnerReferrals,
   partnerPayoutHistory,
@@ -127,7 +129,12 @@ import {
   gridFrom, evaluate as evaluateSlot, jackpotFrom, jackpotRoll, offsetsFrom,
 } from './slots.js';
 import { validateSkins } from './card-skins.js';
-import { resolveUser } from './auth.js';
+import {
+  resolveUser, startSession, endSession, currentSessionHash, isSameOrigin,
+  normalizeEmail, checkPassword, normalizeNick, hashPassword, verifyPassword,
+  burnPasswordCheck, verifyTelegramLogin, newResetToken, resetTokenHash, RESET_TTL_MS,
+} from './auth.js';
+import { isMailConfigured, sendMail } from './mailer.js';
 import {
   PERMISSIONS, PERMISSION_GROUPS, ROLES, ROLE_BY_ID, permissionsFor, balanceCapFor,
   canManage, assignableRoles, publicRoles, isPermission,
@@ -162,11 +169,15 @@ const slotReport = validateSlots();
 const skinReport = validateSkins();
 validateFortune();
 
-// Администраторы задаются Telegram ID через настройки - не через базу,
-// чтобы права нельзя было получить, дописав себе строку в таблицу.
-const ADMIN_TG_IDS = String(process.env.ADMIN_TG_IDS || '')
-  .split(',').map((s) => s.trim()).filter(Boolean);
-syncStaff(ADMIN_TG_IDS);
+// Владельцы задаются через окружение - не через базу, чтобы права нельзя
+// было получить, дописав себе строку в таблицу. Ключ - Telegram ID
+// (ADMIN_TG_IDS) или почта аккаунта (ADMIN_EMAILS).
+const splitList = (raw) => String(raw || '').split(',').map((s) => s.trim()).filter(Boolean);
+const OWNER_KEYS = [
+  ...splitList(process.env.ADMIN_TG_IDS),
+  ...splitList(process.env.ADMIN_EMAILS).map((e) => e.toLowerCase()),
+];
+syncStaff(OWNER_KEYS);
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -184,34 +195,31 @@ app.set('trust proxy', Number(process.env.TRUST_PROXY_HOPS || 1));
 
 app.use(express.json({ limit: '8mb', verify: (req, res, buffer) => { req.rawBody = buffer.toString('utf8'); } }));
 app.use(express.static(join(__dirname, '..', 'public'), { maxAge: '1h' }));
+// Часть браузеров и поисковых роботов просит /favicon.ico, не читая разметку.
+app.get('/favicon.ico', (req, res) => res.redirect(301, '/favicon.png'));
 
 function auth(req, res, next) {
-  const result = resolveUser(req);
-  if (!result.ok) return res.status(401).json({ error: result.error });
+  if (!isSameOrigin(req)) return res.status(403).json({ error: 'Запрос с чужой страницы' });
+  const result = resolveUser(req, res);
+  if (!result.ok) return res.status(401).json({ error: result.error, code: result.code });
 
-  // Закрытая регистрация касается только НОВЫХ: у того, кто уже заходил,
-  // доступ отбирать не за что, а закрывают приём обычно на время разбора.
-  if (!setting('registration_open') && !findUserByAnyId(String(result.user.id))) {
-    return res.status(403).json({ error: 'Регистрация новых игроков временно закрыта' });
-  }
-
-  const player = getOrCreateUser(result.user);
+  const player = result.user;
 
   /*
-   * Владельцы задаются Telegram ID в настройках, и список сверяется при
-   * каждом запросе того, кто в нём есть или должен был быть: убрали ID из
-   * ADMIN_TG_IDS - доступ пропал сразу, без перезапуска.
+   * Владельцы задаются в окружении, и список сверяется при каждом запросе
+   * того, кто в нём есть или должен был быть: убрали ключ из ADMIN_TG_IDS
+   * или ADMIN_EMAILS - доступ пропал сразу, без перезапуска.
    *
    * Сверка идёт только для владельцев. Остальных сотрудников заводит человек
    * через панель, и переменная окружения их не касается.
    */
-  const inEnv = ADMIN_TG_IDS.includes(String(player.tg_id));
+  const inEnv = isOwnerKeyed(player, OWNER_KEYS);
   const bootstrapRow = staffRow(player.id);
   const bootstrapMismatch = inEnv
     ? !bootstrapRow || (bootstrapRow.added_by === null && bootstrapRow.role !== 'owner')
     : !!(bootstrapRow && bootstrapRow.added_by === null);
   if (bootstrapMismatch) {
-    syncStaff(ADMIN_TG_IDS);
+    syncStaff(OWNER_KEYS);
     req.player = getUserById(player.id);
   } else {
     req.player = player;
@@ -223,6 +231,18 @@ function auth(req, res, next) {
   if (req.player.is_blocked) {
     return res.status(403).json({ error: 'Аккаунт заблокирован' });
   }
+  maintenanceGate(req, res, next);
+}
+
+/**
+ * Витрина без входа. Сайт открыт гостю: каталог казино и прочее, что только
+ * показывается, отдаётся и без сессии. Вошедший проходит обычный auth (его
+ * блокировка и права действуют), гость - только режим обслуживания.
+ */
+function browse(req, res, next) {
+  if (resolveUser(req).ok) return auth(req, res, next);
+  if (!isSameOrigin(req)) return res.status(403).json({ error: 'Запрос с чужой страницы' });
+  req.perms = new Set();
   maintenanceGate(req, res, next);
 }
 
@@ -321,7 +341,12 @@ function publicUser(user) {
       state: ['none', 'ready', 'used'][user.x10_state || 0],
       ceiling: user.x10_ceiling || 0,
     },
-    isPartner: Boolean(getPartnerByTgId(user.tg_id)),
+    isPartner: Boolean(getPartnerForUser(user)),
+    // Чем игрок входит: от этого зависит профиль (привязать Telegram, задать
+    // пароль) и бонус за подписку на канал, который без Telegram не проверить.
+    email: user.email || null,
+    hasPassword: Boolean(user.password_hash),
+    telegram: user.tg_id == null ? null : { username: user.username || null },
     stats: {
       rounds: user.total_rounds,
       spent: user.total_spent,
@@ -387,6 +412,13 @@ app.get('/api/config', (req, res) => {
     },
     feed: { minMultiplier: FEED_CONFIG.minMultiplier, minValue: FEED_CONFIG.minValue },
     freeCase: subscriptionConfig(),
+    // Чем можно войти. Виджет Telegram показывается, только если задан бот:
+    // без его имени виджет не загрузится, а кнопка, которая не работает, хуже
+    // отсутствующей. Сброс пароля - только при настроенной почте.
+    auth: {
+      telegramBot: process.env.TELEGRAM_TOKEN ? (process.env.TELEGRAM_BOT_USERNAME || '').replace(/^@/, '') : '',
+      mail: isMailConfigured(),
+    },
     bonus: { enabled: false },
     maxBatch: MAX_BATCH,
     freeSpinPacks: FREESPIN_PACKS,
@@ -462,6 +494,157 @@ app.get('/api/feed', limits.read, (req, res) => {
 app.post('/api/me', auth, (req, res) => {
   res.json({ user: publicUser(req.player) });
 });
+
+/* ============================================================
+   ВХОД НА САЙТ
+   ============================================================
+   Почта с паролем - основной способ, Telegram - второй и привязка. Ответы
+   на ошибки входа намеренно одинаковые («почта или пароль не подходят»):
+   по разнице в тексте перебирали бы, кто зарегистрирован. По той же причине
+   «Забыли пароль» отвечает одинаково на любую почту. Регистрация открыта
+   правом площадки registration_open: закрытая касается только НОВЫХ, у того,
+   кто уже заходил, вход отбирать не за что. */
+
+const authGate = (req, res, next) => (isSameOrigin(req)
+  ? next() : res.status(403).json({ error: 'Запрос с чужой страницы' }));
+
+function authError(res, err) {
+  const status = err.code === 'EMAIL_TAKEN' || err.code === 'TG_TAKEN' ? 409 : 400;
+  res.status(status).json({ error: err.message, code: err.code });
+}
+
+function welcome(req, res, user, created = false) {
+  if (user.is_blocked) return res.status(403).json({ error: 'Аккаунт заблокирован' });
+  startSession(req, res, user.id);
+  if (!created) trackEvent(user.id, 'login');
+  res.json({ ok: true, created, user: publicUser(user) });
+}
+
+app.post('/api/auth/register', authGate, limits.auth, async (req, res) => {
+  try {
+    if (!setting('registration_open')) {
+      return res.status(403).json({ error: 'Регистрация новых игроков временно закрыта' });
+    }
+    const email = normalizeEmail(req.body?.email);
+    const password = checkPassword(req.body?.password);
+    const nick = normalizeNick(req.body?.nick);
+    const user = createEmailUser({ email, passwordHash: await hashPassword(password), nick });
+    welcome(req, res, user, true);
+  } catch (err) {
+    authError(res, err);
+  }
+});
+
+app.post('/api/auth/login', authGate, limits.auth, async (req, res) => {
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  const password = String(req.body?.password ?? '');
+  const user = email ? findUserByEmail(email) : null;
+  if (!user || !user.password_hash) {
+    await burnPasswordCheck(password);
+    return res.status(401).json({ error: 'Почта или пароль не подходят', code: 'LOGIN' });
+  }
+  if (!(await verifyPassword(password, user.password_hash))) {
+    return res.status(401).json({ error: 'Почта или пароль не подходят', code: 'LOGIN' });
+  }
+  welcome(req, res, user);
+});
+
+app.post('/api/auth/telegram', authGate, limits.auth, (req, res) => {
+  const check = verifyTelegramLogin(req.body?.data, process.env.TELEGRAM_TOKEN);
+  if (!check.ok) return res.status(401).json({ error: check.error, code: 'TG' });
+  const existing = findUserByTgId(check.user.id);
+  if (!existing && !setting('registration_open')) {
+    return res.status(403).json({ error: 'Регистрация новых игроков временно закрыта' });
+  }
+  welcome(req, res, getOrCreateUser(check.user), !existing);
+});
+
+app.post('/api/auth/logout', authGate, (req, res) => {
+  endSession(req, res);
+  res.json({ ok: true });
+});
+
+/** Привязать Telegram к аккаунту, заведённому по почте. */
+app.post('/api/auth/link-telegram', auth, limits.auth, (req, res) => {
+  const check = verifyTelegramLogin(req.body?.data, process.env.TELEGRAM_TOKEN);
+  if (!check.ok) return res.status(401).json({ error: check.error, code: 'TG' });
+  try {
+    const user = linkTelegram(req.player.id, check.user);
+    res.json({ ok: true, user: publicUser(user) });
+  } catch (err) {
+    authError(res, err);
+  }
+});
+
+/**
+ * Почта и пароль для пришедшего через Telegram, или смена пароля.
+ * Смена требует текущий пароль: открытая на чужом компьютере вкладка не
+ * должна позволять увести аккаунт.
+ */
+app.post('/api/auth/password', auth, limits.auth, async (req, res) => {
+  try {
+    const password = checkPassword(req.body?.password);
+    const player = req.player;
+    if (player.password_hash) {
+      if (!(await verifyPassword(req.body?.current, player.password_hash))) {
+        return res.status(401).json({ error: 'Текущий пароль не подходит', code: 'LOGIN' });
+      }
+      setPasswordHash(player.id, await hashPassword(password));
+    } else {
+      const email = normalizeEmail(req.body?.email);
+      setEmailLogin(player.id, email, await hashPassword(password));
+    }
+    deleteUserSessions(player.id, currentSessionHash(req));
+    res.json({ ok: true, user: publicUser(getUserById(player.id)) });
+  } catch (err) {
+    authError(res, err);
+  }
+});
+
+/** Адрес сайта для ссылок в письмах: из окружения, а не из заголовка Host. */
+function siteUrl() {
+  return String(process.env.SITE_URL || process.env.WEBAPP_URL || `http://localhost:${process.env.PORT || 3000}`)
+    .replace(/\/+$/, '');
+}
+
+app.post('/api/auth/forgot', authGate, limits.auth, async (req, res) => {
+  if (!isMailConfigured()) {
+    return res.status(503).json({ error: 'Восстановление по почте пока недоступно, напишите в поддержку' });
+  }
+  const done = () => res.json({ ok: true, message: 'Если почта зарегистрирована, письмо уже в пути' });
+  let email;
+  try { email = normalizeEmail(req.body?.email); } catch (err) { return authError(res, err); }
+  const user = findUserByEmail(email);
+  if (!user) return done();
+  const { token, tokenHash } = newResetToken();
+  createPasswordReset(user.id, tokenHash, RESET_TTL_MS);
+  try {
+    await sendMail({
+      to: email,
+      subject: 'LUCKYBOX: восстановление пароля',
+      text: `Чтобы задать новый пароль, откройте ссылку:\n${siteUrl()}/?reset=${token}\n\n`
+        + 'Ссылка действует час. Если вы не просили сброс, просто удалите это письмо.',
+    });
+  } catch (err) {
+    console.error('Письмо сброса не ушло:', err.message);
+    return res.status(502).json({ error: 'Письмо не отправилось, попробуйте позже' });
+  }
+  done();
+});
+
+app.post('/api/auth/reset', authGate, limits.auth, async (req, res) => {
+  try {
+    const password = checkPassword(req.body?.password);
+    const user = usePasswordReset(resetTokenHash(String(req.body?.token || '')), await hashPassword(password));
+    welcome(req, res, user);
+  } catch (err) {
+    authError(res, err);
+  }
+});
+
+// Просроченные сессии и ссылки сброса не нужны никому, но копились бы вечно.
+const SESSION_PURGE_MS = 60 * 60 * 1000;
+setInterval(purgeExpiredSessions, SESSION_PURGE_MS).unref();
 
 /**
  * События, которые может отправить только клиент: заход в кассу, упор в
@@ -887,11 +1070,11 @@ app.post('/api/promo/state', auth, (req, res) => {
 /**
  * Статистика партнёра для него самого.
  *
- * Партнёр опознаётся по Telegram ID своего аккаунта: отдельного входа нет,
- * он открывает то же приложение, что и игроки.
+ * Партнёр опознаётся по своему аккаунту: отдельного входа нет, он заходит на
+ * тот же сайт, что и игроки.
  */
 app.post('/api/partner/stats', auth, limits.read, (req, res) => {
-  const partner = getPartnerByTgId(req.player.tg_id);
+  const partner = getPartnerForUser(req.player);
   if (!partner) return res.status(403).json({ error: 'Вы не партнёр' });
 
   const stats = partnerStats(partner.id);
@@ -1200,7 +1383,7 @@ function publicCasinoGame(g) {
 const CASINO_KINDS = ['slots', 'live', 'fast'];
 const CASINO_PAGE_MAX = 96;
 
-app.post('/api/casino/lobby', auth, limits.read, gameGate('casino'), (req, res) => {
+app.post('/api/casino/lobby', browse, limits.read, gameGate('casino'), (req, res) => {
   const providers = casinoProviders();
   const counts = Object.fromEntries(CASINO_KINDS.map((k) => [k, 0]));
   for (const p of providers) counts[p.kind] = (counts[p.kind] || 0) + p.game_count;
@@ -1217,7 +1400,7 @@ app.post('/api/casino/lobby', auth, limits.read, gameGate('casino'), (req, res) 
 
 /* Лобби вкладки: блоки с первыми играми каждого. Полный список блока -
    /api/casino/games с category. */
-app.post('/api/casino/home', auth, limits.read, gameGate('casino'), (req, res) => {
+app.post('/api/casino/home', browse, limits.read, gameGate('casino'), (req, res) => {
   const kind = CASINO_KINDS.includes(req.body?.kind) ? req.body.kind : 'slots';
   res.json({
     kind,
@@ -1225,7 +1408,7 @@ app.post('/api/casino/home', auth, limits.read, gameGate('casino'), (req, res) =
   });
 });
 
-app.post('/api/casino/games', auth, limits.read, gameGate('casino'), (req, res) => {
+app.post('/api/casino/games', browse, limits.read, gameGate('casino'), (req, res) => {
   const b = req.body || {};
   const kind = CASINO_KINDS.includes(b.kind) ? b.kind : '';
   const category = typeof b.category === 'string' && categoryById(b.category) ? b.category : '';
@@ -1291,7 +1474,7 @@ app.post('/api/casino/history', auth, limits.read, (req, res) => {
 
 /*
  * Обложки. Без авторизации: картинки публичные, а браузер грузит их тегом
- * img, который заголовков Telegram не несёт. Кешируются надолго: имя файла
+ * img, и проверять сессию у картинки незачем. Кешируются надолго: имя файла
  * - хеш адреса картинки, новая обложка придёт под новым именем.
  */
 const COVER_MAX_AGE = 7 * 24 * 3600;
@@ -1618,7 +1801,7 @@ app.post('/api/fortune/spin', auth, limits.cashier, gameGate('fortune'), (req, r
 app.post('/api/free-case/state', auth, (req, res) => {
   if (!subscriptionConfigured()) return res.json({ enabled: false });
   const state = freeCaseState(req.player.id, FREE_CASE_COOLDOWN_MS);
-  res.json({ enabled: true, ...subscriptionConfig(), ...state });
+  res.json({ enabled: true, ...subscriptionConfig(), ...state, needsTelegram: req.player.tg_id == null });
 });
 
 app.post('/api/free-case/claim', auth, limits.cashier, async (req, res) => {
@@ -1634,6 +1817,10 @@ app.post('/api/free-case/claim', auth, limits.cashier, async (req, res) => {
     return res.status(500).json({ error: `Кейс ${caseId} не найден в конфигурации` });
   }
 
+  // Подписку видно только по Telegram ID: без привязки проверять нечего.
+  if (req.player.tg_id == null) {
+    return res.status(409).json({ error: 'Привяжите Telegram в профиле, чтобы получить кейс', code: 'TG_REQUIRED' });
+  }
   const check = await isSubscribed(req.player.tg_id);
 
   if (!check.ok) {
@@ -1914,7 +2101,7 @@ app.post('/api/webhooks/heleket', limits.webhook, (req, res) => {
    ============================================================ */
 
 /*
- * Пополнение через платёжное окно шлюза, открытое отдельно от мини-аппа
+ * Пополнение через платёжное окно шлюза, открытое отдельной вкладкой
  * (решение заказчика). Сервер подписывает ссылку, клиент её открывает,
  * деньги приходят колбэком и сверкой. Подробности - в server/sicilia.js.
  */
@@ -2345,7 +2532,7 @@ app.listen(PORT, () => {
 
   console.log(`\n  LUCKYBOX запущен на http://localhost:${PORT}`);
   if (process.env.DEV_MODE === 'true') {
-    console.log('  DEV_MODE включён - подпись Telegram не проверяется.');
+    console.log('  DEV_MODE включён - без входа любой запрос идёт от тестового игрока.');
   }
   console.log(`  Краш RTP: ${(gameReport.crashRtp * 100).toFixed(2)}%  ` +
               `Рулетка RTP: ${(gameReport.rouletteRtp * 100).toFixed(2)}%  ` +

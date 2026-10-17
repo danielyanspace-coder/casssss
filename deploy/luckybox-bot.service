@@ -20,7 +20,7 @@ WorkingDirectory=/srv/luckybox
 EnvironmentFile=/srv/luckybox/.env
 ExecStart=/usr/bin/node server/bot.js
 
-Restart=always
+Restart=on-failure
 RestartSec=5
 StartLimitIntervalSec=120
 StartLimitBurst=8

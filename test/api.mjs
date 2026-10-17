@@ -1348,6 +1348,101 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
         `${clean.balance}`);
 }
 
+/* ---------- Вход на сайт ---------- */
+
+/*
+ * Всё остальное в этом файле идёт от тестового игрока DEV_MODE. Здесь
+ * заголовок X-Dev-Anon выключает подмену, и сервер ведёт себя как на сайте:
+ * без сессии - гость, с cookie - тот, кто вошёл.
+ */
+{
+  const ANON = { 'X-Dev-Anon': '1' };
+  async function req(path, body, { cookie = '', headers = {} } = {}) {
+    const res = await fetch(BASE + path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...ANON, ...(cookie ? { Cookie: cookie } : {}), ...headers },
+      body: JSON.stringify(body || {}),
+    });
+    const set = res.headers.get('set-cookie') || '';
+    const m = /lb_session=([^;]*)/.exec(set);
+    return { status: res.status, data: await res.json().catch(() => ({})), cookie: m ? `lb_session=${m[1]}` : '', set };
+  }
+  const email = `site${Date.now()}@mail.ru`;
+
+  const guest = await req('/api/me');
+  check('сайт: гость получает 401 с кодом AUTH', guest.status === 401 && guest.data.code === 'AUTH',
+    `${guest.status} ${JSON.stringify(guest.data)}`);
+  const guestOpen = await req('/api/open', { caseId: 'warmup_100' });
+  check('сайт: гость не открывает кейс', guestOpen.status === 401);
+  const guestLobby = await req('/api/casino/home', { kind: 'slots' });
+  check('сайт: гость видит лобби казино', guestLobby.status !== 401, `${guestLobby.status}`);
+  check('сайт: гость не запускает игру казино', (await req('/api/casino/launch', { gameId: 1 })).status === 401);
+
+  const reg = await req('/api/auth/register', { email: email.toUpperCase(), password: 'secret123', nick: 'Сайт' });
+  check('регистрация: успешна и ставит cookie', reg.status === 200 && !!reg.cookie, `${reg.status} ${JSON.stringify(reg.data)}`);
+  check('регистрация: cookie httpOnly и SameSite', /HttpOnly/i.test(reg.set) && /SameSite=Lax/i.test(reg.set));
+  check('регистрация: почта в нижнем регистре', reg.data.user?.email === email);
+  check('регистрация: ответ не отдаёт хеш пароля', !JSON.stringify(reg.data).includes('scrypt$'));
+
+  const me = await req('/api/me', null, { cookie: reg.cookie });
+  check('сессия: по cookie сервер узнаёт игрока', me.status === 200 && me.data.user?.email === email);
+  check('сессия: игрок без Telegram', me.data.user?.telegram === null && me.data.user?.hasPassword === true);
+  check('сессия: игрок не тестовый из DEV_MODE', me.data.user?.id !== (await post('/api/me')).data.user.id);
+
+  const dup = await req('/api/auth/register', { email, password: 'secret123', nick: 'Клон' });
+  check('регистрация: повтор почты - 409', dup.status === 409 && dup.data.code === 'EMAIL_TAKEN');
+  const badMail = await req('/api/auth/register', { email: 'нет', password: 'secret123', nick: 'Сайт' });
+  check('регистрация: кривая почта - 400', badMail.status === 400);
+  const shortPass = await req('/api/auth/register', { email: `x${email}`, password: '123', nick: 'Сайт' });
+  check('регистрация: короткий пароль - 400', shortPass.status === 400);
+
+  const wrong = await req('/api/auth/login', { email, password: 'wrong-pass' });
+  const nobody = await req('/api/auth/login', { email: `nobody${email}`, password: 'wrong-pass' });
+  check('вход: неверный пароль - 401', wrong.status === 401 && !wrong.cookie);
+  check('вход: ответы для чужой и несуществующей почты одинаковые',
+    wrong.data.error === nobody.data.error && nobody.status === 401);
+  const login = await req('/api/auth/login', { email, password: 'secret123' });
+  check('вход: верный пароль - новая сессия', login.status === 200 && !!login.cookie && login.cookie !== reg.cookie);
+
+  const evil = await req('/api/me', null, { cookie: login.cookie, headers: { Origin: 'https://evil.example' } });
+  check('чужая страница с cookie игрока - 403', evil.status === 403);
+  const evilLogin = await req('/api/auth/login', { email, password: 'secret123' }, { headers: { Origin: 'https://evil.example' } });
+  check('вход с чужой страницы - 403', evilLogin.status === 403);
+
+  const badCurrent = await req('/api/auth/password', { current: 'nope-nope', password: 'newsecret1' }, { cookie: login.cookie });
+  check('смена пароля: без верного текущего - 401', badCurrent.status === 401);
+  const changed = await req('/api/auth/password', { current: 'secret123', password: 'newsecret1' }, { cookie: login.cookie });
+  check('смена пароля: проходит', changed.status === 200);
+  check('смена пароля: другое устройство вышло', (await req('/api/me', null, { cookie: reg.cookie })).status === 401);
+  check('смена пароля: текущее устройство осталось', (await req('/api/me', null, { cookie: login.cookie })).status === 200);
+  check('смена пароля: старый пароль больше не подходит',
+    (await req('/api/auth/login', { email, password: 'secret123' })).status === 401);
+
+  const fakeTg = await req('/api/auth/telegram', { data: { id: 1, auth_date: Math.floor(Date.now() / 1000), hash: '00' } });
+  check('Telegram: поддельная подпись - 401', fakeTg.status === 401);
+  const fakeLink = await req('/api/auth/link-telegram', { data: { id: 1, hash: '00' } }, { cookie: login.cookie });
+  check('Telegram: поддельная привязка - 401', fakeLink.status === 401);
+
+  if (!config.auth?.mail) {
+    const forgot = await req('/api/auth/forgot', { email });
+    check('сброс: без почтового сервера честно 503', forgot.status === 503);
+  }
+  check('сброс: чужой токен не подходит',
+    (await req('/api/auth/reset', { token: 'nope', password: 'newsecret2' })).status === 400);
+
+  const out = await req('/api/auth/logout', null, { cookie: login.cookie });
+  check('выход: cookie стирается', out.status === 200 && /Max-Age=0/i.test(out.set));
+  check('выход: сессия больше не действует', (await req('/api/me', null, { cookie: login.cookie })).status === 401);
+
+  // Закрытая регистрация не пускает новых, но не трогает тех, кто уже есть.
+  await post('/api/admin/settings/save', { patch: { registration_open: false } });
+  const closed = await req('/api/auth/register', { email: `closed${email}`, password: 'secret123', nick: 'Поздний' });
+  const stillIn = await req('/api/auth/login', { email, password: 'newsecret1' });
+  await post('/api/admin/settings/save', { patch: { registration_open: true } });
+  check('закрытая регистрация: новый не заводится', closed.status === 403);
+  check('закрытая регистрация: прежний входит', stillIn.status === 200);
+}
+
 /* ---------- Итог ---------- */
 
 console.log(`Пройдено проверок: ${passed}`);
