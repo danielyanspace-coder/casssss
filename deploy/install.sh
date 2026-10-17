@@ -66,7 +66,7 @@ if [ ! -f "$APP_DIR/.env" ]; then
   sed -i "s|^PAYOUT_DATA_KEY=.*|PAYOUT_DATA_KEY=$KEY|" "$APP_DIR/.env"
   sed -i "s|^SITE_URL=.*|SITE_URL=https://$DOMAIN|" "$APP_DIR/.env"
   echo "    Создан $APP_DIR/.env, ключ выплат сгенерирован."
-  echo "    ЗАПОЛНИТЕ РУКАМИ: ADMIN_EMAILS или ADMIN_TG_IDS, BEELINE_PHONE; по желанию TELEGRAM_TOKEN и SMTP_URL."
+  echo "    ЗАПОЛНИТЕ РУКАМИ ключи по списку deploy/SECRETS.md (RESEND_API_KEY, BEELINE_PHONE и другие)."
 else
   echo "    .env уже есть, не трогаю."
 fi
@@ -107,12 +107,16 @@ cat <<EOF
 ======================================================================
 Установка закончена. Осталось:
 
-1. Заполнить $APP_DIR/.env
-     ADMIN_EMAILS    - почта, с которой вы зарегистрируетесь (владелец панели)
+1. Заполнить $APP_DIR/.env ключами по списку deploy/SECRETS.md:
+     RESEND_API_KEY  - письма (сброс пароля)
      BEELINE_PHONE   - номер для приёма платежей
-     TELEGRAM_TOKEN, TELEGRAM_BOT_USERNAME - для входа через Telegram и бота
-     SMTP_URL, MAIL_FROM - для восстановления пароля по почте
+     SICILIA_*, HELEKET_*, DATABETRIX_* - кассы и казино
+     TELEGRAM_TOKEN, TELEGRAM_BOT_USERNAME - вход через Telegram и бот
    DEV_MODE обязан остаться false.
+
+   ГЛАВНЫЙ АДМИН: $(grep '^ADMIN_EMAILS=' "$APP_DIR/.env" | cut -d= -f2-)
+   Зарегистрируйтесь на сайте этой почтой - аккаунт сразу станет владельцем
+   панели. Сменить владельца - строка ADMIN_EMAILS в $APP_DIR/.env.
 
 2. Запустить:
      sudo systemctl start luckybox luckybox-bot
