@@ -39,13 +39,17 @@ export async function tg(method, params = {}, { timeoutMs = TG_TIMEOUT_MS, token
 }
 
 /**
- * Кому слать оповещения: владельцы панели, привязавшие служебного бота, и
- * общий чат OPS_ALERT_CHAT_ID, если он задан. Привязка - та же, что для входа
+ * Кому слать оповещения: владельцы панели, привязавшие служебного бота,
+ * закреплённый Telegram владельца OPS_OWNER_CHAT_ID и общий чат
+ * OPS_ALERT_CHAT_ID, если они заданы. Привязка - та же, что для входа
  * в панель, поэтому отдельно настраивать получателей не нужно.
  */
 export function alertRecipients(db) {
   const ids = new Set();
-  const extra = String(process.env.OPS_ALERT_CHAT_ID || '').split(',').map((s) => s.trim()).filter(Boolean);
+  // Закреплённый Telegram владельца получает оповещения и без привязки.
+  const extra = [process.env.OPS_ALERT_CHAT_ID, process.env.OPS_OWNER_CHAT_ID]
+    .flatMap((v) => String(v || '').split(','))
+    .map((s) => s.trim()).filter(Boolean);
   for (const id of extra) ids.add(id);
   try {
     const rows = db.prepare(`

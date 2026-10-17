@@ -11,7 +11,8 @@
 
 ## Главный админ
 
-**garfield1999karlos123@gmail.com**
+**garfield1999karlos123@gmail.com**, Telegram для подтверждения входа -
+**8602356502** (`OPS_OWNER_CHAT_ID`, через служебного бота @luckyspec_bot).
 
 Стоит в `.env.example` строкой `ADMIN_EMAILS` и попадает в `.env` при
 установке сам. Аккаунт, зарегистрированный на сайте на эту почту, сразу
@@ -31,7 +32,8 @@
 | `SICILIA_MERCHANT`, `SICILIA_LOGIN`, `SICILIA_API_KEY` | СБП и карта | merchant.sicilia.ink -> API | Нужно взять в кабинете |
 | `SICILIA_PAY_URL` | Адрес платёжного окна | Поддержка Sicilia | Не прислан |
 | `HELEKET_MERCHANT`, `HELEKET_API_KEY` | Криптокасса | Кабинет Heleket | По желанию |
-| `OPS_BOT_TOKEN` | Служебный бот: оповещения о сбоях и вход в панель | @BotFather -> /newbot, **отдельный бот** | Нужен до запуска |
+| `OPS_BOT_TOKEN` | Служебный бот: оповещения о сбоях и вход в панель | @BotFather, бот **@luckyspec_bot** | Токен выдан и проверен, хранится у владельца |
+| `OPS_OWNER_CHAT_ID` | Telegram главного админа для подтверждения входа | Уже стоит в `.env.example`: **8602356502** | Готово |
 | `OPS_ALERT_CHAT_ID` | Общий чат команды для оповещений | id группы, см. `.env.example` | По желанию |
 | `TELEGRAM_TOKEN`, `TELEGRAM_BOT_USERNAME` | Вход через Telegram, игровой бот | @BotFather, второй бот | По желанию |
 | `TG_CHANNEL_ID`, `TG_CHANNEL_URL`, `FREE_CASE_ID` | Кейс за подписку на канал | Ваш канал, игровой бот в нём админом | По желанию |
