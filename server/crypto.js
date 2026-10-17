@@ -34,14 +34,8 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { db, getUserById, registerDeposit, trackEvent } from './db.js';
 
-/*
- * Зачисления обоих способов оплаты идут в один журнал balance_transactions, а
- * создаётся он в модуле платежей Beeline. Импорт здесь именно ради этого: без
- * него на чистой базе порядок загрузки решает, успеет ли появиться таблица, и
- * приложение падает при первом старте. Дублировать описание таблицы в двух
- * файлах было бы хуже - они разъедутся.
- */
-import './payments.js';
+/* Журнал balance_transactions общий для шлюзов и создаётся в db.js. */
+import { alert, countError } from './ops.js';
 
 const API = 'https://api.heleket.com/v1';
 
@@ -184,6 +178,7 @@ async function call(path, payload = {}) {
     });
   } catch (err) {
     // Шлюз недоступен - это не ошибка игрока, и текст должен это отражать.
+    countError('heleket:down', `Криптокасса Heleket не отвечает: ${err.message}`, { threshold: 3 });
     throw Object.assign(new Error('Криптокасса временно недоступна'),
       { code: 'GATEWAY_UNREACHABLE', cause: err });
   }
@@ -193,6 +188,11 @@ async function call(path, payload = {}) {
     const message = json.message
       || (json.errors && Object.values(json.errors).flat().join('; '))
       || `Шлюз ответил ${res.status}`;
+    if (res.status === 401 || res.status === 403) {
+      alert('heleket:auth', `Heleket отказывает (${res.status}): ${message}. Проверьте ключ и merchant.`);
+    } else if (res.status >= 500) {
+      countError('heleket:5xx', `Heleket отвечает ошибкой ${res.status}: ${message}`, { threshold: 3 });
+    }
     throw Object.assign(new Error(message), { code: 'GATEWAY_ERROR', status: res.status });
   }
   return json.result;

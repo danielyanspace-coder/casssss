@@ -1,0 +1,25 @@
+# Сторож: проверка сайта, диска, копий и сертификата, оповещения в служебный
+# бот. Запускается таймером раз в минуту, не вручную.
+#
+#   sudo cp deploy/luckybox-watchdog.{service,timer} /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now luckybox-watchdog.timer
+#
+# Прогнать сейчас: sudo systemctl start luckybox-watchdog
+
+[Unit]
+Description=LuckyBox - сторож
+
+[Service]
+Type=oneshot
+User=luckybox
+Group=luckybox
+WorkingDirectory=/srv/luckybox
+EnvironmentFile=/srv/luckybox/.env
+ExecStart=/usr/bin/node deploy/watchdog.mjs
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/luckybox/data

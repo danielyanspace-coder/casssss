@@ -168,6 +168,19 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_deposits_user ON deposits(user_id, id DESC);
 
+  -- Журнал зачислений шлюзов (криптокасса и Sicilia). Каждый шлюз добавляет
+  -- свою колонку-ссылку с уникальным индексом: повторный колбэк упирается в
+  -- ограничение базы. Раньше таблицу создавал модуль платежей Beeline; на
+  -- старых базах в ней остались его колонки (payment_id) - это история.
+  CREATE TABLE IF NOT EXISTS balance_transactions (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL REFERENCES users(id),
+    type       TEXT    NOT NULL,
+    amount     INTEGER NOT NULL,
+    comment    TEXT,
+    created_at INTEGER NOT NULL
+  );
+
   -- Промокоды. Один код - один набор условий; всё, чем он ограничен, лежит
   -- здесь же, чтобы правила выдачи не расползались по коду.
   CREATE TABLE IF NOT EXISTS promocodes (
@@ -2217,7 +2230,7 @@ export function funnelStats(days = 7) {
   const money = db.prepare(`
     SELECT COALESCE(SUM(d.amount), 0) deposited, COUNT(*) count
       FROM deposits d JOIN users u ON u.id = d.user_id
-     WHERE u.created_at >= ? AND d.source IN ('beeline', 'crypto', 'admin')
+     WHERE u.created_at >= ? AND d.source IN ('sicilia', 'crypto', 'beeline', 'admin')
   `).get(from);
 
   return {
@@ -2712,7 +2725,7 @@ export const adminAdjustBalance = db.transaction((adminId, targetId, amount, not
  * Применяет обещанный промокодом процент к пополнению.
  *
  * Вызывается только из registerDeposit, то есть одинаково для всех шлюзов:
- * Beeline, криптокассы и начисления руками. Бонус одноразовый - сработал,
+ * Sicilia, криптокассы и начисления руками. Бонус одноразовый - сработал,
  * запись убирается.
  */
 function applyDepositBonus(userId, depositAmount) {

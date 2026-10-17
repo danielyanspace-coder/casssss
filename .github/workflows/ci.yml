@@ -55,11 +55,11 @@ jobs:
       - name: Ограничитель частоты
         run: npm run test:ratelimit
 
-      - name: Платежи
-        run: npm run test:payments
-
       - name: Вход на сайт
         run: npm run test:auth
+
+      - name: Служебный бот
+        run: npm run test:ops
 
       - name: Запуск сервера
         run: |

@@ -1,0 +1,13 @@
+# Расписание сторожа: раз в минуту. Тревога поднимается со второй неудачи
+# подряд, поэтому о падении сервера владелец узнаёт за две-три минуты.
+
+[Unit]
+Description=LuckyBox - сторож раз в минуту
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+AccuracySec=10s
+
+[Install]
+WantedBy=timers.target

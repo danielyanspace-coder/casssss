@@ -33,6 +33,13 @@ echo "==> Проверка математики до перезапуска"
 # старте - лучше узнать об этом здесь, пока старая версия ещё работает.
 sudo -u "$APP_USER" node "$APP_DIR/server/verify.js" > /dev/null
 
+echo "==> Службы"
+# Описания служб едут вместе с кодом: новая служба (например, сторож)
+# появляется на сервере при выкате, а не только при первой установке.
+cp "$APP_DIR"/deploy/luckybox*.service "$APP_DIR"/deploy/luckybox*.timer /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now luckybox-backup.timer luckybox-watchdog.timer
+
 echo "==> Перезапуск"
 systemctl restart luckybox
 systemctl restart luckybox-bot

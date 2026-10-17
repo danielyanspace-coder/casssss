@@ -49,7 +49,7 @@ mkdir -p "$APP_DIR"
 # своей машине.
 rsync -a --delete \
   --exclude '.git' --exclude 'node_modules' --exclude 'data' --exclude 'dist' \
-  --exclude 'assets-src' --exclude 'android-gateway' \
+  --exclude 'assets-src' \
   "$SRC"/ "$APP_DIR"/
 mkdir -p "$APP_DIR/data/backups"
 
@@ -66,7 +66,7 @@ if [ ! -f "$APP_DIR/.env" ]; then
   sed -i "s|^PAYOUT_DATA_KEY=.*|PAYOUT_DATA_KEY=$KEY|" "$APP_DIR/.env"
   sed -i "s|^SITE_URL=.*|SITE_URL=https://$DOMAIN|" "$APP_DIR/.env"
   echo "    Создан $APP_DIR/.env, ключ выплат сгенерирован."
-  echo "    ЗАПОЛНИТЕ РУКАМИ ключи по списку deploy/SECRETS.md (RESEND_API_KEY, BEELINE_PHONE и другие)."
+  echo "    ЗАПОЛНИТЕ РУКАМИ ключи по списку deploy/SECRETS.md (RESEND_API_KEY, SICILIA_*, DATABETRIX_* и другие)."
 else
   echo "    .env уже есть, не трогаю."
 fi
@@ -76,9 +76,10 @@ chmod 600 "$APP_DIR/.env"
 echo "==> Службы"
 cp "$APP_DIR"/deploy/luckybox.service "$APP_DIR"/deploy/luckybox-bot.service \
    "$APP_DIR"/deploy/luckybox-backup.service "$APP_DIR"/deploy/luckybox-backup.timer \
+   "$APP_DIR"/deploy/luckybox-watchdog.service "$APP_DIR"/deploy/luckybox-watchdog.timer \
    /etc/systemd/system/
 systemctl daemon-reload
-systemctl enable luckybox luckybox-bot luckybox-backup.timer
+systemctl enable luckybox luckybox-bot luckybox-backup.timer luckybox-watchdog.timer
 
 echo "==> nginx"
 sed "s/ваш-домен\.ru/$DOMAIN/g" "$APP_DIR/deploy/nginx.conf" > /etc/nginx/sites-available/luckybox
@@ -109,7 +110,6 @@ cat <<EOF
 
 1. Заполнить $APP_DIR/.env ключами по списку deploy/SECRETS.md:
      RESEND_API_KEY  - письма (сброс пароля)
-     BEELINE_PHONE   - номер для приёма платежей
      SICILIA_*, HELEKET_*, DATABETRIX_* - кассы и казино
      TELEGRAM_TOKEN, TELEGRAM_BOT_USERNAME - вход через Telegram и бот
    DEV_MODE обязан остаться false.
@@ -120,7 +120,7 @@ cat <<EOF
 
 2. Запустить:
      sudo systemctl start luckybox luckybox-bot
-     sudo systemctl start luckybox-backup
+     sudo systemctl start luckybox-backup luckybox-backup.timer luckybox-watchdog.timer
 
 3. Проверить:
      curl -sf https://$DOMAIN/api/config > /dev/null && echo "сервер отвечает"

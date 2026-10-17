@@ -294,21 +294,6 @@ const sbpBanks = 'data:application/json;base64,'
   + readFileSync(new URL('./public/sbp-banks.json', import.meta.url)).toString('base64');
 
 /*
- * Логотипы банков в кассе лежат отдельными файлами и запрашиваются по пути.
- * Без них экран пополнения в автономной сборке показывал шесть битых картинок,
- * то есть ровно в том месте, ради которого демо и смотрят.
- */
-const bankDir = new URL('./public/assets/banks/', import.meta.url);
-const bankArt = Object.fromEntries(
-  readdirSync(bankDir)
-    .filter((f) => f.endsWith('.webp'))
-    .map((f) => [
-      `assets/banks/${f}`,
-      'data:image/webp;base64,' + readFileSync(new URL(f, bankDir)).toString('base64'),
-    ])
-);
-
-/*
  * Картинка меню нужна не только тегу <img>, но и стилям: из неё вырезаются
  * значки бокового меню на компьютере. Поэтому путь заменяется везде, где он
  * встречается, а не только в разметке - иначе в автономной сборке боковое
@@ -319,7 +304,6 @@ const menuSrc = 'data:image/webp;base64,' + menuData;
 const inlineUi = (src) => src
   .replace(/\/?assets\/menu\.webp/g, menuSrc)
   .replace(/\/?assets\/ui\/[\w-]+\.webp/g, (m) => uiArt[m.replace(/^\//, '')] || m)
-  .replace(/\/?assets\/banks\/[\w-]+\.webp/g, (m) => bankArt[m.replace(/^\//, '')] || m)
   .replace(/'\/sbp-banks\.json'/g, `'${sbpBanks}'`);
 
 /*
@@ -1095,6 +1079,8 @@ const routes = {
   },
 
   'POST /api/me': () => ({ user: publicUser() }),
+  // Служебного бота в демо нет: панель открывается без подтверждения входа.
+  'POST /api/admin/2fa/status': () => ({ required: false, confirmed: true, linked: false, bot: '' }),
   /*
    * Вход. Сервера нет, проверять пароль не с чем, поэтому демо пускает любую
    * почту и пароль от восьми символов - ровно с теми же отказами формы, что
@@ -1827,131 +1813,6 @@ const routes = {
     save();
     return { status: 201, body: payment };
   },
-
-  /* ---------- Касса Beeline ---------- */
-
-  /*
-   * В автономной сборке настоящей кассы нет: заявка живёт в памяти браузера и
-   * никем не оплачивается. Заглушки нужны, чтобы экран кассы показывался
-   * целиком, а не выдавал ошибку на первом же запросе списка.
-   */
-  'POST /api/payments/create': (body) => {
-    const amount = Math.trunc(Number(body.amount));
-    if (!Number.isSafeInteger(amount) || amount < 500 || amount > 100000) {
-      return { status: 400, body: { error: 'BAD_AMOUNT', message: 'Сумма должна быть от 500 до 100 000 ₽' } };
-    }
-    store.user.payments = store.user.payments || [];
-    const now = Date.now();
-    const payment = {
-      id: (store.user.payments[0]?.id || 0) + 1,
-      original_amount: amount,
-      // Надбавка нужна, чтобы платёж можно было опознать по сумме.
-      payable_amount: amount + 1 + Math.floor(Math.random() * 98),
-      bank: body.bank || 'sber',
-      phone: '+7 999 000-00-00',
-      status: 'PENDING',
-      created_at: now,
-      expires_at: now + 10 * 60000,
-      paid_at: null,
-    };
-    store.user.payments.unshift(payment);
-    save();
-    return { status: 201, body: payment };
-  },
-
-  'POST /api/payments/list': () => ({ rows: store.user.payments || [] }),
-
-  'POST /api/payments/get': (body) => {
-    const row = (store.user.payments || []).find((p) => p.id === Number(body.id));
-    return row ? { payment: row } : { status: 404, body: { error: 'Заявка не найдена' } };
-  },
-
-  'POST /api/crypto/list': () => ({ rows: store.user.cryptoPayments || [] }),
-
-  /*
-   * В демо «проверить» сразу зачисляет: ждать настоящего перевода неоткуда, а
-   * показать, что происходит после оплаты, надо.
-   */
-  'POST /api/crypto/refresh': (body) => {
-    const list = store.user.cryptoPayments || [];
-    const p = list.find((x) => x.id === Number(body.id));
-    if (!p) return { status: 404, body: { error: 'Платёж не найден' } };
-    if (p.paidAt) return { payment: p, credited: false, user: publicUser() };
-    p.paidAt = Date.now();
-    p.status = 'paid';
-    store.user.balance += p.amountRub;
-    store.user.deposits.unshift({ amount: p.amountRub, source: 'crypto',
-                                  comment: p.currency + ' · ' + p.network, created_at: Date.now() });
-    save();
-    return { payment: p, credited: true, user: publicUser() };
-  },
-
-  /* ---------- Админка: платежи, поддержка, настройки ----------
-   *
-   * В демо это витрина: настоящих платежей Beeline здесь нет и быть не может.
-   * Строки выдуманные, но их форма ровно та же, что отдаёт сервер, - иначе
-   * вкладка выглядела бы иначе, чем на рабочем сайте, и смотреть на неё не
-   * имело бы смысла.
-   */
-  'POST /api/admin/payments': () => ({
-    dashboard: { turnover: 184500, paid: 37, pending: 3, disputed: 1 },
-    rows: [
-      { id: 412, tg_id: '512440091', username: 'kirill_v', status: 'PAID',
-        original_amount: 5000, payable_amount: 5047, bank: 'sber',
-        created_at: Date.now() - 12 * 60000,
-        sms_message: 'Чек билайн 5047 руб' },
-      { id: 411, tg_id: '388120774', username: 'nastya.k', status: 'PENDING',
-        original_amount: 1500, payable_amount: 1523, bank: 'tbank',
-        created_at: Date.now() - 40 * 60000, sms_message: null },
-      { id: 409, tg_id: '901233812', username: 'max_rybak', status: 'MANUAL_REVIEW',
-        original_amount: 3000, payable_amount: 3061, bank: 'any',
-        created_at: Date.now() - 3 * 3600000, sms_message: null },
-      { id: 404, tg_id: '774100285', username: 'arteml', status: 'EXPIRED',
-        original_amount: 800, payable_amount: 812, bank: 'ozon',
-        created_at: Date.now() - 26 * 3600000, sms_message: null },
-    ],
-  }),
-
-  'POST /api/admin/support': () => ({
-    rows: [
-      { id: 18, tg_id: '901233812', username: 'max_rybak', payable_amount: 3061,
-        payment_status: 'MANUAL_REVIEW', unread_admin: 2 },
-      { id: 15, tg_id: '388120774', username: 'nastya.k', payable_amount: 1523,
-        payment_status: 'PENDING', unread_admin: 0 },
-    ],
-  }),
-
-  'POST /api/admin/support/chat': (body) => ({
-    chat: { id: Number(body.chatId) || 18 },
-    messages: [
-      { sender_type: 'user', text: 'Оплатил 3061 рубль, деньги не пришли',
-        created_at: Date.now() - 3 * 3600000 },
-      { sender_type: 'user', text: 'Прикладываю чек из приложения банка',
-        attachment_name: 'чек.jpg', created_at: Date.now() - 3 * 3600000 + 60000 },
-      { sender_type: 'admin', text: 'Проверяем, ответим в течение часа',
-        created_at: Date.now() - 2 * 3600000 },
-    ],
-  }),
-
-  'POST /api/admin/support/message': () => ({ ok: true }),
-
-  'POST /api/admin/payment-settings': (body) => {
-    if (body.save) { store.paymentSettings = { ...store.paymentSettings, ...body.values }; save(); }
-    return store.paymentSettings || {
-      beeline_phone: '+79990000000', beeline_completed_limit: '0',
-      payment_ttl_minutes: '10', payment_markup_min: '1', payment_markup_max: '99',
-      payment_min: '500', payment_max: '100000',
-    };
-  },
-
-  'POST /api/admin/payment-devices': () => ({
-    rows: [
-      { name: 'Телефон кассы', device_id: 'beeline-1', last_seen_at: Date.now() - 30000 },
-      { name: 'Запасной', device_id: 'beeline-2', last_seen_at: Date.now() - 4 * 3600000 },
-    ],
-  }),
-
-  'POST /api/admin/payment-device/register': () => ({ ok: true }),
 
   'POST /api/payout/cancel': (body) => {
     const u = store.user;

@@ -13,6 +13,7 @@ import { mkdirSync, existsSync, readFileSync, writeFileSync, renameSync } from '
 import { dirname, join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { saveCatalog, catalogStats, setCoverState, gamesWithoutCoverState, gamesWithoutCover } from './casino-db.js';
+import { alert } from './ops.js';
 
 /* ---------- Настройки ---------- */
 
@@ -342,6 +343,7 @@ export function syncCatalog() {
       checkCoversInBackground();
     } catch (err) {
       console.error('[casino] синхронизация каталога:', err.message);
+      alert('casino:sync', `Казино: каталог игр не обновился (${err.message}). Лобби работает на прежнем каталоге.`);
       // Агрегатор лежит при первом же старте - лобби не должно быть пустым:
       // поднимаем снимок. Старый каталог в базе при сбое не трогаем.
       if (!catalogStats().games && existsSync(SNAPSHOT_PATH)) {
