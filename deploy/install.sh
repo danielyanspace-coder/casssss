@@ -41,14 +41,16 @@ id -u "$APP_USER" >/dev/null 2>&1 || useradd --system --no-create-home --shell /
 
 echo "==> Файлы в $APP_DIR"
 mkdir -p "$APP_DIR"
-# Копируем без .git и локальных данных: на сервере нужен только рабочий код.
+# Копируем без локальных данных. Папка .git едет вместе с кодом: по ней
+# deploy/update.sh забирает новые версии (git pull), и без неё первый же
+# выкат падал бы на «not a git repository».
 #
 # Отдельно исключаются присланные исходники картинок (assets-src): это 235 МБ
 # больших PNG, из которых уже собраны webp в public/assets. Серверу они не
 # нужны ни для чего - нужны только при перегенерации картинок, а её делают на
 # своей машине.
 rsync -a --delete \
-  --exclude '.git' --exclude 'node_modules' --exclude 'data' --exclude 'dist' \
+  --exclude 'node_modules' --exclude 'data' --exclude 'dist' \
   --exclude 'assets-src' \
   "$SRC"/ "$APP_DIR"/
 mkdir -p "$APP_DIR/data/backups"
