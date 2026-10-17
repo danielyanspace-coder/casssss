@@ -504,6 +504,8 @@
         <div class="deposit-methods">
           <button class="payment-method active" data-payment-method="card">Банковской картой</button>
           <button class="payment-method" data-payment-method="crypto">Криптовалюта</button>
+          <!-- Шлюз Sicilia: показывается, когда сервер настроен (см. loadSiciliaOptions). -->
+          <button class="payment-method" data-payment-method="sicilia" hidden>СБП и карта</button>
         </div>
         <div class="payment-create" id="paymentCreate">
           <h2 class="section-title">Пополнение через мобильную связь</h2>
@@ -538,6 +540,18 @@
           <button class="btn btn-primary btn-wide" id="cryptoCreateBtn">Продолжить</button>
         </div>
         <div class="payment-checkout" id="cryptoCheckout" hidden></div>
+
+        <!-- СБП и карта через Sicilia. Оплата идёт в окне шлюза, открытом
+             отдельно от мини-аппа; здесь только сумма и ожидание. -->
+        <div class="sicilia-create" id="siciliaCreate" hidden>
+          <h2 class="section-title">Пополнение по СБП и с карты</h2>
+          <input class="seed-input" id="siciliaAmount" type="number" inputmode="numeric" placeholder="Сумма, ₽">
+          <div class="quick-row" id="siciliaQuick"></div>
+          <button class="btn btn-primary btn-wide" id="siciliaCreateBtn">Перейти к оплате</button>
+          <p class="coin-note">Окно оплаты откроется отдельно. Оплатите точную сумму и вернитесь сюда:
+            деньги зачислятся сами, как только банк подтвердит перевод.</p>
+        </div>
+        <div class="payment-checkout" id="siciliaCheckout" hidden></div>
 
         <h2 class="section-title">История пополнений</h2>
         <div id="paymentList"></div>

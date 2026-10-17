@@ -53,6 +53,7 @@ import {
 } from './fortune.js';
 import { limits } from './ratelimit.js';
 import * as crypto from './crypto.js';
+import * as sicilia from './sicilia.js';
 import {
   BONUS_CONFIG,
   claimBonus,
@@ -1780,10 +1781,19 @@ app.post('/api/admin/voucher', auth, need('players.gift'), (req, res) => {
   }
 });
 
-app.post('/api/admin/payouts', auth, need('finance.payouts.view'), (req, res) => {
+app.post('/api/admin/payouts', auth, need('finance.payouts.view'), async (req, res) => {
   const status = ['pending', 'processing', 'paid', 'rejected', 'cancelled', 'all']
     .includes(req.body?.status) ? req.body.status : 'pending';
-  res.json({ rows: adminPayouts(status), stats: payoutStats() });
+  const rows = adminPayouts(status);
+  // Код банка шлюза подбирается по названию из заявки; не нашли - админ
+  // выберет сам. Отправка в шлюз показывается рядом с заявкой.
+  const banks = sicilia.isConfigured() ? await sicilia.banks() : [];
+  res.json({
+    rows: rows.map((r) => ({ ...r, gatewayBank: r.method === 'sbp' ? sicilia.matchBank(r.bank, banks) : null })),
+    gateway: sicilia.gatewayPayouts(rows.map((r) => r.id)),
+    siciliaReady: sicilia.isConfigured(),
+    stats: payoutStats(),
+  });
 });
 
 app.post('/api/admin/payout/resolve', auth, need('finance.payouts.resolve'), (req, res) => {
@@ -1896,6 +1906,102 @@ app.post('/api/webhooks/heleket', limits.webhook, (req, res) => {
   } catch (err) {
     if (err.code === 'NOT_FOUND') return res.status(200).json({ ok: true, unknown: true });
     throw err;
+  }
+});
+
+/* ============================================================
+   СБП И КАРТА: ШЛЮЗ SICILIA
+   ============================================================ */
+
+/*
+ * Пополнение через платёжное окно шлюза, открытое отдельно от мини-аппа
+ * (решение заказчика). Сервер подписывает ссылку, клиент её открывает,
+ * деньги приходят колбэком и сверкой. Подробности - в server/sicilia.js.
+ */
+app.post('/api/sicilia/options', auth, limits.read, (req, res) => {
+  const env = sicilia.siciliaEnv();
+  res.json({ enabled: sicilia.payinReady(env), min: env.min, max: env.max });
+});
+
+app.post('/api/sicilia/create', auth, limits.cashier, (req, res) => {
+  if (!setting('deposits_open')) return res.status(503).json({ error: 'Приём пополнений временно закрыт' });
+  try {
+    res.status(201).json(sicilia.createDeposit(req.player.id, req.body?.amount));
+  } catch (err) {
+    res.status(err.code === 'NOT_CONFIGURED' ? 503 : 400).json({ error: err.message, code: err.code });
+  }
+});
+
+/* Ссылка на то же окно ещё раз: игрок закрыл его, не заплатив. */
+app.post('/api/sicilia/reopen', auth, limits.cashier, (req, res) => {
+  try {
+    res.json(sicilia.reopenDeposit(req.body?.id, req.player.id));
+  } catch (err) {
+    res.status(err.code === 'NOT_FOUND' ? 404 : 400).json({ error: err.message, code: err.code });
+  }
+});
+
+app.post('/api/sicilia/list', auth, limits.read, (req, res) => {
+  res.json({ rows: sicilia.listDeposits(req.player.id) });
+});
+
+app.post('/api/sicilia/refresh', auth, limits.cashier, async (req, res) => {
+  try {
+    const result = await sicilia.refreshDeposit(req.body?.id, req.player.id);
+    if (result.credited) emitPayment(req.player.id, 'payment.completed', { source: 'sicilia' });
+    res.json({ ...result, user: publicUser(getUserById(req.player.id)) });
+  } catch (err) {
+    const status = err.code === 'NOT_FOUND' ? 404 : err.code === 'GATEWAY_UNREACHABLE' ? 503 : 400;
+    res.status(status).json({ error: err.message, code: err.code });
+  }
+});
+
+/**
+ * Колбэк шлюза: и пополнения, и выплаты (у выплат адрес задаётся в кабинете
+ * один на все, у пополнений мы передаём его в ссылке окна).
+ *
+ * Подпись колбэка статуса не покрывает, поэтому сам колбэк ничего не решает:
+ * сервер переспрашивает статус у шлюза своей подписью. Не смогли спросить -
+ * отвечаем 503, и шлюз повторит; деньги не теряются и сверкой по расписанию.
+ */
+app.post('/api/webhooks/sicilia', limits.webhook, async (req, res) => {
+  if (!sicilia.callbackIpAllowed(req.ip)) return res.status(403).json({ error: 'Чужой адрес' });
+  if (!sicilia.verifyCallback(req.body)) return res.status(401).json({ error: 'Подпись не совпала' });
+  try {
+    const result = await sicilia.handleCallback(req.body);
+    if (result.credited) emitPayment(result.userId, 'payment.completed', { source: 'sicilia' });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[sicilia] колбэк:', err.message);
+    res.status(err.code === 'NOT_FOUND' ? 200 : 503).json({ ok: false });
+  }
+});
+
+/* Панель: готовность шлюза, баланс мерчанта и коды банков для выплат. */
+app.post('/api/admin/sicilia', auth, need('finance.payouts.view'), async (req, res) => {
+  const env = sicilia.siciliaEnv();
+  let balance = null;
+  let balanceError = '';
+  if (sicilia.isConfigured(env)) {
+    try { balance = await sicilia.merchantBalance(); } catch (err) { balanceError = err.message; }
+  }
+  const banks = await sicilia.banks();
+  res.json({
+    configured: sicilia.isConfigured(env),
+    payin: sicilia.payinReady(env),
+    balance,
+    balanceError,
+    banks,
+  });
+});
+
+app.post('/api/admin/sicilia/payout', auth, need('finance.payouts.resolve'), async (req, res) => {
+  try {
+    const gateway = await sicilia.sendPayout(req.player.id, Number(req.body?.id), req.body?.bank);
+    res.json({ gateway, stats: payoutStats() });
+  } catch (err) {
+    const status = err.code === 'NOT_FOUND' ? 404 : err.code === 'NOT_CONFIGURED' || err.code === 'GATEWAY_UNREACHABLE' ? 503 : 400;
+    res.status(status).json({ error: err.message, code: err.code });
   }
 });
 
@@ -2235,6 +2341,7 @@ const PORT = Number(process.env.PORT || 3000);
 app.listen(PORT, () => {
   startFeed();
   startCatalogSync();
+  sicilia.startReconcile((userId) => emitPayment(userId, 'payment.completed', { source: 'sicilia' }));
 
   console.log(`\n  LUCKYBOX запущен на http://localhost:${PORT}`);
   if (process.env.DEV_MODE === 'true') {

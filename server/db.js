@@ -2946,6 +2946,17 @@ export function adminPayouts(status = 'pending', limit = 60) {
   `).all(...args).map(row => ({ ...row, card_number: row.card_number ? decryptCard(row.card_number) : null }));
 }
 
+/**
+ * Заявка на вывод с расшифрованным номером карты - для отправки через
+ * платёжный шлюз (server/sicilia.js). Номер карты расшифровывается только
+ * здесь и в списке панели: ключ PAYOUT_DATA_KEY живёт в этом модуле.
+ */
+export function payoutForGateway(id) {
+  const row = db.prepare('SELECT * FROM payouts WHERE id = ?').get(Number(id));
+  if (!row) return null;
+  return { ...row, card_number: row.card_number ? decryptCard(row.card_number) : null };
+}
+
 export function payoutStats() {
   return db.prepare(`
     SELECT

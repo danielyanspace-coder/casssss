@@ -5399,10 +5399,46 @@ function partnerRowHtml(s) {
 
 /* ---------- Админка: заявки на вывод ---------- */
 
+/*
+ * Шлюз Sicilia в заявках: баланс мерчанта сверху и кнопка выплаты у заявок
+ * на карту и по СБП. Банк подставляется по названию из заявки, но выбирает и
+ * подтверждает его человек: ошибка в банке при СБП - деньги не тому.
+ */
+const SICILIA_STATUS = {
+  opened: 'отправлено, ждёт обработки', in_progress: 'в обработке у шлюза', completed: 'выплачено',
+  cancelled: 'отменено шлюзом', error: 'ошибка', unclaimed: 'отозвано',
+};
+async function siciliaAdminInfo() {
+  const cached = state.admin.sicilia;
+  if (cached && Date.now() - cached.at < 5 * 60_000) return cached;
+  try {
+    state.admin.sicilia = { at: Date.now(), ...(await api('/api/admin/sicilia')) };
+  } catch {
+    state.admin.sicilia = { at: Date.now(), configured: false, banks: [] };
+  }
+  return state.admin.sicilia;
+}
+
+function siciliaPayoutBlock(p, gateway, info) {
+  const g = gateway[p.id];
+  const line = g ? `<div class="payout-comment">Sicilia: ${esc(SICILIA_STATUS[g.status] || g.status)}${g.error ? ` - ${esc(g.error)}` : ''}${
+    g.checkUrl ? ` · <a href="${esc(g.checkUrl)}" target="_blank" rel="noopener">чек</a>` : ''}</div>` : '';
+  const canSend = info.configured && (p.method === 'sbp' || p.method === 'card')
+    && (p.status === 'pending' || p.status === 'processing')
+    && (!g || ['cancelled', 'error', 'unclaimed'].includes(g.status));
+  if (!canSend) return line;
+  const options = info.banks.map((b) => `<option value="${esc(b.code)}"${b.code === p.gatewayBank ? ' selected' : ''}>${esc(b.name)}</option>`).join('');
+  return `${line}<div class="admin-actions sicilia-send">
+    <select class="seed-input" data-sic-bank="${p.id}"><option value="">Банк получателя…</option>${options}</select>
+    <button class="btn btn-outline" data-sic-pay="${p.id}" data-amount="${p.amount}">Выплатить через Sicilia</button>
+  </div>`;
+}
+
 async function loadAdminPayouts() {
   let d;
   try { d = await api('/api/admin/payouts', { status: state.admin.payoutStatus || 'pending' }); }
   catch (err) { toast(err.message); return; }
+  const sic = d.siciliaReady ? await siciliaAdminInfo() : { configured: false, banks: [] };
 
   const box = document.getElementById('payoutAdminList');
   const s = d.stats;
@@ -5416,6 +5452,9 @@ async function loadAdminPayouts() {
     <div class="kpi"><div class="kpi-label">В работе</div>
       <div class="kpi-value">${fmt(s.processingCount)}</div>
       <div class="kpi-sub">на ${money(s.processingSum)}</div></div>
+    ${sic.configured ? `<div class="kpi"><div class="kpi-label">Баланс Sicilia</div>
+      <div class="kpi-value">${sic.balance ? money(Math.floor(sic.balance.balance)) : '-'}</div>
+      <div class="kpi-sub">${sic.balance ? `заморожено ${money(Math.floor(sic.balance.frozen_balance || 0))}` : esc(sic.balanceError || '')}</div></div>` : ''}
   </div>`;
 
   if (!d.rows.length) {
@@ -5434,6 +5473,7 @@ async function loadAdminPayouts() {
         баланс ${money(p.balance)} · ${new Date(p.created_at).toLocaleString('ru-RU')}</div>
       <div class="payout-requisites">${payoutRequisites(p, { full: true })}</div>
       ${p.comment ? `<div class="payout-comment">${esc(p.comment)}</div>` : ''}
+      ${siciliaPayoutBlock(p, d.gateway || {}, sic)}
       ${p.status === 'pending' ? `
         <input class="seed-input payout-note" data-note="${p.id}" placeholder="комментарий игроку">
         <div class="admin-actions">
@@ -5446,6 +5486,29 @@ async function loadAdminPayouts() {
         </div>` : ''}
     </div>`;
   }).join('');
+
+  // Выплата через шлюз - вторым нажатием: первое показывает, сколько и куда.
+  box.querySelectorAll('[data-sic-pay]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const id = Number(btn.dataset.sicPay);
+      const select = box.querySelector(`[data-sic-bank="${id}"]`);
+      const bank = select?.value || '';
+      if (!bank) { toast('Выберите банк получателя'); return; }
+      if (btn.dataset.armed !== '1') {
+        btn.dataset.armed = '1';
+        btn.textContent = `Подтвердить: ${money(Number(btn.dataset.amount))} · ${select.selectedOptions[0].textContent}`;
+        btn.classList.replace('btn-outline', 'btn-primary');
+        return;
+      }
+      btn.disabled = true;
+      try {
+        await api('/api/admin/sicilia/payout', { id, bank });
+        toast('Выплата отправлена в Sicilia');
+        haptic('success');
+      } catch (err) { toast(err.message); haptic('error'); }
+      loadAdminPayouts();
+    });
+  });
 
   box.querySelectorAll('[data-resolve]').forEach((btn) => {
     btn.addEventListener('click', async () => {
@@ -5867,6 +5930,7 @@ const SOURCE_LABEL = {
   admin: 'Начисление администратором',
   beeline: 'Пополнение',
   crypto: 'Пополнение криптовалютой',
+  sicilia: 'Пополнение СБП / картой',
   promo: 'Бонус по промокоду',
   welcome: 'Бонус за первое пополнение',
 };
@@ -5894,6 +5958,8 @@ async function loadWallet() {
     const el = document.getElementById(id);
     if (el && !el.children.length) el.innerHTML = '<span class="skel skel-line"></span>'.repeat(3);
   }
+  // Вкладка «СБП и карта» появляется, только если шлюз настроен на сервере.
+  loadSiciliaOptions();
   try { w = await api('/api/wallet'); }
   catch (err) { toast(err.message); return; }
 
@@ -6357,19 +6423,173 @@ function showCryptoCheckout(p) {
   });
 }
 
-document.querySelector('[data-payment-method="crypto"]')?.addEventListener('click', () => {
+/* Способы пополнения: у каждого свой экран, открыт ровно один. */
+const DEPOSIT_PANES = ['paymentCreate', 'paymentCheckout', 'cryptoCreate', 'cryptoCheckout', 'siciliaCreate', 'siciliaCheckout'];
+function showDepositPane(...ids) {
+  for (const id of DEPOSIT_PANES) {
+    const el = document.getElementById(id);
+    if (el) el.hidden = !ids.includes(id);
+  }
+}
+function markDepositMethod(method) {
   document.querySelectorAll('[data-payment-method]').forEach((b) =>
-    b.classList.toggle('active', b.dataset.paymentMethod === 'crypto'));
+    b.classList.toggle('active', b.dataset.paymentMethod === method));
+}
+
+document.querySelector('[data-payment-method="crypto"]')?.addEventListener('click', () => {
+  markDepositMethod('crypto');
+  clearInterval(siciliaState.poll);
   openCryptoDeposit();
+  document.getElementById('siciliaCreate').hidden = true;
+  document.getElementById('siciliaCheckout').hidden = true;
 });
 
 document.querySelector('[data-payment-method="card"]')?.addEventListener('click', () => {
-  document.querySelectorAll('[data-payment-method]').forEach((b) =>
-    b.classList.toggle('active', b.dataset.paymentMethod === 'card'));
-  document.getElementById('cryptoCreate').hidden = true;
-  document.getElementById('cryptoCheckout').hidden = true;
-  document.getElementById('paymentCreate').hidden = false;
+  markDepositMethod('card');
+  clearInterval(siciliaState.poll);
+  showDepositPane('paymentCreate');
 });
+
+/* ---------- СБП и карта: шлюз Sicilia ---------- */
+
+/*
+ * Оплата в окне шлюза, открытом отдельно (решение заказчика). Ссылку
+ * подписывает сервер; здесь только сумма, открытие окна и ожидание.
+ */
+const siciliaState = { loaded: false, enabled: false, min: 500, max: 300000, poll: 0, current: null };
+// Пока карточка ожидания на экране, раз в столько спрашиваем, не пришли ли
+// деньги. Колбэк шлюза приходит на сервер раньше, и поток событий сообщит
+// сам; опрос - запас на случай, когда поток оборвался.
+const SICILIA_POLL_MS = 15000;
+const SICILIA_QUICK = [500, 1000, 3000, 5000, 10000];
+
+async function loadSiciliaOptions() {
+  if (siciliaState.loaded) return siciliaState;
+  try {
+    const d = await api('/api/sicilia/options');
+    Object.assign(siciliaState, { loaded: true, enabled: !!d.enabled, min: d.min ?? 500, max: d.max ?? 300000 });
+  } catch {
+    siciliaState.loaded = true;
+  }
+  const tab = document.querySelector('[data-payment-method="sicilia"]');
+  if (tab) tab.hidden = !siciliaState.enabled;
+  return siciliaState;
+}
+
+/*
+ * Открыть окно оплаты вне мини-аппа. В Telegram это openLink: ссылка уходит
+ * во внешний браузер, а мини-апп остаётся открытым и ждёт. Вне Telegram -
+ * новая вкладка; её открываем ДО запроса к серверу (pending), иначе браузер
+ * сочтёт её всплывающим окном и заблокирует.
+ */
+function openPaymentWindow(url, pending) {
+  if (tg?.openLink) { tg.openLink(url); return true; }
+  if (pending && !pending.closed) { pending.location.href = url; return true; }
+  return !!window.open(url, '_blank', 'noopener');
+}
+
+function openSiciliaDeposit() {
+  markDepositMethod('sicilia');
+  showDepositPane('siciliaCreate');
+  const input = document.getElementById('siciliaAmount');
+  input.placeholder = `Сумма, ₽ (от ${money(siciliaState.min)})`;
+  document.getElementById('siciliaQuick').innerHTML = SICILIA_QUICK
+    .filter((v) => v >= siciliaState.min && v <= siciliaState.max)
+    .map((v) => `<button type="button" class="quick-btn" data-sum="${v}">${money(v)}</button>`).join('');
+  document.querySelectorAll('#siciliaQuick [data-sum]').forEach((b) => b.addEventListener('click', () => {
+    input.value = b.dataset.sum;
+    haptic('light');
+  }));
+}
+
+document.querySelector('[data-payment-method="sicilia"]')?.addEventListener('click', () => {
+  clearInterval(siciliaState.poll);
+  openSiciliaDeposit();
+});
+
+document.getElementById('siciliaCreateBtn')?.addEventListener('click', async () => {
+  const amount = Number(document.getElementById('siciliaAmount').value);
+  if (!amount || amount < siciliaState.min) return toast(`Минимум ${money(siciliaState.min)}`);
+  if (amount > siciliaState.max) return toast(`Максимум ${money(siciliaState.max)}`);
+  const btn = document.getElementById('siciliaCreateBtn');
+  btn.disabled = true;
+  const pending = tg?.openLink ? null : window.open('', '_blank');
+  try {
+    const order = await api('/api/sicilia/create', { amount });
+    const opened = openPaymentWindow(order.url, pending);
+    showSiciliaCheckout(order, opened);
+    haptic('success');
+  } catch (err) {
+    pending?.close();
+    toast(err.message);
+    haptic('error');
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+/** Карточка ожидания: сумма, «открыть окно снова», «я оплатил». */
+function showSiciliaCheckout(order, opened = true) {
+  siciliaState.current = order;
+  showDepositPane('siciliaCheckout');
+  const box = document.getElementById('siciliaCheckout');
+  box.innerHTML = `
+    <div class="sicilia-wait">
+      <div class="sicilia-wait-sum">${money(order.amount)}</div>
+      <div class="sicilia-wait-sub">Оплата открыта в отдельном окне</div>
+      <p>${opened ? 'Переведите точную сумму по реквизитам в окне оплаты.' : 'Окно не открылось само - нажмите кнопку ниже.'}
+        Как только банк подтвердит перевод, деньги появятся на балансе.</p>
+      <button class="btn btn-primary btn-wide" id="siciliaReopen">Открыть окно оплаты</button>
+      <button class="btn btn-outline btn-wide" id="siciliaCheck">Я оплатил, проверить</button>
+      <button class="btn btn-outline btn-wide" id="siciliaBack">Другая сумма</button>
+      <div class="invoice-status" id="siciliaStatus"></div>
+    </div>`;
+  document.getElementById('siciliaReopen').addEventListener('click', async () => {
+    const pending = tg?.openLink ? null : window.open('', '_blank');
+    try {
+      const again = await api('/api/sicilia/reopen', { id: order.id });
+      openPaymentWindow(again.url, pending);
+    } catch (err) {
+      pending?.close();
+      toast(err.message);
+    }
+  });
+  document.getElementById('siciliaBack').addEventListener('click', () => {
+    clearInterval(siciliaState.poll);
+    openSiciliaDeposit();
+  });
+  document.getElementById('siciliaCheck').addEventListener('click', () => checkSicilia(order, true));
+  clearInterval(siciliaState.poll);
+  siciliaState.poll = setInterval(() => {
+    if (document.hidden || box.hidden) return;
+    checkSicilia(order, false);
+  }, SICILIA_POLL_MS);
+}
+
+async function checkSicilia(order, byHand) {
+  const status = document.getElementById('siciliaStatus');
+  if (byHand && status) status.textContent = 'Проверяем платёж…';
+  try {
+    const r = await api('/api/sicilia/refresh', { id: order.id });
+    if (r.credited || r.payment?.paidAt) {
+      clearInterval(siciliaState.poll);
+      if (r.user) applyUser(r.user);
+      if (status) status.textContent = 'Платёж зачислен.';
+      if (r.credited) { toast('Платёж зачислен'); sndCollect(); haptic('success'); }
+      loadWallet();
+      return;
+    }
+    const closed = ['cancelled', 'error', 'unclaimed', 'expired'].includes(r.payment?.status);
+    if (closed) clearInterval(siciliaState.poll);
+    if (status && (byHand || closed)) {
+      status.textContent = closed
+        ? 'Оплата не поступила и закрыта. Если вы перевели деньги, напишите в поддержку.'
+        : 'Перевод ещё не подтверждён. Обычно это занимает несколько минут.';
+    }
+  } catch (err) {
+    if (byHand && status) status.textContent = err.message;
+  }
+}
 
 async function loadPayments() {
   try {
@@ -6424,7 +6644,7 @@ function startPaymentEvents(){
   if (location.protocol !== 'http:' && location.protocol !== 'https:') return;
 
   const es=new EventSource(`/api/payments/events?initData=${encodeURIComponent(tg?.initData||'')}`);
-  es.addEventListener('payment.completed',async()=>{clearInterval(state.paymentTimer);toast('Платёж успешно поступил. Средства зачислены на счёт.');sndCollect();haptic('success');const me=await api('/api/me');applyUser(me.user);loadWallet();});
+  es.addEventListener('payment.completed',async()=>{clearInterval(state.paymentTimer);clearInterval(siciliaState.poll);toast('Платёж успешно поступил. Средства зачислены на счёт.');sndCollect();haptic('success');const me=await api('/api/me');applyUser(me.user);loadWallet();});
 }
 
 document.getElementById('walletWithdraw').addEventListener('click', () => {

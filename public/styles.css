@@ -5506,6 +5506,22 @@ div.mini-row { cursor: default; }
 }
 .quick-btn:active { transform: scale(0.97); }
 
+/* display:flex у .payment-method перебивает атрибут hidden: без этой строки
+   вкладка «СБП и карта» была бы видна и там, где шлюз не настроен. Третий
+   способ встаёт в отдельную строку во всю ширину. */
+.payment-method[hidden] { display: none; }
+.deposit-methods .payment-method:last-child:nth-child(odd) { grid-column: 1 / -1; min-height: 52px; }
+
+/* Ожидание оплаты СБП / картой: окно шлюза открыто отдельно, здесь сумма
+   крупно и три действия. Кнопки во всю ширину - по ним жмут большим пальцем. */
+/* Рамку и фон даёт .payment-checkout вокруг: вторая рамка внутри читалась
+   коробкой в коробке. */
+.sicilia-wait { display: grid; gap: 10px; text-align: center; }
+.sicilia-wait-sum { font-size: 30px; font-weight: 900; color: var(--gold); font-variant-numeric: tabular-nums; }
+.sicilia-wait-sub { font-size: 13px; font-weight: 700; color: var(--text); }
+.sicilia-wait p { margin: 0 0 4px; color: var(--muted); font-size: 13px; line-height: 1.45; }
+.sicilia-create .coin-note { margin-top: 10px; }
+
 /* Счёт на оплату. Рамка красится цветом монеты - экран оплаты биткоином и
    экран оплаты USDT не должны выглядеть одинаково. */
 .crypto-invoice {

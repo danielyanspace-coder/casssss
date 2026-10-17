@@ -1254,6 +1254,21 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
   const liveHome = await post('/api/casino/home', { kind: 'live' });
   check('казино: вкладка Live отвечает и без столов', liveHome.status === 200 && Array.isArray(liveHome.data.blocks));
 
+  // Шлюз Sicilia без ключей: способ оплаты скрыт, создать нельзя, а колбэк
+  // с чужой подписью отвергается, даже когда шлюз выключен.
+  const sicOpt = await post('/api/sicilia/options');
+  check('sicilia: без ключей способ оплаты выключен', sicOpt.status === 200 && sicOpt.data.enabled === false);
+  const sicCreate = await post('/api/sicilia/create', { amount: 1000 });
+  check('sicilia: без ключей пополнение отвечает 503', sicCreate.status === 503, `статус ${sicCreate.status}`);
+  const sicHook = await fetch(BASE + '/api/webhooks/sicilia', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ InvId: 'lb-1-x', OutSum: '1000.0000', Status: 'completed', SignatureValue: 'подделка' }) });
+  check('sicilia: колбэк с чужой подписью отвергнут', sicHook.status === 401, `статус ${sicHook.status}`);
+  const sicList = await post('/api/sicilia/list');
+  check('sicilia: список оплат игрока отдаётся', sicList.status === 200 && Array.isArray(sicList.data.rows));
+  const payoutsAdm = await post('/api/admin/payouts', { status: 'all' });
+  check('sicilia: в заявках на вывод есть признак шлюза', payoutsAdm.status === 200 && payoutsAdm.data.siciliaReady === false
+    && typeof payoutsAdm.data.gateway === 'object');
+
   const noKeys = await post('/api/casino/launch', { gameId: games[0]?.id });
   check('казино: без ключа агрегатора запуск отказывает 503', noKeys.status === 503, `статус ${noKeys.status}`);
   const unknown = await post('/api/casino/launch', { gameId: 'нет-такой' });

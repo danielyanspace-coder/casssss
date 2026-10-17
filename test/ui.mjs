@@ -1560,6 +1560,13 @@ check('краш: экран открывается',
 /* ---------- Касса и честность ---------- */
 
 await goto('wallet');
+// Шлюз Sicilia в тестовом сервере не настроен: вкладки «СБП и карта» нет.
+// display:flex у .payment-method однажды перебивал hidden - тест держит это.
+check('касса: без ключей Sicilia вкладки «СБП и карта» нет',
+  await page.evaluate(() => {
+    const t = document.querySelector('[data-payment-method="sicilia"]');
+    return !!t && getComputedStyle(t).display === 'none';
+  }));
 await page.waitForTimeout(500);
 check('касса: экран открывается по кнопке меню',
       await page.isVisible('#walletBalance'));
