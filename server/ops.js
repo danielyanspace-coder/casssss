@@ -150,6 +150,28 @@ export function countError(key, text, { threshold = 10, windowMs = 5 * 60 * 1000
 
 /* ---------- Привязка Telegram ---------- */
 
+/*
+ * Telegram владельца, закреплённый в окружении (OPS_OWNER_CHAT_ID, через
+ * запятую). Подтверждения входа владельца уходят туда сразу, без привязки из
+ * панели, и привязать к владельцу другой Telegram нельзя: первая привязка из
+ * панели защищена только паролем, а закреплённая в .env - доступом к серверу.
+ */
+function ownerChats() {
+  return String(process.env.OPS_OWNER_CHAT_ID || '').split(',').map((v) => v.trim()).filter(Boolean);
+}
+
+function isEnvOwner(staff) {
+  return Boolean(staff && staff.role === 'owner' && staff.added_by === null);
+}
+
+/** Куда слать подтверждение входа этому сотруднику. */
+function chatFor(staff) {
+  if (!staff?.active) return '';
+  const pinned = isEnvOwner(staff) ? ownerChats() : [];
+  if (pinned.length) return pinned.includes(String(staff.ops_chat_id)) ? String(staff.ops_chat_id) : pinned[0];
+  return staff.ops_chat_id ? String(staff.ops_chat_id) : '';
+}
+
 function displayName(user) {
   return user.email || (user.username ? `@${user.username}` : (user.first_name || `#${user.id}`));
 }
@@ -170,8 +192,13 @@ function linkChat(code, from, chatId) {
   const user = getUserById(row.user_id);
   const staff = staffRow(row.user_id);
   if (!user || !staff?.active) return { ok: false, text: 'Доступа в панель у этого аккаунта нет.' };
+  // Владелец с закреплённым в .env Telegram - только из него.
+  const pinned = isEnvOwner(staff) ? ownerChats() : [];
+  if (pinned.length && !pinned.includes(String(chatId))) {
+    return { ok: false, text: 'Для этого аккаунта Telegram задан на сервере (OPS_OWNER_CHAT_ID).' };
+  }
   // У аккаунта уже есть свой Telegram - привязать можно только его.
-  if (user.tg_id != null && String(user.tg_id) !== String(from.id)) {
+  if (!pinned.length && user.tg_id != null && String(user.tg_id) !== String(from.id)) {
     return { ok: false, text: 'Этот аккаунт привязан к другому Telegram. Откройте ссылку из него.' };
   }
   db.prepare('DELETE FROM ops_links WHERE code_hash = ?').run(sha(code));
@@ -197,7 +224,7 @@ export function twoFactorState(userId, sessionHash) {
   return {
     required: twoFactorRequired(),
     confirmed: sessionConfirmed(sessionHash),
-    linked: Boolean(staff?.ops_chat_id),
+    linked: Boolean(chatFor(staff)),
     bot: bot.username,
   };
 }
@@ -214,7 +241,8 @@ function shortUa(ua) {
 /** Запрос подтверждения: сообщение в бот с кнопками и кодом. */
 export async function requestApproval(userId, sessionHash, { ip, userAgent }) {
   const staff = staffRow(userId);
-  if (!staff?.ops_chat_id) throw Object.assign(new Error('Сначала привяжите Telegram'), { code: 'NOT_LINKED' });
+  const chatId = chatFor(staff);
+  if (!chatId) throw Object.assign(new Error('Сначала привяжите Telegram'), { code: 'NOT_LINKED' });
   if (!sessionHash) throw Object.assign(new Error('Войдите на сайт заново'), { code: 'NO_SESSION' });
 
   const now = Date.now();
@@ -223,13 +251,13 @@ export async function requestApproval(userId, sessionHash, { ip, userAgent }) {
   const info = db.prepare(`
     INSERT INTO admin_challenges (user_id, session_hash, code_hash, chat_id, ip, user_agent, created_at, expires_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(userId, sessionHash, sha(code), staff.ops_chat_id, ip || null,
+  `).run(userId, sessionHash, sha(code), chatId, ip || null,
          String(userAgent || '').slice(0, 300) || null, now, now + CHALLENGE_TTL_MS);
   const id = Number(info.lastInsertRowid);
 
   const when = new Date(now).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' });
   const msg = await tg('sendMessage', {
-    chat_id: staff.ops_chat_id,
+    chat_id: chatId,
     text: `Вход в панель ${siteLabel()}\n\n`
       + `Адрес: ${ip || 'неизвестен'}\nБраузер: ${shortUa(userAgent)}\nВремя: ${when} (МСК)\n\n`
       + `Код: ${code}\nЗапрос действует ${CHALLENGE_TTL_MS / 60000} минут.`,

@@ -208,6 +208,36 @@ process.env.OPS_BOT_TOKEN = token;
   check('десятая ошибка будит', sent.slice(b3).some((s) => /Ошибки 500/.test(s.body.text || '')));
 }
 
+/* ---------- 6. Telegram владельца из .env ---------- */
+
+{
+  process.env.OPS_OWNER_CHAT_ID = '8602356502';
+  const S6 = 'g'.repeat(64);
+  db.createSession({ tokenHash: S6, userId: owner.id, ttlMs: 3_600_000 });
+  check('закреплённый Telegram считается привязкой', ops.twoFactorState(owner.id, S6).linked);
+  await ops.requestApproval(owner.id, S6, { ip: '3.3.3.3', userAgent: '' });
+  check('запрос входа владельца уходит в закреплённый чат',
+    /Вход в панель/.test(sentTo('8602356502').at(-1)?.body.text || ''));
+
+  const url = ops.createLink(owner.id);
+  await onMessage({ text: `/start link_${url.split('link_')[1]}`, chat: { id: 4444, type: 'private' }, from: { id: 4444 } });
+  check('к владельцу не привязать другой Telegram', /задан на сервере/.test(sentTo(4444).at(-1)?.body.text || ''));
+  check('прежняя привязка не перезаписана', db.staffRow(owner.id).ops_chat_id === '5001');
+
+  // Закрепление касается только владельцев из .env: у поддержки свой чат.
+  const S7 = 'k'.repeat(64);
+  db.createSession({ tokenHash: S7, userId: support.id, ttlMs: 3_600_000 });
+  await ops.requestApproval(support.id, S7, { ip: '', userAgent: '' });
+  check('поддержка получает запрос в свой чат', /Вход в панель/.test(sentTo(7001).at(-1)?.body.text || ''));
+
+  recent.clear();
+  const b = sent.length;
+  ops.alert('pin', 'Проверка закреплённого');
+  await flush();
+  check('оповещения идут в закреплённый чат', sent.slice(b).some((x) => x.body.chat_id === '8602356502'));
+  delete process.env.OPS_OWNER_CHAT_ID;
+}
+
 /* ---------- Итог ---------- */
 
 console.log(`\nСлужебный бот: пройдено ${passed}, не пройдено ${failures.length}`);
