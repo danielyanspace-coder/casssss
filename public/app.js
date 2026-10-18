@@ -6071,6 +6071,7 @@ const CASH_ICONS = {
   in: '<path d="M12 4v11"/><path d="m7.5 10.5 4.5 4.5 4.5-4.5"/><path d="M5 19.5h14"/>',
   out: '<path d="M12 20V9"/><path d="m7.5 13.5 4.5-4.5 4.5 4.5"/><path d="M5 4.5h14"/>',
   card: '<rect x="3" y="5.5" width="18" height="13" rx="2.6"/><path d="M3 10h18"/><path d="M7 14.6h3.2"/>',
+  phone: '<rect x="7" y="3" width="10" height="18" rx="2.6"/><path d="M11 17.6h2"/>',
   crypto: '<path d="M12 2.8 20 7.4v9.2l-8 4.6-8-4.6V7.4l8-4.6Z"/><path d="M9.6 8.6h3.6a1.7 1.7 0 0 1 0 3.4H9.6m0 0h4.1a1.7 1.7 0 0 1 0 3.4H9.6V8.6Z"/>',
   arrow: '<path d="M5 12h13"/><path d="m13 6.5 5.5 5.5-5.5 5.5"/>',
   copy: '<rect x="8.5" y="8.5" width="11" height="11" rx="2.4"/><path d="M15.5 8.5V6.9a2.4 2.4 0 0 0-2.4-2.4H6.9a2.4 2.4 0 0 0-2.4 2.4v6.2a2.4 2.4 0 0 0 2.4 2.4h1.6"/>',
@@ -6913,31 +6914,40 @@ const fmtCard = (d) => String(d || '').replace(/(\d{4})(?=\d)/g, '$1 ');
 const fmtLeft = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 
 /*
- * Что показать главным: телефон для СБП, карта для перевода на карту. Шлюз
- * решает сам и может выдать на СБП карту - тогда показываем карту, а не
- * пустое поле телефона.
+ * Что показать на карточке: телефон для СБП, карта для перевода на карту,
+ * счёт для перевода по счёту. Шлюз решает сам и может выдать на СБП карту -
+ * тогда показываем карту, а не пустое поле телефона.
  */
 function siciliaTarget(r) {
-  if (r.payLink && !r.phone && !r.card && !r.account) return null;
-  if (r.account) return { label: 'Номер счёта получателя', text: r.account, copy: r.account };
-  const phone = r.phone && { label: 'Телефон для перевода по СБП', text: fmtPhone(r.phone), copy: `+${r.phone.replace(/^8/, '7')}` };
-  const card = r.card && { label: 'Номер карты получателя', text: fmtCard(r.card), copy: r.card };
+  if (r.account) return { kind: 'account', tag: 'Счёт', label: 'Номер счёта', text: r.account, copy: r.account };
+  const phone = r.phone && { kind: 'sbp', tag: 'СБП', label: 'Номер телефона', text: fmtPhone(r.phone), copy: `+${r.phone.replace(/^8/, '7')}` };
+  const card = r.card && { kind: 'card', tag: 'Карта', label: 'Номер карты', text: fmtCard(r.card), copy: r.card };
   return r.method === 'card' ? card || phone : phone || card;
 }
 
-function sicCopyRow(id, label, text, extraClass = '') {
-  return `<div class="field-label">${esc(label)}</div>
-    <button class="invoice-address sic-target ${extraClass}" id="${id}" type="button">
-      <span class="invoice-addr">${esc(text)}</span>
-      <span class="cash-copy">${cashIcon('copy')}${cashIcon('check')}<span class="cash-copy-label">Скопировать</span></span>
-    </button>`;
-}
+/* Маска вместо номера после срока: той же длины, чтобы карточка не прыгала. */
+const maskRequisite = (text) => String(text).replace(/\d/g, '•');
+
+/*
+ * Чип и знак бесконтакта нарисованы, а не взяты картинкой: это рисунок
+ * «карты вообще», без логотипа и цвета какого-либо банка. Карточка
+ * показывает, куда переводить, и не должна выдавать себя за карту
+ * конкретного банка.
+ */
+const SIC_CHIP = `<svg class="sic-chip" viewBox="0 0 40 30" aria-hidden="true">
+  <rect x="0.5" y="0.5" width="39" height="29" rx="6"/>
+  <path d="M0.5 10.5h11a3 3 0 0 1 3 3v3a3 3 0 0 1-3 3h-11M39.5 10.5h-11a3 3 0 0 0-3 3v3a3 3 0 0 0 3 3h11M14.5 0.5v10M25.5 0.5v10M14.5 19.5v10M25.5 19.5v10"/>
+</svg>`;
+const SIC_WAVES = `<svg class="sic-waves" viewBox="0 0 24 24" aria-hidden="true">
+  <path d="M8.5 8.2a5.6 5.6 0 0 1 0 7.6M12 5.6a9.4 9.4 0 0 1 0 12.8M15.5 3a13.2 13.2 0 0 1 0 18"/></svg>`;
 
 /**
- * Экран перевода: точная сумма, реквизит, банк, получатель, таймер.
+ * Экран перевода: сумма с таймером, реквизит на карточке, три шага, одна
+ * главная кнопка.
  *
- * Сумма и реквизит копируются нажатием на всю плашку: переписывать номер с
- * экрана телефона - верный способ ошибиться цифрой и отправить деньги мимо.
+ * Сумма и номер копируются нажатием: переписывать номер с экрана телефона -
+ * верный способ ошибиться цифрой и отправить деньги мимо. Отмена - тихая
+ * ссылка внизу, а не кнопка рядом с главной: её нажимают по ошибке.
  */
 function showSiciliaRequisite(order) {
   const r = order.requisite;
@@ -6949,56 +6959,76 @@ function showSiciliaRequisite(order) {
   const target = siciliaTarget(r);
   const sum = Number(order.paySum || order.amount);
   const sumCopy = Number.isInteger(sum) ? String(sum) : sum.toFixed(2).replace('.', ',');
-  const howTo = target?.label.startsWith('Телефон')
-    ? `Откройте приложение своего банка, выберите перевод по СБП по номеру телефона и${r.bank ? ` банк <b>${esc(r.bank)}</b>` : ' банк получателя'}.`
-    : target?.label.startsWith('Номер счёта')
-      ? 'Откройте приложение своего банка и выберите перевод по реквизитам счёта.'
-      : 'Откройте приложение своего банка и выберите перевод на карту.';
+  const where = target?.kind === 'sbp'
+    ? `по СБП по номеру телефона${r.bank ? `, банк <b>${esc(r.bank)}</b>` : ''}`
+    : target?.kind === 'account' ? 'по реквизитам счёта' : 'на карту по номеру';
+  const lead = r.deeplink || r.payLink;
 
   box.innerHTML = `
-    <div class="sic-pay" data-hurry="0">
-      <div class="sic-head">
-        <div class="sic-head-main">
-          <div class="invoice-label">Переведите ровно</div>
-          <button class="sic-sum" id="sicCopySum" type="button" aria-label="Скопировать сумму">
-            <span>${money(sum)}</span>
+    <div class="sic-pay">
+      <div class="sic-top">
+        <div class="sic-amount">
+          <div class="invoice-label">К переводу</div>
+          <div class="sic-amount-row">
+            <span class="sic-amount-num">${money(sum)}</span>
+            <button class="sic-icon-btn" id="sicCopySum" type="button" aria-label="Скопировать сумму">
+              <span class="cash-copy">${cashIcon('copy')}${cashIcon('check')}</span>
+            </button>
+          </div>
+        </div>
+        <div class="sic-clock" id="sicTimer" role="timer" aria-label="Время на перевод">
+          <svg viewBox="0 0 44 44" aria-hidden="true"><circle class="sic-clock-bg" cx="22" cy="22" r="19"/>
+            <circle class="sic-clock-fg" id="sicTimerArc" cx="22" cy="22" r="19" pathLength="100"/></svg>
+          <span class="sic-clock-text"><b id="sicTimerText">--:--</b></span>
+        </div>
+      </div>
+
+      ${target ? `
+      <div class="sic-card-stage">
+        <button class="sic-card" id="sicCopyTarget" type="button" data-kind="${target.kind}"
+                aria-label="${esc(target.label)} получателя, скопировать">
+          <span class="sic-card-fx" aria-hidden="true"><span class="sic-card-glow"></span><span class="sic-card-sheen"></span></span>
+          <span class="sic-card-head">
+            <span class="sic-card-bank">${esc(r.bank || 'Банк получателя')}</span>
             <span class="cash-copy">${cashIcon('copy')}${cashIcon('check')}<span class="cash-copy-label">Скопировать</span></span>
-          </button>
-        </div>
-        <div class="sic-timer" id="sicTimer" role="timer" aria-label="Время на перевод">
-          <svg viewBox="0 0 44 44" aria-hidden="true"><circle class="sic-timer-bg" cx="22" cy="22" r="19"/>
-            <circle class="sic-timer-fg" id="sicTimerArc" cx="22" cy="22" r="19" pathLength="100"/></svg>
-          <span id="sicTimerText">--:--</span>
-        </div>
+          </span>
+          <span class="sic-card-mid">${SIC_CHIP}${target.kind === 'card' ? SIC_WAVES : ''}<span class="sic-card-tag">${target.tag}</span></span>
+          <span class="sic-card-label">${esc(target.label)}</span>
+          <span class="sic-card-num" id="sicNum">${esc(target.text)}</span>
+          ${r.holder ? `<span class="sic-card-holder"><small>Получатель</small>${esc(r.holder)}</span>` : ''}
+          <span class="sic-card-stamp" aria-hidden="true">Срок истёк</span>
+        </button>
+      </div>` : ''}
+      ${r.bik ? `
+      <button class="sic-line" id="sicCopyBik" type="button">
+        <span><small>БИК банка</small>${esc(r.bik)}</span>
+        <span class="cash-copy">${cashIcon('copy')}${cashIcon('check')}<span class="cash-copy-label">Скопировать</span></span>
+      </button>` : ''}
+      ${r.abroad ? `<div class="sic-abroad">${cashIcon('info')}<span>Перевод за рубеж: ${esc(r.abroad)}</span></div>` : ''}
+
+      <ol class="sic-steps">
+        <li><i>1</i><span>Скопируйте номер и сумму</span></li>
+        <li><i>2</i><span>Переведите ${where}</span></li>
+        <li><i>3</i><span>Вернитесь сюда: деньги зачислятся сами</span></li>
+      </ol>
+
+      <div class="sic-actions">
+        ${r.deeplink ? `<a class="cash-cta" id="sicOpenBank" href="${esc(r.deeplink)}" target="_blank" rel="noopener"><span>Открыть в банке</span>${cashIcon('open')}</a>` : ''}
+        ${r.payLink ? `<a class="cash-cta" id="sicOpenBank" href="${esc(r.payLink)}" target="_blank" rel="noopener"><span>Перейти к оплате</span>${cashIcon('open')}</a>` : ''}
+        <button class="${lead ? 'cash-ghost' : 'cash-cta'} sic-paid" id="siciliaCheck">${lead ? cashIcon('check') : ''}<span>Я перевёл</span>${lead ? '' : cashIcon('check')}</button>
       </div>
+      <div class="invoice-status" id="siciliaStatus" aria-live="polite"></div>
 
-      <div class="sic-req">
-        ${target ? sicCopyRow('sicCopyTarget', target.label, target.text) : ''}
-        ${r.bik ? sicCopyRow('sicCopyBik', 'БИК банка', r.bik, 'is-small') : ''}
-        <dl class="sic-facts">
-          ${r.bank ? `<div><dt>Банк получателя</dt><dd>${esc(r.bank)}</dd></div>` : ''}
-          ${r.holder ? `<div><dt>Получатель</dt><dd>${esc(r.holder)}</dd></div>` : ''}
-          ${r.abroad ? `<div><dt>Перевод</dt><dd>за рубеж, ${esc(r.abroad)}</dd></div>` : ''}
-        </dl>
-      </div>
-
-      ${r.deeplink ? `<a class="cash-cta" href="${esc(r.deeplink)}" target="_blank" rel="noopener"><span>Открыть в банке</span>${cashIcon('open')}</a>` : ''}
-      ${r.payLink ? `<a class="cash-cta" href="${esc(r.payLink)}" target="_blank" rel="noopener"><span>Перейти к оплате</span>${cashIcon('open')}</a>` : ''}
-
-      <p class="sic-how">${howTo} Сумма - ровно ${money(sum)}, одним переводом.</p>
-      <div class="invoice-warn">${cashIcon('warn')}<span>Другая сумма или несколько переводов задержат
-        зачисление. Реквизит одноразовый: для следующего пополнения получите новый.</span></div>
-
-      <div class="cash-row2">
-        <button class="cash-ghost" id="siciliaCheck">${cashIcon('refresh')}Я оплатил</button>
-        <button class="cash-ghost" id="siciliaCancel">Отменить</button>
-      </div>
-      <div class="invoice-status" id="siciliaStatus"></div>
+      <p class="sic-note">${cashIcon('warn')}<span>Ровно ${money(sum)} одним переводом. Другая сумма задержит
+        зачисление. Реквизит одноразовый: в следующий раз получите новый.</span></p>
+      <button class="sic-cancel" id="siciliaCancel" type="button">Отменить перевод</button>
     </div>`;
 
   bindCashCopy(document.getElementById('sicCopySum'), sumCopy);
-  if (target) bindCashCopy(document.getElementById('sicCopyTarget'), target.copy);
+  const card = document.getElementById('sicCopyTarget');
+  if (target) bindCashCopy(card, target.copy);
   if (r.bik) bindCashCopy(document.getElementById('sicCopyBik'), r.bik);
+  tiltSiciliaCard(card);
   document.getElementById('siciliaCheck').addEventListener('click', () => checkSicilia(order, true));
 
   const cancel = document.getElementById('siciliaCancel');
@@ -7006,8 +7036,9 @@ function showSiciliaRequisite(order) {
   cancel.addEventListener('click', async () => {
     if (cancel.dataset.expired) { openSiciliaDeposit({ resume: false }); return; }
     if (!armed) {
-      armed = setTimeout(() => { armed = 0; cancel.textContent = 'Отменить'; }, SICILIA_CANCEL_CONFIRM_MS);
-      cancel.textContent = 'Я не переводил';
+      armed = setTimeout(() => { armed = 0; cancel.textContent = 'Отменить перевод'; cancel.classList.remove('is-armed'); }, SICILIA_CANCEL_CONFIRM_MS);
+      cancel.textContent = 'Точно? Нажмите ещё раз, если не переводили';
+      cancel.classList.add('is-armed');
       haptic('light');
       return;
     }
@@ -7028,7 +7059,8 @@ function showSiciliaRequisite(order) {
         openSiciliaDeposit({ resume: false });
       } catch (err) {
         armed = 0;
-        cancel.textContent = 'Отменить';
+        cancel.textContent = 'Отменить перевод';
+        cancel.classList.remove('is-armed');
         toast(err.message);
       }
     });
@@ -7043,7 +7075,7 @@ function showSiciliaRequisite(order) {
     document.getElementById('sicTimerText').textContent = fmtLeft(left);
     arc.style.strokeDashoffset = String(100 - Math.min(100, (left * 1000 / total) * 100));
     pay.dataset.hurry = left <= SICILIA_HURRY_S ? '1' : '0';
-    if (left === 0) siciliaExpired(pay, cancel);
+    if (left === 0) siciliaExpired(pay, cancel, target);
   };
   tick();
   siciliaState.tick = setInterval(tick, 1000);
@@ -7054,20 +7086,58 @@ function showSiciliaRequisite(order) {
 }
 
 /*
- * Время вышло: реквизит убирается с экрана сразу. Сервер его уже не
- * отдаст, а перевод на него после срока шлюз не сопоставит с ордером.
- * «Я оплатил» остаётся: перевод, ушедший в последние секунды, ещё найдётся.
+ * Карточка чуть поворачивается за пальцем или мышью: так она читается
+ * предметом, а не плашкой. Только при точном указателе и без просьбы
+ * системы убрать движение; на телефоне поворот не нужен, там карточку
+ * нажимают, а не разглядывают.
  */
-function siciliaExpired(pay, cancel) {
+const SIC_TILT_DEG = 6;
+function tiltSiciliaCard(card) {
+  if (!card || !matchMedia('(hover: hover) and (pointer: fine)').matches) return;
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  card.addEventListener('pointermove', (e) => {
+    const b = card.getBoundingClientRect();
+    const x = (e.clientX - b.left) / b.width - 0.5;
+    const y = (e.clientY - b.top) / b.height - 0.5;
+    card.style.setProperty('--rx', `${(-y * SIC_TILT_DEG).toFixed(2)}deg`);
+    card.style.setProperty('--ry', `${(x * SIC_TILT_DEG).toFixed(2)}deg`);
+    card.style.setProperty('--gx', `${((x + 0.5) * 100).toFixed(1)}%`);
+  });
+  card.addEventListener('pointerleave', () => {
+    card.style.setProperty('--rx', '0deg');
+    card.style.setProperty('--ry', '0deg');
+  });
+}
+
+/*
+ * Время вышло: номер на карточке сразу заменяется маской. Сервер реквизит
+ * уже не отдаст, а перевод на него после срока шлюз не сопоставит с ордером.
+ * «Я перевёл» остаётся: перевод, ушедший в последние секунды, ещё найдётся.
+ */
+function siciliaExpired(pay, cancel, target) {
   clearInterval(siciliaState.tick);
   if (pay.dataset.expired) return;
   pay.dataset.expired = '1';
-  pay.querySelector('.sic-req')?.remove();
-  pay.querySelectorAll('a.cash-cta, .sic-how').forEach((el) => el.remove());
-  const warn = pay.querySelector('.invoice-warn span');
-  if (warn) warn.textContent = 'Время на перевод вышло, реквизит больше не действует. Если вы успели перевести, нажмите «Я оплатил». Если нет - создайте новый перевод.';
+  const card = document.getElementById('sicCopyTarget');
+  if (card) {
+    card.disabled = true;
+    const num = document.getElementById('sicNum');
+    if (num && target) num.textContent = maskRequisite(target.text);
+  }
+  pay.querySelectorAll('#sicCopyBik, #sicOpenBank, .sic-steps').forEach((el) => el.remove());
+  const note = pay.querySelector('.sic-note span');
+  if (note) note.textContent = 'Время на перевод вышло, реквизит больше не действует. Если вы успели перевести, нажмите «Я перевёл». Если нет, создайте новый перевод.';
+  // Скорее всего игрок не успел: главным становится новый перевод, а
+  // «Я перевёл» уступает место, но остаётся.
   cancel.textContent = 'Новый перевод';
   cancel.dataset.expired = '1';
+  cancel.className = 'cash-cta sic-new';
+  const check = document.getElementById('siciliaCheck');
+  if (check) {
+    check.className = 'cash-ghost sic-paid';
+    check.innerHTML = `${cashIcon('check')}<span>Я перевёл</span>`;
+  }
+  pay.querySelector('.sic-actions')?.prepend(cancel);
 }
 
 /*
@@ -7080,12 +7150,21 @@ function showSiciliaDone(amount) {
   if (!box || box.hidden) return;
   // Поток событий обычно опережает ответ проверки и суммы не знает: итог
   // рисуется сразу, а сумма дописывается, когда её пришлёт проверка.
-  if (!box.querySelector('.sic-pay') && !(amount && box.querySelector('.sic-done'))) return;
+  const done = box.querySelector('.sic-done');
+  if (done) {
+    const sumEl = done.querySelector('.sic-done-sum');
+    if (amount && sumEl && !sumEl.textContent) sumEl.textContent = `+${money(amount)}`;
+    return;
+  }
+  if (!box.querySelector('.sic-pay')) return;
   box.innerHTML = `
     <div class="sic-done">
-      <span class="sic-done-mark">${cashIcon('check')}</span>
-      <div class="cash-wait-status">Платёж зачислен</div>
-      ${amount ? `<div class="sicilia-wait-sum">${money(amount)}</div>` : ''}
+      <svg class="sic-done-mark" viewBox="0 0 64 64" aria-hidden="true">
+        <circle class="sic-done-ring" cx="32" cy="32" r="28" pathLength="100"/>
+        <path class="sic-done-tick" d="M20 33.5 28.5 42 45 24" pathLength="100"/>
+      </svg>
+      <div class="sic-done-title">Деньги на балансе</div>
+      <div class="sic-done-sum">${amount ? `+${money(amount)}` : ''}</div>
       <button class="cash-ghost" id="siciliaMore">${cashIcon('plus')}Пополнить ещё</button>
     </div>`;
   document.getElementById('siciliaMore').addEventListener('click', () => openSiciliaDeposit({ resume: false }));
@@ -7136,13 +7215,15 @@ function showSiciliaCheckout(order, opened = true) {
 
 async function checkSicilia(order, byHand) {
   const status = document.getElementById('siciliaStatus');
-  if (byHand && status) status.textContent = 'Проверяем платёж…';
+  // Пульс у строки - знак, что ждём банк, а не что ничего не происходит.
+  const say = (text, wait) => { if (!status) return; status.textContent = text; status.classList.toggle('is-wait', !!wait); };
+  if (byHand) say('Проверяем платёж…', true);
   try {
     const r = await api('/api/sicilia/refresh', { id: order.id });
     if (r.credited || r.payment?.paidAt) {
       stopSiciliaTimers();
       if (r.user) applyUser(r.user);
-      if (status) status.textContent = 'Платёж зачислен.';
+      say('Платёж зачислен.');
       if (r.credited) { toast('Платёж зачислен'); sndCollect(); haptic('success'); }
       showSiciliaDone(r.payment?.credited);
       loadWallet();
@@ -7150,13 +7231,12 @@ async function checkSicilia(order, byHand) {
     }
     const closed = ['cancelled', 'error', 'unclaimed', 'expired'].includes(r.payment?.status);
     if (closed) stopSiciliaTimers();
-    if (status && (byHand || closed)) {
-      status.textContent = closed
-        ? 'Оплата не поступила и закрыта. Если вы перевели деньги, напишите в поддержку.'
-        : 'Перевод ещё не подтверждён. Обычно это занимает несколько минут.';
+    if (byHand || closed) {
+      if (closed) say('Оплата не поступила и закрыта. Если вы перевели деньги, напишите в поддержку.');
+      else say('Ждём подтверждение банка. Обычно это 2-4 минуты, страницу можно не обновлять.', true);
     }
   } catch (err) {
-    if (byHand && status) status.textContent = err.message;
+    if (byHand) say(err.message);
   }
 }
 

@@ -1176,6 +1176,10 @@ check('показ выигрыша убирает за собой', stuckAfter.l
   await page.click('#closeOpener');
   await page.waitForSelector('#histGrid .hist-card', { state: 'attached', timeout: 10000 });
   await page.waitForTimeout(700);
+  // Карточки въезжают анимацией histIn (сдвиг и масштаб): мерить ряды
+  // посреди неё - значит получить случайную раскладку.
+  await page.evaluate(() => Promise.all([...document.querySelectorAll('#histGrid .hist-card')]
+    .flatMap((c) => c.getAnimations()).map((a) => a.finished.catch(() => {}))));
   const hist = await page.evaluate(() => {
     const cards = [...document.querySelectorAll('#histGrid .hist-card')];
     const grid = document.getElementById('histGrid').getBoundingClientRect();

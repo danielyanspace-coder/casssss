@@ -5912,6 +5912,8 @@ div.mini-row { cursor: default; }
 /* Два сегмента вместо трёх: плашка шириной в половину. */
 #view-wallet .cash-seg.is-2 { grid-template-columns: repeat(2, 1fr); }
 #view-wallet .cash-seg.is-2::before { width: calc((100% - 6px) / 2); }
+#view-wallet .cash-seg.is-2 .cash-seg-btn { display: flex; align-items: center; justify-content: center; gap: 7px; }
+#view-wallet .cash-seg.is-2 .cash-ico { width: 16px; height: 16px; opacity: 0.8; }
 .cash-step small {
   margin-left: 6px;
   font-size: 11px; font-weight: 600; letter-spacing: 0; text-transform: none;
@@ -5920,89 +5922,275 @@ div.mini-row { cursor: default; }
 /* Пять банков в строку на любом телефоне: подписи короткие намеренно. */
 #view-wallet .sic-banks { grid-template-columns: repeat(5, 1fr); }
 
-#view-wallet .payment-checkout:has(.sic-pay) { padding: 18px 16px 16px; }
-.sic-pay { display: grid; gap: 12px; }
+#view-wallet .payment-checkout:has(.sic-pay),
+#view-wallet .payment-checkout:has(.sic-done) { padding: 18px 16px 14px; }
+.sic-pay { display: grid; gap: 16px; }
+.sic-pay > * { min-width: 0; }
 
 /* Сумма и таймер одной строкой: это два главных числа экрана. */
-.sic-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-.sic-head-main { min-width: 0; }
-#view-wallet .sic-sum {
-  display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px;
-  margin: 4px 0 0; padding: 0;
-  border: 0; background: none; cursor: pointer; text-align: left;
-  font: 800 30px/1.1 'Unbounded', 'Manrope', system-ui, sans-serif; letter-spacing: -0.02em;
-  color: #fff; font-variant-numeric: tabular-nums;
+.sic-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.sic-amount-row { display: flex; align-items: center; gap: 10px; margin-top: 5px; }
+.sic-amount-num {
+  font: 800 30px/1 'Unbounded', 'Manrope', system-ui, sans-serif; letter-spacing: -0.02em;
+  color: #fff; font-variant-numeric: tabular-nums; white-space: nowrap;
 }
-#view-wallet .sic-sum .cash-copy {
-  display: flex; align-items: center; gap: 6px;
-  padding: 6px 9px; border-radius: 10px;
-  background: rgba(255, 255, 255, 0.07);
-  font: 800 11.5px/1 'Manrope', system-ui, sans-serif; letter-spacing: 0; color: var(--text);
+#view-wallet .sic-icon-btn {
+  display: grid; place-items: center; flex: none;
+  width: 36px; height: 36px; padding: 0;
+  border: 1px solid var(--c-border-2); border-radius: 11px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text); cursor: pointer;
+  transition: border-color 0.2s, background 0.2s, transform 0.15s;
 }
+#view-wallet .sic-icon-btn:active { transform: scale(0.92); }
+#view-wallet .sic-icon-btn .cash-copy { display: grid; place-items: center; padding: 0; background: none; }
+#view-wallet .sic-icon-btn.is-copied { border-color: rgba(99, 191, 148, 0.55); background: rgba(99, 191, 148, 0.1); }
 
-.sic-timer { position: relative; width: 58px; height: 58px; flex: none; display: grid; place-items: center; }
-.sic-timer svg { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
-.sic-timer circle { fill: none; stroke-width: 3; }
-.sic-timer-bg { stroke: rgba(255, 255, 255, 0.08); }
-.sic-timer-fg {
+.sic-clock { position: relative; width: 64px; height: 64px; flex: none; display: grid; place-items: center; }
+.sic-clock svg { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
+.sic-clock circle { fill: none; stroke-width: 2.6; }
+.sic-clock-bg { stroke: rgba(255, 255, 255, 0.08); }
+.sic-clock-fg {
   stroke: var(--c-ok); stroke-linecap: round;
   stroke-dasharray: 100; stroke-dashoffset: 0;
   transition: stroke-dashoffset 1s linear, stroke 0.3s;
 }
-#sicTimerText {
-  position: relative;
-  font: 700 13px/1 'JetBrains Mono', ui-monospace, monospace; color: var(--text);
+.sic-clock-text { position: relative; line-height: 1; }
+.sic-clock-text b { font: 700 13.5px/1 'JetBrains Mono', ui-monospace, monospace; color: var(--text); font-variant-numeric: tabular-nums; }
+.sic-pay[data-hurry="1"] .sic-clock-fg { stroke: var(--c-wait); }
+.sic-pay[data-hurry="1"] .sic-clock-text b { color: var(--c-wait); animation: sicBlink 1s ease-in-out infinite; }
+.sic-pay[data-expired] .sic-clock { opacity: 0.4; }
+.sic-pay[data-expired] .sic-clock-text b { animation: none; }
+@keyframes sicBlink { 50% { opacity: 0.45; } }
+
+/*
+ * Реквизит на карточке размером с банковскую (1.586:1). Номер - то, ради
+ * чего экран открыт, поэтому он самый крупный шрифт карточки и стоит там,
+ * где на настоящей карте выбит номер. Цвета свои, проекта: карточка
+ * показывает, куда переводить, а не выдаёт себя за карту банка.
+ */
+.sic-card-stage { display: flex; justify-content: center; perspective: 900px; }
+#view-wallet .sic-card {
+  --rx: 0deg; --ry: 0deg; --gx: 30%;
+  --card-a: #5d2b80; --card-b: #82214f; --card-c: #1c1029;
+  /* Пропорция карты - нижняя граница, а не клетка: обрезку несёт слой
+     блика (.sic-card-fx), и длинное имя на узком телефоне растит карточку,
+     а не уходит под край. */
+  position: relative; isolation: isolate;
+  display: flex; flex-direction: column;
+  width: 100%; max-width: 380px; aspect-ratio: 1.586;
+  padding: 16px 18px 15px;
+  border: 0; border-radius: 20px;
+  text-align: left; color: #fff; cursor: pointer;
+  background:
+    radial-gradient(120% 140% at 0% 0%, var(--card-a) 0%, transparent 58%),
+    radial-gradient(110% 130% at 100% 100%, var(--card-b) 0%, transparent 62%),
+    linear-gradient(135deg, #2b1742, var(--card-c) 62%, #261230);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.08),
+    0 26px 50px -22px rgba(0, 0, 0, 0.9),
+    0 12px 34px -16px rgba(224, 81, 140, 0.45);
+  transform: rotateX(var(--rx)) rotateY(var(--ry));
+  transition: transform 0.25s var(--ease-out), box-shadow 0.3s, filter 0.4s;
+  animation: sicCardIn 0.8s var(--ease-out) both;
+}
+#view-wallet .sic-card[data-kind="sbp"] { --card-a: #2a5f78; --card-b: #5b2b86; --card-c: #141a2c; }
+#view-wallet .sic-card[data-kind="account"] { --card-a: #6b5422; --card-b: #3d2a6e; --card-c: #18142a; }
+#view-wallet .sic-card:active { transform: rotateX(var(--rx)) rotateY(var(--ry)) scale(0.985); }
+#view-wallet .sic-card.is-copied {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    inset 0 0 0 1.5px rgba(99, 191, 148, 0.75),
+    0 26px 50px -22px rgba(0, 0, 0, 0.9),
+    0 12px 34px -16px rgba(99, 191, 148, 0.5);
+}
+@keyframes sicCardIn {
+  from { opacity: 0; transform: translateY(26px) rotateX(24deg) scale(0.94); }
+  to { opacity: 1; transform: none; }
+}
+
+.sic-card-fx { position: absolute; inset: 0; z-index: -1; overflow: hidden; border-radius: inherit; pointer-events: none; }
+/* Гильош: тонкие кольца, как на защитной сетке карты. Без края и без картинки. */
+.sic-card-glow {
+  position: absolute; inset: 0; pointer-events: none;
+  background:
+    repeating-radial-gradient(circle at 112% 118%, rgba(255, 255, 255, 0.055) 0 1px, transparent 1px 13px),
+    radial-gradient(60% 70% at var(--gx) 0%, rgba(255, 255, 255, 0.1), transparent 70%);
+}
+/* Блик проходит по карточке один раз, когда она легла: взгляд идёт к номеру. */
+.sic-card-sheen {
+  position: absolute; inset: -30% -60%; pointer-events: none;
+  background: linear-gradient(105deg, transparent 42%, rgba(255, 255, 255, 0.2) 50%, transparent 58%);
+  transform: translateX(-70%);
+  animation: sicSheen 1.5s 0.55s var(--ease-out) both;
+}
+@keyframes sicSheen { to { transform: translateX(70%); } }
+
+.sic-card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.sic-card-bank {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font: 800 15px/1.1 'Manrope', system-ui, sans-serif; letter-spacing: 0.01em;
+}
+.sic-card-tag {
+  flex: none; margin-left: auto; padding: 5px 9px; border-radius: 99px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  font: 800 10px/1 'Manrope', system-ui, sans-serif; letter-spacing: 0.12em; text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.85);
+}
+.sic-card-mid { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+.sic-chip { width: 38px; height: 28px; }
+.sic-chip rect { fill: #d6b35e; stroke: rgba(80, 52, 8, 0.5); }
+.sic-chip path { fill: none; stroke: rgba(80, 52, 8, 0.55); stroke-width: 1; }
+.sic-waves { width: 22px; height: 22px; fill: none; stroke: rgba(255, 255, 255, 0.65); stroke-width: 1.8; stroke-linecap: round; }
+
+.sic-card-label {
+  margin-top: auto;
+  font-size: 10px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.55);
+}
+.sic-card-num {
+  margin-top: 5px;
+  font: 600 clamp(17px, 5.6vw, 23px)/1.15 'JetBrains Mono', ui-monospace, monospace;
+  letter-spacing: 0.04em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   font-variant-numeric: tabular-nums;
+  /* Выбитые цифры: свет сверху, тень снизу. */
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.55), 0 -1px 0 rgba(255, 255, 255, 0.14);
 }
-.sic-pay[data-hurry="1"] .sic-timer-fg { stroke: var(--c-wait); }
-.sic-pay[data-hurry="1"] #sicTimerText { color: var(--c-wait); }
-.sic-pay[data-expired] .sic-timer { opacity: 0.45; }
+.sic-card-holder {
+  margin-top: 9px;
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font: 700 12.5px/1.2 'Manrope', system-ui, sans-serif; letter-spacing: 0.06em; text-transform: uppercase;
+}
+.sic-card-holder small {
+  display: block; margin-bottom: 3px;
+  font-size: 9px; letter-spacing: 0.12em; color: rgba(255, 255, 255, 0.5);
+}
+#view-wallet .sic-card .cash-copy {
+  display: flex; align-items: center; gap: 6px; flex: none;
+  padding: 7px 10px; border-radius: 10px;
+  background: rgba(255, 255, 255, 0.14);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  font: 800 12px/1 'Manrope', system-ui, sans-serif; color: #fff; white-space: nowrap;
+  transition: background 0.2s, color 0.2s;
+}
+#view-wallet .sic-card .cash-copy .cash-ico { width: 15px; height: 15px; }
+#view-wallet .sic-card.is-copied .cash-copy { background: rgba(99, 191, 148, 0.22); color: #bff0d6; }
 
-.sic-req {
-  padding: 14px 12px 4px; border-radius: 16px;
-  background: rgba(255, 255, 255, 0.03); border: 1px solid var(--c-border);
+/* Срок вышел: номер уже заменён маской, карточка гаснет, сверху печать. */
+.sic-card-stamp {
+  position: absolute; left: 50%; top: 50%;
+  padding: 7px 14px; border: 2px solid rgba(255, 128, 140, 0.85); border-radius: 10px;
+  font: 800 14px/1 'Unbounded', 'Manrope', system-ui, sans-serif; letter-spacing: 0.06em; text-transform: uppercase;
+  color: rgba(255, 150, 160, 0.95);
+  transform: translate(-50%, -50%) rotate(-9deg) scale(1.6);
+  opacity: 0; pointer-events: none;
 }
-/* Номер крупно и моноширинно: его сверяют глазами по цифре. */
-#view-wallet .invoice-address.sic-target .invoice-addr {
-  font: 600 17px/1.35 'JetBrains Mono', ui-monospace, monospace; letter-spacing: 0.02em;
-  word-break: normal; overflow-wrap: anywhere;
+/* Гасится всё, кроме печати: фильтр на самой карточке обесцветил бы и её. */
+#view-wallet .sic-card:disabled { cursor: default; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06); }
+#view-wallet .sic-card:disabled::after {
+  content: ''; position: absolute; inset: 0; z-index: 0; border-radius: inherit;
+  background: rgba(14, 9, 20, 0.62); pointer-events: none;
 }
-#view-wallet .invoice-address.sic-target.is-small .invoice-addr { font-size: 14px; }
-/* Номер не рвётся посреди: подпись «Скопировать» уступает ему место, и
-   на плашке остаётся значок. Подтверждение копирования - тот же значок-галка. */
-#view-wallet .invoice-address.sic-target .invoice-addr { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-#view-wallet .invoice-address.sic-target .cash-copy { padding: 9px; }
-#view-wallet .invoice-address.sic-target .cash-copy-label { display: none; }
-/* Без этого строка с запретом переноса раздувает колонку сетки за край. */
-.sic-pay > *, .sic-req { min-width: 0; }
-.sic-facts { display: grid; gap: 0; margin: 2px 0 0; }
-.sic-facts > div {
-  display: flex; justify-content: space-between; gap: 12px;
-  padding: 9px 2px; border-top: 1px solid var(--c-border);
-  font-size: 13px;
-}
-.sic-facts > div:first-child { border-top: 0; }
-.sic-facts dt { color: var(--c-text-3); font-weight: 600; }
-.sic-facts dd { margin: 0; color: var(--text); font-weight: 800; text-align: right; }
+#view-wallet .sic-card:disabled > :not(.sic-card-stamp):not(.sic-card-fx) { filter: grayscale(0.9); }
+#view-wallet .sic-card:disabled .cash-copy { visibility: hidden; }
+.sic-card-stamp { z-index: 1; }
+.sic-card:disabled .sic-card-stamp { animation: sicStamp 0.45s var(--ease-spring) forwards; }
+@keyframes sicStamp { to { opacity: 1; transform: translate(-50%, -50%) rotate(-9deg) scale(1); } }
 
-.sic-how { margin: 0 2px; font-size: 13px; line-height: 1.55; color: var(--c-text-2); }
-.sic-how b { color: var(--text); }
-#view-wallet .sic-pay .cash-row2 { margin-top: 0; }
-
-.sic-done { display: grid; justify-items: center; gap: 8px; padding: 10px 0 4px; text-align: center; }
-.sic-done-mark {
-  display: grid; place-items: center; width: 54px; height: 54px; border-radius: 50%;
-  background: rgba(99, 191, 148, 0.12); color: var(--c-ok);
-  animation: cashPop 0.4s var(--ease-spring);
+#view-wallet .sic-line {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  width: 100%; padding: 11px 12px 11px 14px;
+  border: 1px solid var(--c-border-2); border-radius: 14px;
+  background: rgba(0, 0, 0, 0.3); color: var(--text); text-align: left; cursor: pointer;
+  font: 600 15px/1.2 'JetBrains Mono', ui-monospace, monospace;
 }
-#view-wallet .sic-done-mark .cash-ico { width: 28px; height: 28px; }
-#view-wallet .sic-done .cash-wait-status { color: var(--c-ok); }
-#view-wallet .sic-done .sicilia-wait-sum { margin: 2px 0 8px; }
-#view-wallet .sic-done .cash-ghost { width: 100%; }
+.sic-line small { display: block; margin-bottom: 4px; font: 700 11px/1 'Manrope', system-ui, sans-serif; color: var(--c-text-3); }
+#view-wallet .sic-line .cash-copy {
+  display: flex; align-items: center; gap: 6px; padding: 7px 10px; border-radius: 10px;
+  background: rgba(255, 255, 255, 0.07); font: 800 12px/1 'Manrope', system-ui, sans-serif;
+}
+#view-wallet .sic-line.is-copied { border-color: rgba(99, 191, 148, 0.55); }
+.sic-abroad { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--c-text-2); }
+#view-wallet .sic-abroad .cash-ico { width: 16px; height: 16px; color: var(--c-review); }
+
+/* Три шага вместо абзаца: читаются за секунду и по порядку действий. */
+.sic-steps { list-style: none; display: grid; gap: 10px; margin: 0; padding: 0 2px; }
+.sic-steps li {
+  display: flex; align-items: flex-start; gap: 12px;
+  font-size: 13px; line-height: 1.45; color: var(--c-text-2);
+  animation: sicStep 0.5s var(--ease-out) both;
+}
+.sic-steps li:nth-child(1) { animation-delay: 0.35s; }
+.sic-steps li:nth-child(2) { animation-delay: 0.45s; }
+.sic-steps li:nth-child(3) { animation-delay: 0.55s; }
+.sic-steps i {
+  flex: none; display: grid; place-items: center;
+  width: 22px; height: 22px; margin-top: -1px; border-radius: 50%;
+  font: 800 11px/1 'Manrope', system-ui, sans-serif; font-style: normal; color: #fff;
+  background: var(--c-accent-soft); border: 1px solid rgba(224, 81, 140, 0.42);
+}
+.sic-steps b { color: var(--text); }
+@keyframes sicStep { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+.sic-actions { display: grid; gap: 8px; }
+#view-wallet .sic-actions .cash-cta { margin: 0; }
+#view-wallet .sic-actions .cash-ghost { width: 100%; height: 50px; }
+#view-wallet .sic-actions .cash-ghost .cash-ico { color: var(--c-ok); }
+
+#view-wallet .sic-pay .invoice-status { margin: -6px 0 0; }
+#view-wallet .invoice-status.is-wait::before {
+  content: ''; display: inline-block; width: 7px; height: 7px; margin-right: 8px; vertical-align: 1px;
+  border-radius: 50%; background: var(--c-wait);
+  animation: sicBlink 1.2s ease-in-out infinite;
+}
+
+.sic-note { display: flex; gap: 9px; margin: 0; padding: 0 4px; font-size: 12px; line-height: 1.5; color: var(--c-text-3); }
+#view-wallet .sic-note .cash-ico { width: 15px; height: 15px; margin-top: 1px; color: var(--c-wait); opacity: 0.85; }
+
+/* Отмена - тихая ссылка: рядом с главной кнопкой её нажимали бы по ошибке. */
+#view-wallet .sic-cancel {
+  justify-self: center; margin-top: -4px; padding: 8px 12px;
+  border: 0; background: none; cursor: pointer;
+  font: 700 12.5px/1.3 'Manrope', system-ui, sans-serif; color: var(--c-text-3);
+  text-decoration: underline; text-decoration-color: rgba(241, 235, 247, 0.22); text-underline-offset: 4px;
+  transition: color 0.2s;
+}
+#view-wallet .sic-cancel.is-armed { color: #ff8b99; text-decoration-color: rgba(255, 139, 153, 0.4); }
+#view-wallet .sic-pay[data-expired] .sic-cancel { color: var(--text); }
+
+/* Деньги пришли: кольцо и галка рисуются линией, сумма всплывает. */
+.sic-done { display: grid; justify-items: center; gap: 4px; padding: 10px 0 2px; text-align: center; }
+.sic-done-mark { width: 78px; height: 78px; margin-bottom: 6px; }
+.sic-done-ring {
+  fill: rgba(99, 191, 148, 0.1); stroke: var(--c-ok); stroke-width: 2.6;
+  stroke-dasharray: 100; stroke-dashoffset: 100;
+  transform: rotate(-90deg); transform-origin: 32px 32px;
+  animation: sicDraw 0.65s var(--ease-out) forwards;
+}
+.sic-done-tick {
+  fill: none; stroke: var(--c-ok); stroke-width: 4; stroke-linecap: round; stroke-linejoin: round;
+  stroke-dasharray: 100; stroke-dashoffset: 100;
+  animation: sicDraw 0.4s 0.5s var(--ease-out) forwards;
+}
+@keyframes sicDraw { to { stroke-dashoffset: 0; } }
+.sic-done-title { font: 800 15px/1.2 'Manrope', system-ui, sans-serif; color: var(--c-text-2); }
+.sic-done-sum {
+  min-height: 34px;
+  font: 800 30px/1.1 'Unbounded', 'Manrope', system-ui, sans-serif; letter-spacing: -0.02em;
+  color: #fff; font-variant-numeric: tabular-nums;
+  animation: sicStep 0.5s 0.7s var(--ease-out) both;
+}
+#view-wallet .sic-done .cash-ghost { width: 100%; margin-top: 12px; }
 
 @media (prefers-reduced-motion: reduce) {
-  .sic-timer-fg { transition: none; }
+  #view-wallet .sic-card, .sic-card-sheen, .sic-steps li, .sic-done-sum { animation: none; }
+  .sic-card-sheen { display: none; }
+  .sic-clock-fg { transition: none; }
+  .sic-done-ring, .sic-done-tick { animation: none; stroke-dashoffset: 0; }
+  .sic-card:disabled .sic-card-stamp { animation: none; opacity: 1; transform: translate(-50%, -50%) rotate(-9deg); }
 }
+
 
 /* ---------- Счёт криптовалютой ---------- */
 
