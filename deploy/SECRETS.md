@@ -30,7 +30,8 @@
 | `MAIL_FROM` | Отправитель писем | Адрес на подтверждённом в Resend домене | Пока `onboarding@resend.dev` |
 | `DATABETRIX_AGENT_NAME`, `DATABETRIX_AGENT_TOKEN` | Казино: запуск игр | Кабинет агрегатора, профиль агента | Нужно взять в кабинете |
 | `SICILIA_MERCHANT`, `SICILIA_LOGIN`, `SICILIA_API_KEY` | СБП и карта | merchant.sicilia.ink -> API | Нужно взять в кабинете |
-| `SICILIA_PAY_URL` | Адрес платёжного окна | Поддержка Sicilia | Не прислан |
+| `SICILIA_PAY_URL` | Адрес платёжного окна | Поддержка Sicilia | `https://payment.sicilia.ink`, уже в `.env.example`; окно под мерчант партнёр ещё настраивает |
+| `SICILIA_CALLBACK_IPS` | Адрес шлюза для колбэков | Поддержка Sicilia | `91.206.228.46`, уже в `.env.example` |
 | `HELEKET_MERCHANT`, `HELEKET_API_KEY` | Криптокасса | Кабинет Heleket | По желанию |
 | `OPS_BOT_TOKEN` | Служебный бот: оповещения о сбоях и вход в панель | @BotFather, бот **@luckyspec_bot** | Токен выдан и проверен, хранится у владельца |
 | `OPS_OWNER_CHAT_ID` | Telegram главного админа для подтверждения входа | Уже стоит в `.env.example`: **8602356502** | Готово |

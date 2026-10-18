@@ -2191,7 +2191,12 @@ app.post('/api/sicilia/refresh', auth, limits.cashier, async (req, res) => {
  * отвечаем 503, и шлюз повторит; деньги не теряются и сверкой по расписанию.
  */
 app.post('/api/webhooks/sicilia', limits.webhook, async (req, res) => {
-  if (!sicilia.callbackIpAllowed(req.ip)) return res.status(403).json({ error: 'Чужой адрес' });
+  if (!sicilia.callbackIpAllowed(req.ip)) {
+    // Адрес в журнал: если шлюз сменит адрес отправки, его видно отсюда и
+    // дописывают в SICILIA_CALLBACK_IPS. Деньги до тех пор зачисляет сверка.
+    console.error('[sicilia] колбэк: чужой адрес', req.ip);
+    return res.status(403).json({ error: 'Чужой адрес' });
+  }
   if (!sicilia.verifyCallback(req.body)) return res.status(401).json({ error: 'Подпись не совпала' });
   try {
     const result = await sicilia.handleCallback(req.body);
