@@ -46,7 +46,7 @@ const API_KEY = process.env.HELEKET_API_KEY || '';
 const WEBAPP_URL = (process.env.SITE_URL || process.env.WEBAPP_URL || '').replace(/\/+$/, '');
 
 /** Нижняя и верхняя границы пополнения криптой, рублей. */
-export const CRYPTO_MIN = Number(process.env.CRYPTO_MIN || 500);
+export const CRYPTO_MIN = Number(process.env.CRYPTO_MIN || 100);
 export const CRYPTO_MAX = Number(process.env.CRYPTO_MAX || 500_000);
 
 /** Сколько живёт выставленный счёт. Меньше часа мало: перевод в сети идёт долго. */

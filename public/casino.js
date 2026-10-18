@@ -244,11 +244,9 @@ export function createCasino(deps) {
       </div>`;
       return;
     }
-    // Отдача - та же настройка, что в окне запуска и в «Честности».
-    const note = ui.kind === 'live'
-      ? 'Отдача live-столов - по правилам провайдера.'
-      : `Отдача игр <b>${esc(String(ui.lobby.rtp))}%</b>. Подробности в разделе «Честность игры».`;
-    body.innerHTML = blocks.map(blockHtml).join('') + `<p class="cz-note">${note}</p>`;
+    // Отдачи на экране игр нет (решение заказчика): она объявлена одна на
+    // всё казино в разделе «Честность игры», и повторять её здесь незачем.
+    body.innerHTML = blocks.map(blockHtml).join('');
   }
 
   function skeletonHome() {
@@ -538,7 +536,6 @@ export function createCasino(deps) {
     $('czSheetArt').classList.toggle('is-cover', !g.wide);
     $('czSheetName').textContent = g.name;
     $('czSheetProv').textContent = g.provider;
-    $('czSheetRtp').textContent = g.rtp ? `${g.rtp}%` : 'по правилам провайдера';
     const demo = $('czDemo');
     demo.hidden = !g.demo;
     demo.onclick = () => launch(g, true);

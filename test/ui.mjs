@@ -1857,7 +1857,7 @@ check('честность: личная статистика убрана', fair
       jackpot: document.querySelector('#czHero .hero-img')?.alt || '',
       pair: !!document.querySelector('#czPromoFortune') && !!document.querySelector('#czPromoCases'),
       provBlocks: document.querySelectorAll('#czBody .cz-block[data-block^="provider:"]').length,
-      note: document.querySelector('.cz-note')?.textContent || '',
+      rtpShown: /Отдача|RTP/i.test(document.getElementById('czBody').textContent),
     };
   });
   check('казино: меню Слоты / Live казино / Быстрые игры', lobby.seg.join('|') === 'Слоты|Live казино|Быстрые игры',
@@ -1874,7 +1874,7 @@ check('честность: личная статистика убрана', fair
   check('казино: сортировки «А-Я» нет', !lobby.az);
   check('казино: баннеры главной в лобби', lobby.banners && lobby.slides === 4 && /джекпоты/i.test(lobby.jackpot) && lobby.pair,
         `${lobby.slides} слайдов, первый ${lobby.jackpot}`);
-  check('казино: отдача под лобби из настройки', /70%/.test(lobby.note), lobby.note);
+  check('казино: отдачи на экране игр нет (она в «Честности»)', !lobby.rtpShown);
 
   // Лента блока листается и не раздвигает страницу.
   const overflowX = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
@@ -1957,11 +1957,11 @@ check('честность: личная статистика убрана', fair
   await page.waitForTimeout(500);
   const sheet = await page.evaluate(() => ({
     open: !document.getElementById('czSheet').hidden,
-    rtp: document.getElementById('czSheetRtp').textContent,
+    rtp: /Отдача|RTP|\d%/.test(document.getElementById('czSheet').textContent),
     name: document.getElementById('czSheetName').textContent,
   }));
   check('казино: плитка открывает окно запуска', sheet.open && sheet.name.length > 0, JSON.stringify(sheet));
-  check('казино: в окне запуска отдача игры', sheet.rtp === '70%', sheet.rtp);
+  check('казино: в окне запуска отдачи нет', !sheet.rtp);
 
   expectRefusal = true;
   await page.click('#czPlay');

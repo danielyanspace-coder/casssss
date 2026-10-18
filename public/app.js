@@ -6536,7 +6536,7 @@ document.getElementById('walletDeposit').addEventListener('click', () => { setCa
  * что-то поменялось в кабинете.
  */
 const cryptoState = {
-  loaded: false, enabled: false, coins: [], rates: {}, min: 500, max: 500000,
+  loaded: false, enabled: false, coins: [], rates: {}, min: 100, max: 500000,
   deposit: { currency: null, network: null },
   withdraw: { currency: null, network: null },
 };
@@ -6582,7 +6582,7 @@ async function loadCryptoOptions() {
       enabled: !!data.enabled,
       coins: data.coins || [],
       rates: data.rates || {},
-      min: data.min ?? 500,
+      min: data.min ?? 100,
       max: data.max ?? 500000,
     });
   } catch {
@@ -6860,18 +6860,18 @@ async function openDefaultDeposit() {
  * Оплата в окне шлюза, открытом отдельно (решение заказчика). Ссылку
  * подписывает сервер; здесь только сумма, открытие окна и ожидание.
  */
-const siciliaState = { loaded: false, enabled: false, min: 500, max: 300000, poll: 0, current: null };
+const siciliaState = { loaded: false, enabled: false, min: 100, max: 300000, poll: 0, current: null };
 // Пока карточка ожидания на экране, раз в столько спрашиваем, не пришли ли
 // деньги. Колбэк шлюза приходит на сервер раньше, и поток событий сообщит
 // сам; опрос - запас на случай, когда поток оборвался.
 const SICILIA_POLL_MS = 15000;
-const SICILIA_QUICK = [500, 1000, 3000, 5000, 10000];
+const SICILIA_QUICK = [100, 500, 1000, 5000, 10000];
 
 async function loadSiciliaOptions() {
   if (siciliaState.loaded) return siciliaState;
   try {
     const d = await api('/api/sicilia/options');
-    Object.assign(siciliaState, { loaded: true, enabled: !!d.enabled, min: d.min ?? 500, max: d.max ?? 300000 });
+    Object.assign(siciliaState, { loaded: true, enabled: !!d.enabled, min: d.min ?? 100, max: d.max ?? 300000 });
   } catch {
     siciliaState.loaded = true;
   }
