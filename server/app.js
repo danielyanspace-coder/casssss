@@ -40,9 +40,10 @@ import { timingSafeEqual } from 'node:crypto';
 import {
   casinoWallet, CASINO_STATUS, userBalanceRub, casinoPlayerId, casinoExcluded,
   casinoGames, casinoGame, casinoProviders, casinoHistory, casinoSummary, kopToRub, casinoHome,
-  setCoverState,
+  setCoverState, casinoRtp, CASINO_RTP_MIN, CASINO_RTP_MAX,
 } from './casino-db.js';
 import { CASINO_TABS, categoryById } from './casino-categories.js';
+import { checkPayout, payoutCheck, overridePayoutCheck, payoutCleared } from './payout-check.js';
 import {
   casinoEnv, casinoConfigured, startCatalogSync, syncCatalog, syncStatus, launchGame, coverFile,
 } from './casino.js';
@@ -89,7 +90,8 @@ import {
   getDeposits,
   getPayouts,
   pendingPayoutTotal,
-  createPayout, withdrawable,
+  createPayout, withdrawable, spendable, refuseBonus, bonusRules, bonusAllowance, getBonusEvents,
+  recordAccess,
   cancelPayout,
   resolvePayout,
   startPayout,
@@ -131,7 +133,7 @@ import { validateSkins } from './card-skins.js';
 import {
   resolveUser, startSession, endSession, currentSessionHash, isSameOrigin,
   normalizeEmail, checkPassword, normalizeNick, hashPassword, verifyPassword,
-  burnPasswordCheck, verifyTelegramLogin, newResetToken, resetTokenHash, RESET_TTL_MS,
+  burnPasswordCheck, verifyTelegramLogin, newResetToken, resetTokenHash, RESET_TTL_MS, deviceId,
 } from './auth.js';
 import { isMailConfigured, sendMail } from './mailer.js';
 import {
@@ -225,6 +227,13 @@ function auth(req, res, next) {
   req.sessionHash = result.viaSession ? currentSessionHash(req) : '';
   req.staff = staffRow(req.player.id);
   req.perms = permissionsFor(req.staff);
+
+  // Адрес и метка браузера: по ним проверка заявки на вывод ищет связанные
+  // аккаунты. Запись редкая (раз в 10 минут на сочетание), в учёт не мешает.
+  try {
+    recordAccess(req.player.id, String(req.ip || '').replace(/^::ffff:/, ''),
+                 deviceId(req, res), req.get('user-agent'));
+  } catch { /* учёт заходов не должен ронять запрос */ }
 
   if (req.player.is_blocked) {
     return res.status(403).json({ error: 'Аккаунт заблокирован' });
@@ -346,8 +355,16 @@ function publicUser(user) {
     gambleStake: user.gamble_stake,
     gambleCase: user.gamble_case,
     vouchers: getVouchers(user.id),
-    // Долг по обороту закрывает вывод, поэтому игрок должен его видеть.
-    wagerRequired: user.wager_required || 0,
+    /*
+     * Бонусный счёт отдельно от своих денег. balance - свои (их показывает
+     * шапка, ими играет казино, их выводят), bonusBalance - подарки, которыми
+     * играют в наших играх, когда своих не хватает на ставку.
+     */
+    bonusBalance: user.bonus_balance || 0,
+    // Сколько ещё поставить бонусными деньгами, чтобы бонус перешёл в деньги.
+    wagerRequired: (user.bonus_balance || 0) > 0 ? (user.wager_required || 0) : 0,
+    // Сколько бонусов ещё может перейти в деньги: доля от пополнений.
+    bonusCashoutLeft: bonusAllowance(user),
     // По нему клиент решает, показывать ли предложение первого пополнения.
     depositsCount: user.deposits_count || 0,
     // Медаль «Десятикратный»: сколько платных открытий сделано, сколько надо,
@@ -745,7 +762,7 @@ app.post('/api/open', auth, limits.play, gameGate('cases'), (req, res) => {
   const payable = Math.max(0, count - vouchers);
   const need = payable * caseData.price;
 
-  if (user.balance < need) return sendInsufficient(res, need - user.balance);
+  if (spendable(user) < need) return sendInsufficient(res, need - spendable(user));
 
   let results;
   try {
@@ -758,7 +775,7 @@ app.post('/api/open', auth, limits.play, gameGate('cases'), (req, res) => {
       return { item: pickItem(caseData, roll), roll };
     });
   } catch (err) {
-    if (err.code === 'INSUFFICIENT_FUNDS') return sendInsufficient(res, need - user.balance);
+    if (err.code === 'INSUFFICIENT_FUNDS') return sendInsufficient(res, need - spendable(user));
     throw err;
   }
 
@@ -840,7 +857,7 @@ app.post('/api/freespins/buy', auth, limits.play, gameGate('cases'), (req, res) 
   if (!cost) return res.status(400).json({ error: 'Такой пачки нет' });
 
   const user = req.player;
-  if (user.balance < cost) return sendInsufficient(res, cost - user.balance);
+  if (spendable(user) < cost) return sendInsufficient(res, cost - spendable(user));
 
   let result;
   try {
@@ -850,7 +867,7 @@ app.post('/api/freespins/buy', auth, limits.play, gameGate('cases'), (req, res) 
         return { item: pickItem(caseData, roll), roll };
       });
   } catch (err) {
-    if (err.code === 'INSUFFICIENT_FUNDS') return sendInsufficient(res, cost - user.balance);
+    if (err.code === 'INSUFFICIENT_FUNDS') return sendInsufficient(res, cost - spendable(user));
     throw err;
   }
 
@@ -892,7 +909,7 @@ app.post('/api/roulette', auth, limits.play, gameGate('roulette'), (req, res) =>
   }
 
   const user = req.player;
-  if (user.balance < bet) return sendInsufficient(res, bet - user.balance);
+  if (spendable(user) < bet) return sendInsufficient(res, bet - spendable(user));
 
   let result;
   try {
@@ -915,10 +932,12 @@ app.post('/api/roulette', auth, limits.play, gameGate('roulette'), (req, res) =>
         slot,
         landed,
         won,
+        // Ставка на цвет: по ней проверка заявки на вывод пересчитывает исход.
+        meta: { color },
       };
     });
   } catch (err) {
-    if (err.code === 'INSUFFICIENT_FUNDS') return sendInsufficient(res, bet - user.balance);
+    if (err.code === 'INSUFFICIENT_FUNDS') return sendInsufficient(res, bet - spendable(user));
     throw err;
   }
 
@@ -947,7 +966,7 @@ app.post('/api/crash/start', auth, limits.play, gameGate('crash'), (req, res) =>
   if (!bet) return res.status(400).json({ error: 'Некорректная ставка' });
 
   const user = req.player;
-  if (user.balance < bet) return sendInsufficient(res, bet - user.balance);
+  if (spendable(user) < bet) return sendInsufficient(res, bet - spendable(user));
 
   let round;
   try {
@@ -956,7 +975,7 @@ app.post('/api/crash/start', auth, limits.play, gameGate('crash'), (req, res) =>
       return { crashPoint: crashPointFromRoll(roll), roll };
     });
   } catch (err) {
-    if (err.code === 'INSUFFICIENT_FUNDS') return sendInsufficient(res, bet - user.balance);
+    if (err.code === 'INSUFFICIENT_FUNDS') return sendInsufficient(res, bet - spendable(user));
     throw err;
   }
 
@@ -1090,7 +1109,9 @@ app.post('/api/promo/state', auth, (req, res) => {
   res.json({
     pendingDeposit: pendingDepositBonus(req.player.id),
     history: myPromoRedemptions(req.player.id),
-    wagerRequired: req.player.wager_required || 0,
+    // Отыгрыш имеет смысл, только пока на бонусном счёте что-то есть.
+    wagerRequired: (req.player.bonus_balance || 0) > 0 ? (req.player.wager_required || 0) : 0,
+    bonusBalance: req.player.bonus_balance || 0,
   });
 });
 
@@ -1207,7 +1228,28 @@ app.post('/api/wallet', auth, limits.read, (req, res) => {
     minPayout: minPayoutNow(),
     deposits: getDeposits(req.player.id),
     payouts: getPayouts(req.player.id),
+    bonus: {
+      balance: req.player.bonus_balance || 0,
+      wagerLeft: (req.player.bonus_balance || 0) > 0 ? (req.player.wager_required || 0) : 0,
+      cashoutLeft: bonusAllowance(req.player),
+      rules: bonusRules(),
+      events: getBonusEvents(req.player.id),
+    },
   });
+});
+
+/*
+ * Отказ от бонуса: бонусный счёт и его отыгрыш обнуляются. Нужен тому, кого
+ * недоигранный подарок только путает. Свои деньги не трогаются.
+ */
+app.post('/api/bonus/refuse', auth, limits.cashier, (req, res) => {
+  try {
+    const result = refuseBonus(req.player.id);
+    res.json({ ...result, user: publicUser(getUserById(req.player.id)) });
+  } catch (err) {
+    if (err.code === 'BONUS_BUSY') return res.status(400).json({ error: err.message });
+    throw err;
+  }
 });
 
 app.post('/api/payout/create', auth, limits.cashier, (req, res) => {
@@ -1237,11 +1279,15 @@ app.post('/api/payout/create', auth, limits.cashier, (req, res) => {
       cryptoRate: req.body?.cryptoRate,
     });
     trackEvent(req.player.id, 'payout_created', { amount, method: req.body?.method });
+    // Проверка заявки сразу, пока игрок ждёт ответа: к моменту, когда
+    // сотрудник откроет панель, плашка уже стоит. Сбой проверки не должен
+    // отменять заявку - тогда её проверят по кнопке.
+    try { checkPayout(result.id); } catch (e) { console.error('Проверка заявки:', e); }
     res.json({ ...result, user: publicUser(getUserById(req.player.id)) });
   } catch (err) {
     // Ожидаемые отказы: игроку показывается сообщение, а не «что-то пошло не
-    // так». WAGER - невыполненный отыгрыш бонуса, остальные - проверки
-    // реквизитов платёжного модуля.
+    // так». WAGER_PROGRESS - не отыграно пополнение, остальные - проверки
+    // реквизитов платёжного модуля. Бонус вывод больше не запирает.
     if ([
       'MIN', 'INSUFFICIENT_FUNDS', 'WAGER', 'WAGER_PROGRESS',
       'BAD_PHONE', 'BAD_BANK', 'BAD_CARD', 'BAD_METHOD', 'PAYOUT_KEY_MISSING',
@@ -1315,7 +1361,7 @@ app.post('/api/upgrade', auth, limits.play, gameGate('upgrade'), (req, res) => {
   if (!UPGRADE_CONFIG.multipliers.includes(multiplier)) {
     return res.status(400).json({ error: 'Недоступный множитель' });
   }
-  if (req.player.balance < stake) return sendInsufficient(res, stake);
+  if (spendable(req.player) < stake) return sendInsufficient(res, stake - spendable(req.player));
 
   const target = upgradeTarget(stake, multiplier);
   const chance = upgradeChance(stake, target);
@@ -1331,6 +1377,7 @@ app.post('/api/upgrade', auth, limits.play, gameGate('upgrade'), (req, res) => {
       tier: won ? 'legendary' : 'common',
       roll,
       won,
+      meta: { multiplier, target },
     };
   });
 
@@ -1371,18 +1418,8 @@ app.post('/api/upgrade', auth, limits.play, gameGate('upgrade'), (req, res) => {
    КАЗИНО: ИГРЫ ПРОВАЙДЕРОВ
    ============================================================ */
 
-/*
- * Пределы отдачи, которые разрешает кабинет агрегатора. Настройку панели
- * зажимаем в них: число вне пределов агрегатор молча заменил бы своим, и
- * «Честность» показывала бы не то, что применено.
- */
-const CASINO_RTP_MIN = Number(process.env.CASINO_RTP_MIN || 70);
-const CASINO_RTP_MAX = Number(process.env.CASINO_RTP_MAX || 80);
-
-function casinoRtp() {
-  const v = Number(setting('casino_rtp')) || CASINO_RTP_MIN;
-  return Math.min(CASINO_RTP_MAX, Math.max(CASINO_RTP_MIN, v));
-}
+// Пределы и текущая отдача казино живут в casino-db.js: от них же считается
+// вес оборота казино в отыгрыше пополнения.
 
 /* Карточка игры для клиента. Ссылки на обложки - наши, а не CDN агрегатора:
    у нас они пережаты и не зависят от того, отвечает ли их CDN. */
@@ -2014,18 +2051,72 @@ app.post('/api/admin/payouts', auth, need('finance.payouts.view'), async (req, r
   // Код банка шлюза подбирается по названию из заявки; не нашли - админ
   // выберет сам. Отправка в шлюз показывается рядом с заявкой.
   const banks = sicilia.isConfigured() ? await sicilia.banks() : [];
+  // Итог проверки для плашки: цвет, причины и подтверждение сотрудника.
+  // Полный разбор отдаёт /api/admin/payout/check.
+  const verdict = (id) => {
+    try {
+      const c = payoutCheck(id);
+      return c && { verdict: c.verdict, reasons: c.reasons, override: c.override || null, checkedAt: c.checkedAt };
+    } catch (e) {
+      console.error('Проверка заявки:', e);
+      return null;
+    }
+  };
   res.json({
-    rows: rows.map((r) => ({ ...r, gatewayBank: r.method === 'sbp' ? sicilia.matchBank(r.bank, banks) : null })),
+    rows: rows.map((r) => ({
+      ...r,
+      gatewayBank: r.method === 'sbp' ? sicilia.matchBank(r.bank, banks) : null,
+      check: ['pending', 'processing'].includes(r.status) ? verdict(r.id) : null,
+    })),
     gateway: sicilia.gatewayPayouts(rows.map((r) => r.id)),
     siciliaReady: sicilia.isConfigured(),
     stats: payoutStats(),
   });
 });
 
+/*
+ * Проверка заявки целиком: все пункты с подробностями. recheck пересчитывает
+ * заново - деньги игрока могли двинуться с момента заявки.
+ */
+app.post('/api/admin/payout/check', auth, need('finance.payouts.view'), (req, res) => {
+  const id = Number(req.body?.id);
+  const result = req.body?.recheck ? checkPayout(id) : payoutCheck(id);
+  if (!result) return res.status(404).json({ error: 'Заявка не найдена' });
+  res.json({ check: result });
+});
+
+/*
+ * Подтверждение красной заявки: «проверил сам, выплачивать можно» с
+ * комментарием. Без него красную заявку нельзя взять в работу или отправить
+ * в шлюз - подозрение не должно уйти деньгами одним нажатием.
+ */
+app.post('/api/admin/payout/override', auth, need('finance.payouts.resolve'), (req, res) => {
+  try {
+    overridePayoutCheck(Number(req.body?.id), req.player.id, req.body?.comment);
+    res.json({ check: payoutCheck(Number(req.body?.id)) });
+  } catch (err) {
+    if (err.code === 'COMMENT') return res.status(400).json({ error: err.message });
+    throw err;
+  }
+});
+
+/** Красная заявка без подтверждения сотрудника дальше не двигается. */
+function riskGate(res, payoutId) {
+  if (payoutCleared(payoutId)) return false;
+  res.status(409).json({
+    error: 'Проверка нашла подозрения. Разберите причины и подтвердите заявку с комментарием.',
+    code: 'RISK',
+  });
+  return true;
+}
+
 app.post('/api/admin/payout/resolve', auth, need('finance.payouts.resolve'), (req, res) => {
   const id = Number(req.body?.id);
   const status = String(req.body?.status || '');
   const comment = String(req.body?.comment || '').slice(0, 300);
+
+  // Отклонить можно всегда, двигать к выплате - только проверенную.
+  if ((status === 'processing' || status === 'paid') && riskGate(res, id)) return;
 
   try {
     let result;
@@ -2222,6 +2313,7 @@ app.post('/api/admin/sicilia', auth, need('finance.payouts.view'), async (req, r
 });
 
 app.post('/api/admin/sicilia/payout', auth, need('finance.payouts.resolve'), async (req, res) => {
+  if (riskGate(res, Number(req.body?.id))) return;
   try {
     const gateway = await sicilia.sendPayout(req.player.id, Number(req.body?.id), req.body?.bank);
     res.json({ gateway, stats: payoutStats() });

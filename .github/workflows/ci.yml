@@ -61,6 +61,12 @@ jobs:
       - name: Служебный бот
         run: npm run test:ops
 
+      - name: Отыгрыш и бонусный счёт
+        run: npm run test:wager
+
+      - name: Проверка заявок на вывод
+        run: npm run test:payout-check
+
       - name: Запуск сервера
         run: |
           node server/app.js > server.log 2>&1 &

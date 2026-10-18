@@ -1604,6 +1604,9 @@ main { position: relative; z-index: 2; padding: 18px; }
   color: var(--green);
 }
 .perk-chip [data-ico] { width: 18px; height: 18px; }
+/* Бонусный счёт: золото, как деньги, и курсор - плашка ведёт в кассу. */
+.perk-chip.is-bonus { cursor: pointer; border-color: var(--gold); color: var(--gold);
+  background: linear-gradient(135deg, rgba(223, 190, 98, 0.18), rgba(224, 81, 140, 0.1)); }
 .perk-chip.gift { border-color: var(--pink); color: var(--pink);
   background: linear-gradient(135deg, rgba(255, 46, 138, 0.22), rgba(160, 32, 255, 0.14)); }
 
@@ -4049,48 +4052,6 @@ div.mini-row { cursor: default; }
 .balance-chip { cursor: pointer; font-family: inherit; }
 .balance-chip:active { transform: scale(0.95); }
 
-.wallet-card {
-  padding: 24px 20px;
-  border-radius: var(--radius);
-  background:
-    radial-gradient(circle at 50% 0%, rgba(255, 214, 10, 0.2), transparent 65%),
-    linear-gradient(150deg, var(--card-hi), var(--card));
-  border: 2px solid var(--gold);
-  box-shadow: 0 10px 40px -12px var(--gold);
-  text-align: center;
-  margin-bottom: 18px;
-}
-.wallet-label { font-size: 13px; color: var(--muted); margin-bottom: 8px; }
-.wallet-balance {
-  font-size: 40px; font-weight: 900; color: var(--gold);
-  font-variant-numeric: tabular-nums;
-  margin-bottom: 18px;
-}
-.wallet-rows { display: flex; flex-direction: column; gap: 8px; }
-.wallet-row {
-  display: flex; justify-content: space-between; align-items: center;
-  padding: 10px 14px; border-radius: 12px;
-  background: rgba(0, 0, 0, 0.3);
-  font-size: 13px; color: var(--muted);
-}
-.wallet-row b { color: var(--text); font-variant-numeric: tabular-nums; font-size: 14.5px; }
-.wallet-row.pending b { color: var(--cyan); }
-
-.wallet-actions { display: flex; gap: 12px; margin-bottom: 8px; }
-.wallet-actions .btn { flex: 1; padding: 17px; font-size: 16px; }
-
-.wallet-pane { animation: fade 0.25s ease; }
-
-.withdraw-form {
-  padding: 16px;
-  border-radius: var(--radius);
-  background: var(--card);
-  border: 1.5px solid var(--line);
-  margin-bottom: 8px;
-}
-.withdraw-hint { font-size: 13px; color: var(--muted); margin-bottom: 12px; }
-.withdraw-hint b { color: var(--gold); }
-
 .payout-row {
   padding: 14px 16px;
   border-radius: 14px;
@@ -4129,10 +4090,44 @@ div.mini-row { cursor: default; }
 .payout-note { width: 100%; margin-top: 12px; font-size: 13px; }
 .payout-row.admin .admin-actions { margin-bottom: 0; }
 
-.payout-methods { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:12px 0; }
-.payout-methods .payment-method { min-height:48px; }
-#withdrawSbpFields, #withdrawCardFields { display:grid; gap:10px; margin:10px 0 14px; }
-#withdrawSbpFields[hidden], #withdrawCardFields[hidden] { display:none; }
+/* Плашка проверки заявки на вывод. Цвет - единственное, что сотрудник должен
+   увидеть с первого взгляда, поэтому вся плашка залита им, а не только точка. */
+.risk-plate {
+  display: flex; align-items: center; gap: 12px;
+  margin-top: 10px; padding: 11px 12px;
+  border-radius: 12px; border: 1px solid;
+}
+.risk-green { background: rgba(99, 191, 148, 0.12); border-color: rgba(99, 191, 148, 0.45); }
+.risk-red { background: rgba(217, 90, 104, 0.14); border-color: rgba(217, 90, 104, 0.55); }
+.risk-dot { width: 12px; height: 12px; flex: none; border-radius: 50%; }
+.risk-green .risk-dot { background: var(--green); box-shadow: 0 0 0 4px rgba(99, 191, 148, 0.18); }
+.risk-red .risk-dot { background: var(--red); box-shadow: 0 0 0 4px rgba(217, 90, 104, 0.2); }
+.risk-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.risk-text b { font-size: 14px; }
+.risk-green .risk-text b { color: var(--green); }
+.risk-red .risk-text b { color: #ff9aa6; }
+.risk-text small { font-size: 12px; line-height: 1.4; color: var(--muted); }
+.risk-more {
+  flex: none; padding: 7px 10px; border-radius: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.18); background: transparent;
+  color: var(--text); font: inherit; font-size: 12px; font-weight: 700; cursor: pointer;
+}
+.risk-override { margin-top: 6px; font-size: 12px; color: var(--muted); }
+.risk-details { margin-top: 8px; padding: 10px 12px; border-radius: 12px; background: rgba(0, 0, 0, 0.25); }
+.risk-list { list-style: none; margin: 0 0 10px; padding: 0; display: grid; gap: 8px; }
+.risk-list li { display: flex; gap: 10px; }
+.risk-list li > span {
+  width: 20px; height: 20px; flex: none; display: grid; place-items: center;
+  border-radius: 50%; font-size: 12px; font-weight: 800;
+}
+.risk-list li.ok > span { background: rgba(99, 191, 148, 0.18); color: var(--green); }
+.risk-list li.bad > span { background: rgba(217, 90, 104, 0.2); color: #ff9aa6; }
+.risk-list li.info > span { background: rgba(255, 255, 255, 0.08); color: var(--muted); }
+.risk-list b { display: block; font-size: 13px; }
+.risk-list small { display: block; font-size: 12px; line-height: 1.45; color: var(--muted); word-break: break-word; }
+.risk-summary { font-size: 12px; line-height: 1.5; color: var(--muted); margin-bottom: 8px; }
+.risk-note { width: 100%; margin-top: 10px; resize: vertical; font-family: inherit; }
+
 .field-label { color:var(--muted); font-size:12px; margin-bottom:-6px; }
 .payout-requisites { margin-top:8px; padding:9px 11px; border-radius:10px; background:rgba(255,255,255,.045); color:var(--muted); line-height:1.45; }
 .settings-help { color:var(--muted); font-size:12px; line-height:1.45; margin:0; }
@@ -5618,17 +5613,568 @@ div.mini-row { cursor: default; }
 }
 
 
-/* То же предложение внутри кассы: там оно уже не зовёт никуда, а объясняет,
-   что будет начислено сверх суммы. */
-.deposit-offer {
-  margin: 0 0 12px;
-  padding: 11px 14px;
-  border: 1px dashed var(--pink);
-  border-radius: 13px;
-  font-size: 13px;
-  line-height: 1.45;
+/* ============================================================
+   КАССА: оформление
+   ============================================================ */
+
+/*
+ * Касса держится на одной шкале: стеклянные поверхности с тонкой границей,
+ * розовый только для выбора и действия, золото только для денег. Раньше
+ * каждый блок был в своём стиле: жёлтая рамка со свечением у баланса, две
+ * кнопки разных градиентов, жёлтые обводки у способов, пунктир у бонуса,
+ * моноширинный шрифт в полях и рамка в рамке у счёта. Всё правило ниже
+ * привязано к #view-wallet: .payout-row и .payment-status живут ещё и в
+ * панели, и её трогать незачем.
+ */
+#view-wallet {
+  --c-surface: rgba(255, 255, 255, 0.035);
+  --c-border: rgba(255, 255, 255, 0.08);
+  --c-border-2: rgba(255, 255, 255, 0.15);
+  --c-text-2: rgba(241, 235, 247, 0.66);
+  --c-text-3: rgba(241, 235, 247, 0.44);
+  --c-accent: var(--pink);
+  --c-accent-soft: rgba(224, 81, 140, 0.12);
+  --c-accent-line: rgba(224, 81, 140, 0.62);
+  --c-ok: var(--green);
+  --c-wait: var(--gold);
+  --c-fail: var(--red);
+  --c-review: var(--cyan);
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  font-family: 'Manrope', system-ui, sans-serif;
 }
-.deposit-offer b { color: var(--pink); }
+
+#view-wallet .cash-ico { width: 18px; height: 18px; flex: none; display: block; }
+
+/* ---------- Баланс ---------- */
+
+#view-wallet .cash-hero {
+  position: relative;
+  overflow: hidden;
+  padding: 18px 18px 16px;
+  margin-bottom: 0;
+  border-radius: 22px;
+  background:
+    radial-gradient(120% 90% at 100% 0%, rgba(223, 190, 98, 0.12), transparent 55%),
+    radial-gradient(90% 80% at 0% 100%, rgba(147, 102, 208, 0.2), transparent 60%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
+  border: 1px solid var(--c-border);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 20px 40px -24px rgba(0, 0, 0, 0.8);
+}
+.cash-hero-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.cash-eyebrow {
+  font-size: 11.5px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--c-text-3);
+}
+.cash-secure {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 5px 9px 5px 7px; border-radius: 999px;
+  font-size: 11.5px; font-weight: 700; color: var(--c-text-2);
+  background: rgba(255, 255, 255, 0.05); border: 1px solid var(--c-border);
+}
+#view-wallet .cash-secure .cash-ico { width: 14px; height: 14px; color: var(--c-ok); }
+
+.cash-balance {
+  margin: 14px 0 18px;
+  font: 800 clamp(30px, 9vw, 40px)/1 'Unbounded', 'Manrope', system-ui, sans-serif;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+  white-space: nowrap;
+}
+.cash-cur { margin-left: 8px; font-size: 0.55em; color: var(--gold); letter-spacing: 0; }
+
+.cash-stats {
+  display: grid; grid-auto-flow: column; grid-auto-columns: 1fr;
+  padding-top: 14px;
+  border-top: 1px solid var(--c-border);
+}
+.cash-stat { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 0 12px; }
+.cash-stat:first-child { padding-left: 0; }
+.cash-stat + .cash-stat { border-left: 1px solid var(--c-border); }
+.cash-stat span { font-size: 11.5px; color: var(--c-text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cash-stat b { font-size: 15px; font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cash-stat.is-pending b { color: var(--c-wait); }
+
+/* Бонусный счёт под балансом: отдельной плашкой, золотом, как деньги, но
+   тише своих - он не выводится, пока не отыгран. */
+.cash-bonus {
+  margin-top: 14px; padding: 12px 14px; border-radius: 14px;
+  background: rgba(223, 190, 98, 0.08); border: 1px solid rgba(223, 190, 98, 0.25);
+}
+.cash-bonus-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.cash-bonus-head span { font-size: 12px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--gold); }
+.cash-bonus-head b { font: 800 18px/1 'Unbounded', 'Manrope', system-ui, sans-serif; color: var(--gold); }
+.cash-bonus p { margin: 8px 0 10px; font-size: 12px; line-height: 1.5; color: var(--c-text-2); }
+.cash-bonus p b { color: var(--text); }
+.cash-bonus-refuse {
+  padding: 7px 12px; border-radius: 10px; border: 1px solid var(--c-border-2);
+  background: transparent; font: 700 12px/1 'Manrope', system-ui, sans-serif; color: var(--c-text-2); cursor: pointer;
+}
+
+/* ---------- Переключатель «Пополнить / Вывести» ---------- */
+
+#view-wallet .cash-switch {
+  position: relative;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 0;
+  margin: 14px 0;
+  padding: 4px;
+  border-radius: 16px;
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid var(--c-border);
+}
+.cash-switch-thumb {
+  position: absolute; top: 4px; bottom: 4px; left: 4px;
+  width: calc(50% - 4px);
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0.06));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 6px 16px -8px rgba(0, 0, 0, 0.8);
+  transition: transform 0.38s var(--ease-out);
+}
+.cash-switch[data-mode="withdraw"] .cash-switch-thumb { transform: translateX(100%); }
+.cash-tab {
+  position: relative; z-index: 1;
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+  height: 44px; border: 0; background: none;
+  font: 800 15px/1 'Manrope', system-ui, sans-serif; color: var(--c-text-3);
+  cursor: pointer;
+  transition: color 0.25s;
+}
+.cash-tab.active { color: #fff; }
+#view-wallet .cash-tab .cash-ico { width: 17px; height: 17px; transition: transform 0.3s var(--ease-out), color 0.25s; }
+#view-wallet .cash-tab.active .cash-ico { color: var(--c-accent); }
+#view-wallet .cash-tab:active .cash-ico { transform: scale(0.85); }
+
+#view-wallet .wallet-pane { animation: none; }
+#view-wallet .wallet-pane.is-entering { animation: cashIn 0.38s var(--ease-out); }
+@keyframes cashIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+
+/* ---------- Панель с формой ---------- */
+
+#view-wallet .cash-panel {
+  padding: 16px;
+  margin: 0;
+  border-radius: 22px;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+}
+
+/* Подписи шагов: мелкие и спокойные, форма читается сверху вниз сама. */
+.cash-step {
+  margin: 20px 2px 10px;
+  font-size: 12px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--c-text-3);
+}
+.cash-panel > .cash-step:first-child,
+.cash-panel > .deposit-offer[hidden] + .cash-step { margin-top: 2px; }
+
+/* Бонус первого пополнения: подарок вместо пунктирной рамки. */
+#view-wallet .deposit-offer {
+  position: relative;
+  margin: 0 0 14px;
+  padding: 12px 14px 12px 50px;
+  border: 1px solid rgba(224, 81, 140, 0.28);
+  border-radius: 16px;
+  background: linear-gradient(100deg, rgba(224, 81, 140, 0.14), rgba(147, 102, 208, 0.06));
+  font-size: 12.5px; line-height: 1.5; color: var(--c-text-2);
+}
+#view-wallet .deposit-offer::before {
+  content: '';
+  position: absolute; left: 13px; top: 13px;
+  width: 26px; height: 26px; border-radius: 9px;
+  background: rgba(224, 81, 140, 0.2) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23e0518c' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='4' y='9' width='16' height='11' rx='2'/%3E%3Cpath d='M3 9h18M12 9v11'/%3E%3Cpath d='M12 9c-2.5 0-4.5-1-4.5-2.8S10 4 12 9Zm0 0c2.5 0 4.5-1 4.5-2.8S14 4 12 9Z'/%3E%3C/svg%3E") center / 16px no-repeat;
+}
+#view-wallet .deposit-offer b { display: block; margin-bottom: 2px; font-size: 13.5px; color: #fff; }
+
+/* Способ пополнения */
+#view-wallet .deposit-methods { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 0; }
+#view-wallet .payment-method {
+  min-height: 0;
+  display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 10px;
+  padding: 12px; min-width: 0;
+  border-radius: 16px;
+  border: 1px solid var(--c-border);
+  background: var(--c-surface);
+  box-shadow: none;
+  color: var(--text); font: inherit; text-align: left;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s, transform 0.15s;
+}
+#view-wallet .payment-method:active { transform: scale(0.98); }
+#view-wallet .payment-method.active {
+  border-color: var(--c-accent-line);
+  background: var(--c-accent-soft);
+  box-shadow: inset 0 0 0 1px rgba(224, 81, 140, 0.3);
+}
+/* Если способ один (шлюз Sicilia не настроен), плитка во всю ширину и в строку. */
+#view-wallet .deposit-methods .payment-method:last-child:nth-child(odd),
+#view-wallet .deposit-methods .payment-method[hidden] + .payment-method {
+  grid-column: 1 / -1; flex-direction: row; align-items: center;
+}
+.cash-method-ico {
+  width: 34px; height: 34px; flex: none;
+  display: grid; place-items: center;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--c-text-2);
+  transition: background 0.2s, color 0.2s;
+}
+#view-wallet .payment-method.active .cash-method-ico { background: rgba(224, 81, 140, 0.18); color: var(--c-accent); }
+.cash-method-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.cash-method-text b { font-size: 14px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cash-method-text small { font-size: 11.5px; color: var(--c-text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Монеты: выбранная подсвечивается своим цветом, как и раньше, но без
+   двойной рамки - одна тонкая линия и мягкий фон. */
+#view-wallet .coin-grid { gap: 8px; margin: 0; }
+#view-wallet .coin-card {
+  border: 1px solid var(--c-border);
+  border-radius: 14px;
+  background: var(--c-surface);
+  font: inherit;
+  transition: border-color 0.2s, background 0.2s, transform 0.15s;
+}
+#view-wallet .coin-card.active {
+  border-color: color-mix(in srgb, var(--coin) 70%, transparent);
+  background: color-mix(in srgb, var(--coin) 12%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--coin) 35%, transparent);
+}
+#view-wallet .coin-name { font-size: 10px; color: var(--c-text-3); }
+#view-wallet .coin-note { margin: 0; font-size: 11.5px; line-height: 1.5; color: var(--c-text-3); }
+
+/* Сумма: крупное поле с рублём справа, без стрелок числового поля. */
+.cash-amount {
+  position: relative;
+  display: flex; align-items: center; gap: 8px;
+  height: 60px; padding: 0 12px 0 16px;
+  border-radius: 16px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--c-border);
+  transition: border-color 0.2s, box-shadow 0.2s;
+  cursor: text;
+}
+.cash-amount:focus-within { border-color: var(--c-accent-line); box-shadow: 0 0 0 4px rgba(224, 81, 140, 0.12); }
+.cash-amount input {
+  flex: 1; min-width: 0; height: 100%;
+  border: 0; outline: 0; background: none; padding: 0;
+  font: 800 24px/1 'Unbounded', 'Manrope', system-ui, sans-serif; letter-spacing: -0.02em;
+  color: #fff; font-variant-numeric: tabular-nums;
+  -moz-appearance: textfield;
+}
+.cash-amount input::-webkit-outer-spin-button,
+.cash-amount input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.cash-amount input::placeholder { color: var(--c-text-3); font-size: 18px; }
+.cash-amount-cur { font: 800 18px/1 'Unbounded', 'Manrope', system-ui, sans-serif; color: var(--c-text-3); }
+.cash-amount-all {
+  height: 34px; padding: 0 12px;
+  border: 1px solid var(--c-border-2); border-radius: 10px;
+  background: rgba(255, 255, 255, 0.06);
+  font: 800 13px/1 'Manrope', system-ui, sans-serif; color: var(--text);
+  cursor: pointer;
+  transition: transform 0.15s;
+}
+.cash-amount-all:active { transform: scale(0.94); }
+
+#view-wallet .quick-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(56px, 1fr)); gap: 6px; margin: 8px 0 0; }
+#view-wallet .quick-btn {
+  height: 36px; padding: 0 6px;
+  border: 1px solid var(--c-border); border-radius: 11px;
+  background: var(--c-surface);
+  font: 700 12.5px/1 'Manrope', system-ui, sans-serif; color: var(--c-text-2);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+  transition: color 0.2s, border-color 0.2s, background 0.2s, transform 0.15s;
+}
+#view-wallet .quick-btn:active { transform: scale(0.95); }
+#view-wallet .quick-btn.active { color: #fff; border-color: var(--c-accent-line); background: var(--c-accent-soft); }
+
+/* Пересчёт в монету: сводка, а не три строки разного кегля вразнобой. */
+#view-wallet .rate-line { margin: 12px 0 0; min-height: 0; }
+#view-wallet .rate-line:empty { display: none; }
+#view-wallet .rate-line:has(.rate-amount) {
+  padding: 12px 14px; border-radius: 14px;
+  background: rgba(0, 0, 0, 0.22); border: 1px solid var(--c-border);
+}
+#view-wallet .rate-amount { font-size: 17px; font-weight: 800; }
+#view-wallet .rate-course { font-size: 12px; color: var(--c-text-2); margin-top: 4px; }
+#view-wallet .rate-note { font-size: 11px; line-height: 1.45; color: var(--c-text-3); opacity: 1; margin-top: 6px; }
+
+/* Главная кнопка: один стиль на всю кассу, без неонового ореола. */
+.cash-cta {
+  position: relative; overflow: hidden;
+  width: 100%; height: 54px; margin-top: 16px;
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  border: 0; border-radius: 16px;
+  background: linear-gradient(180deg, #ea6299, #d4457f);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 10px 24px -14px rgba(224, 81, 140, 0.9);
+  font: 800 16px/1 'Manrope', system-ui, sans-serif; color: #fff;
+  font-variant-numeric: tabular-nums; text-decoration: none;
+  cursor: pointer;
+  transition: transform 0.15s, filter 0.2s;
+}
+.cash-cta:hover { filter: brightness(1.06); }
+.cash-cta:active { transform: scale(0.98); filter: brightness(0.95); }
+#view-wallet .cash-cta .cash-ico { width: 19px; height: 19px; transition: transform 0.3s var(--ease-out); }
+.cash-cta:hover .cash-ico { transform: translateX(3px); }
+.cash-cta:disabled { opacity: 1; cursor: default; }
+.cash-cta.is-busy { color: transparent; pointer-events: none; }
+#view-wallet .cash-cta.is-busy .cash-ico { opacity: 0; }
+.cash-cta.is-busy::after {
+  content: '';
+  position: absolute; left: 50%; top: 50%;
+  width: 20px; height: 20px; margin: -10px 0 0 -10px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.35); border-top-color: #fff;
+  animation: cashSpin 0.7s linear infinite;
+}
+@keyframes cashSpin { to { transform: rotate(360deg); } }
+
+.cash-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+.cash-ghost {
+  height: 46px; padding: 0 10px;
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+  border: 1px solid var(--c-border-2); border-radius: 14px;
+  background: transparent;
+  font: 700 14px/1 'Manrope', system-ui, sans-serif; color: var(--text);
+  cursor: pointer;
+  transition: background 0.2s, transform 0.15s;
+}
+.cash-ghost:active { background: rgba(255, 255, 255, 0.05); transform: scale(0.98); }
+#view-wallet .cash-ghost .cash-ico { width: 16px; height: 16px; color: var(--c-text-2); }
+
+.cash-fine { margin: 12px 6px 0; font-size: 11.5px; line-height: 1.55; color: var(--c-text-3); text-align: center; }
+
+/* ---------- Ожидание оплаты (СБП и карта) ---------- */
+
+#view-wallet .payment-checkout {
+  margin: 16px 0 0; padding: 16px;
+  border: 1px solid var(--c-border); border-radius: 18px;
+  background: rgba(0, 0, 0, 0.22);
+  text-align: left;
+  animation: cashIn 0.45s var(--ease-out);
+}
+#view-wallet .sicilia-wait { display: block; text-align: left; }
+.cash-wait-head { display: flex; align-items: center; gap: 12px; }
+.cash-pulse { position: relative; width: 10px; height: 10px; flex: none; margin: 0 4px; border-radius: 50%; background: var(--c-wait); }
+.cash-pulse::after {
+  content: ''; position: absolute; inset: 0; border-radius: 50%;
+  background: inherit; animation: cashPing 1.6s var(--ease-out) infinite;
+}
+@keyframes cashPing { from { transform: scale(1); opacity: 0.7; } to { transform: scale(3.2); opacity: 0; } }
+.cash-wait-status { font-size: 14px; font-weight: 800; color: var(--c-wait); }
+#view-wallet .sicilia-wait-sub { margin-top: 2px; font-size: 12px; font-weight: 600; color: var(--c-text-3); }
+#view-wallet .sicilia-wait-sum {
+  margin: 16px 0 6px;
+  font: 800 32px/1 'Unbounded', 'Manrope', system-ui, sans-serif; letter-spacing: -0.02em;
+  color: #fff;
+}
+#view-wallet .sicilia-wait p { margin: 0; font-size: 13px; line-height: 1.55; color: var(--c-text-2); }
+
+#view-wallet .invoice-status { margin-top: 10px; font-size: 12.5px; line-height: 1.45; color: var(--c-text-2); text-align: center; }
+#view-wallet .invoice-status:empty { display: none; }
+
+/* ---------- Счёт криптовалютой ---------- */
+
+/* Цвет монеты остаётся, но одной линией: счета USDT и биткоина различимы
+   и без светящейся рамки внутри рамки. */
+#view-wallet .crypto-invoice {
+  border: 0; padding: 0; background: none; box-shadow: none;
+}
+#view-wallet .payment-checkout:has(.crypto-invoice) {
+  border-color: color-mix(in srgb, var(--coin, #fff) 30%, var(--c-border));
+}
+#view-wallet .invoice-head { gap: 14px; margin-bottom: 16px; }
+.invoice-label { font-size: 11.5px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--c-text-3); }
+#view-wallet .invoice-sum { margin-top: 3px; font: 800 24px/1.1 'Unbounded', 'Manrope', system-ui, sans-serif; letter-spacing: -0.01em; }
+#view-wallet .invoice-sub { margin-top: 4px; font-size: 12.5px; color: var(--c-text-2); }
+#view-wallet .invoice-qr { margin: 0 auto 16px; border-radius: 14px; }
+#view-wallet .payment-checkout .field-label { display: block; margin: 0 2px 6px; }
+
+#view-wallet .invoice-address {
+  display: flex; align-items: center; gap: 12px;
+  width: 100%; margin: 0 0 10px; padding: 12px 12px 12px 14px;
+  border: 1px solid var(--c-border-2); border-radius: 14px;
+  background: rgba(0, 0, 0, 0.3);
+  text-align: left; color: var(--text); cursor: pointer;
+  transition: border-color 0.2s;
+}
+#view-wallet .invoice-address.is-copied { border-color: rgba(99, 191, 148, 0.55); }
+#view-wallet .invoice-address .cash-copy-label { display: inline; font: inherit; }
+#view-wallet .invoice-address .invoice-addr {
+  flex: 1; min-width: 0;
+  font: 400 12.5px/1.5 'JetBrains Mono', ui-monospace, monospace; word-break: break-all;
+}
+/* Селектор длинный нарочно: старое .invoice-address span делает любой span
+   внутри адреса моноширинным блоком, и подпись падала под значок. */
+#view-wallet .invoice-address .cash-copy {
+  display: flex; align-items: center; gap: 6px; flex: none;
+  font-family: 'Manrope', system-ui, sans-serif; line-height: 1; white-space: nowrap;
+  padding: 7px 10px; border-radius: 10px;
+  background: rgba(255, 255, 255, 0.07);
+  font-size: 12px; font-weight: 800; color: var(--text);
+  transition: background 0.2s, color 0.2s;
+}
+#view-wallet .cash-copy .cash-ico { width: 15px; height: 15px; }
+#view-wallet .cash-copy .cash-ico + .cash-ico { display: none; }
+.is-copied .cash-copy { color: var(--c-ok); background: rgba(99, 191, 148, 0.12); }
+#view-wallet .is-copied .cash-copy .cash-ico:first-child { display: none; }
+#view-wallet .is-copied .cash-copy .cash-ico + .cash-ico { display: block; animation: cashPop 0.35s var(--ease-spring); }
+@keyframes cashPop { from { transform: scale(0.3); } to { transform: scale(1); } }
+
+#view-wallet .invoice-warn {
+  display: flex; gap: 10px;
+  margin: 0; padding: 11px 12px;
+  border: 1px solid rgba(223, 190, 98, 0.22); border-left: 1px solid rgba(223, 190, 98, 0.22);
+  border-radius: 14px;
+  background: rgba(223, 190, 98, 0.07);
+  font-size: 12.5px; line-height: 1.5; color: var(--c-text-2);
+}
+#view-wallet .invoice-warn .cash-ico { width: 17px; height: 17px; margin-top: 1px; color: var(--c-wait); }
+
+/* ---------- Вывод ---------- */
+
+#view-wallet .withdraw-form { margin: 0; }
+#view-wallet .withdraw-hint {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px;
+  margin: 8px 2px 0;
+  font-size: 12.5px; color: var(--c-text-3);
+}
+#view-wallet .withdraw-hint b { color: var(--c-text-2); font-weight: 800; }
+#view-wallet .withdraw-hint i { width: 3px; height: 3px; border-radius: 50%; background: currentColor; }
+#view-wallet .withdraw-locked {
+  flex-basis: 100%; margin-top: 6px; padding: 10px 12px; border-radius: 12px;
+  background: rgba(223, 190, 98, 0.07); border: 1px solid rgba(223, 190, 98, 0.2);
+  font-size: 12px; line-height: 1.5; color: var(--c-text-2);
+}
+
+/* Способ вывода: три сегмента с плашкой, которая едет под выбранный. */
+#view-wallet .cash-seg {
+  position: relative;
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 0;
+  margin: 0; padding: 3px; border-radius: 13px;
+  background: rgba(0, 0, 0, 0.28); border: 1px solid var(--c-border);
+}
+#view-wallet .cash-seg::before {
+  content: '';
+  position: absolute; top: 3px; bottom: 3px; left: 3px; width: calc((100% - 6px) / 3);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.1);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  transition: transform 0.35s var(--ease-out);
+}
+#view-wallet .cash-seg[data-active="card"]::before { transform: translateX(100%); }
+#view-wallet .cash-seg[data-active="crypto"]::before { transform: translateX(200%); }
+.cash-seg-btn {
+  position: relative; height: 38px;
+  border: 0; background: none;
+  font: 800 14px/1 'Manrope', system-ui, sans-serif; color: var(--c-text-3);
+  cursor: pointer; transition: color 0.2s;
+}
+.cash-seg-btn.active { color: #fff; }
+
+#view-wallet .cash-fields { display: grid; gap: 12px; margin: 14px 0 0; }
+.cash-field { display: grid; gap: 6px; }
+#view-wallet .field-label { margin: 0 0 0 2px; font-size: 12px; font-weight: 700; color: var(--c-text-3); }
+#view-wallet .cash-field .seed-input {
+  width: 100%; height: 50px; padding: 0 14px;
+  border-radius: 14px;
+  border: 1px solid var(--c-border);
+  background: rgba(0, 0, 0, 0.3);
+  font: 600 16px/1 'Manrope', system-ui, sans-serif; color: #fff;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+#view-wallet .cash-field .seed-input.cash-mono { font: 400 14px/1 'JetBrains Mono', ui-monospace, monospace; }
+#view-wallet .cash-field .seed-input::placeholder { color: var(--c-text-3); }
+#view-wallet .cash-field .seed-input:focus { border-color: var(--c-accent-line); box-shadow: 0 0 0 4px rgba(224, 81, 140, 0.12); }
+#view-wallet .cash-field select.seed-input {
+  padding-right: 40px;
+  background: rgba(0, 0, 0, 0.3) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a698c0' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3C/svg%3E") right 14px center / 18px no-repeat;
+}
+#view-wallet .cash-field select.seed-input option { background: var(--bg-soft); color: #fff; }
+#view-wallet #coinNetwork { margin-top: 12px; }
+
+/* ---------- История ---------- */
+
+.cash-h2 {
+  margin: 26px 4px 10px;
+  font-size: 12px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--c-text-3);
+}
+.cash-list {
+  border-radius: 18px;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  overflow: hidden;
+}
+.cash-list > .skel-line { margin: 14px; }
+.cash-tx {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; column-gap: 12px;
+  padding: 12px 14px;
+}
+.cash-tx + .cash-tx { border-top: 1px solid var(--c-border); }
+.cash-tx-ico {
+  width: 36px; height: 36px; display: grid; place-items: center;
+  border-radius: 12px; background: rgba(255, 255, 255, 0.06); color: var(--c-text-2);
+}
+#view-wallet .cash-tx-ico .cash-ico { width: 17px; height: 17px; }
+.cash-tx-main, .cash-tx-side { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.cash-tx-side { align-items: flex-end; }
+.cash-tx-main b { font-size: 14px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cash-tx-side b { font-size: 14.5px; font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cash-tx small { font-size: 12px; color: var(--c-text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cash-tx.tone-ok .cash-tx-ico { color: var(--c-ok); background: rgba(99, 191, 148, 0.12); }
+.cash-tx.tone-ok .cash-tx-side b, .cash-tx.tone-ok .cash-tx-side small { color: var(--c-ok); }
+
+/* Заявки на вывод: та же строка списка, цвет статуса - точкой и словом,
+   а не толстой полосой слева. Печать выплаты и её удар остались. */
+#view-wallet .payout-row {
+  margin: 0; padding: 14px 16px;
+  border: 0; border-radius: 0;
+  background: none;
+}
+#view-wallet .payout-row + .payout-row { border-top: 1px solid var(--c-border); }
+#view-wallet .payout-row.cancelled { opacity: 0.55; }
+#view-wallet .payout-head b { font: 800 17px/1.2 'Unbounded', 'Manrope', system-ui, sans-serif; letter-spacing: -0.01em; }
+#view-wallet .payout-status {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 0; border: 0;
+  font-size: 12px; font-weight: 800; letter-spacing: 0;
+}
+#view-wallet .payout-status::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+#view-wallet .payout-status.pending { color: var(--c-wait); }
+#view-wallet .payout-status.processing { color: var(--c-review); }
+#view-wallet .payout-row.pending .payout-status::before { animation: cashBlink 1.6s ease-in-out infinite; }
+@keyframes cashBlink { 50% { opacity: 0.35; } }
+#view-wallet .payout-date { margin-top: 4px; font-size: 12px; color: var(--c-text-3); }
+#view-wallet .payout-requisites {
+  margin-top: 10px; padding: 9px 11px; border-radius: 11px;
+  background: rgba(0, 0, 0, 0.22);
+  font-size: 12.5px; color: var(--c-text-2);
+}
+#view-wallet .payout-comment {
+  margin-top: 8px; padding: 9px 11px; border-radius: 11px;
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 12.5px; color: var(--c-text-2);
+}
+#view-wallet .payout-cancel {
+  width: auto; height: 34px; margin-top: 10px; padding: 0 12px;
+  border: 1px solid var(--c-border-2); border-radius: 10px; background: none;
+  font: 700 13px/1 'Manrope', system-ui, sans-serif; color: var(--text); cursor: pointer;
+}
+
+.cash-empty { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 28px 20px; text-align: center; }
+.cash-empty-ico {
+  width: 44px; height: 44px; margin-bottom: 8px; display: grid; place-items: center;
+  border-radius: 14px; background: rgba(255, 255, 255, 0.05); color: var(--c-text-3);
+}
+#view-wallet .cash-empty-ico .cash-ico { width: 20px; height: 20px; }
+.cash-empty b { font-size: 14.5px; font-weight: 800; }
+.cash-empty small { font-size: 12.5px; color: var(--c-text-3); }
+
+@media (prefers-reduced-motion: reduce) {
+  #view-wallet *, #view-wallet *::before, #view-wallet *::after {
+    animation-duration: 0.001ms !important; transition-duration: 0.001ms !important;
+  }
+}
 
 /* ---------- Первый заход ---------- */
 
@@ -6546,6 +7092,12 @@ div.mini-row { cursor: default; }
   }
   #view-wallet > .wallet-card { grid-area: card; margin: 0; position: sticky; top: 90px; }
   #view-wallet > .wallet-actions { grid-area: acts; margin: 0; }
+  /* Баланс липкий, и переключатель липнет сразу под ним: иначе полупрозрачная
+     карточка баланса наезжала бы на него при прокрутке истории. Высоту
+     карточки кладёт в --cash-hero-h код (watchCashHero). */
+  #view-wallet > .wallet-card { z-index: 2; }
+  #view-wallet > .cash-switch { position: sticky; top: calc(90px + var(--cash-hero-h, 190px) + 18px); z-index: 2; }
+  #view-wallet .cash-panel { padding: 20px; }
   #view-wallet > .wallet-pane { grid-area: pane; margin: 0; }
 
   .coin-grid { grid-template-columns: repeat(6, 1fr); }
@@ -9559,102 +10111,147 @@ body.cz-playing { overflow: hidden; }
 
     <!-- ══════════ КАССА ══════════ -->
     <section class="view" id="view-wallet">
-      <div class="wallet-card">
-        <div class="wallet-label">Ваш баланс</div>
-        <div class="wallet-balance" id="walletBalance">-</div>
-        <div class="wallet-rows" id="walletRows"></div>
-      </div>
-
-      <div class="wallet-actions">
-        <button class="btn btn-primary" id="walletDeposit">Пополнить</button>
-        <button class="btn btn-huge btn-crash" id="walletWithdraw">Вывести</button>
-      </div>
-
-      <div class="wallet-pane" id="walletDepositPane" hidden>
-        <div class="deposit-offer" id="depositOffer" hidden></div>
-        <!-- Два способа: СБП и карта через шлюз Sicilia и криптовалюта.
-             Вкладка Sicilia видна, только когда шлюз настроен на сервере
-             (loadSiciliaOptions); какой открыть первым, решает openDefaultDeposit. -->
-        <div class="deposit-methods">
-          <button class="payment-method" data-payment-method="sicilia" hidden>СБП и карта</button>
-          <button class="payment-method" data-payment-method="crypto">Криптовалюта</button>
+      <!-- Касса держится на одной шкале: стеклянные поверхности с тонкой
+           границей, розовый только для выбора и действия, золото только для
+           денег. Классы wallet-card / wallet-actions / wallet-pane оставлены:
+           по ним компьютерная вёрстка раскладывает кассу в две колонки. -->
+      <div class="wallet-card cash-hero">
+        <div class="cash-hero-top">
+          <span class="cash-eyebrow">Баланс</span>
+          <span class="cash-secure" data-cash-ico="shield">Защищённая касса</span>
         </div>
+        <div class="cash-balance" id="walletBalance">-</div>
+        <div class="cash-stats" id="walletRows"></div>
+        <!-- Бонусный счёт: отдельно от своих денег, вывод не запирает. -->
+        <div class="cash-bonus" id="walletBonus" hidden></div>
+      </div>
 
-        <!-- Пополнение криптовалютой. Список монет приходит от шлюза, поэтому
-             сетка и выпадающий список сетей собираются в коде. -->
-        <div class="crypto-create" id="cryptoCreate" hidden>
-          <h2 class="section-title">Пополнение криптовалютой</h2>
-          <div class="coin-grid" id="coinGrid"></div>
-          <div class="coin-network" id="coinNetwork" hidden>
-            <label class="field-label" for="coinNetworkSelect">Сеть перевода</label>
-            <select class="seed-input" id="coinNetworkSelect"></select>
-            <p class="coin-note">Отправляйте только в выбранной сети. Перевод в
-              другой сети теряется без возврата.</p>
+      <div class="wallet-actions cash-switch" id="cashSwitch" data-mode="" role="tablist" aria-label="Операция">
+        <span class="cash-switch-thumb" aria-hidden="true"></span>
+        <button class="cash-tab" id="walletDeposit" role="tab" aria-selected="false">
+          <span data-cash-ico="in"></span>Пополнить
+        </button>
+        <button class="cash-tab" id="walletWithdraw" role="tab" aria-selected="false">
+          <span data-cash-ico="out"></span>Вывести
+        </button>
+      </div>
+
+      <div class="wallet-pane cash-pane" id="walletDepositPane" hidden>
+        <div class="cash-panel">
+          <div class="deposit-offer" id="depositOffer" hidden></div>
+          <!-- Два способа: СБП и карта через шлюз Sicilia и криптовалюта.
+               Вкладка Sicilia видна, только когда шлюз настроен на сервере
+               (loadSiciliaOptions); какой открыть первым, решает openDefaultDeposit. -->
+          <div class="cash-step">Способ пополнения</div>
+          <div class="deposit-methods">
+            <button class="payment-method" data-payment-method="sicilia" hidden>
+              <span class="cash-method-ico" data-cash-ico="card"></span>
+              <span class="cash-method-text"><b>СБП и карта</b><small>Любой банк России</small></span>
+            </button>
+            <button class="payment-method" data-payment-method="crypto">
+              <span class="cash-method-ico" data-cash-ico="crypto"></span>
+              <span class="cash-method-text"><b>Криптовалюта</b><small>USDT, BTC, ETH и другие</small></span>
+            </button>
           </div>
-          <input class="seed-input" id="cryptoAmount" type="number" inputmode="numeric"
-                 placeholder="Сумма пополнения, ₽">
-          <div class="quick-row" id="cryptoQuick"></div>
-          <div class="rate-line" id="cryptoRate"></div>
-          <button class="btn btn-primary btn-wide" id="cryptoCreateBtn">Продолжить</button>
-        </div>
-        <div class="payment-checkout" id="cryptoCheckout" hidden></div>
 
-        <!-- СБП и карта через Sicilia. Оплата идёт в окне шлюза, открытом
-             отдельной вкладкой; здесь только сумма и ожидание. -->
-        <div class="sicilia-create" id="siciliaCreate" hidden>
-          <h2 class="section-title">Пополнение по СБП и с карты</h2>
-          <input class="seed-input" id="siciliaAmount" type="number" inputmode="numeric" placeholder="Сумма, ₽">
-          <div class="quick-row" id="siciliaQuick"></div>
-          <button class="btn btn-primary btn-wide" id="siciliaCreateBtn">Перейти к оплате</button>
-          <p class="coin-note">Окно оплаты откроется отдельно. Оплатите точную сумму и вернитесь сюда:
-            деньги зачислятся сами, как только банк подтвердит перевод.</p>
-        </div>
-        <div class="payment-checkout" id="siciliaCheckout" hidden></div>
+          <!-- Пополнение криптовалютой. Список монет приходит от шлюза, поэтому
+               сетка и выпадающий список сетей собираются в коде. -->
+          <div class="crypto-create" id="cryptoCreate" hidden>
+            <div class="cash-step">Монета</div>
+            <div class="coin-grid" id="coinGrid"></div>
+            <div class="coin-network cash-field" id="coinNetwork" hidden>
+              <label class="field-label" for="coinNetworkSelect">Сеть перевода</label>
+              <select class="seed-input" id="coinNetworkSelect"></select>
+              <p class="coin-note">Отправляйте только в выбранной сети. Перевод в
+                другой сети теряется без возврата.</p>
+            </div>
+            <div class="cash-step">Сумма</div>
+            <label class="cash-amount">
+              <input id="cryptoAmount" type="number" inputmode="numeric" placeholder="0" aria-label="Сумма пополнения в рублях">
+              <span class="cash-amount-cur">₽</span>
+            </label>
+            <div class="quick-row" id="cryptoQuick"></div>
+            <div class="rate-line" id="cryptoRate"></div>
+            <button class="cash-cta" id="cryptoCreateBtn"><span>Продолжить</span><span data-cash-ico="arrow"></span></button>
+          </div>
+          <div class="payment-checkout" id="cryptoCheckout" hidden></div>
 
-        <h2 class="section-title">История пополнений</h2>
-        <div id="depositList"></div>
+          <!-- СБП и карта через Sicilia. Оплата идёт в окне шлюза, открытом
+               отдельной вкладкой; здесь только сумма и ожидание. -->
+          <div class="sicilia-create" id="siciliaCreate" hidden>
+            <div class="cash-step">Сумма</div>
+            <label class="cash-amount">
+              <input id="siciliaAmount" type="number" inputmode="numeric" placeholder="0" aria-label="Сумма пополнения в рублях">
+              <span class="cash-amount-cur">₽</span>
+            </label>
+            <div class="quick-row" id="siciliaQuick"></div>
+            <button class="cash-cta" id="siciliaCreateBtn"><span id="siciliaCreateLabel">Перейти к оплате</span><span data-cash-ico="arrow"></span></button>
+            <p class="cash-fine">Окно оплаты откроется отдельно. Оплатите точную сумму и вернитесь сюда:
+              деньги зачислятся сами, как только банк подтвердит перевод.</p>
+          </div>
+          <div class="payment-checkout" id="siciliaCheckout" hidden></div>
+        </div>
+
+        <h2 class="cash-h2">История пополнений</h2>
+        <div class="cash-list" id="depositList"></div>
       </div>
 
-      <div class="wallet-pane" id="walletWithdrawPane" hidden>
-        <h2 class="section-title">Вывод средств</h2>
-
-        <div class="withdraw-form">
+      <div class="wallet-pane cash-pane" id="walletWithdrawPane" hidden>
+        <div class="cash-panel withdraw-form">
+          <div class="cash-step">Сумма</div>
+          <label class="cash-amount">
+            <input id="withdrawAmount" type="number" inputmode="numeric" min="0" placeholder="0" aria-label="Сумма вывода в рублях">
+            <span class="cash-amount-cur">₽</span>
+            <button class="cash-amount-all" type="button" id="withdrawAll">Всё</button>
+          </label>
           <div class="withdraw-hint" id="withdrawHint"></div>
-          <div class="amount-row">
-            <input class="seed-input" id="withdrawAmount" type="number" inputmode="numeric"
-                   min="0" placeholder="сумма вывода">
-            <button class="btn btn-sm" id="withdrawAll">Всё</button>
+
+          <div class="cash-step">Куда вывести</div>
+          <div class="payout-methods cash-seg" data-active="sbp" role="group" aria-label="Способ вывода">
+            <button class="cash-seg-btn active" type="button" data-withdraw-method="sbp">СБП</button>
+            <button class="cash-seg-btn" type="button" data-withdraw-method="card">Карта</button>
+            <button class="cash-seg-btn" type="button" data-withdraw-method="crypto">Крипта</button>
           </div>
-          <div class="payout-methods" role="group" aria-label="Способ вывода">
-            <button class="payment-method active" type="button" data-withdraw-method="sbp">СБП</button>
-            <button class="payment-method" type="button" data-withdraw-method="card">Банковская карта</button>
-            <button class="payment-method" type="button" data-withdraw-method="crypto">Криптовалюта</button>
+          <div class="cash-fields" id="withdrawSbpFields">
+            <label class="cash-field">
+              <span class="field-label">Телефон получателя</span>
+              <input class="seed-input" id="withdrawPhone" type="tel" inputmode="tel"
+                     autocomplete="tel" placeholder="+7 900 000-00-00">
+            </label>
+            <div class="cash-field">
+              <label class="field-label" for="withdrawBank">Банк получателя</label>
+              <select class="seed-input" id="withdrawBank"><option value="">Выберите банк</option></select>
+            </div>
           </div>
-          <div id="withdrawSbpFields">
-            <input class="seed-input" id="withdrawPhone" type="tel" inputmode="tel"
-                   autocomplete="tel" placeholder="Номер телефона получателя">
-            <label class="field-label" for="withdrawBank">Банк получателя</label>
-            <select class="seed-input" id="withdrawBank"><option value="">Выберите банк</option></select>
+          <div class="cash-fields" id="withdrawCardFields" hidden>
+            <label class="cash-field">
+              <span class="field-label">Номер карты</span>
+              <input class="seed-input" id="withdrawCard" type="text" inputmode="numeric"
+                     autocomplete="cc-number" maxlength="23" placeholder="0000 0000 0000 0000">
+            </label>
           </div>
-          <div id="withdrawCardFields" hidden>
-            <input class="seed-input" id="withdrawCard" type="text" inputmode="numeric"
-                   autocomplete="cc-number" maxlength="23" placeholder="Номер банковской карты">
-          </div>
-          <div id="withdrawCryptoFields" hidden>
+          <div class="cash-fields" id="withdrawCryptoFields" hidden>
             <div class="coin-grid compact" id="withdrawCoinGrid"></div>
-            <label class="field-label" for="withdrawNetwork">Сеть перевода</label>
-            <select class="seed-input" id="withdrawNetwork"></select>
-            <input class="seed-input" id="withdrawAddress" type="text"
-                   autocomplete="off" spellcheck="false" placeholder="Адрес кошелька">
+            <div class="cash-field">
+              <label class="field-label" for="withdrawNetwork">Сеть перевода</label>
+              <select class="seed-input" id="withdrawNetwork"></select>
+            </div>
+            <label class="cash-field">
+              <span class="field-label">Адрес кошелька</span>
+              <input class="seed-input cash-mono" id="withdrawAddress" type="text"
+                     autocomplete="off" spellcheck="false" placeholder="Вставьте адрес">
+            </label>
             <p class="coin-note">Проверьте адрес и сеть. Перевод в блокчейне
               необратим: ошибка в адресе означает потерю средств.</p>
             <div class="rate-line" id="withdrawRate"></div>
           </div>
-          <button class="btn btn-primary btn-wide" id="withdrawSubmit">Вывести</button>
+          <button class="cash-cta" id="withdrawSubmit"><span>Создать заявку</span><span data-cash-ico="arrow"></span></button>
+          <p class="cash-fine">Сумма резервируется сразу. Пока заявку не взяли в работу, её можно
+            отменить, и деньги вернутся на баланс.</p>
         </div>
 
-        <h2 class="section-title">История выводов</h2>
-        <div id="payoutList"></div>
+        <h2 class="cash-h2">История выводов</h2>
+        <div class="cash-list" id="payoutList"></div>
       </div>
     </section>
 
@@ -11257,7 +11854,7 @@ function demoPlayerExtra(id, balance, spent) {
     payouts: [], deposits: [],
   };
 }
-const FORTUNE = {"segments":[{"index":0,"type":"case","label":"Кейс в подарок","weight":7.5},{"index":1,"type":"case","label":"Кейс в подарок","weight":7.5},{"index":2,"type":"case","label":"Кейс в подарок","weight":7.5},{"index":3,"type":"case","label":"Кейс в подарок","weight":7.5},{"index":4,"type":"x2","label":"Удвоитель","weight":20},{"index":5,"type":"percent","label":"Процент к пополнению","weight":33},{"index":6,"type":"cash","label":"Деньги на счёт","weight":2},{"index":7,"type":"voucher","label":"Ваучер","weight":7.5},{"index":8,"type":"voucher","label":"Ваучер","weight":7.5}],"segmentDeg":40,"startDeg":-7,"spinsPerCycle":5,"minDeposit":500,"prizes":{"percentMin":50,"percentMax":150,"voucherMin":500,"voucherMax":1500,"cash":2000,"giftCaseMaxPrice":1000}};
+const FORTUNE = {"segments":[{"index":0,"type":"case","label":"Кейс в подарок","weight":7.5},{"index":1,"type":"case","label":"Кейс в подарок","weight":7.5},{"index":2,"type":"case","label":"Кейс в подарок","weight":7.5},{"index":3,"type":"case","label":"Кейс в подарок","weight":7.5},{"index":4,"type":"x2","label":"Удвоитель","weight":20},{"index":5,"type":"percent","label":"Процент к пополнению","weight":33},{"index":6,"type":"cash","label":"Деньги на счёт","weight":2},{"index":7,"type":"voucher","label":"Ваучер","weight":7.5},{"index":8,"type":"voucher","label":"Ваучер","weight":7.5}],"segmentDeg":40,"startDeg":-7,"spinsPerCycle":5,"minDeposit":500,"prizes":{"percentMin":10,"percentMax":30,"voucherMin":500,"voucherMax":1500,"cash":2000,"giftCaseMaxPrice":1000}};
 const FORTUNE_COOLDOWN_MS = 86400000;
 
 /* Витрина выпадений: пулы и ники. Ленту наполняет Math.random, а не
@@ -11833,6 +12430,22 @@ function demoCasinoRows({ kind = '', provider = '', category = '', q = '' }) {
 function demoUnique(rows, size) {
   const seen = new Set();
   return rows.filter((r) => { const k = r[1].toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; }).slice(0, size);
+}
+
+
+function stubPayoutCheck(p) {
+  const u = store.user;
+  return {
+    verdict: 'green', reasons: [], override: null, checkedAt: p.created_at || Date.now(),
+    checks: [
+      { ok: true, title: 'Баланс сходится с журналом денег', detail: 'Каждый рубль баланса объяснён операцией' },
+      { ok: true, title: 'Пополнение отыграно', detail: 'Отыгрыш депозита закрыт ставками' },
+      { ok: true, title: 'Выигрыши пересчитаны по seed', detail: 'Исходы раундов совпадают с записанными' },
+      { ok: true, title: 'Связанных аккаунтов нет', detail: 'Устройство и карта не встречаются у других игроков' },
+    ],
+    summary: { deposited: 0, paidOut: 0, gamesNet: 0, rounds: (u.rounds || []).length,
+               bestWin: 0, accountAgeDays: 0 },
+  };
 }
 
 const routes = {
@@ -12651,7 +13264,8 @@ const routes = {
     const status = body.status || 'pending';
     const rows = (status === 'all' ? u.payouts : u.payouts.filter((p) => p.status === status))
       .map((p) => ({ ...p, user_id: u.id, tg_id: '999000001',
-                     username: u.username, first_name: u.firstName, balance: u.balance }));
+                     username: u.username, first_name: u.firstName, balance: u.balance,
+                     check: stubPayoutCheck(p) }));
     const sum = (st) => u.payouts.filter((p) => p.status === st).reduce((a, p) => a + p.amount, 0);
     return {
       rows,
@@ -12662,6 +13276,16 @@ const routes = {
       },
     };
   },
+
+  // Проверка заявки в сборке без сервера: денег в ней нет, сверять нечего,
+  // поэтому показывается зелёная плашка с теми же пунктами, что у сервера.
+  'POST /api/admin/payout/check': (body) => {
+    const p = store.user.payouts.find((x) => x.id === Number(body.id));
+    if (!p) return { status: 404, body: { error: 'Заявка не найдена' } };
+    return { check: stubPayoutCheck(p) };
+  },
+
+  'POST /api/admin/payout/override': () => ({ ok: true }),
 
   'POST /api/admin/payout/resolve': (body) => {
     const u = store.user;
@@ -25293,6 +25917,11 @@ const TERMS = [
   p('Оператор вправе отказать в выводе полностью или частично, если установлено ' +
     'нарушение Соглашения, признаки мошенничества, злоупотребления бонусами ' +
     'либо использование ошибок в работе Сервиса.'),
+  p('Каждая заявка на вывод проходит автоматическую проверку операций Счёта: ' +
+    'происхождение средств, соответствие результатов Раундов их криптографическим ' +
+    'значениям, соблюдение условий бонусов и признаки множественных Счетов. ' +
+    'Если проверка выявила расхождения, заявку дополнительно рассматривает ' +
+    'сотрудник Оператора.'),
 
   h('8. Бонусы и акции'),
   p('Оператор вправе предоставлять бонусы: бесплатные открытия, фриспины, ' +
@@ -25302,6 +25931,21 @@ const TERMS = [
   p('Бонус предоставляется на усмотрение Оператора и не является обязательством. ' +
     'Оператор вправе изменить или прекратить акцию, а также отозвать бонус, ' +
     'предоставленный ошибочно.'),
+  p('Бонусные средства учитываются на отдельном бонусном счёте и не смешиваются ' +
+    'со средствами основного счёта. Ставки сначала оплачиваются средствами ' +
+    'основного счёта, бонусные средства используются, когда средств основного ' +
+    'счёта недостаточно для ставки. Бонусными средствами можно делать ставки ' +
+    'только в собственных играх Оператора; в разделе «Казино» и в слотах они ' +
+    'не используются. Выигрыш со ставки, оплаченной бонусными средствами, ' +
+    'зачисляется на бонусный счёт в той же доле, в какой ставка была ими оплачена.'),
+  p('Бонус переходит на основной счёт после ставок бонусными средствами на ' +
+    'сумму, кратную размеру бонуса (множитель отыгрыша указывается в условиях ' +
+    'акции и в разделе «Касса»). На основной счёт за всё время может перейти не ' +
+    'больше доли от общей суммы пополнений Пользователя, указанной в разделе ' +
+    '«Касса». Остаток сверх этого предела сохраняется на бонусном счёте и ' +
+    'переходит после следующих пополнений. Неотыгранный бонус не ограничивает ' +
+    'вывод средств основного счёта. Пользователь вправе в любой момент ' +
+    'отказаться от бонуса, при этом бонусный счёт обнуляется.'),
   p('Злоупотреблением бонусами считается, в частности: создание нескольких ' +
     'Счетов ради повторного получения бонуса; согласованная игра нескольких ' +
     'Пользователей; использование бонусов способом, не соответствующим их ' +
@@ -25482,15 +26126,18 @@ const PRIVACY = [
       '(хранится только в виде необратимого хеша). Если вход выполнен через ' +
       'Telegram или Telegram привязан к Счёту - также числовой идентификатор, ' +
       'имя и никнейм Telegram. Используются для создания и идентификации Счёта.',
-    '<b>Данные сессии</b> - IP-адрес и сведения о браузере на момент входа. ' +
-      'Используются для защиты Счёта от чужого доступа.',
+    '<b>Данные сессии</b> - IP-адрес и сведения о браузере при входе и при ' +
+      'последующих обращениях, а также случайный идентификатор браузера. ' +
+      'Используются для защиты Счёта от чужого доступа и для выявления ' +
+      'множественных Счетов при проверке заявок на вывод.',
     '<b>Игровые данные</b> - баланс, история Раундов, ставки и выигрыши, ' +
       'начисленные бонусы, статистика.',
     '<b>Криптографические значения</b> - серверные и пользовательские seed, ' +
       'номера nonce. Обеспечивают проверяемость результатов.',
     '<b>Данные о платежах</b> - суммы, даты, статусы, идентификаторы операций ' +
-      'платёжного провайдера, реквизиты вывода. Полные реквизиты платёжных ' +
-      'карт нам не передаются и у нас не хранятся.',
+      'платёжного провайдера, реквизиты вывода. Номер карты, указанный для ' +
+      'вывода, хранится в зашифрованном виде. Срок действия карты и код ' +
+      'CVV нам не передаются и у нас не хранятся.',
     '<b>Данные верификации</b> - при прохождении проверки: документ, ' +
       'удостоверяющий личность, подтверждение адреса и принадлежности ' +
       'платёжного инструмента. Запрашиваются только при наличии оснований.',
@@ -25515,8 +26162,11 @@ const PRIVACY = [
 
   h('4. Файлы cookie и локальное хранилище'),
   p('Сервис не использует рекламные и трекинговые cookie и не передаёт данные ' +
-    'рекламным сетям. В локальном хранилище браузера сохраняются только ' +
-    'пользовательские настройки интерфейса, например состояние звука.'),
+    'рекламным сетям. Служебных cookie две: cookie сессии, которая удерживает ' +
+    'вход в Счёт, и случайный идентификатор браузера (хранится до двух лет), ' +
+    'по которому выявляются множественные Счета. В локальном хранилище браузера ' +
+    'сохраняются только пользовательские настройки интерфейса, например ' +
+    'состояние звука.'),
 
   h('5. Кому мы передаём данные'),
   p('Мы не продаём и не сдаём в аренду персональные данные. Передача возможна ' +
@@ -28019,11 +28669,7 @@ function track(name) {
 function openCashier() {
   if (state.guest) return openAuth(authDefaultPane());
   switchView('wallet');
-  const pane = document.getElementById('walletDepositPane');
-  if (pane) {
-    document.getElementById('walletWithdrawPane').hidden = true;
-    pane.hidden = false;
-  }
+  setCashMode('deposit');
 }
 
 /*
@@ -28164,6 +28810,16 @@ function celebrate(kind, payload = {}) {
 /** Сумма с отдельно выделенным знаком рубля: он набран жирнее цифр. */
 const moneyRich = (n) => `${fmtMoney(n)} <span class="rub">₽</span>`;
 
+/*
+ * Сколько игрок может поставить в наших играх: свои деньги и бонусный счёт.
+ * Бонус играет, когда своих не хватает на ставку, поэтому кнопка «открыть»
+ * не должна гаснуть у того, у кого свои кончились, а бонус есть. Шапка
+ * показывает только свои: их выводят и ими играет казино.
+ */
+function spendableMoney() {
+  return Math.max(0, state.user?.balance || 0) + Math.max(0, state.user?.bonusBalance || 0);
+}
+
 function renderBalance() {
   const chip = document.getElementById('balanceChip');
   document.getElementById('balanceValue').innerHTML = moneyRich(state.user.balance);
@@ -28195,10 +28851,19 @@ function renderPerkBar() {
       ×2 ${where}${p.count > 1 ? ` · ${p.count}` : ''}</span>`);
   }
 
+  // Бонусный счёт - первым: это деньги, которыми игрок может играть сейчас.
+  // Нажатие ведёт в кассу, где расписано, сколько осталось отыграть.
+  if ((state.user.bonusBalance || 0) > 0) {
+    chips.unshift(`<span class="perk-chip is-bonus" data-goto-cashier>
+      Бонус ${money(state.user.bonusBalance)}${state.user.wagerRequired > 0
+        ? ` · отыграть ${money(state.user.wagerRequired)}` : ''}</span>`);
+  }
+
   // Выигранных кейсов здесь нет намеренно: их место в «Бонусах». Полоса над
   // полками разрасталась на несколько строк и отжимала сами кейсы вниз.
 
   bar.innerHTML = chips.join('');
+  bar.querySelector('[data-goto-cashier]')?.addEventListener('click', () => { haptic('light'); openCashier(); });
   bar.hidden = !chips.length;
   mountIcons(bar);
 
@@ -28259,7 +28924,8 @@ function celebrateDeposit(before, after) {
     sndCoin();
   }, 60);
   if (!before.depositsCount) {
-    const bonus = (after.wagerRequired || 0) > (before.wagerRequired || 0);
+    // Про бонус сцена говорит, только если он правда пришёл на бонусный счёт.
+    const bonus = (after.bonusBalance || 0) > (before.bonusBalance || 0);
     setTimeout(() => showFirstDepositChest(gained, bonus), 900);
   }
 }
@@ -28981,7 +29647,7 @@ function openCase(caseId) {
       openAct.textContent = `Открыть ${auto} раз`;
       openSub.textContent = `по ${money(c.price)}`;
       openPrice.textContent = money(auto * c.price);
-      openBtn.disabled = !freeCount && c.price > state.user.balance;
+      openBtn.disabled = !freeCount && c.price > spendableMoney();
       fitOpenBtn();
       return;
     }
@@ -28991,7 +29657,7 @@ function openCase(caseId) {
     openAct.textContent = paid === 0 ? 'Открыть бесплатно' : 'Открыть';
     openSub.textContent = count > 1 ? `${count} ${plural(count, 'кейс', 'кейса', 'кейсов')} сразу` : 'один кейс';
     openPrice.textContent = paid === 0 ? `×${count}` : money(paid * c.price);
-    openBtn.disabled = paid * c.price > state.user.balance;
+    openBtn.disabled = paid * c.price > spendableMoney();
     fitOpenBtn();
   };
   refresh();
@@ -29407,8 +30073,8 @@ async function startOpening(caseId, count = 1, { again = false } = {}) {
 
   const freeCount = (state.user.vouchers || []).find((v) => v.case_id === c.id)?.count || 0;
   const need = Math.max(0, count - freeCount) * c.price;
-  if (need > state.user.balance) {
-    needMoney(need - state.user.balance);
+  if (need > spendableMoney()) {
+    needMoney(need - spendableMoney());
     return;
   }
 
@@ -29686,7 +30352,7 @@ function renderFreeSpinBuy(c, locked) {
 
     return `<button class="fsbuy-btn${p.popular ? ' is-popular' : ''}" data-fs="${p.count}"
         aria-label="${p.count} прокрутов за ${money(price)}"
-        ${price > state.user.balance ? 'disabled' : ''}>
+        ${price > spendableMoney() ? 'disabled' : ''}>
       <b class="fsbuy-count">${p.count}</b>
       <span class="fsbuy-word">free spins</span>
       <span class="fsbuy-price">${money(price)}</span>
@@ -29760,7 +30426,7 @@ function confirmBuyFreeSpins(c, count, fromEl = null) {
   const perSpin = Math.round(price / count);
   document.getElementById('buyRows').innerHTML = `
     <span>по ${money(perSpin)} за прокрут</span>
-    <span>останется ${money(Math.max(0, state.user.balance - price))}</span>`;
+    <span>останется ${money(Math.max(0, spendableMoney() - price))}</span>`;
   document.getElementById('buyNote').textContent =
     'Прокруты начнутся сразу. Внутри серии может выпасть что угодно из этого кейса, включая новые фриспины.';
 
@@ -29771,7 +30437,7 @@ function confirmBuyFreeSpins(c, count, fromEl = null) {
 
   const confirmBtn = document.getElementById('buyConfirm');
   const cancelBtn = document.getElementById('buyCancel');
-  const short = price > state.user.balance;
+  const short = price > spendableMoney();
   confirmBtn.querySelector('.open-act > span').textContent = short ? 'Не хватает' : 'Купить';
   document.getElementById('buySub').textContent = `${count} ${plural(count, 'прокрут', 'прокрута', 'прокрутов')}`;
   document.getElementById('buyPrice').textContent = money(price);
@@ -30011,8 +30677,8 @@ async function runAutoOpen(caseId, times) {
     // Ваучер тратится первым, поэтому проверяем баланс только на платный
     // прокрут. Список ваучеров обновляется ответом сервера на каждом шаге.
     const freeLeft = (state.user.vouchers || []).find((v) => v.case_id === c.id)?.count || 0;
-    if (!freeLeft && c.price > state.user.balance) {
-      needMoney(c.price - state.user.balance);
+    if (!freeLeft && c.price > spendableMoney()) {
+      needMoney(c.price - spendableMoney());
       break;
     }
 
@@ -30558,7 +31224,7 @@ function showCaseResult(data, caseData) {
 function setAgainButton(btn, caseData, count) {
   const freeLeft = (state.user.vouchers || []).find((v) => v.case_id === caseData.id)?.count || 0;
   const paid = Math.max(0, count - freeLeft);
-  btn.disabled = paid * caseData.price > state.user.balance;
+  btn.disabled = paid * caseData.price > spendableMoney();
   btn.querySelector('.open-act > span').textContent = btn.disabled ? 'Не хватает' : 'Ещё раз';
   btn.querySelector('.open-act small').textContent =
     count > 1 ? `${count} ${plural(count, 'кейс', 'кейса', 'кейсов')} сразу` : 'тот же кейс';
@@ -31038,7 +31704,7 @@ function wireBetPanel(inputId, addAttr, quickAttr) {
       const cur = betValue(inputId) || 1;
       if (mode === 'half') setBet(inputId, Math.max(1, Math.floor(cur / 2)));
       if (mode === 'double') setBet(inputId, cur * 2);
-      if (mode === 'max') setBet(inputId, Math.max(1, state.user.balance));
+      if (mode === 'max') setBet(inputId, Math.max(1, spendableMoney()));
       haptic('light');
     });
   });
@@ -31289,8 +31955,8 @@ async function startCrash() {
 
   const bet = betValue('crashBet');
   if (!bet) { toast('Укажите ставку'); return; }
-  if (bet > state.user.balance) {
-    needMoney(bet - state.user.balance);
+  if (bet > spendableMoney()) {
+    needMoney(bet - spendableMoney());
     return;
   }
 
@@ -31695,8 +32361,8 @@ async function spinRoulette() {
 
   const bet = betValue('rouletteBet');
   if (!bet) { toast('Укажите ставку'); return; }
-  if (bet > state.user.balance) {
-    needMoney(bet - state.user.balance);
+  if (bet > spendableMoney()) {
+    needMoney(bet - spendableMoney());
     return;
   }
 
@@ -32026,7 +32692,10 @@ async function openAdminUser(userId) {
       { label: 'Долг по обороту', value: fmt(d.money.depositDebt),
         cls: d.money.depositDebt ? 'minus' : 'plus',
         sub: d.money.depositDebt ? 'вывод закрыт, пока не отыграет' : 'вывод открыт' },
-      { label: 'Отыграть бонус', value: fmt(d.money.wagerRequired) },
+      { label: 'Бонусный счёт', value: fmt(d.money.bonusBalance || 0),
+        sub: d.money.wagerRequired ? `отыграть ${fmt(d.money.wagerRequired)}` : 'вывод не запирает' },
+      { label: 'Бонусы в деньги', value: fmt(d.money.bonusConverted || 0),
+        sub: `ещё можно ${fmt(d.money.bonusCashoutLeft || 0)}` },
     ])}
 
     <div class="bo-daybar">
@@ -33349,6 +34018,42 @@ function siciliaPayoutBlock(p, gateway, info) {
   </div>`;
 }
 
+/*
+ * Плашка проверки заявки на вывод. Зелёная - всё сошлось, красная - есть
+ * подозрения, с причинами. Красную нельзя двинуть к выплате, пока сотрудник
+ * не разобрал причины и не подтвердил заявку комментарием: подозрение не
+ * должно уйти деньгами одним нажатием «взять в работу».
+ */
+function riskPlate(p) {
+  const c = p.check;
+  if (!c) return '';
+  const green = c.verdict === 'green';
+  const why = green ? 'Математика сходится, источники денег подтверждены'
+    : esc((c.reasons || []).join(' · '));
+  const ok = c.override
+    ? `<div class="risk-override">Подтверждено сотрудником: «${esc(c.override.comment)}»</div>` : '';
+  return `<div class="risk-plate ${green ? 'risk-green' : 'risk-red'}">
+      <span class="risk-dot" aria-hidden="true"></span>
+      <div class="risk-text"><b>${green ? 'Проверено системой' : 'Есть подозрения'}</b><small>${why}</small></div>
+      <button class="risk-more" data-risk-open="${p.id}" type="button">Подробнее</button>
+    </div>
+    ${ok}
+    <div class="risk-details" data-risk-details="${p.id}" hidden></div>`;
+}
+
+/** Полный разбор проверки: каждый пункт с подробностями. */
+function riskDetailsHtml(c) {
+  const s = c.summary || {};
+  const rows = c.checks.map((x) => `<li class="${x.ok ? 'ok' : x.level === 'info' ? 'info' : 'bad'}">
+      <span>${x.ok ? '✓' : x.level === 'info' ? 'i' : '✗'}</span>
+      <div><b>${esc(x.title)}</b><small>${esc(x.detail || '')}</small></div></li>`).join('');
+  return `<ul class="risk-list">${rows}</ul>
+    <div class="risk-summary">Пополнил ${money(s.deposited || 0)} · выплачено ${money(s.paidOut || 0)} ·
+      итог игр ${money(s.gamesNet || 0)} · раундов ${fmt(s.rounds || 0)} · лучший выигрыш ${money(s.bestWin || 0)} ·
+      аккаунту ${fmt(s.accountAgeDays || 0)} дн. · проверено ${new Date(c.checkedAt).toLocaleString('ru-RU')}</div>
+    <button class="btn btn-outline btn-sm" data-risk-recheck="${c.payoutId || ''}" type="button">Перепроверить</button>`;
+}
+
 async function loadAdminPayouts() {
   let d;
   try { d = await api('/api/admin/payouts', { status: state.admin.payoutStatus || 'pending' }); }
@@ -33387,7 +34092,16 @@ async function loadAdminPayouts() {
       <div class="payout-date">${esc(name)} · ${esc(playerIdent(p, p.user_id))} ·
         баланс ${money(p.balance)} · ${new Date(p.created_at).toLocaleString('ru-RU')}</div>
       <div class="payout-requisites">${payoutRequisites(p, { full: true })}</div>
+      ${riskPlate(p)}
       ${p.comment ? `<div class="payout-comment">${esc(p.comment)}</div>` : ''}
+      ${p.check && p.check.verdict === 'red' && !p.check.override && ['pending', 'processing'].includes(p.status) ? `
+        <textarea class="seed-input risk-note" data-risk-note="${p.id}" rows="2"
+          placeholder="Почему заявку можно выплатить: что проверено вручную"></textarea>
+        <div class="admin-actions">
+          <button class="btn btn-primary" data-risk-ok="${p.id}">Подтвердить заявку</button>
+          <button class="btn btn-outline" data-resolve="rejected" data-id="${p.id}">Отклонить</button>
+        </div>
+        <input class="seed-input payout-note" data-note="${p.id}" placeholder="комментарий игроку (при отклонении)">` : `
       ${siciliaPayoutBlock(p, d.gateway || {}, sic)}
       ${p.status === 'pending' ? `
         <input class="seed-input payout-note" data-note="${p.id}" placeholder="комментарий игроку">
@@ -33398,9 +34112,41 @@ async function loadAdminPayouts() {
         <input class="seed-input payout-note" data-note="${p.id}" placeholder="комментарий игроку">
         <div class="admin-actions">
           <button class="btn btn-primary" data-resolve="paid" data-id="${p.id}">Выполнено</button>
-        </div>` : ''}
+        </div>` : ''}`}
     </div>`;
   }).join('');
+
+  const openDetails = async (id, recheck = false) => {
+    const panel = box.querySelector(`[data-risk-details="${id}"]`);
+    if (!panel) return;
+    panel.hidden = false;
+    panel.innerHTML = '<span class="skel skel-line"></span>';
+    try {
+      const { check } = await api('/api/admin/payout/check', { id, recheck });
+      panel.innerHTML = riskDetailsHtml({ ...check, payoutId: id });
+      panel.querySelector('[data-risk-recheck]')?.addEventListener('click', async () => {
+        await openDetails(id, true);
+        loadAdminPayouts();
+      });
+    } catch (err) { panel.innerHTML = `<div class="empty">${esc(err.message)}</div>`; }
+  };
+  box.querySelectorAll('[data-risk-open]').forEach((btn) => btn.addEventListener('click', () => {
+    const id = Number(btn.dataset.riskOpen);
+    const panel = box.querySelector(`[data-risk-details="${id}"]`);
+    if (panel && !panel.hidden) { panel.hidden = true; return; }
+    openDetails(id);
+  }));
+
+  box.querySelectorAll('[data-risk-ok]').forEach((btn) => btn.addEventListener('click', async () => {
+    const id = Number(btn.dataset.riskOk);
+    const comment = box.querySelector(`[data-risk-note="${id}"]`)?.value || '';
+    try {
+      await api('/api/admin/payout/override', { id, comment });
+      toast('Заявка подтверждена, решение записано в журнал');
+      haptic('success');
+      loadAdminPayouts();
+    } catch (err) { toast(err.message); haptic('error'); }
+  }));
 
   // Выплата через шлюз - вторым нажатием: первое показывает, сколько и куда.
   box.querySelectorAll('[data-sic-pay]').forEach((btn) => {
@@ -33507,14 +34253,10 @@ function switchView(name) {
   if (name === 'wallet') {
     loadWallet();
     track('cashier_view');
-    // На компьютере касса стоит в две колонки, и правая - это открытая панель.
-    // Без неё половина экрана пустует, поэтому пополнение раскрыто сразу:
-    // за ним в кассу и приходят.
-    if (window.matchMedia('(min-width: 1024px)').matches) {
-      const deposit = document.getElementById('walletDepositPane');
-      const withdraw = document.getElementById('walletWithdrawPane');
-      if (deposit.hidden && withdraw.hidden) deposit.hidden = false;
-    }
+    // «Пополнить» и «Вывести» - переключатель, а не две раскрывашки: одна
+    // панель открыта всегда. Первым раскрыто пополнение, за ним в кассу и
+    // приходят; на компьютере без него пустовала бы вся правая колонка.
+    if (!document.getElementById('cashSwitch').dataset.mode) setCashMode('deposit');
   }
   if (name === 'roulette') renderRouletteWheel();
   if (name === 'crash') { if (!state.crash) resetCrashGraph(); crashFx().wake(); }
@@ -33843,6 +34585,153 @@ const SOURCE_LABEL = {
   welcome: 'Бонус за первое пополнение',
 };
 
+/* ---------- Касса: общие детали оформления ---------- */
+
+/*
+ * Иконки кассы. Один набор с одной толщиной линии: раньше в кассе не было ни
+ * одной иконки, и экран держался на рамках разного цвета, отчего каждый блок
+ * выглядел отдельной поделкой.
+ */
+const CASH_ICONS = {
+  shield: '<path d="M12 3.2 5 6v5.4c0 4.3 3 8 7 9.4 4-1.4 7-5.1 7-9.4V6l-7-2.8Z"/><path d="m9 12 2.2 2.2L15.4 10"/>',
+  in: '<path d="M12 4v11"/><path d="m7.5 10.5 4.5 4.5 4.5-4.5"/><path d="M5 19.5h14"/>',
+  out: '<path d="M12 20V9"/><path d="m7.5 13.5 4.5-4.5 4.5 4.5"/><path d="M5 4.5h14"/>',
+  card: '<rect x="3" y="5.5" width="18" height="13" rx="2.6"/><path d="M3 10h18"/><path d="M7 14.6h3.2"/>',
+  crypto: '<path d="M12 2.8 20 7.4v9.2l-8 4.6-8-4.6V7.4l8-4.6Z"/><path d="M9.6 8.6h3.6a1.7 1.7 0 0 1 0 3.4H9.6m0 0h4.1a1.7 1.7 0 0 1 0 3.4H9.6V8.6Z"/>',
+  arrow: '<path d="M5 12h13"/><path d="m13 6.5 5.5 5.5-5.5 5.5"/>',
+  copy: '<rect x="8.5" y="8.5" width="11" height="11" rx="2.4"/><path d="M15.5 8.5V6.9a2.4 2.4 0 0 0-2.4-2.4H6.9a2.4 2.4 0 0 0-2.4 2.4v6.2a2.4 2.4 0 0 0 2.4 2.4h1.6"/>',
+  check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
+  info: '<circle cx="12" cy="12" r="8.5"/><path d="M12 11v5"/><path d="M12 7.9v.1"/>',
+  warn: '<path d="M12 4 21 19.5H3L12 4Z"/><path d="M12 10v4.2"/><path d="M12 17v.1"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  gift: '<rect x="4" y="9" width="16" height="11" rx="2"/><path d="M3 9h18M12 9v11"/><path d="M12 9c-2.5 0-4.5-1-4.5-2.8S10 4 12 9Zm0 0c2.5 0 4.5-1 4.5-2.8S14 4 12 9Z"/>',
+  open: '<path d="M14 4.5h5.5V10"/><path d="M19.5 4.5 11 13"/><path d="M18 14v4a1.5 1.5 0 0 1-1.5 1.5h-10A1.5 1.5 0 0 1 5 18V8a1.5 1.5 0 0 1 1.5-1.5h4"/>',
+  refresh: '<path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3"/><path d="M19.5 4.5v4h-4"/>',
+  back: '<path d="M19 12H6"/><path d="m11 6.5-5.5 5.5 5.5 5.5"/>',
+  empty: '<rect x="4" y="5" width="16" height="14" rx="3"/><path d="M4 10h16"/><path d="M8 14.5h4"/>',
+};
+
+const cashIcon = (name) =>
+  `<svg class="cash-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+    stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${CASH_ICONS[name] || ''}</svg>`;
+
+/** Подставляет иконки в разметку из index.html по data-cash-ico. */
+function hydrateCashIcons(root) {
+  root?.querySelectorAll('[data-cash-ico]').forEach((el) => {
+    if (el.dataset.icoDone) return;
+    el.insertAdjacentHTML('afterbegin', cashIcon(el.dataset.cashIco));
+    el.dataset.icoDone = '1';
+  });
+}
+hydrateCashIcons(document.getElementById('view-wallet'));
+
+/** Высота карточки баланса для липкого переключателя под ней (см. styles.css). */
+(function watchCashHero() {
+  const hero = document.querySelector('#view-wallet > .wallet-card');
+  if (!hero || typeof ResizeObserver === 'undefined') return;
+  new ResizeObserver(() => {
+    document.getElementById('view-wallet').style.setProperty('--cash-hero-h', `${hero.offsetHeight}px`);
+  }).observe(hero);
+})();
+
+const cashReduceMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+
+/** Дата в истории: «18 окт., 10:11». Год и секунды в кассе никто не читает. */
+const cashDate = (ts) => new Date(ts).toLocaleString('ru-RU', {
+  day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+});
+
+/** Длительность докрутки баланса, мс. */
+const CASH_BALANCE_TWEEN_MS = 700;
+let cashShownBalance = null;
+
+/*
+ * Баланс докручивается от старого значения к новому, а не подменяется:
+ * вывод и отмена заявки видны глазами, а не только по цифре. Знак рубля -
+ * отдельным узлом, мельче и золотом: крупная сумма читается быстрее без него.
+ */
+function paintCashBalance(to) {
+  const el = document.getElementById('walletBalance');
+  // Копейки бывают (казино), поэтому в промежутке целые рубли, а в конце
+  // ровно та сумма, что пришла с сервера.
+  const draw = (v) => { el.innerHTML = `${fmtMoney(v)}<span class="cash-cur">₽</span>`; };
+  const from = cashShownBalance;
+  cashShownBalance = to;
+  if (from === null || from === to || cashReduceMotion()) { draw(to); return; }
+
+  const start = performance.now();
+  const step = (now) => {
+    if (cashShownBalance !== to) return;
+    const t = Math.min(1, (now - start) / CASH_BALANCE_TWEEN_MS);
+    draw(t < 1 ? Math.round(from + (to - from) * (1 - Math.pow(1 - t, 3))) : to);
+    if (t < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
+/**
+ * «Пополнить» и «Вывести» - один переключатель: открыта всегда ровно одна
+ * панель. Раньше это были две кнопки-раскрывашки разных цветов, и на
+ * телефоне касса открывалась пустой, без формы.
+ */
+function setCashMode(mode) {
+  const sw = document.getElementById('cashSwitch');
+  if (!sw || sw.dataset.mode === mode) return;
+  sw.dataset.mode = mode;
+  for (const [key, paneId, tabId] of [
+    ['deposit', 'walletDepositPane', 'walletDeposit'],
+    ['withdraw', 'walletWithdrawPane', 'walletWithdraw'],
+  ]) {
+    const on = key === mode;
+    const tab = document.getElementById(tabId);
+    tab.classList.toggle('active', on);
+    tab.setAttribute('aria-selected', String(on));
+    const pane = document.getElementById(paneId);
+    pane.hidden = !on;
+    // Анимацию входа перезапускаем вручную: панель не создаётся заново, а
+    // только показывается, и без перезапуска она сыграла бы один раз.
+    if (on) { pane.classList.remove('is-entering'); void pane.offsetWidth; pane.classList.add('is-entering'); }
+  }
+}
+
+/** Строка истории: значок, что и когда, сумма и статус. */
+function cashTxRow({ tone, icon, title, sub, amount, status }) {
+  return `<div class="cash-tx tone-${tone}">
+    <span class="cash-tx-ico">${cashIcon(icon)}</span>
+    <span class="cash-tx-main"><b>${title}</b><small>${sub}</small></span>
+    <span class="cash-tx-side"><b>${amount}</b><small>${status}</small></span>
+  </div>`;
+}
+
+const cashEmpty = (title, text) => `<div class="cash-empty">
+  <span class="cash-empty-ico">${cashIcon('empty')}</span><b>${title}</b><small>${text}</small></div>`;
+
+/** Кнопка на время запроса: крутится и не нажимается, чтобы не создать две заявки. */
+async function withCashBusy(btn, fn) {
+  if (!btn || btn.classList.contains('is-busy')) return;
+  btn.classList.add('is-busy');
+  btn.disabled = true;
+  try { await fn(); } finally { btn.classList.remove('is-busy'); btn.disabled = false; }
+}
+
+/** Копирование с подтверждением на самой кнопке: тост внизу экрана легко пропустить. */
+function bindCashCopy(btn, text, label = 'Скопировать') {
+  btn?.addEventListener('click', async () => {
+    let ok = false;
+    try { await navigator.clipboard.writeText(text); ok = true; } catch { /* нет доступа к буферу */ }
+    if (!ok) { toast('Скопируйте вручную'); return; }
+    haptic('light');
+    const span = btn.querySelector('.cash-copy-label');
+    btn.classList.add('is-copied');
+    if (span) span.textContent = 'Скопировано';
+    clearTimeout(btn._copyTimer);
+    btn._copyTimer = setTimeout(() => {
+      btn.classList.remove('is-copied');
+      if (span) span.textContent = label;
+    }, 1600);
+  });
+}
+
 /** То же предложение, что на первом экране, но внутри кассы. */
 function renderDepositOffer() {
   const el = document.getElementById('depositOffer');
@@ -33855,8 +34744,9 @@ function renderDepositOffer() {
 
   const cap = rules.max > 0 ? ` (не больше ${money(rules.max)})` : '';
   el.innerHTML = `<b>Первое пополнение +${rules.pct}%${cap}.</b>
-    Бонус придёт вместе с самим пополнением от ${money(rules.min)}.
-    Вывести его можно после ставок на ${rules.wager} суммы бонуса.`;
+    Бонус придёт на бонусный счёт вместе с пополнением от ${money(rules.min)}.
+    Им играют, когда своих не хватает на ставку, а после ставок бонусом на
+    ${rules.wager} его суммы он переходит в деньги. Свои деньги выводятся в любой момент.`;
 }
 
 async function loadWallet() {
@@ -33875,31 +34765,23 @@ async function loadWallet() {
   state.wallet = w;
   renderDepositOffer();
 
-  document.getElementById('walletBalance').textContent = money(w.balance);
+  paintCashBalance(w.balance);
   document.getElementById('walletRows').innerHTML = `
-    <div class="wallet-row"><span>Доступно к выводу</span><b>${money(w.available)}</b></div>
-    ${w.pending ? `<div class="wallet-row pending"><span>В обработке</span>
-      <b>${money(w.pending)}</b></div>` : ''}
-    <div class="wallet-row"><span>Минимальная сумма вывода</span><b>${money(w.minPayout)}</b></div>
+    <div class="cash-stat"><span>К выводу</span><b>${money(w.available)}</b></div>
+    ${w.pending ? `<div class="cash-stat is-pending"><span>В обработке</span><b>${money(w.pending)}</b></div>` : ''}
+    <div class="cash-stat"><span>Мин. вывод</span><b>${money(w.minPayout)}</b></div>
   `;
 
+  // Бонусы приходят отдельной строкой рядом с самим пополнением, и плюсом
+  // им рисовать нечего: значок подарка отличает их от внесённых денег.
   document.getElementById('depositList').innerHTML = w.deposits.length
-    ? w.deposits.map((d) => `<div class="log-row">
-        <span>${esc(d.comment || SOURCE_LABEL[d.source] || 'Пополнение')}<br>
-          <small>${new Date(d.created_at).toLocaleString('ru-RU')}</small></span>
-        <b class="plus">+${money(d.amount)}</b>
-      </div>`).join('')
-    : '<div class="empty">Пополнений пока не было</div>';
-
-  // Пустой баланс - тупик ровно так же, как «не хватает» в кейсе: смотреть
-  // в кассе не на что, и уйти из неё некуда. Кнопка открывает пополнение.
-  if (!w.balance && !w.deposits.length) {
-    document.getElementById('depositList').innerHTML =
-      `<div class="empty">Пополнений пока не было<br>
-        <button class="btn btn-primary" id="emptyDeposit" style="margin-top:12px">Пополнить</button>
-      </div>`;
-    document.getElementById('emptyDeposit').onclick = () => { haptic('light'); openCashier(); };
-  }
+    ? w.deposits.map((d) => cashTxRow({
+        tone: 'ok', icon: ['promo', 'welcome'].includes(d.source) ? 'gift' : 'plus',
+        title: esc(d.comment || SOURCE_LABEL[d.source] || 'Пополнение'),
+        sub: cashDate(d.created_at),
+        amount: `+${money(d.amount)}`, status: 'Зачислено',
+      })).join('')
+    : cashEmpty('Пополнений пока нет', 'Здесь появятся все зачисления на баланс');
 
   renderPayoutList(w.payouts);
 
@@ -33908,13 +34790,53 @@ async function loadWallet() {
    * «доступно 0» при полном балансе читается как поломка, поэтому условие
    * названо прямо здесь, с конкретным числом, а не спрятано в правилах.
    */
+  renderWalletBonus(w.bonus);
+
   document.getElementById('withdrawHint').innerHTML =
-    `Доступно <b>${money(w.available)}</b> · минимум ${money(w.minPayout)}`
+    `Доступно <b>${money(w.available)}</b><i></i>минимум ${money(w.minPayout)}`
     + (w.depositDebt > 0
       ? `<span class="withdraw-locked">Пополнение нужно прокрутить через ставки:
            осталось поставить ${money(w.depositDebt)}. После этого выводится
            весь баланс, включая выигрыш.</span>`
       : '');
+}
+
+/**
+ * Бонусный счёт в кассе: сколько есть, сколько отыграть, сколько можно
+ * перевести в деньги, и отказ. Правило потолка называется прямо: игрок,
+ * который отыграл бонус и не увидел его в деньгах целиком, должен знать
+ * почему ещё до этого, а не после.
+ */
+function renderWalletBonus(b) {
+  const box = document.getElementById('walletBonus');
+  if (!box) return;
+  if (!b || !(b.balance > 0)) { box.hidden = true; box.innerHTML = ''; return; }
+  box.hidden = false;
+  const left = b.wagerLeft > 0
+    ? `Осталось поставить бонусом <b>${money(b.wagerLeft)}</b>, и он перейдёт в деньги.`
+    : 'Бонус отыгран и ждёт лимита: перейдёт в деньги после следующего пополнения.';
+  box.innerHTML = `
+    <div class="cash-bonus-head"><span>Бонусный счёт</span><b>${money(b.balance)}</b></div>
+    <p>${left} Бонусом играют в кейсах, краше, рулетке и апгрейде, когда своих
+      не хватает на ставку. В деньги бонусы переходят до ${b.rules.cashoutPct}% от суммы
+      пополнений: сейчас можно перевести до ${money(b.cashoutLeft)}.</p>
+    <button class="cash-bonus-refuse" id="bonusRefuse" type="button">Отказаться от бонуса</button>`;
+  const btn = document.getElementById('bonusRefuse');
+  btn.addEventListener('click', async () => {
+    // Вторым нажатием: отказ необратим, и случайное касание не должно сжечь бонус.
+    if (btn.dataset.armed !== '1') {
+      btn.dataset.armed = '1';
+      btn.textContent = `Точно отказаться от ${money(b.balance)}?`;
+      return;
+    }
+    try {
+      const r = await api('/api/bonus/refuse');
+      applyUser(r.user);
+      toast('Бонус снят, свои деньги на месте');
+      haptic('light');
+      loadWallet();
+    } catch (err) { toast(err.message); haptic('error'); }
+  });
 }
 
 /**
@@ -33987,7 +34909,7 @@ function freshPaidIds(payouts) {
 function renderPayoutList(payouts) {
   const box = document.getElementById('payoutList');
   if (!payouts.length) {
-    box.innerHTML = '<div class="empty">Заявок пока не было</div>';
+    box.innerHTML = cashEmpty('Заявок пока нет', 'Созданные заявки на вывод появятся здесь');
     return;
   }
 
@@ -34003,11 +34925,11 @@ function renderPayoutList(payouts) {
         <b>${money(p.amount)}</b>
         <span class="payout-status ${p.status}">${STATUS_LABEL[p.status] || p.status}</span>
       </div>
-      <div class="payout-date">${new Date(p.created_at).toLocaleString('ru-RU')}</div>
+      <div class="payout-date">${cashDate(p.created_at)}</div>
       <div class="payout-requisites">${payoutRequisites(p)}</div>
       ${p.comment ? `<div class="payout-comment">${esc(p.comment)}</div>` : ''}
       ${p.status === 'pending'
-        ? `<button class="btn btn-outline btn-sm payout-cancel" data-cancel="${p.id}">Отменить</button>`
+        ? `<button class="payout-cancel" data-cancel="${p.id}">Отменить заявку</button>`
         : ''}
     </div>`).join('');
 
@@ -34027,12 +34949,7 @@ function renderPayoutList(payouts) {
   });
 }
 
-document.getElementById('walletDeposit').addEventListener('click', () => {
-  const pane = document.getElementById('walletDepositPane');
-  document.getElementById('walletWithdrawPane').hidden = true;
-  pane.hidden = !pane.hidden;
-  haptic('light');
-});
+document.getElementById('walletDeposit').addEventListener('click', () => { setCashMode('deposit'); haptic('light'); });
 
 /* ============================================================
    КРИПТОКАССА
@@ -34198,6 +35115,7 @@ function renderCryptoQuick() {
   row.querySelectorAll('.quick-btn').forEach((b) => b.addEventListener('click', () => {
     input.value = b.dataset.sum;
     refreshCryptoRate('deposit');
+    markQuick(row, input);
     haptic('light');
   }));
 }
@@ -34214,8 +35132,7 @@ async function openCryptoDeposit() {
 
   renderCoinGrid(document.getElementById('coinGrid'), 'deposit');
   renderCryptoQuick();
-  document.getElementById('cryptoAmount').placeholder =
-    `Сумма пополнения, ₽ (от ${money(cryptoState.min)})`;
+  document.getElementById('cryptoAmount').placeholder = `от ${fmtMoney(cryptoState.min)}`;
   selectCoin('deposit', cryptoState.deposit.currency || cryptoState.coins[0].currency);
 }
 
@@ -34227,7 +35144,16 @@ document.getElementById('coinNetworkSelect')?.addEventListener('change', (e) => 
 document.getElementById('withdrawNetwork')?.addEventListener('change', (e) => {
   cryptoState.withdraw.network = e.target.value;
 });
-document.getElementById('cryptoAmount')?.addEventListener('input', () => refreshCryptoRate('deposit'));
+document.getElementById('cryptoAmount')?.addEventListener('input', (e) => {
+  refreshCryptoRate('deposit');
+  markQuick(document.getElementById('cryptoQuick'), e.target);
+});
+
+/** Подсвечивает быструю сумму, совпавшую с введённой: видно, что выбрано. */
+function markQuick(row, input) {
+  row?.querySelectorAll('.quick-btn').forEach((b) =>
+    b.classList.toggle('active', Number(b.dataset.sum) === Number(input.value)));
+}
 
 document.getElementById('cryptoCreateBtn')?.addEventListener('click', async () => {
   const { currency, network } = cryptoState.deposit;
@@ -34235,18 +35161,16 @@ document.getElementById('cryptoCreateBtn')?.addEventListener('click', async () =
   if (!currency || !network) return toast('Выберите монету и сеть');
   if (!amount || amount < cryptoState.min) return toast(`Минимум ${money(cryptoState.min)}`);
 
-  const btn = document.getElementById('cryptoCreateBtn');
-  btn.disabled = true;
-  try {
-    const payment = await api('/api/crypto/create', { amount, currency, network });
-    showCryptoCheckout(payment);
-    haptic('success');
-  } catch (err) {
-    toast(err.message);
-    haptic('error');
-  } finally {
-    btn.disabled = false;
-  }
+  await withCashBusy(document.getElementById('cryptoCreateBtn'), async () => {
+    try {
+      const payment = await api('/api/crypto/create', { amount, currency, network });
+      showCryptoCheckout(payment);
+      haptic('success');
+    } catch (err) {
+      toast(err.message);
+      haptic('error');
+    }
+  });
 });
 
 /**
@@ -34265,6 +35189,7 @@ function showCryptoCheckout(p) {
       <div class="invoice-head">
         ${coinMark(p.currency, 44)}
         <div>
+          <div class="invoice-label">К оплате</div>
           <div class="invoice-sum">${p.payerAmount || '-'} ${p.currency}</div>
           <div class="invoice-sub">за ${money(p.amountRub)} · сеть ${esc(p.networkName)}</div>
         </div>
@@ -34277,25 +35202,26 @@ function showCryptoCheckout(p) {
       ${p.address ? `
         <div class="field-label">Адрес для перевода</div>
         <button class="invoice-address" id="cryptoCopy" type="button">
-          <span>${esc(p.address)}</span><small>нажмите, чтобы скопировать</small>
+          <span class="invoice-addr">${esc(p.address)}</span>
+          <span class="cash-copy">${cashIcon('copy')}${cashIcon('check')}<span class="cash-copy-label">Скопировать</span></span>
         </button>` : ''}
 
-      <div class="invoice-warn">Отправляйте только ${p.currency} в сети
-        ${esc(p.networkName)}. Перевод в другой сети теряется без возврата.</div>
+      <div class="invoice-warn">${cashIcon('warn')}<span>Отправляйте только ${p.currency} в сети
+        ${esc(p.networkName)}. Перевод в другой сети теряется без возврата.</span></div>
 
-      ${p.payUrl ? `<a class="btn btn-primary btn-wide" href="${p.payUrl}"
-         target="_blank" rel="noopener">Открыть страницу оплаты</a>` : ''}
+      ${p.payUrl ? `<a class="cash-cta" href="${p.payUrl}"
+         target="_blank" rel="noopener"><span>Открыть страницу оплаты</span>${cashIcon('open')}</a>` : ''}
 
-      <button class="btn btn-outline btn-wide" id="cryptoCheck">Я оплатил, проверить</button>
-      <button class="btn btn-outline btn-wide" id="cryptoBack">Другой способ</button>
+      <div class="cash-row2">
+        <button class="cash-ghost" id="cryptoCheck">${cashIcon('refresh')}Я оплатил</button>
+        <button class="cash-ghost" id="cryptoBack">Другой способ</button>
+      </div>
       <div class="invoice-status" id="cryptoStatus"></div>
     </div>`;
 
-  document.getElementById('cryptoCopy')?.addEventListener('click', () => {
-    navigator.clipboard?.writeText(p.address).then(
-      () => toast('Адрес скопирован'), () => toast('Скопируйте адрес вручную'));
-    haptic('light');
-  });
+  // Адрес копируется нажатием на всю плашку: переписывать его руками с экрана
+  // телефона - верный способ потерять перевод.
+  bindCashCopy(document.getElementById('cryptoCopy'), p.address);
 
   document.getElementById('cryptoBack').addEventListener('click', () => {
     box.hidden = true;
@@ -34394,15 +35320,29 @@ function openSiciliaDeposit() {
   markDepositMethod('sicilia');
   showDepositPane('siciliaCreate');
   const input = document.getElementById('siciliaAmount');
-  input.placeholder = `Сумма, ₽ (от ${money(siciliaState.min)})`;
+  input.placeholder = `от ${fmtMoney(siciliaState.min)}`;
   document.getElementById('siciliaQuick').innerHTML = SICILIA_QUICK
     .filter((v) => v >= siciliaState.min && v <= siciliaState.max)
     .map((v) => `<button type="button" class="quick-btn" data-sum="${v}">${money(v)}</button>`).join('');
   document.querySelectorAll('#siciliaQuick [data-sum]').forEach((b) => b.addEventListener('click', () => {
     input.value = b.dataset.sum;
+    syncSiciliaAmount();
     haptic('light');
   }));
+  syncSiciliaAmount();
 }
+
+/*
+ * Кнопка называет сумму: «Оплатить 3 000 ₽» перед уходом в чужое окно
+ * успокаивает лучше безликого «Перейти к оплате».
+ */
+function syncSiciliaAmount() {
+  const input = document.getElementById('siciliaAmount');
+  const n = Number(input.value);
+  markQuick(document.getElementById('siciliaQuick'), input);
+  document.getElementById('siciliaCreateLabel').textContent = n > 0 ? `Оплатить ${money(n)}` : 'Перейти к оплате';
+}
+document.getElementById('siciliaAmount')?.addEventListener('input', syncSiciliaAmount);
 
 document.querySelector('[data-payment-method="sicilia"]')?.addEventListener('click', () => {
   clearInterval(siciliaState.poll);
@@ -34415,6 +35355,7 @@ document.getElementById('siciliaCreateBtn')?.addEventListener('click', async () 
   if (amount > siciliaState.max) return toast(`Максимум ${money(siciliaState.max)}`);
   const btn = document.getElementById('siciliaCreateBtn');
   btn.disabled = true;
+  btn.classList.add('is-busy');
   const pending = window.open('', '_blank');
   try {
     const order = await api('/api/sicilia/create', { amount });
@@ -34427,6 +35368,7 @@ document.getElementById('siciliaCreateBtn')?.addEventListener('click', async () 
     haptic('error');
   } finally {
     btn.disabled = false;
+    btn.classList.remove('is-busy');
   }
 });
 
@@ -34437,13 +35379,21 @@ function showSiciliaCheckout(order, opened = true) {
   const box = document.getElementById('siciliaCheckout');
   box.innerHTML = `
     <div class="sicilia-wait">
+      <div class="cash-wait-head">
+        <span class="cash-pulse" aria-hidden="true"></span>
+        <div>
+          <div class="cash-wait-status">Ждём подтверждения банка</div>
+          <div class="sicilia-wait-sub">${opened ? 'Оплата открыта в отдельном окне' : 'Окно оплаты не открылось само'}</div>
+        </div>
+      </div>
       <div class="sicilia-wait-sum">${money(order.amount)}</div>
-      <div class="sicilia-wait-sub">Оплата открыта в отдельном окне</div>
-      <p>${opened ? 'Переведите точную сумму по реквизитам в окне оплаты.' : 'Окно не открылось само - нажмите кнопку ниже.'}
+      <p>${opened ? 'Переведите точную сумму по реквизитам в окне оплаты.' : 'Нажмите кнопку ниже, чтобы открыть его.'}
         Как только банк подтвердит перевод, деньги появятся на балансе.</p>
-      <button class="btn btn-primary btn-wide" id="siciliaReopen">Открыть окно оплаты</button>
-      <button class="btn btn-outline btn-wide" id="siciliaCheck">Я оплатил, проверить</button>
-      <button class="btn btn-outline btn-wide" id="siciliaBack">Другая сумма</button>
+      <button class="cash-cta" id="siciliaReopen"><span>Открыть окно оплаты</span>${cashIcon('open')}</button>
+      <div class="cash-row2">
+        <button class="cash-ghost" id="siciliaCheck">${cashIcon('refresh')}Я оплатил</button>
+        <button class="cash-ghost" id="siciliaBack">Другая сумма</button>
+      </div>
       <div class="invoice-status" id="siciliaStatus"></div>
     </div>`;
   document.getElementById('siciliaReopen').addEventListener('click', async () => {
@@ -34507,15 +35457,12 @@ function startPaymentEvents(){
   es.addEventListener('payment.completed',async()=>{clearInterval(siciliaState.poll);toast('Платёж успешно поступил. Средства зачислены на счёт.');sndCollect();haptic('success');const me=await api('/api/me');applyUser(me.user);loadWallet();});
 }
 
-document.getElementById('walletWithdraw').addEventListener('click', () => {
-  const pane = document.getElementById('walletWithdrawPane');
-  document.getElementById('walletDepositPane').hidden = true;
-  pane.hidden = !pane.hidden;
-  haptic('light');
-});
+document.getElementById('walletWithdraw').addEventListener('click', () => { setCashMode('withdraw'); haptic('light'); });
 
 document.getElementById('withdrawAll').addEventListener('click', () => {
   document.getElementById('withdrawAmount').value = state.wallet?.available || 0;
+  if (state.withdrawMethod === 'crypto') refreshCryptoRate('withdraw');
+  haptic('light');
 });
 
 async function loadSbpBanks() {
@@ -34530,6 +35477,9 @@ loadSbpBanks();
 document.querySelectorAll('[data-withdraw-method]').forEach(btn => btn.addEventListener('click', async () => {
   state.withdrawMethod = btn.dataset.withdrawMethod;
   document.querySelectorAll('[data-withdraw-method]').forEach(x => x.classList.toggle('active', x === btn));
+  // По этому атрибуту плашка переключателя едет под выбранный способ.
+  btn.parentElement.dataset.active = state.withdrawMethod;
+  haptic('light');
   document.getElementById('withdrawSbpFields').hidden = state.withdrawMethod !== 'sbp';
   document.getElementById('withdrawCardFields').hidden = state.withdrawMethod !== 'card';
   document.getElementById('withdrawCryptoFields').hidden = state.withdrawMethod !== 'crypto';
@@ -34556,7 +35506,7 @@ document.getElementById('withdrawCard').addEventListener('input', (event) => {
   event.target.value = digits.replace(/(.{4})/g, '$1 ').trim();
 });
 
-document.getElementById('withdrawSubmit').addEventListener('click', async () => {
+document.getElementById('withdrawSubmit').addEventListener('click', (e) => withCashBusy(e.currentTarget, async () => {
   const amount = Math.trunc(Number(document.getElementById('withdrawAmount').value));
   if (!amount || amount <= 0) { toast('Укажите сумму'); return; }
 
@@ -34591,7 +35541,7 @@ document.getElementById('withdrawSubmit').addEventListener('click', async () => 
     haptic('success');
     loadWallet();
   } catch (err) { toast(err.message); haptic('error'); }
-});
+}));
 
 /* ============================================================
    ЛЕНТА ВЫИГРЫШЕЙ
@@ -35077,8 +36027,8 @@ async function loadPromoState() {
   const note = document.getElementById('wagerNote');
   const parts = [];
   if (d.wagerRequired > 0) {
-    parts.push(`Бонус отыгрывается: осталось поставить <b>${money(d.wagerRequired)}</b>. ` +
-      'Пока не отыграно, вывод недоступен. Отыгрывается ставками в любой игре.');
+    parts.push(`Бонус отыгрывается: осталось поставить бонусом <b>${money(d.wagerRequired)}</b>. ` +
+      'Свои деньги выводятся и сейчас: бонус лежит на отдельном счёте и вывод не запирает.');
   }
   if (d.pendingDeposit) {
     const p = d.pendingDeposit;
@@ -35622,7 +36572,7 @@ function guestUser() {
   return {
     id: 0, username: null, firstName: null, balance: 0, isAdmin: false,
     x2Perks: [], gambleStake: 0, gambleCase: null, vouchers: [],
-    wagerRequired: 0, depositsCount: 0, caseOpens: 0,
+    wagerRequired: 0, bonusBalance: 0, bonusCashoutLeft: 0, depositsCount: 0, caseOpens: 0,
     x10: { need: 0, state: 'none', ceiling: 0 }, isPartner: false,
     email: null, hasPassword: false, telegram: null,
     stats: { rounds: 0, spent: 0, won: 0, bestMultiplier: 0, profit: 0 },
@@ -36071,8 +37021,8 @@ function fortunePrizeTitle(prize) {
     const c = state.config?.cases.find((x) => x.id === id);
     return c ? `Кейс «${c.name}» в подарок` : 'Кейс в подарок';
   }
-  if (prize.kind === 'voucher') return `Ваучер ${money(prize.amount)}`;
-  if (prize.kind === 'cash') return `${money(prize.amount)} на счёт`;
+  if (prize.kind === 'voucher') return `Ваучер ${money(prize.amount)} на бонусный счёт`;
+  if (prize.kind === 'cash') return `${money(prize.amount)} на бонусный счёт`;
   return 'Приз';
 }
 

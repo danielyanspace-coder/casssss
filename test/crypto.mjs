@@ -12,6 +12,9 @@ import { rmSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 
 process.env.DB_PATH = './data/crypto-test.db';
+// В DEV_MODE новый игрок получает стартовый миллион, и счёт денег поехал
+// бы. CI гоняет тесты с DEV_MODE=true, поэтому выключаем его явно.
+process.env.DEV_MODE = 'false';
 // Поощрение первого пополнения здесь только мешало бы: проверяется арифметика
 // зачисления, а не маркетинг. Отключаем явно.
 process.env.FIRST_DEPOSIT_PCT = '0';

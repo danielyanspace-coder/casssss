@@ -1604,6 +1604,9 @@ main { position: relative; z-index: 2; padding: 18px; }
   color: var(--green);
 }
 .perk-chip [data-ico] { width: 18px; height: 18px; }
+/* Бонусный счёт: золото, как деньги, и курсор - плашка ведёт в кассу. */
+.perk-chip.is-bonus { cursor: pointer; border-color: var(--gold); color: var(--gold);
+  background: linear-gradient(135deg, rgba(223, 190, 98, 0.18), rgba(224, 81, 140, 0.1)); }
 .perk-chip.gift { border-color: var(--pink); color: var(--pink);
   background: linear-gradient(135deg, rgba(255, 46, 138, 0.22), rgba(160, 32, 255, 0.14)); }
 
@@ -4087,6 +4090,44 @@ div.mini-row { cursor: default; }
 .payout-note { width: 100%; margin-top: 12px; font-size: 13px; }
 .payout-row.admin .admin-actions { margin-bottom: 0; }
 
+/* Плашка проверки заявки на вывод. Цвет - единственное, что сотрудник должен
+   увидеть с первого взгляда, поэтому вся плашка залита им, а не только точка. */
+.risk-plate {
+  display: flex; align-items: center; gap: 12px;
+  margin-top: 10px; padding: 11px 12px;
+  border-radius: 12px; border: 1px solid;
+}
+.risk-green { background: rgba(99, 191, 148, 0.12); border-color: rgba(99, 191, 148, 0.45); }
+.risk-red { background: rgba(217, 90, 104, 0.14); border-color: rgba(217, 90, 104, 0.55); }
+.risk-dot { width: 12px; height: 12px; flex: none; border-radius: 50%; }
+.risk-green .risk-dot { background: var(--green); box-shadow: 0 0 0 4px rgba(99, 191, 148, 0.18); }
+.risk-red .risk-dot { background: var(--red); box-shadow: 0 0 0 4px rgba(217, 90, 104, 0.2); }
+.risk-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.risk-text b { font-size: 14px; }
+.risk-green .risk-text b { color: var(--green); }
+.risk-red .risk-text b { color: #ff9aa6; }
+.risk-text small { font-size: 12px; line-height: 1.4; color: var(--muted); }
+.risk-more {
+  flex: none; padding: 7px 10px; border-radius: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.18); background: transparent;
+  color: var(--text); font: inherit; font-size: 12px; font-weight: 700; cursor: pointer;
+}
+.risk-override { margin-top: 6px; font-size: 12px; color: var(--muted); }
+.risk-details { margin-top: 8px; padding: 10px 12px; border-radius: 12px; background: rgba(0, 0, 0, 0.25); }
+.risk-list { list-style: none; margin: 0 0 10px; padding: 0; display: grid; gap: 8px; }
+.risk-list li { display: flex; gap: 10px; }
+.risk-list li > span {
+  width: 20px; height: 20px; flex: none; display: grid; place-items: center;
+  border-radius: 50%; font-size: 12px; font-weight: 800;
+}
+.risk-list li.ok > span { background: rgba(99, 191, 148, 0.18); color: var(--green); }
+.risk-list li.bad > span { background: rgba(217, 90, 104, 0.2); color: #ff9aa6; }
+.risk-list li.info > span { background: rgba(255, 255, 255, 0.08); color: var(--muted); }
+.risk-list b { display: block; font-size: 13px; }
+.risk-list small { display: block; font-size: 12px; line-height: 1.45; color: var(--muted); word-break: break-word; }
+.risk-summary { font-size: 12px; line-height: 1.5; color: var(--muted); margin-bottom: 8px; }
+.risk-note { width: 100%; margin-top: 10px; resize: vertical; font-family: inherit; }
+
 .field-label { color:var(--muted); font-size:12px; margin-bottom:-6px; }
 .payout-requisites { margin-top:8px; padding:9px 11px; border-radius:10px; background:rgba(255,255,255,.045); color:var(--muted); line-height:1.45; }
 .settings-help { color:var(--muted); font-size:12px; line-height:1.45; margin:0; }
@@ -5654,6 +5695,22 @@ div.mini-row { cursor: default; }
 .cash-stat span { font-size: 11.5px; color: var(--c-text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cash-stat b { font-size: 15px; font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .cash-stat.is-pending b { color: var(--c-wait); }
+
+/* Бонусный счёт под балансом: отдельной плашкой, золотом, как деньги, но
+   тише своих - он не выводится, пока не отыгран. */
+.cash-bonus {
+  margin-top: 14px; padding: 12px 14px; border-radius: 14px;
+  background: rgba(223, 190, 98, 0.08); border: 1px solid rgba(223, 190, 98, 0.25);
+}
+.cash-bonus-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.cash-bonus-head span { font-size: 12px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--gold); }
+.cash-bonus-head b { font: 800 18px/1 'Unbounded', 'Manrope', system-ui, sans-serif; color: var(--gold); }
+.cash-bonus p { margin: 8px 0 10px; font-size: 12px; line-height: 1.5; color: var(--c-text-2); }
+.cash-bonus p b { color: var(--text); }
+.cash-bonus-refuse {
+  padding: 7px 12px; border-radius: 10px; border: 1px solid var(--c-border-2);
+  background: transparent; font: 700 12px/1 'Manrope', system-ui, sans-serif; color: var(--c-text-2); cursor: pointer;
+}
 
 /* ---------- Переключатель «Пополнить / Вывести» ---------- */
 
@@ -10065,6 +10122,8 @@ body.cz-playing { overflow: hidden; }
         </div>
         <div class="cash-balance" id="walletBalance">-</div>
         <div class="cash-stats" id="walletRows"></div>
+        <!-- Бонусный счёт: отдельно от своих денег, вывод не запирает. -->
+        <div class="cash-bonus" id="walletBonus" hidden></div>
       </div>
 
       <div class="wallet-actions cash-switch" id="cashSwitch" data-mode="" role="tablist" aria-label="Операция">
@@ -11795,7 +11854,7 @@ function demoPlayerExtra(id, balance, spent) {
     payouts: [], deposits: [],
   };
 }
-const FORTUNE = {"segments":[{"index":0,"type":"case","label":"Кейс в подарок","weight":7.5},{"index":1,"type":"case","label":"Кейс в подарок","weight":7.5},{"index":2,"type":"case","label":"Кейс в подарок","weight":7.5},{"index":3,"type":"case","label":"Кейс в подарок","weight":7.5},{"index":4,"type":"x2","label":"Удвоитель","weight":20},{"index":5,"type":"percent","label":"Процент к пополнению","weight":33},{"index":6,"type":"cash","label":"Деньги на счёт","weight":2},{"index":7,"type":"voucher","label":"Ваучер","weight":7.5},{"index":8,"type":"voucher","label":"Ваучер","weight":7.5}],"segmentDeg":40,"startDeg":-7,"spinsPerCycle":5,"minDeposit":500,"prizes":{"percentMin":50,"percentMax":150,"voucherMin":500,"voucherMax":1500,"cash":2000,"giftCaseMaxPrice":1000}};
+const FORTUNE = {"segments":[{"index":0,"type":"case","label":"Кейс в подарок","weight":7.5},{"index":1,"type":"case","label":"Кейс в подарок","weight":7.5},{"index":2,"type":"case","label":"Кейс в подарок","weight":7.5},{"index":3,"type":"case","label":"Кейс в подарок","weight":7.5},{"index":4,"type":"x2","label":"Удвоитель","weight":20},{"index":5,"type":"percent","label":"Процент к пополнению","weight":33},{"index":6,"type":"cash","label":"Деньги на счёт","weight":2},{"index":7,"type":"voucher","label":"Ваучер","weight":7.5},{"index":8,"type":"voucher","label":"Ваучер","weight":7.5}],"segmentDeg":40,"startDeg":-7,"spinsPerCycle":5,"minDeposit":500,"prizes":{"percentMin":10,"percentMax":30,"voucherMin":500,"voucherMax":1500,"cash":2000,"giftCaseMaxPrice":1000}};
 const FORTUNE_COOLDOWN_MS = 86400000;
 
 /* Витрина выпадений: пулы и ники. Ленту наполняет Math.random, а не
@@ -12371,6 +12430,22 @@ function demoCasinoRows({ kind = '', provider = '', category = '', q = '' }) {
 function demoUnique(rows, size) {
   const seen = new Set();
   return rows.filter((r) => { const k = r[1].toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; }).slice(0, size);
+}
+
+
+function stubPayoutCheck(p) {
+  const u = store.user;
+  return {
+    verdict: 'green', reasons: [], override: null, checkedAt: p.created_at || Date.now(),
+    checks: [
+      { ok: true, title: 'Баланс сходится с журналом денег', detail: 'Каждый рубль баланса объяснён операцией' },
+      { ok: true, title: 'Пополнение отыграно', detail: 'Отыгрыш депозита закрыт ставками' },
+      { ok: true, title: 'Выигрыши пересчитаны по seed', detail: 'Исходы раундов совпадают с записанными' },
+      { ok: true, title: 'Связанных аккаунтов нет', detail: 'Устройство и карта не встречаются у других игроков' },
+    ],
+    summary: { deposited: 0, paidOut: 0, gamesNet: 0, rounds: (u.rounds || []).length,
+               bestWin: 0, accountAgeDays: 0 },
+  };
 }
 
 const routes = {
@@ -13189,7 +13264,8 @@ const routes = {
     const status = body.status || 'pending';
     const rows = (status === 'all' ? u.payouts : u.payouts.filter((p) => p.status === status))
       .map((p) => ({ ...p, user_id: u.id, tg_id: '999000001',
-                     username: u.username, first_name: u.firstName, balance: u.balance }));
+                     username: u.username, first_name: u.firstName, balance: u.balance,
+                     check: stubPayoutCheck(p) }));
     const sum = (st) => u.payouts.filter((p) => p.status === st).reduce((a, p) => a + p.amount, 0);
     return {
       rows,
@@ -13200,6 +13276,16 @@ const routes = {
       },
     };
   },
+
+  // Проверка заявки в сборке без сервера: денег в ней нет, сверять нечего,
+  // поэтому показывается зелёная плашка с теми же пунктами, что у сервера.
+  'POST /api/admin/payout/check': (body) => {
+    const p = store.user.payouts.find((x) => x.id === Number(body.id));
+    if (!p) return { status: 404, body: { error: 'Заявка не найдена' } };
+    return { check: stubPayoutCheck(p) };
+  },
+
+  'POST /api/admin/payout/override': () => ({ ok: true }),
 
   'POST /api/admin/payout/resolve': (body) => {
     const u = store.user;
@@ -25831,6 +25917,11 @@ const TERMS = [
   p('Оператор вправе отказать в выводе полностью или частично, если установлено ' +
     'нарушение Соглашения, признаки мошенничества, злоупотребления бонусами ' +
     'либо использование ошибок в работе Сервиса.'),
+  p('Каждая заявка на вывод проходит автоматическую проверку операций Счёта: ' +
+    'происхождение средств, соответствие результатов Раундов их криптографическим ' +
+    'значениям, соблюдение условий бонусов и признаки множественных Счетов. ' +
+    'Если проверка выявила расхождения, заявку дополнительно рассматривает ' +
+    'сотрудник Оператора.'),
 
   h('8. Бонусы и акции'),
   p('Оператор вправе предоставлять бонусы: бесплатные открытия, фриспины, ' +
@@ -25840,6 +25931,21 @@ const TERMS = [
   p('Бонус предоставляется на усмотрение Оператора и не является обязательством. ' +
     'Оператор вправе изменить или прекратить акцию, а также отозвать бонус, ' +
     'предоставленный ошибочно.'),
+  p('Бонусные средства учитываются на отдельном бонусном счёте и не смешиваются ' +
+    'со средствами основного счёта. Ставки сначала оплачиваются средствами ' +
+    'основного счёта, бонусные средства используются, когда средств основного ' +
+    'счёта недостаточно для ставки. Бонусными средствами можно делать ставки ' +
+    'только в собственных играх Оператора; в разделе «Казино» и в слотах они ' +
+    'не используются. Выигрыш со ставки, оплаченной бонусными средствами, ' +
+    'зачисляется на бонусный счёт в той же доле, в какой ставка была ими оплачена.'),
+  p('Бонус переходит на основной счёт после ставок бонусными средствами на ' +
+    'сумму, кратную размеру бонуса (множитель отыгрыша указывается в условиях ' +
+    'акции и в разделе «Касса»). На основной счёт за всё время может перейти не ' +
+    'больше доли от общей суммы пополнений Пользователя, указанной в разделе ' +
+    '«Касса». Остаток сверх этого предела сохраняется на бонусном счёте и ' +
+    'переходит после следующих пополнений. Неотыгранный бонус не ограничивает ' +
+    'вывод средств основного счёта. Пользователь вправе в любой момент ' +
+    'отказаться от бонуса, при этом бонусный счёт обнуляется.'),
   p('Злоупотреблением бонусами считается, в частности: создание нескольких ' +
     'Счетов ради повторного получения бонуса; согласованная игра нескольких ' +
     'Пользователей; использование бонусов способом, не соответствующим их ' +
@@ -26020,15 +26126,18 @@ const PRIVACY = [
       '(хранится только в виде необратимого хеша). Если вход выполнен через ' +
       'Telegram или Telegram привязан к Счёту - также числовой идентификатор, ' +
       'имя и никнейм Telegram. Используются для создания и идентификации Счёта.',
-    '<b>Данные сессии</b> - IP-адрес и сведения о браузере на момент входа. ' +
-      'Используются для защиты Счёта от чужого доступа.',
+    '<b>Данные сессии</b> - IP-адрес и сведения о браузере при входе и при ' +
+      'последующих обращениях, а также случайный идентификатор браузера. ' +
+      'Используются для защиты Счёта от чужого доступа и для выявления ' +
+      'множественных Счетов при проверке заявок на вывод.',
     '<b>Игровые данные</b> - баланс, история Раундов, ставки и выигрыши, ' +
       'начисленные бонусы, статистика.',
     '<b>Криптографические значения</b> - серверные и пользовательские seed, ' +
       'номера nonce. Обеспечивают проверяемость результатов.',
     '<b>Данные о платежах</b> - суммы, даты, статусы, идентификаторы операций ' +
-      'платёжного провайдера, реквизиты вывода. Полные реквизиты платёжных ' +
-      'карт нам не передаются и у нас не хранятся.',
+      'платёжного провайдера, реквизиты вывода. Номер карты, указанный для ' +
+      'вывода, хранится в зашифрованном виде. Срок действия карты и код ' +
+      'CVV нам не передаются и у нас не хранятся.',
     '<b>Данные верификации</b> - при прохождении проверки: документ, ' +
       'удостоверяющий личность, подтверждение адреса и принадлежности ' +
       'платёжного инструмента. Запрашиваются только при наличии оснований.',
@@ -26053,8 +26162,11 @@ const PRIVACY = [
 
   h('4. Файлы cookie и локальное хранилище'),
   p('Сервис не использует рекламные и трекинговые cookie и не передаёт данные ' +
-    'рекламным сетям. В локальном хранилище браузера сохраняются только ' +
-    'пользовательские настройки интерфейса, например состояние звука.'),
+    'рекламным сетям. Служебных cookie две: cookie сессии, которая удерживает ' +
+    'вход в Счёт, и случайный идентификатор браузера (хранится до двух лет), ' +
+    'по которому выявляются множественные Счета. В локальном хранилище браузера ' +
+    'сохраняются только пользовательские настройки интерфейса, например ' +
+    'состояние звука.'),
 
   h('5. Кому мы передаём данные'),
   p('Мы не продаём и не сдаём в аренду персональные данные. Передача возможна ' +
@@ -28698,6 +28810,16 @@ function celebrate(kind, payload = {}) {
 /** Сумма с отдельно выделенным знаком рубля: он набран жирнее цифр. */
 const moneyRich = (n) => `${fmtMoney(n)} <span class="rub">₽</span>`;
 
+/*
+ * Сколько игрок может поставить в наших играх: свои деньги и бонусный счёт.
+ * Бонус играет, когда своих не хватает на ставку, поэтому кнопка «открыть»
+ * не должна гаснуть у того, у кого свои кончились, а бонус есть. Шапка
+ * показывает только свои: их выводят и ими играет казино.
+ */
+function spendableMoney() {
+  return Math.max(0, state.user?.balance || 0) + Math.max(0, state.user?.bonusBalance || 0);
+}
+
 function renderBalance() {
   const chip = document.getElementById('balanceChip');
   document.getElementById('balanceValue').innerHTML = moneyRich(state.user.balance);
@@ -28729,10 +28851,19 @@ function renderPerkBar() {
       ×2 ${where}${p.count > 1 ? ` · ${p.count}` : ''}</span>`);
   }
 
+  // Бонусный счёт - первым: это деньги, которыми игрок может играть сейчас.
+  // Нажатие ведёт в кассу, где расписано, сколько осталось отыграть.
+  if ((state.user.bonusBalance || 0) > 0) {
+    chips.unshift(`<span class="perk-chip is-bonus" data-goto-cashier>
+      Бонус ${money(state.user.bonusBalance)}${state.user.wagerRequired > 0
+        ? ` · отыграть ${money(state.user.wagerRequired)}` : ''}</span>`);
+  }
+
   // Выигранных кейсов здесь нет намеренно: их место в «Бонусах». Полоса над
   // полками разрасталась на несколько строк и отжимала сами кейсы вниз.
 
   bar.innerHTML = chips.join('');
+  bar.querySelector('[data-goto-cashier]')?.addEventListener('click', () => { haptic('light'); openCashier(); });
   bar.hidden = !chips.length;
   mountIcons(bar);
 
@@ -28793,7 +28924,8 @@ function celebrateDeposit(before, after) {
     sndCoin();
   }, 60);
   if (!before.depositsCount) {
-    const bonus = (after.wagerRequired || 0) > (before.wagerRequired || 0);
+    // Про бонус сцена говорит, только если он правда пришёл на бонусный счёт.
+    const bonus = (after.bonusBalance || 0) > (before.bonusBalance || 0);
     setTimeout(() => showFirstDepositChest(gained, bonus), 900);
   }
 }
@@ -29515,7 +29647,7 @@ function openCase(caseId) {
       openAct.textContent = `Открыть ${auto} раз`;
       openSub.textContent = `по ${money(c.price)}`;
       openPrice.textContent = money(auto * c.price);
-      openBtn.disabled = !freeCount && c.price > state.user.balance;
+      openBtn.disabled = !freeCount && c.price > spendableMoney();
       fitOpenBtn();
       return;
     }
@@ -29525,7 +29657,7 @@ function openCase(caseId) {
     openAct.textContent = paid === 0 ? 'Открыть бесплатно' : 'Открыть';
     openSub.textContent = count > 1 ? `${count} ${plural(count, 'кейс', 'кейса', 'кейсов')} сразу` : 'один кейс';
     openPrice.textContent = paid === 0 ? `×${count}` : money(paid * c.price);
-    openBtn.disabled = paid * c.price > state.user.balance;
+    openBtn.disabled = paid * c.price > spendableMoney();
     fitOpenBtn();
   };
   refresh();
@@ -29941,8 +30073,8 @@ async function startOpening(caseId, count = 1, { again = false } = {}) {
 
   const freeCount = (state.user.vouchers || []).find((v) => v.case_id === c.id)?.count || 0;
   const need = Math.max(0, count - freeCount) * c.price;
-  if (need > state.user.balance) {
-    needMoney(need - state.user.balance);
+  if (need > spendableMoney()) {
+    needMoney(need - spendableMoney());
     return;
   }
 
@@ -30220,7 +30352,7 @@ function renderFreeSpinBuy(c, locked) {
 
     return `<button class="fsbuy-btn${p.popular ? ' is-popular' : ''}" data-fs="${p.count}"
         aria-label="${p.count} прокрутов за ${money(price)}"
-        ${price > state.user.balance ? 'disabled' : ''}>
+        ${price > spendableMoney() ? 'disabled' : ''}>
       <b class="fsbuy-count">${p.count}</b>
       <span class="fsbuy-word">free spins</span>
       <span class="fsbuy-price">${money(price)}</span>
@@ -30294,7 +30426,7 @@ function confirmBuyFreeSpins(c, count, fromEl = null) {
   const perSpin = Math.round(price / count);
   document.getElementById('buyRows').innerHTML = `
     <span>по ${money(perSpin)} за прокрут</span>
-    <span>останется ${money(Math.max(0, state.user.balance - price))}</span>`;
+    <span>останется ${money(Math.max(0, spendableMoney() - price))}</span>`;
   document.getElementById('buyNote').textContent =
     'Прокруты начнутся сразу. Внутри серии может выпасть что угодно из этого кейса, включая новые фриспины.';
 
@@ -30305,7 +30437,7 @@ function confirmBuyFreeSpins(c, count, fromEl = null) {
 
   const confirmBtn = document.getElementById('buyConfirm');
   const cancelBtn = document.getElementById('buyCancel');
-  const short = price > state.user.balance;
+  const short = price > spendableMoney();
   confirmBtn.querySelector('.open-act > span').textContent = short ? 'Не хватает' : 'Купить';
   document.getElementById('buySub').textContent = `${count} ${plural(count, 'прокрут', 'прокрута', 'прокрутов')}`;
   document.getElementById('buyPrice').textContent = money(price);
@@ -30545,8 +30677,8 @@ async function runAutoOpen(caseId, times) {
     // Ваучер тратится первым, поэтому проверяем баланс только на платный
     // прокрут. Список ваучеров обновляется ответом сервера на каждом шаге.
     const freeLeft = (state.user.vouchers || []).find((v) => v.case_id === c.id)?.count || 0;
-    if (!freeLeft && c.price > state.user.balance) {
-      needMoney(c.price - state.user.balance);
+    if (!freeLeft && c.price > spendableMoney()) {
+      needMoney(c.price - spendableMoney());
       break;
     }
 
@@ -31092,7 +31224,7 @@ function showCaseResult(data, caseData) {
 function setAgainButton(btn, caseData, count) {
   const freeLeft = (state.user.vouchers || []).find((v) => v.case_id === caseData.id)?.count || 0;
   const paid = Math.max(0, count - freeLeft);
-  btn.disabled = paid * caseData.price > state.user.balance;
+  btn.disabled = paid * caseData.price > spendableMoney();
   btn.querySelector('.open-act > span').textContent = btn.disabled ? 'Не хватает' : 'Ещё раз';
   btn.querySelector('.open-act small').textContent =
     count > 1 ? `${count} ${plural(count, 'кейс', 'кейса', 'кейсов')} сразу` : 'тот же кейс';
@@ -31572,7 +31704,7 @@ function wireBetPanel(inputId, addAttr, quickAttr) {
       const cur = betValue(inputId) || 1;
       if (mode === 'half') setBet(inputId, Math.max(1, Math.floor(cur / 2)));
       if (mode === 'double') setBet(inputId, cur * 2);
-      if (mode === 'max') setBet(inputId, Math.max(1, state.user.balance));
+      if (mode === 'max') setBet(inputId, Math.max(1, spendableMoney()));
       haptic('light');
     });
   });
@@ -31823,8 +31955,8 @@ async function startCrash() {
 
   const bet = betValue('crashBet');
   if (!bet) { toast('Укажите ставку'); return; }
-  if (bet > state.user.balance) {
-    needMoney(bet - state.user.balance);
+  if (bet > spendableMoney()) {
+    needMoney(bet - spendableMoney());
     return;
   }
 
@@ -32229,8 +32361,8 @@ async function spinRoulette() {
 
   const bet = betValue('rouletteBet');
   if (!bet) { toast('Укажите ставку'); return; }
-  if (bet > state.user.balance) {
-    needMoney(bet - state.user.balance);
+  if (bet > spendableMoney()) {
+    needMoney(bet - spendableMoney());
     return;
   }
 
@@ -32560,7 +32692,10 @@ async function openAdminUser(userId) {
       { label: 'Долг по обороту', value: fmt(d.money.depositDebt),
         cls: d.money.depositDebt ? 'minus' : 'plus',
         sub: d.money.depositDebt ? 'вывод закрыт, пока не отыграет' : 'вывод открыт' },
-      { label: 'Отыграть бонус', value: fmt(d.money.wagerRequired) },
+      { label: 'Бонусный счёт', value: fmt(d.money.bonusBalance || 0),
+        sub: d.money.wagerRequired ? `отыграть ${fmt(d.money.wagerRequired)}` : 'вывод не запирает' },
+      { label: 'Бонусы в деньги', value: fmt(d.money.bonusConverted || 0),
+        sub: `ещё можно ${fmt(d.money.bonusCashoutLeft || 0)}` },
     ])}
 
     <div class="bo-daybar">
@@ -33883,6 +34018,42 @@ function siciliaPayoutBlock(p, gateway, info) {
   </div>`;
 }
 
+/*
+ * Плашка проверки заявки на вывод. Зелёная - всё сошлось, красная - есть
+ * подозрения, с причинами. Красную нельзя двинуть к выплате, пока сотрудник
+ * не разобрал причины и не подтвердил заявку комментарием: подозрение не
+ * должно уйти деньгами одним нажатием «взять в работу».
+ */
+function riskPlate(p) {
+  const c = p.check;
+  if (!c) return '';
+  const green = c.verdict === 'green';
+  const why = green ? 'Математика сходится, источники денег подтверждены'
+    : esc((c.reasons || []).join(' · '));
+  const ok = c.override
+    ? `<div class="risk-override">Подтверждено сотрудником: «${esc(c.override.comment)}»</div>` : '';
+  return `<div class="risk-plate ${green ? 'risk-green' : 'risk-red'}">
+      <span class="risk-dot" aria-hidden="true"></span>
+      <div class="risk-text"><b>${green ? 'Проверено системой' : 'Есть подозрения'}</b><small>${why}</small></div>
+      <button class="risk-more" data-risk-open="${p.id}" type="button">Подробнее</button>
+    </div>
+    ${ok}
+    <div class="risk-details" data-risk-details="${p.id}" hidden></div>`;
+}
+
+/** Полный разбор проверки: каждый пункт с подробностями. */
+function riskDetailsHtml(c) {
+  const s = c.summary || {};
+  const rows = c.checks.map((x) => `<li class="${x.ok ? 'ok' : x.level === 'info' ? 'info' : 'bad'}">
+      <span>${x.ok ? '✓' : x.level === 'info' ? 'i' : '✗'}</span>
+      <div><b>${esc(x.title)}</b><small>${esc(x.detail || '')}</small></div></li>`).join('');
+  return `<ul class="risk-list">${rows}</ul>
+    <div class="risk-summary">Пополнил ${money(s.deposited || 0)} · выплачено ${money(s.paidOut || 0)} ·
+      итог игр ${money(s.gamesNet || 0)} · раундов ${fmt(s.rounds || 0)} · лучший выигрыш ${money(s.bestWin || 0)} ·
+      аккаунту ${fmt(s.accountAgeDays || 0)} дн. · проверено ${new Date(c.checkedAt).toLocaleString('ru-RU')}</div>
+    <button class="btn btn-outline btn-sm" data-risk-recheck="${c.payoutId || ''}" type="button">Перепроверить</button>`;
+}
+
 async function loadAdminPayouts() {
   let d;
   try { d = await api('/api/admin/payouts', { status: state.admin.payoutStatus || 'pending' }); }
@@ -33921,7 +34092,16 @@ async function loadAdminPayouts() {
       <div class="payout-date">${esc(name)} · ${esc(playerIdent(p, p.user_id))} ·
         баланс ${money(p.balance)} · ${new Date(p.created_at).toLocaleString('ru-RU')}</div>
       <div class="payout-requisites">${payoutRequisites(p, { full: true })}</div>
+      ${riskPlate(p)}
       ${p.comment ? `<div class="payout-comment">${esc(p.comment)}</div>` : ''}
+      ${p.check && p.check.verdict === 'red' && !p.check.override && ['pending', 'processing'].includes(p.status) ? `
+        <textarea class="seed-input risk-note" data-risk-note="${p.id}" rows="2"
+          placeholder="Почему заявку можно выплатить: что проверено вручную"></textarea>
+        <div class="admin-actions">
+          <button class="btn btn-primary" data-risk-ok="${p.id}">Подтвердить заявку</button>
+          <button class="btn btn-outline" data-resolve="rejected" data-id="${p.id}">Отклонить</button>
+        </div>
+        <input class="seed-input payout-note" data-note="${p.id}" placeholder="комментарий игроку (при отклонении)">` : `
       ${siciliaPayoutBlock(p, d.gateway || {}, sic)}
       ${p.status === 'pending' ? `
         <input class="seed-input payout-note" data-note="${p.id}" placeholder="комментарий игроку">
@@ -33932,9 +34112,41 @@ async function loadAdminPayouts() {
         <input class="seed-input payout-note" data-note="${p.id}" placeholder="комментарий игроку">
         <div class="admin-actions">
           <button class="btn btn-primary" data-resolve="paid" data-id="${p.id}">Выполнено</button>
-        </div>` : ''}
+        </div>` : ''}`}
     </div>`;
   }).join('');
+
+  const openDetails = async (id, recheck = false) => {
+    const panel = box.querySelector(`[data-risk-details="${id}"]`);
+    if (!panel) return;
+    panel.hidden = false;
+    panel.innerHTML = '<span class="skel skel-line"></span>';
+    try {
+      const { check } = await api('/api/admin/payout/check', { id, recheck });
+      panel.innerHTML = riskDetailsHtml({ ...check, payoutId: id });
+      panel.querySelector('[data-risk-recheck]')?.addEventListener('click', async () => {
+        await openDetails(id, true);
+        loadAdminPayouts();
+      });
+    } catch (err) { panel.innerHTML = `<div class="empty">${esc(err.message)}</div>`; }
+  };
+  box.querySelectorAll('[data-risk-open]').forEach((btn) => btn.addEventListener('click', () => {
+    const id = Number(btn.dataset.riskOpen);
+    const panel = box.querySelector(`[data-risk-details="${id}"]`);
+    if (panel && !panel.hidden) { panel.hidden = true; return; }
+    openDetails(id);
+  }));
+
+  box.querySelectorAll('[data-risk-ok]').forEach((btn) => btn.addEventListener('click', async () => {
+    const id = Number(btn.dataset.riskOk);
+    const comment = box.querySelector(`[data-risk-note="${id}"]`)?.value || '';
+    try {
+      await api('/api/admin/payout/override', { id, comment });
+      toast('Заявка подтверждена, решение записано в журнал');
+      haptic('success');
+      loadAdminPayouts();
+    } catch (err) { toast(err.message); haptic('error'); }
+  }));
 
   // Выплата через шлюз - вторым нажатием: первое показывает, сколько и куда.
   box.querySelectorAll('[data-sic-pay]').forEach((btn) => {
@@ -34532,8 +34744,9 @@ function renderDepositOffer() {
 
   const cap = rules.max > 0 ? ` (не больше ${money(rules.max)})` : '';
   el.innerHTML = `<b>Первое пополнение +${rules.pct}%${cap}.</b>
-    Бонус придёт вместе с самим пополнением от ${money(rules.min)}.
-    Вывести его можно после ставок на ${rules.wager} суммы бонуса.`;
+    Бонус придёт на бонусный счёт вместе с пополнением от ${money(rules.min)}.
+    Им играют, когда своих не хватает на ставку, а после ставок бонусом на
+    ${rules.wager} его суммы он переходит в деньги. Свои деньги выводятся в любой момент.`;
 }
 
 async function loadWallet() {
@@ -34577,6 +34790,8 @@ async function loadWallet() {
    * «доступно 0» при полном балансе читается как поломка, поэтому условие
    * названо прямо здесь, с конкретным числом, а не спрятано в правилах.
    */
+  renderWalletBonus(w.bonus);
+
   document.getElementById('withdrawHint').innerHTML =
     `Доступно <b>${money(w.available)}</b><i></i>минимум ${money(w.minPayout)}`
     + (w.depositDebt > 0
@@ -34584,6 +34799,44 @@ async function loadWallet() {
            осталось поставить ${money(w.depositDebt)}. После этого выводится
            весь баланс, включая выигрыш.</span>`
       : '');
+}
+
+/**
+ * Бонусный счёт в кассе: сколько есть, сколько отыграть, сколько можно
+ * перевести в деньги, и отказ. Правило потолка называется прямо: игрок,
+ * который отыграл бонус и не увидел его в деньгах целиком, должен знать
+ * почему ещё до этого, а не после.
+ */
+function renderWalletBonus(b) {
+  const box = document.getElementById('walletBonus');
+  if (!box) return;
+  if (!b || !(b.balance > 0)) { box.hidden = true; box.innerHTML = ''; return; }
+  box.hidden = false;
+  const left = b.wagerLeft > 0
+    ? `Осталось поставить бонусом <b>${money(b.wagerLeft)}</b>, и он перейдёт в деньги.`
+    : 'Бонус отыгран и ждёт лимита: перейдёт в деньги после следующего пополнения.';
+  box.innerHTML = `
+    <div class="cash-bonus-head"><span>Бонусный счёт</span><b>${money(b.balance)}</b></div>
+    <p>${left} Бонусом играют в кейсах, краше, рулетке и апгрейде, когда своих
+      не хватает на ставку. В деньги бонусы переходят до ${b.rules.cashoutPct}% от суммы
+      пополнений: сейчас можно перевести до ${money(b.cashoutLeft)}.</p>
+    <button class="cash-bonus-refuse" id="bonusRefuse" type="button">Отказаться от бонуса</button>`;
+  const btn = document.getElementById('bonusRefuse');
+  btn.addEventListener('click', async () => {
+    // Вторым нажатием: отказ необратим, и случайное касание не должно сжечь бонус.
+    if (btn.dataset.armed !== '1') {
+      btn.dataset.armed = '1';
+      btn.textContent = `Точно отказаться от ${money(b.balance)}?`;
+      return;
+    }
+    try {
+      const r = await api('/api/bonus/refuse');
+      applyUser(r.user);
+      toast('Бонус снят, свои деньги на месте');
+      haptic('light');
+      loadWallet();
+    } catch (err) { toast(err.message); haptic('error'); }
+  });
 }
 
 /**
@@ -35774,8 +36027,8 @@ async function loadPromoState() {
   const note = document.getElementById('wagerNote');
   const parts = [];
   if (d.wagerRequired > 0) {
-    parts.push(`Бонус отыгрывается: осталось поставить <b>${money(d.wagerRequired)}</b>. ` +
-      'Пока не отыграно, вывод недоступен. Отыгрывается ставками в любой игре.');
+    parts.push(`Бонус отыгрывается: осталось поставить бонусом <b>${money(d.wagerRequired)}</b>. ` +
+      'Свои деньги выводятся и сейчас: бонус лежит на отдельном счёте и вывод не запирает.');
   }
   if (d.pendingDeposit) {
     const p = d.pendingDeposit;
@@ -36319,7 +36572,7 @@ function guestUser() {
   return {
     id: 0, username: null, firstName: null, balance: 0, isAdmin: false,
     x2Perks: [], gambleStake: 0, gambleCase: null, vouchers: [],
-    wagerRequired: 0, depositsCount: 0, caseOpens: 0,
+    wagerRequired: 0, bonusBalance: 0, bonusCashoutLeft: 0, depositsCount: 0, caseOpens: 0,
     x10: { need: 0, state: 'none', ceiling: 0 }, isPartner: false,
     email: null, hasPassword: false, telegram: null,
     stats: { rounds: 0, spent: 0, won: 0, bestMultiplier: 0, profit: 0 },
@@ -36768,8 +37021,8 @@ function fortunePrizeTitle(prize) {
     const c = state.config?.cases.find((x) => x.id === id);
     return c ? `Кейс «${c.name}» в подарок` : 'Кейс в подарок';
   }
-  if (prize.kind === 'voucher') return `Ваучер ${money(prize.amount)}`;
-  if (prize.kind === 'cash') return `${money(prize.amount)} на счёт`;
+  if (prize.kind === 'voucher') return `Ваучер ${money(prize.amount)} на бонусный счёт`;
+  if (prize.kind === 'cash') return `${money(prize.amount)} на бонусный счёт`;
   return 'Приз';
 }
 

@@ -183,6 +183,29 @@ function writeCookie(req, res, value, maxAgeMs) {
   res.append('Set-Cookie', bits.join('; '));
 }
 
+/*
+ * Метка браузера. Случайный номер в отдельной cookie, живёт два года и
+ * переживает выход из аккаунта. Не доказательство, а признак: два аккаунта,
+ * вошедшие с одного браузера, проверка заявки на вывод показывает как
+ * связанные. Почистил cookie - получил новую метку, это нормально: метка
+ * ищет не злоумышленника, а того, кому лень заводить второй браузер.
+ */
+const DEVICE_COOKIE = 'lb_dev';
+const DEVICE_TTL_MS = 2 * 365 * 24 * 60 * 60 * 1000;
+
+export function deviceId(req, res) {
+  const current = readCookie(req, DEVICE_COOKIE);
+  if (/^[0-9a-f]{32}$/.test(current)) return current;
+  const fresh = randomBytes(16).toString('hex');
+  if (res) {
+    const bits = [`${DEVICE_COOKIE}=${fresh}`, 'Path=/', 'HttpOnly', 'SameSite=Lax',
+      `Max-Age=${Math.floor(DEVICE_TTL_MS / 1000)}`];
+    if (req.secure) bits.push('Secure');
+    res.append('Set-Cookie', bits.join('; '));
+  }
+  return fresh;
+}
+
 /** Заводит сессию и ставит cookie. Вызывать после успешного входа. */
 export function startSession(req, res, userId) {
   const token = randomBytes(32).toString('base64url');

@@ -17,11 +17,16 @@ process.env.DB_PATH = './data/wager-test.db';
 // Поощрение первого пополнения здесь только мешало бы: проверяется правило
 // вывода, а не маркетинг. Отключаем явно.
 process.env.FIRST_DEPOSIT_PCT = '0';
+// В DEV_MODE новый игрок получает стартовый миллион (единственное исключение
+// из правила «стартового баланса нет»), и арифметика счёта поехала бы. CI
+// гоняет тесты с DEV_MODE=true, поэтому выключаем его здесь явно.
+process.env.DEV_MODE = 'false';
 for (const t of ['', '-wal', '-shm']) rmSync(process.env.DB_PATH + t, { force: true });
 
 const {
   db, getOrCreateUser, getUserById, consumeWager, withdrawable,
   createPayout, cancelPayout, resolvePayout, adminAdjustBalance,
+  grantBonus, settleBonus, wagerWeight,
 } = await import('../server/db.js');
 
 let passed = 0;
@@ -114,24 +119,59 @@ consumeWager(a.id, 100_000);
 deposit(a.id, 5000);
 check('переигранное впрок не засчитывается', debt(a.id) === 5000, String(debt(a.id)));
 
-/* ---------- Бонусный отыгрыш живёт отдельно ---------- */
+/* ---------- Бонус живёт на своём счёте и вывод не запирает ----------
+ *
+ * Раньше бонус смешивался со своими деньгами, и его отыгрыш запирал вывод
+ * целиком. Теперь бонусный счёт отдельный: свои деньги выводятся, пока бонус
+ * не отыгран, а отыгрыш бонуса гасят только ставки бонусными деньгами.
+ */
 
 const b = getOrCreateUser({ id: 'wg-b', username: 'b' });
 deposit(b.id, 20_000);
 consumeWager(b.id, 20_000);
 check('депозит игрока b отыгран', debt(b.id) === 0);
 
-// Долг по бонусу выставляем напрямую: как именно его начисляет промокод,
-// проверяется в другом месте, здесь важно, что он закрывает вывод сам по себе.
-db.prepare('UPDATE users SET wager_required = 10000 WHERE id = ?').run(b.id);
-check('бонус повесил свой отыгрыш', getUserById(b.id).wager_required === 10_000);
-const blocked = tryPayout(b.id, 10_000);
-check('неотыгранный бонус закрывает вывод отдельно',
-  !blocked.ok && blocked.code === 'WAGER', blocked.code);
+grantBonus(b.id, 1000, { source: 'test', wager: 3 });
+check('бонус лёг на бонусный счёт, а не на свои',
+  getUserById(b.id).bonus_balance === 1000 && getUserById(b.id).balance === 20_000,
+  JSON.stringify({ b: getUserById(b.id).bonus_balance, r: getUserById(b.id).balance }));
+check('бонус повесил свой отыгрыш', getUserById(b.id).wager_required === 3000);
+check('неотыгранный бонус вывод своих не запирает', tryPayout(b.id, 10_000).ok);
 
 consumeWager(b.id, 10_000);
-check('бонусный долг гасится теми же ставками', getUserById(b.id).wager_required === 0);
-check('после бонуса вывод открыт', tryPayout(b.id, 10_000).ok);
+check('ставки своими деньгами бонус не отыгрывают', getUserById(b.id).wager_required === 3000,
+  String(getUserById(b.id).wager_required));
+consumeWager(b.id, { bonus: 3000 });
+check('ставки бонусом гасят отыгрыш', getUserById(b.id).wager_required === 0);
+settleBonus(b.id);
+check('отыгранный бонус перешёл в деньги в пределах 25% пополнений',
+  getUserById(b.id).bonus_balance === 0 && getUserById(b.id).bonus_converted === 1000,
+  JSON.stringify({ bb: getUserById(b.id).bonus_balance, conv: getUserById(b.id).bonus_converted }));
+
+/* ---------- Потолок перевода бонусов в деньги ---------- */
+
+const p = getOrCreateUser({ id: 'wg-p', username: 'p' });
+deposit(p.id, 1000);
+grantBonus(p.id, 2000, { source: 'test', wager: 0 });
+check('сверх 25% пополнений бонус не переходит в деньги',
+  getUserById(p.id).bonus_converted === 250 && getUserById(p.id).bonus_balance === 1750,
+  JSON.stringify({ conv: getUserById(p.id).bonus_converted, bb: getUserById(p.id).bonus_balance }));
+deposit(p.id, 2000);
+check('следующее пополнение поднимает потолок, и бонус переходит дальше',
+  getUserById(p.id).bonus_converted === 750 && getUserById(p.id).bonus_balance === 1250,
+  JSON.stringify({ conv: getUserById(p.id).bonus_converted, bb: getUserById(p.id).bonus_balance }));
+
+/* ---------- Вес оборота по отдаче игры ----------
+ * Рубль ставок в казино с отдачей 80% стоит игроку 20 копеек, а не 30, и
+ * засчитывается в отыгрыш пополнения на две трети. */
+
+const w = getOrCreateUser({ id: 'wg-w', username: 'w' });
+deposit(w.id, 3000);
+consumeWager(w.id, { real: 3000, rtp: 0.8 });
+check('оборот казино 80% засчитывается на две трети', debt(w.id) === 1000, String(debt(w.id)));
+consumeWager(w.id, { real: 1000, rtp: 0.94 });
+check('оборот слотов 94% - на пятую часть', debt(w.id) === 800, String(debt(w.id)));
+check('вес не превышает единицы', wagerWeight(0.5) === 1 && wagerWeight(0.7) === 1);
 
 /* ---------- Границы ---------- */
 

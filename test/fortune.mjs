@@ -10,6 +10,9 @@
 import { rmSync } from 'node:fs';
 
 process.env.DB_PATH = './data/fortune-test.db';
+// В DEV_MODE новый игрок получает стартовый миллион, и счёт денег поехал
+// бы. CI гоняет тесты с DEV_MODE=true, поэтому выключаем его явно.
+process.env.DEV_MODE = 'false';
 // Приветственный бонус здесь только мешал бы: он тоже висит на пополнении,
 // а проверяется колесо.
 process.env.FIRST_DEPOSIT_PCT = '0';
@@ -190,10 +193,10 @@ if (pid) {
   check('процент баланс не трогает', getUserById(pid).balance === 0,
     String(getUserById(pid).balance));
 
-  // Процент обязан примениться при следующем пополнении.
-  const before = getUserById(pid).balance;
+  // Процент обязан примениться при следующем пополнении - на бонусный счёт.
+  const before = getUserById(pid).bonus_balance;
   registerDeposit(pid, 1000);
-  const gained = getUserById(pid).balance - before;
+  const gained = getUserById(pid).bonus_balance - before;
   check('процент применился к пополнению', gained === Math.floor(1000 * prize.amount / 100),
     `${gained} при ${prize.amount}%`);
   check('слот после применения пуст',
@@ -234,8 +237,9 @@ if (vid) {
   check('ваучер в обещанных границах',
     prize.amount >= VOUCHER_MIN && prize.amount <= VOUCHER_MAX, String(prize.amount));
   const after = getUserById(vid);
-  check('ваучер зачислен на баланс', after.balance - before.balance === prize.amount,
-    String(after.balance - before.balance));
+  check('ваучер зачислен на бонусный счёт', after.bonus_balance - before.bonus_balance === prize.amount,
+    String(after.bonus_balance - before.bonus_balance));
+  check('ваучер своих денег не трогает', after.balance === before.balance);
   check('на ваучер повешен отыгрыш',
     after.wager_required - before.wager_required === prize.amount * 2,
     String(after.wager_required - before.wager_required));
@@ -250,7 +254,7 @@ if (mid) {
   check('выпали деньги', prize.kind === 'cash', prize.kind);
   check('сумма денег ровно обещанная', prize.amount === CASH_PRIZE, String(prize.amount));
   const after = getUserById(mid);
-  check('деньги зачислены', after.balance - before.balance === CASH_PRIZE);
+  check('деньги зачислены на бонусный счёт', after.bonus_balance - before.bonus_balance === CASH_PRIZE);
   check('на деньги повешен отыгрыш',
     after.wager_required - before.wager_required === CASH_PRIZE * 2);
 }

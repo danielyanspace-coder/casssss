@@ -32,7 +32,7 @@
  */
 
 import { createHash, timingSafeEqual } from 'node:crypto';
-import { db, getUserById, registerDeposit, trackEvent } from './db.js';
+import { db, getUserById, registerDeposit, trackEvent, moneyTx, ledgerLink } from './db.js';
 
 /* Журнал balance_transactions общий для шлюзов и создаётся в db.js. */
 import { alert, countError } from './ops.js';
@@ -470,7 +470,7 @@ const PAID_STATUSES = new Set(['paid', 'paid_over']);
  * balance_transactions делает повтор безопасным - вторая попытка упрётся в
  * ограничение базы, а не в проверку в коде, которую можно обойти гонкой.
  */
-export const applyWebhook = db.transaction((payload) => {
+export const applyWebhook = moneyTx('deposit', (payload) => {
   const orderId = String(payload.order_id || '');
   const row = db.prepare('SELECT * FROM crypto_payments WHERE order_id=?').get(orderId);
   if (!row) throw Object.assign(new Error('Платёж не найден'), { code: 'NOT_FOUND' });
@@ -498,6 +498,7 @@ export const applyWebhook = db.transaction((payload) => {
   const label = currency ? `${currency}${network ? ` · ${network}` : ''}` : 'криптовалюта';
 
   db.prepare('UPDATE users SET balance=balance+? WHERE id=?').run(credited, row.user_id);
+  ledgerLink('crypto_payments', row.id);
   db.prepare(`INSERT INTO balance_transactions (user_id, type, amount, crypto_payment_id, comment, created_at)
               VALUES (?, 'DEPOSIT', ?, ?, ?, ?)`)
     .run(row.user_id, credited, row.id, `Криптоплатёж ${label}`, now);

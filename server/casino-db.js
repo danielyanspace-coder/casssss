@@ -18,7 +18,7 @@
  * преобразования на входе (toKop). Сложение 0.1 + 0.2 в плавающей точке даёт
  * 0.30000000000000004, и через тысячу ставок касса разошлась бы с игроком.
  */
-import { db, getUserById, consumeWager, getPlayerLimits } from './db.js';
+import { db, getUserById, consumeWager, getPlayerLimits, moneyTx, ledgerLink, setting } from './db.js';
 import {
   categoryById, categoriesFor, POPULAR_SIZE, BLOCK_SIZE, PROVIDER_BLOCKS, MIN_BLOCK_GAMES,
   FEATURED_GAMES, BURIED_GAMES,
@@ -32,7 +32,8 @@ function ensureColumn(table, column, definition) {
   db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition};`);
 }
 
-// Копейки к целым рублям users.balance, всегда от 0 до 99.
+// Копейки к целым рублям users.balance, всегда от 0 до 99. Колонку заводит
+// и db.js: на неё смотрит триггер журнала денег.
 ensureColumn('users', 'balance_kop', 'INTEGER NOT NULL DEFAULT 0');
 /*
  * Остаток оборота в копейках, ещё не переданный в consumeWager. Отыгрыш
@@ -209,10 +210,26 @@ function writeKop(userId, kop) {
     .run(Math.floor(kop / 100), kop % 100, userId);
 }
 
+/*
+ * Пределы отдачи, которые разрешает кабинет агрегатора. Настройку панели
+ * зажимаем в них: число вне пределов агрегатор молча заменил бы своим, и
+ * «Честность» показывала бы не то, что применено.
+ */
+export const CASINO_RTP_MIN = Number(process.env.CASINO_RTP_MIN || 70);
+export const CASINO_RTP_MAX = Number(process.env.CASINO_RTP_MAX || 80);
+
+/** Отдача казино в процентах - та, что уходит агрегатору в каждом запуске. */
+export function casinoRtp() {
+  const v = Number(setting('casino_rtp')) || CASINO_RTP_MIN;
+  return Math.min(CASINO_RTP_MAX, Math.max(CASINO_RTP_MIN, v));
+}
+
 /**
- * Оборот казино гасит отыгрыш депозита и бонуса тем же consumeWager, что и
- * кейсы, но целыми рублями: копейки копятся в casino_wager_kop, пока не
- * наберётся рубль.
+ * Оборот казино гасит отыгрыш пополнения тем же consumeWager, что и кейсы,
+ * но целыми рублями: копейки копятся в casino_wager_kop, пока не наберётся
+ * рубль. Засчитывается он с весом по отдаче казино (см. wagerWeight в
+ * db.js): при отдаче 80% рубль ставок стоит игроку меньше, чем в кейсах.
+ * Бонусом в казино не играют: агрегатор видит только свои деньги.
  */
 function addWager(userId, kop) {
   if (!(kop > 0)) return;
@@ -220,7 +237,7 @@ function addWager(userId, kop) {
   const rub = Math.floor(pending / 100);
   db.prepare('UPDATE users SET casino_wager_kop = ?, casino_bet_kop = casino_bet_kop + ? WHERE id = ?')
     .run(pending % 100, kop, userId);
-  if (rub > 0) consumeWager(userId, rub);
+  if (rub > 0) consumeWager(userId, { real: rub, rtp: casinoRtp() / 100 });
 }
 
 /* ---------- Игрок ---------- */
@@ -328,7 +345,7 @@ export function casinoWallet(requests, { currency = 'RUB' } = {}) {
   }
 }
 
-const applyBatch = db.transaction((userId, list, currency) => {
+const applyBatch = moneyTx('casino', (userId, list, currency) => {
   const now = Date.now();
 
   for (const req of list) {
@@ -401,7 +418,8 @@ const applyBatch = db.transaction((userId, list, currency) => {
     }
 
     row.balance_kop = kop;
-    insertTx.run(row);
+    const saved = insertTx.run(row);
+    ledgerLink('casino_tx', saved.lastInsertRowid);
   }
 
   return userBalanceRub(getUserById(userId));
