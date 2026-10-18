@@ -6652,6 +6652,44 @@ function selectCoin(side, currency) {
 }
 
 /** Строка «получите примерно столько-то» под суммой. */
+/*
+ * Суммы в кассе вводятся с разрядами: «8 800», а не «8800». Поэтому поле
+ * текстовое (у type="number" пробел внутри недопустим), а число из него
+ * читается только через amountOf: в value лежат пробелы, и Number() дал бы NaN.
+ * Курсор после переформатирования ставится после того же по счёту знака,
+ * иначе при правке в середине числа он улетал бы в конец.
+ */
+const AMOUNT_GROUP = '\u00a0';
+const AMOUNT_MAX_DIGITS = 9;
+function amountOf(input) {
+  return Number(String(input?.value || '').replace(/\D/g, '')) || 0;
+}
+function groupDigits(digits) {
+  return digits.replace(/\B(?=(\d{3})+(?!\d))/g, AMOUNT_GROUP);
+}
+function setAmount(input, n) {
+  if (!input) return;
+  const digits = String(Math.trunc(Number(n) || 0) || '');
+  input.value = groupDigits(digits);
+}
+function bindAmountInput(input) {
+  if (!input) return;
+  input.addEventListener('input', () => {
+    const caret = input.selectionStart ?? input.value.length;
+    const before = input.value.slice(0, caret).replace(/\D/g, '').length;
+    const digits = input.value.replace(/\D/g, '').replace(/^0+(?=\d)/, '').slice(0, AMOUNT_MAX_DIGITS);
+    input.value = groupDigits(digits);
+    let pos = 0, seen = 0;
+    while (pos < input.value.length && seen < before) {
+      if (/\d/.test(input.value[pos])) seen += 1;
+      pos += 1;
+    }
+    try { input.setSelectionRange(pos, pos); } catch { /* поле не в фокусе */ }
+  });
+}
+// Вешается раньше остальных слушателей ввода: они видят уже ровное значение.
+['cryptoAmount', 'siciliaAmount', 'withdrawAmount'].forEach((id) => bindAmountInput(document.getElementById(id)));
+
 function refreshCryptoRate(side) {
   const isDeposit = side === 'deposit';
   const box = document.getElementById(isDeposit ? 'cryptoRate' : 'withdrawRate');
@@ -6660,7 +6698,7 @@ function refreshCryptoRate(side) {
 
   if (!currency) { box.innerHTML = ''; return; }
 
-  const rub = Number(document.getElementById(isDeposit ? 'cryptoAmount' : 'withdrawAmount')?.value);
+  const rub = amountOf(document.getElementById(isDeposit ? 'cryptoAmount' : 'withdrawAmount'));
   const amount = coinAmount(rub, currency);
   const course = rateLine(currency);
 
@@ -6687,7 +6725,7 @@ function renderCryptoQuick() {
   row.innerHTML = sums.map((v) =>
     `<button type="button" class="quick-btn" data-sum="${v}">${money(v)}</button>`).join('');
   row.querySelectorAll('.quick-btn').forEach((b) => b.addEventListener('click', () => {
-    input.value = b.dataset.sum;
+    setAmount(input, b.dataset.sum);
     refreshCryptoRate('deposit');
     markQuick(row, input);
     haptic('light');
@@ -6726,12 +6764,12 @@ document.getElementById('cryptoAmount')?.addEventListener('input', (e) => {
 /** Подсвечивает быструю сумму, совпавшую с введённой: видно, что выбрано. */
 function markQuick(row, input) {
   row?.querySelectorAll('.quick-btn').forEach((b) =>
-    b.classList.toggle('active', Number(b.dataset.sum) === Number(input.value)));
+    b.classList.toggle('active', Number(b.dataset.sum) === amountOf(input)));
 }
 
 document.getElementById('cryptoCreateBtn')?.addEventListener('click', async () => {
   const { currency, network } = cryptoState.deposit;
-  const amount = Number(document.getElementById('cryptoAmount').value);
+  const amount = amountOf(document.getElementById('cryptoAmount'));
   if (!currency || !network) return toast('Выберите монету и сеть');
   if (!amount || amount < cryptoState.min) return toast(`Минимум ${money(cryptoState.min)}`);
 
@@ -6899,7 +6937,7 @@ function openSiciliaDeposit() {
     .filter((v) => v >= siciliaState.min && v <= siciliaState.max)
     .map((v) => `<button type="button" class="quick-btn" data-sum="${v}">${money(v)}</button>`).join('');
   document.querySelectorAll('#siciliaQuick [data-sum]').forEach((b) => b.addEventListener('click', () => {
-    input.value = b.dataset.sum;
+    setAmount(input, b.dataset.sum);
     syncSiciliaAmount();
     haptic('light');
   }));
@@ -6912,7 +6950,7 @@ function openSiciliaDeposit() {
  */
 function syncSiciliaAmount() {
   const input = document.getElementById('siciliaAmount');
-  const n = Number(input.value);
+  const n = amountOf(input);
   markQuick(document.getElementById('siciliaQuick'), input);
   document.getElementById('siciliaCreateLabel').textContent = n > 0 ? `Оплатить ${money(n)}` : 'Перейти к оплате';
 }
@@ -6924,7 +6962,7 @@ document.querySelector('[data-payment-method="sicilia"]')?.addEventListener('cli
 });
 
 document.getElementById('siciliaCreateBtn')?.addEventListener('click', async () => {
-  const amount = Number(document.getElementById('siciliaAmount').value);
+  const amount = amountOf(document.getElementById('siciliaAmount'));
   if (!amount || amount < siciliaState.min) return toast(`Минимум ${money(siciliaState.min)}`);
   if (amount > siciliaState.max) return toast(`Максимум ${money(siciliaState.max)}`);
   const btn = document.getElementById('siciliaCreateBtn');
@@ -7034,7 +7072,7 @@ function startPaymentEvents(){
 document.getElementById('walletWithdraw').addEventListener('click', () => { setCashMode('withdraw'); haptic('light'); });
 
 document.getElementById('withdrawAll').addEventListener('click', () => {
-  document.getElementById('withdrawAmount').value = state.wallet?.available || 0;
+  setAmount(document.getElementById('withdrawAmount'), Math.floor(state.wallet?.available || 0));
   if (state.withdrawMethod === 'crypto') refreshCryptoRate('withdraw');
   haptic('light');
 });
@@ -7081,7 +7119,7 @@ document.getElementById('withdrawCard').addEventListener('input', (event) => {
 });
 
 document.getElementById('withdrawSubmit').addEventListener('click', (e) => withCashBusy(e.currentTarget, async () => {
-  const amount = Math.trunc(Number(document.getElementById('withdrawAmount').value));
+  const amount = amountOf(document.getElementById('withdrawAmount'));
   if (!amount || amount <= 0) { toast('Укажите сумму'); return; }
 
   try {

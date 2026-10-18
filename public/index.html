@@ -554,7 +554,7 @@
             </div>
             <div class="cash-step">Сумма</div>
             <label class="cash-amount">
-              <input id="cryptoAmount" type="number" inputmode="numeric" placeholder="0" aria-label="Сумма пополнения в рублях">
+              <input id="cryptoAmount" type="text" inputmode="numeric" autocomplete="off" placeholder="0" aria-label="Сумма пополнения в рублях">
               <span class="cash-amount-cur">₽</span>
             </label>
             <div class="quick-row" id="cryptoQuick"></div>
@@ -568,7 +568,7 @@
           <div class="sicilia-create" id="siciliaCreate" hidden>
             <div class="cash-step">Сумма</div>
             <label class="cash-amount">
-              <input id="siciliaAmount" type="number" inputmode="numeric" placeholder="0" aria-label="Сумма пополнения в рублях">
+              <input id="siciliaAmount" type="text" inputmode="numeric" autocomplete="off" placeholder="0" aria-label="Сумма пополнения в рублях">
               <span class="cash-amount-cur">₽</span>
             </label>
             <div class="quick-row" id="siciliaQuick"></div>
@@ -587,7 +587,7 @@
         <div class="cash-panel withdraw-form">
           <div class="cash-step">Сумма</div>
           <label class="cash-amount">
-            <input id="withdrawAmount" type="number" inputmode="numeric" min="0" placeholder="0" aria-label="Сумма вывода в рублях">
+            <input id="withdrawAmount" type="text" inputmode="numeric" autocomplete="off" placeholder="0" aria-label="Сумма вывода в рублях">
             <span class="cash-amount-cur">₽</span>
             <button class="cash-amount-all" type="button" id="withdrawAll">Всё</button>
           </label>
@@ -632,7 +632,7 @@
               необратим: ошибка в адресе означает потерю средств.</p>
             <div class="rate-line" id="withdrawRate"></div>
           </div>
-          <button class="cash-cta" id="withdrawSubmit"><span>Создать заявку</span><span data-cash-ico="arrow"></span></button>
+          <button class="cash-cta" id="withdrawSubmit"><span>Вывести</span><span data-cash-ico="arrow"></span></button>
           <p class="cash-fine">Сумма резервируется сразу. Пока заявку не взяли в работу, её можно
             отменить, и деньги вернутся на баланс.</p>
         </div>
