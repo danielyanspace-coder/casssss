@@ -2616,6 +2616,9 @@ async function runFreeSpins(grant, caseData, { auto = false, replay = false, cos
   const finish = () => {
     sndCollect();
     box.hidden = true;
+    // Кнопка прячется вместе с панелью: иначе следующий показ панели на
+    // долю секунды выводил бы «Забрать» прошлой серии.
+    collectBtn.hidden = true;
     endBonusMode();
     ack();
   };

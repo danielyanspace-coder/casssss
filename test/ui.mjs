@@ -1162,9 +1162,12 @@ check('показ выигрыша убирает за собой', stuckAfter.l
   await page.waitForFunction(() => {
     const res = document.getElementById('result');
     const btn = document.getElementById('fsCollect');
-    return !res.hidden || !btn.hidden;
+    return !res.hidden || (!document.getElementById('freespins').hidden && !btn.hidden);
   }, null, { timeout: 180000 });
-  while (await page.evaluate(() => !document.getElementById('fsCollect').hidden)) {
+  // Серия ждёт «Забрать», только когда видна и сама панель фриспинов: у
+  // свернувшейся панели кнопка остаётся без hidden, но нажать её нельзя.
+  while (await page.evaluate(() => !document.getElementById('freespins').hidden
+      && !document.getElementById('fsCollect').hidden)) {
     await page.click('#fsCollect');
     await page.waitForTimeout(800);
   }
@@ -1278,9 +1281,12 @@ check('показ выигрыша убирает за собой', stuckAfter.l
   await page.click('#autoRunRow .auto-btn.is-running');
   await page.waitForFunction(() => {
     const box = document.getElementById('batchSummary');
-    return !box.hidden || !document.getElementById('fsCollect').hidden;
+    return !box.hidden || (!document.getElementById('freespins').hidden && !document.getElementById('fsCollect').hidden);
   }, null, { timeout: 180000 });
-  while (await page.evaluate(() => !document.getElementById('fsCollect').hidden)) {
+  // Серия ждёт «Забрать», только когда видна и сама панель фриспинов: у
+  // свернувшейся панели кнопка остаётся без hidden, но нажать её нельзя.
+  while (await page.evaluate(() => !document.getElementById('freespins').hidden
+      && !document.getElementById('fsCollect').hidden)) {
     await page.click('#fsCollect');
     await page.waitForTimeout(800);
   }
