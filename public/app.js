@@ -243,11 +243,7 @@ function track(name) {
 function openCashier() {
   if (state.guest) return openAuth(authDefaultPane());
   switchView('wallet');
-  const pane = document.getElementById('walletDepositPane');
-  if (pane) {
-    document.getElementById('walletWithdrawPane').hidden = true;
-    pane.hidden = false;
-  }
+  setCashMode('deposit');
 }
 
 /*
@@ -5731,14 +5727,10 @@ function switchView(name) {
   if (name === 'wallet') {
     loadWallet();
     track('cashier_view');
-    // На компьютере касса стоит в две колонки, и правая - это открытая панель.
-    // Без неё половина экрана пустует, поэтому пополнение раскрыто сразу:
-    // за ним в кассу и приходят.
-    if (window.matchMedia('(min-width: 1024px)').matches) {
-      const deposit = document.getElementById('walletDepositPane');
-      const withdraw = document.getElementById('walletWithdrawPane');
-      if (deposit.hidden && withdraw.hidden) deposit.hidden = false;
-    }
+    // «Пополнить» и «Вывести» - переключатель, а не две раскрывашки: одна
+    // панель открыта всегда. Первым раскрыто пополнение, за ним в кассу и
+    // приходят; на компьютере без него пустовала бы вся правая колонка.
+    if (!document.getElementById('cashSwitch').dataset.mode) setCashMode('deposit');
   }
   if (name === 'roulette') renderRouletteWheel();
   if (name === 'crash') { if (!state.crash) resetCrashGraph(); crashFx().wake(); }
@@ -6067,6 +6059,153 @@ const SOURCE_LABEL = {
   welcome: 'Бонус за первое пополнение',
 };
 
+/* ---------- Касса: общие детали оформления ---------- */
+
+/*
+ * Иконки кассы. Один набор с одной толщиной линии: раньше в кассе не было ни
+ * одной иконки, и экран держался на рамках разного цвета, отчего каждый блок
+ * выглядел отдельной поделкой.
+ */
+const CASH_ICONS = {
+  shield: '<path d="M12 3.2 5 6v5.4c0 4.3 3 8 7 9.4 4-1.4 7-5.1 7-9.4V6l-7-2.8Z"/><path d="m9 12 2.2 2.2L15.4 10"/>',
+  in: '<path d="M12 4v11"/><path d="m7.5 10.5 4.5 4.5 4.5-4.5"/><path d="M5 19.5h14"/>',
+  out: '<path d="M12 20V9"/><path d="m7.5 13.5 4.5-4.5 4.5 4.5"/><path d="M5 4.5h14"/>',
+  card: '<rect x="3" y="5.5" width="18" height="13" rx="2.6"/><path d="M3 10h18"/><path d="M7 14.6h3.2"/>',
+  crypto: '<path d="M12 2.8 20 7.4v9.2l-8 4.6-8-4.6V7.4l8-4.6Z"/><path d="M9.6 8.6h3.6a1.7 1.7 0 0 1 0 3.4H9.6m0 0h4.1a1.7 1.7 0 0 1 0 3.4H9.6V8.6Z"/>',
+  arrow: '<path d="M5 12h13"/><path d="m13 6.5 5.5 5.5-5.5 5.5"/>',
+  copy: '<rect x="8.5" y="8.5" width="11" height="11" rx="2.4"/><path d="M15.5 8.5V6.9a2.4 2.4 0 0 0-2.4-2.4H6.9a2.4 2.4 0 0 0-2.4 2.4v6.2a2.4 2.4 0 0 0 2.4 2.4h1.6"/>',
+  check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
+  info: '<circle cx="12" cy="12" r="8.5"/><path d="M12 11v5"/><path d="M12 7.9v.1"/>',
+  warn: '<path d="M12 4 21 19.5H3L12 4Z"/><path d="M12 10v4.2"/><path d="M12 17v.1"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  gift: '<rect x="4" y="9" width="16" height="11" rx="2"/><path d="M3 9h18M12 9v11"/><path d="M12 9c-2.5 0-4.5-1-4.5-2.8S10 4 12 9Zm0 0c2.5 0 4.5-1 4.5-2.8S14 4 12 9Z"/>',
+  open: '<path d="M14 4.5h5.5V10"/><path d="M19.5 4.5 11 13"/><path d="M18 14v4a1.5 1.5 0 0 1-1.5 1.5h-10A1.5 1.5 0 0 1 5 18V8a1.5 1.5 0 0 1 1.5-1.5h4"/>',
+  refresh: '<path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3"/><path d="M19.5 4.5v4h-4"/>',
+  back: '<path d="M19 12H6"/><path d="m11 6.5-5.5 5.5 5.5 5.5"/>',
+  empty: '<rect x="4" y="5" width="16" height="14" rx="3"/><path d="M4 10h16"/><path d="M8 14.5h4"/>',
+};
+
+const cashIcon = (name) =>
+  `<svg class="cash-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+    stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${CASH_ICONS[name] || ''}</svg>`;
+
+/** Подставляет иконки в разметку из index.html по data-cash-ico. */
+function hydrateCashIcons(root) {
+  root?.querySelectorAll('[data-cash-ico]').forEach((el) => {
+    if (el.dataset.icoDone) return;
+    el.insertAdjacentHTML('afterbegin', cashIcon(el.dataset.cashIco));
+    el.dataset.icoDone = '1';
+  });
+}
+hydrateCashIcons(document.getElementById('view-wallet'));
+
+/** Высота карточки баланса для липкого переключателя под ней (см. styles.css). */
+(function watchCashHero() {
+  const hero = document.querySelector('#view-wallet > .wallet-card');
+  if (!hero || typeof ResizeObserver === 'undefined') return;
+  new ResizeObserver(() => {
+    document.getElementById('view-wallet').style.setProperty('--cash-hero-h', `${hero.offsetHeight}px`);
+  }).observe(hero);
+})();
+
+const cashReduceMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+
+/** Дата в истории: «18 окт., 10:11». Год и секунды в кассе никто не читает. */
+const cashDate = (ts) => new Date(ts).toLocaleString('ru-RU', {
+  day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+});
+
+/** Длительность докрутки баланса, мс. */
+const CASH_BALANCE_TWEEN_MS = 700;
+let cashShownBalance = null;
+
+/*
+ * Баланс докручивается от старого значения к новому, а не подменяется:
+ * вывод и отмена заявки видны глазами, а не только по цифре. Знак рубля -
+ * отдельным узлом, мельче и золотом: крупная сумма читается быстрее без него.
+ */
+function paintCashBalance(to) {
+  const el = document.getElementById('walletBalance');
+  // Копейки бывают (казино), поэтому в промежутке целые рубли, а в конце
+  // ровно та сумма, что пришла с сервера.
+  const draw = (v) => { el.innerHTML = `${fmtMoney(v)}<span class="cash-cur">₽</span>`; };
+  const from = cashShownBalance;
+  cashShownBalance = to;
+  if (from === null || from === to || cashReduceMotion()) { draw(to); return; }
+
+  const start = performance.now();
+  const step = (now) => {
+    if (cashShownBalance !== to) return;
+    const t = Math.min(1, (now - start) / CASH_BALANCE_TWEEN_MS);
+    draw(t < 1 ? Math.round(from + (to - from) * (1 - Math.pow(1 - t, 3))) : to);
+    if (t < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
+/**
+ * «Пополнить» и «Вывести» - один переключатель: открыта всегда ровно одна
+ * панель. Раньше это были две кнопки-раскрывашки разных цветов, и на
+ * телефоне касса открывалась пустой, без формы.
+ */
+function setCashMode(mode) {
+  const sw = document.getElementById('cashSwitch');
+  if (!sw || sw.dataset.mode === mode) return;
+  sw.dataset.mode = mode;
+  for (const [key, paneId, tabId] of [
+    ['deposit', 'walletDepositPane', 'walletDeposit'],
+    ['withdraw', 'walletWithdrawPane', 'walletWithdraw'],
+  ]) {
+    const on = key === mode;
+    const tab = document.getElementById(tabId);
+    tab.classList.toggle('active', on);
+    tab.setAttribute('aria-selected', String(on));
+    const pane = document.getElementById(paneId);
+    pane.hidden = !on;
+    // Анимацию входа перезапускаем вручную: панель не создаётся заново, а
+    // только показывается, и без перезапуска она сыграла бы один раз.
+    if (on) { pane.classList.remove('is-entering'); void pane.offsetWidth; pane.classList.add('is-entering'); }
+  }
+}
+
+/** Строка истории: значок, что и когда, сумма и статус. */
+function cashTxRow({ tone, icon, title, sub, amount, status }) {
+  return `<div class="cash-tx tone-${tone}">
+    <span class="cash-tx-ico">${cashIcon(icon)}</span>
+    <span class="cash-tx-main"><b>${title}</b><small>${sub}</small></span>
+    <span class="cash-tx-side"><b>${amount}</b><small>${status}</small></span>
+  </div>`;
+}
+
+const cashEmpty = (title, text) => `<div class="cash-empty">
+  <span class="cash-empty-ico">${cashIcon('empty')}</span><b>${title}</b><small>${text}</small></div>`;
+
+/** Кнопка на время запроса: крутится и не нажимается, чтобы не создать две заявки. */
+async function withCashBusy(btn, fn) {
+  if (!btn || btn.classList.contains('is-busy')) return;
+  btn.classList.add('is-busy');
+  btn.disabled = true;
+  try { await fn(); } finally { btn.classList.remove('is-busy'); btn.disabled = false; }
+}
+
+/** Копирование с подтверждением на самой кнопке: тост внизу экрана легко пропустить. */
+function bindCashCopy(btn, text, label = 'Скопировать') {
+  btn?.addEventListener('click', async () => {
+    let ok = false;
+    try { await navigator.clipboard.writeText(text); ok = true; } catch { /* нет доступа к буферу */ }
+    if (!ok) { toast('Скопируйте вручную'); return; }
+    haptic('light');
+    const span = btn.querySelector('.cash-copy-label');
+    btn.classList.add('is-copied');
+    if (span) span.textContent = 'Скопировано';
+    clearTimeout(btn._copyTimer);
+    btn._copyTimer = setTimeout(() => {
+      btn.classList.remove('is-copied');
+      if (span) span.textContent = label;
+    }, 1600);
+  });
+}
+
 /** То же предложение, что на первом экране, но внутри кассы. */
 function renderDepositOffer() {
   const el = document.getElementById('depositOffer');
@@ -6099,31 +6238,23 @@ async function loadWallet() {
   state.wallet = w;
   renderDepositOffer();
 
-  document.getElementById('walletBalance').textContent = money(w.balance);
+  paintCashBalance(w.balance);
   document.getElementById('walletRows').innerHTML = `
-    <div class="wallet-row"><span>Доступно к выводу</span><b>${money(w.available)}</b></div>
-    ${w.pending ? `<div class="wallet-row pending"><span>В обработке</span>
-      <b>${money(w.pending)}</b></div>` : ''}
-    <div class="wallet-row"><span>Минимальная сумма вывода</span><b>${money(w.minPayout)}</b></div>
+    <div class="cash-stat"><span>К выводу</span><b>${money(w.available)}</b></div>
+    ${w.pending ? `<div class="cash-stat is-pending"><span>В обработке</span><b>${money(w.pending)}</b></div>` : ''}
+    <div class="cash-stat"><span>Мин. вывод</span><b>${money(w.minPayout)}</b></div>
   `;
 
+  // Бонусы приходят отдельной строкой рядом с самим пополнением, и плюсом
+  // им рисовать нечего: значок подарка отличает их от внесённых денег.
   document.getElementById('depositList').innerHTML = w.deposits.length
-    ? w.deposits.map((d) => `<div class="log-row">
-        <span>${esc(d.comment || SOURCE_LABEL[d.source] || 'Пополнение')}<br>
-          <small>${new Date(d.created_at).toLocaleString('ru-RU')}</small></span>
-        <b class="plus">+${money(d.amount)}</b>
-      </div>`).join('')
-    : '<div class="empty">Пополнений пока не было</div>';
-
-  // Пустой баланс - тупик ровно так же, как «не хватает» в кейсе: смотреть
-  // в кассе не на что, и уйти из неё некуда. Кнопка открывает пополнение.
-  if (!w.balance && !w.deposits.length) {
-    document.getElementById('depositList').innerHTML =
-      `<div class="empty">Пополнений пока не было<br>
-        <button class="btn btn-primary" id="emptyDeposit" style="margin-top:12px">Пополнить</button>
-      </div>`;
-    document.getElementById('emptyDeposit').onclick = () => { haptic('light'); openCashier(); };
-  }
+    ? w.deposits.map((d) => cashTxRow({
+        tone: 'ok', icon: ['promo', 'welcome'].includes(d.source) ? 'gift' : 'plus',
+        title: esc(d.comment || SOURCE_LABEL[d.source] || 'Пополнение'),
+        sub: cashDate(d.created_at),
+        amount: `+${money(d.amount)}`, status: 'Зачислено',
+      })).join('')
+    : cashEmpty('Пополнений пока нет', 'Здесь появятся все зачисления на баланс');
 
   renderPayoutList(w.payouts);
 
@@ -6133,7 +6264,7 @@ async function loadWallet() {
    * названо прямо здесь, с конкретным числом, а не спрятано в правилах.
    */
   document.getElementById('withdrawHint').innerHTML =
-    `Доступно <b>${money(w.available)}</b> · минимум ${money(w.minPayout)}`
+    `Доступно <b>${money(w.available)}</b><i></i>минимум ${money(w.minPayout)}`
     + (w.depositDebt > 0
       ? `<span class="withdraw-locked">Пополнение нужно прокрутить через ставки:
            осталось поставить ${money(w.depositDebt)}. После этого выводится
@@ -6211,7 +6342,7 @@ function freshPaidIds(payouts) {
 function renderPayoutList(payouts) {
   const box = document.getElementById('payoutList');
   if (!payouts.length) {
-    box.innerHTML = '<div class="empty">Заявок пока не было</div>';
+    box.innerHTML = cashEmpty('Заявок пока нет', 'Созданные заявки на вывод появятся здесь');
     return;
   }
 
@@ -6227,11 +6358,11 @@ function renderPayoutList(payouts) {
         <b>${money(p.amount)}</b>
         <span class="payout-status ${p.status}">${STATUS_LABEL[p.status] || p.status}</span>
       </div>
-      <div class="payout-date">${new Date(p.created_at).toLocaleString('ru-RU')}</div>
+      <div class="payout-date">${cashDate(p.created_at)}</div>
       <div class="payout-requisites">${payoutRequisites(p)}</div>
       ${p.comment ? `<div class="payout-comment">${esc(p.comment)}</div>` : ''}
       ${p.status === 'pending'
-        ? `<button class="btn btn-outline btn-sm payout-cancel" data-cancel="${p.id}">Отменить</button>`
+        ? `<button class="payout-cancel" data-cancel="${p.id}">Отменить заявку</button>`
         : ''}
     </div>`).join('');
 
@@ -6251,12 +6382,7 @@ function renderPayoutList(payouts) {
   });
 }
 
-document.getElementById('walletDeposit').addEventListener('click', () => {
-  const pane = document.getElementById('walletDepositPane');
-  document.getElementById('walletWithdrawPane').hidden = true;
-  pane.hidden = !pane.hidden;
-  haptic('light');
-});
+document.getElementById('walletDeposit').addEventListener('click', () => { setCashMode('deposit'); haptic('light'); });
 
 /* ============================================================
    КРИПТОКАССА
@@ -6422,6 +6548,7 @@ function renderCryptoQuick() {
   row.querySelectorAll('.quick-btn').forEach((b) => b.addEventListener('click', () => {
     input.value = b.dataset.sum;
     refreshCryptoRate('deposit');
+    markQuick(row, input);
     haptic('light');
   }));
 }
@@ -6438,8 +6565,7 @@ async function openCryptoDeposit() {
 
   renderCoinGrid(document.getElementById('coinGrid'), 'deposit');
   renderCryptoQuick();
-  document.getElementById('cryptoAmount').placeholder =
-    `Сумма пополнения, ₽ (от ${money(cryptoState.min)})`;
+  document.getElementById('cryptoAmount').placeholder = `от ${fmtMoney(cryptoState.min)}`;
   selectCoin('deposit', cryptoState.deposit.currency || cryptoState.coins[0].currency);
 }
 
@@ -6451,7 +6577,16 @@ document.getElementById('coinNetworkSelect')?.addEventListener('change', (e) => 
 document.getElementById('withdrawNetwork')?.addEventListener('change', (e) => {
   cryptoState.withdraw.network = e.target.value;
 });
-document.getElementById('cryptoAmount')?.addEventListener('input', () => refreshCryptoRate('deposit'));
+document.getElementById('cryptoAmount')?.addEventListener('input', (e) => {
+  refreshCryptoRate('deposit');
+  markQuick(document.getElementById('cryptoQuick'), e.target);
+});
+
+/** Подсвечивает быструю сумму, совпавшую с введённой: видно, что выбрано. */
+function markQuick(row, input) {
+  row?.querySelectorAll('.quick-btn').forEach((b) =>
+    b.classList.toggle('active', Number(b.dataset.sum) === Number(input.value)));
+}
 
 document.getElementById('cryptoCreateBtn')?.addEventListener('click', async () => {
   const { currency, network } = cryptoState.deposit;
@@ -6459,18 +6594,16 @@ document.getElementById('cryptoCreateBtn')?.addEventListener('click', async () =
   if (!currency || !network) return toast('Выберите монету и сеть');
   if (!amount || amount < cryptoState.min) return toast(`Минимум ${money(cryptoState.min)}`);
 
-  const btn = document.getElementById('cryptoCreateBtn');
-  btn.disabled = true;
-  try {
-    const payment = await api('/api/crypto/create', { amount, currency, network });
-    showCryptoCheckout(payment);
-    haptic('success');
-  } catch (err) {
-    toast(err.message);
-    haptic('error');
-  } finally {
-    btn.disabled = false;
-  }
+  await withCashBusy(document.getElementById('cryptoCreateBtn'), async () => {
+    try {
+      const payment = await api('/api/crypto/create', { amount, currency, network });
+      showCryptoCheckout(payment);
+      haptic('success');
+    } catch (err) {
+      toast(err.message);
+      haptic('error');
+    }
+  });
 });
 
 /**
@@ -6489,6 +6622,7 @@ function showCryptoCheckout(p) {
       <div class="invoice-head">
         ${coinMark(p.currency, 44)}
         <div>
+          <div class="invoice-label">К оплате</div>
           <div class="invoice-sum">${p.payerAmount || '-'} ${p.currency}</div>
           <div class="invoice-sub">за ${money(p.amountRub)} · сеть ${esc(p.networkName)}</div>
         </div>
@@ -6501,25 +6635,26 @@ function showCryptoCheckout(p) {
       ${p.address ? `
         <div class="field-label">Адрес для перевода</div>
         <button class="invoice-address" id="cryptoCopy" type="button">
-          <span>${esc(p.address)}</span><small>нажмите, чтобы скопировать</small>
+          <span class="invoice-addr">${esc(p.address)}</span>
+          <span class="cash-copy">${cashIcon('copy')}${cashIcon('check')}<span class="cash-copy-label">Скопировать</span></span>
         </button>` : ''}
 
-      <div class="invoice-warn">Отправляйте только ${p.currency} в сети
-        ${esc(p.networkName)}. Перевод в другой сети теряется без возврата.</div>
+      <div class="invoice-warn">${cashIcon('warn')}<span>Отправляйте только ${p.currency} в сети
+        ${esc(p.networkName)}. Перевод в другой сети теряется без возврата.</span></div>
 
-      ${p.payUrl ? `<a class="btn btn-primary btn-wide" href="${p.payUrl}"
-         target="_blank" rel="noopener">Открыть страницу оплаты</a>` : ''}
+      ${p.payUrl ? `<a class="cash-cta" href="${p.payUrl}"
+         target="_blank" rel="noopener"><span>Открыть страницу оплаты</span>${cashIcon('open')}</a>` : ''}
 
-      <button class="btn btn-outline btn-wide" id="cryptoCheck">Я оплатил, проверить</button>
-      <button class="btn btn-outline btn-wide" id="cryptoBack">Другой способ</button>
+      <div class="cash-row2">
+        <button class="cash-ghost" id="cryptoCheck">${cashIcon('refresh')}Я оплатил</button>
+        <button class="cash-ghost" id="cryptoBack">Другой способ</button>
+      </div>
       <div class="invoice-status" id="cryptoStatus"></div>
     </div>`;
 
-  document.getElementById('cryptoCopy')?.addEventListener('click', () => {
-    navigator.clipboard?.writeText(p.address).then(
-      () => toast('Адрес скопирован'), () => toast('Скопируйте адрес вручную'));
-    haptic('light');
-  });
+  // Адрес копируется нажатием на всю плашку: переписывать его руками с экрана
+  // телефона - верный способ потерять перевод.
+  bindCashCopy(document.getElementById('cryptoCopy'), p.address);
 
   document.getElementById('cryptoBack').addEventListener('click', () => {
     box.hidden = true;
@@ -6618,15 +6753,29 @@ function openSiciliaDeposit() {
   markDepositMethod('sicilia');
   showDepositPane('siciliaCreate');
   const input = document.getElementById('siciliaAmount');
-  input.placeholder = `Сумма, ₽ (от ${money(siciliaState.min)})`;
+  input.placeholder = `от ${fmtMoney(siciliaState.min)}`;
   document.getElementById('siciliaQuick').innerHTML = SICILIA_QUICK
     .filter((v) => v >= siciliaState.min && v <= siciliaState.max)
     .map((v) => `<button type="button" class="quick-btn" data-sum="${v}">${money(v)}</button>`).join('');
   document.querySelectorAll('#siciliaQuick [data-sum]').forEach((b) => b.addEventListener('click', () => {
     input.value = b.dataset.sum;
+    syncSiciliaAmount();
     haptic('light');
   }));
+  syncSiciliaAmount();
 }
+
+/*
+ * Кнопка называет сумму: «Оплатить 3 000 ₽» перед уходом в чужое окно
+ * успокаивает лучше безликого «Перейти к оплате».
+ */
+function syncSiciliaAmount() {
+  const input = document.getElementById('siciliaAmount');
+  const n = Number(input.value);
+  markQuick(document.getElementById('siciliaQuick'), input);
+  document.getElementById('siciliaCreateLabel').textContent = n > 0 ? `Оплатить ${money(n)}` : 'Перейти к оплате';
+}
+document.getElementById('siciliaAmount')?.addEventListener('input', syncSiciliaAmount);
 
 document.querySelector('[data-payment-method="sicilia"]')?.addEventListener('click', () => {
   clearInterval(siciliaState.poll);
@@ -6639,6 +6788,7 @@ document.getElementById('siciliaCreateBtn')?.addEventListener('click', async () 
   if (amount > siciliaState.max) return toast(`Максимум ${money(siciliaState.max)}`);
   const btn = document.getElementById('siciliaCreateBtn');
   btn.disabled = true;
+  btn.classList.add('is-busy');
   const pending = window.open('', '_blank');
   try {
     const order = await api('/api/sicilia/create', { amount });
@@ -6651,6 +6801,7 @@ document.getElementById('siciliaCreateBtn')?.addEventListener('click', async () 
     haptic('error');
   } finally {
     btn.disabled = false;
+    btn.classList.remove('is-busy');
   }
 });
 
@@ -6661,13 +6812,21 @@ function showSiciliaCheckout(order, opened = true) {
   const box = document.getElementById('siciliaCheckout');
   box.innerHTML = `
     <div class="sicilia-wait">
+      <div class="cash-wait-head">
+        <span class="cash-pulse" aria-hidden="true"></span>
+        <div>
+          <div class="cash-wait-status">Ждём подтверждения банка</div>
+          <div class="sicilia-wait-sub">${opened ? 'Оплата открыта в отдельном окне' : 'Окно оплаты не открылось само'}</div>
+        </div>
+      </div>
       <div class="sicilia-wait-sum">${money(order.amount)}</div>
-      <div class="sicilia-wait-sub">Оплата открыта в отдельном окне</div>
-      <p>${opened ? 'Переведите точную сумму по реквизитам в окне оплаты.' : 'Окно не открылось само - нажмите кнопку ниже.'}
+      <p>${opened ? 'Переведите точную сумму по реквизитам в окне оплаты.' : 'Нажмите кнопку ниже, чтобы открыть его.'}
         Как только банк подтвердит перевод, деньги появятся на балансе.</p>
-      <button class="btn btn-primary btn-wide" id="siciliaReopen">Открыть окно оплаты</button>
-      <button class="btn btn-outline btn-wide" id="siciliaCheck">Я оплатил, проверить</button>
-      <button class="btn btn-outline btn-wide" id="siciliaBack">Другая сумма</button>
+      <button class="cash-cta" id="siciliaReopen"><span>Открыть окно оплаты</span>${cashIcon('open')}</button>
+      <div class="cash-row2">
+        <button class="cash-ghost" id="siciliaCheck">${cashIcon('refresh')}Я оплатил</button>
+        <button class="cash-ghost" id="siciliaBack">Другая сумма</button>
+      </div>
       <div class="invoice-status" id="siciliaStatus"></div>
     </div>`;
   document.getElementById('siciliaReopen').addEventListener('click', async () => {
@@ -6731,15 +6890,12 @@ function startPaymentEvents(){
   es.addEventListener('payment.completed',async()=>{clearInterval(siciliaState.poll);toast('Платёж успешно поступил. Средства зачислены на счёт.');sndCollect();haptic('success');const me=await api('/api/me');applyUser(me.user);loadWallet();});
 }
 
-document.getElementById('walletWithdraw').addEventListener('click', () => {
-  const pane = document.getElementById('walletWithdrawPane');
-  document.getElementById('walletDepositPane').hidden = true;
-  pane.hidden = !pane.hidden;
-  haptic('light');
-});
+document.getElementById('walletWithdraw').addEventListener('click', () => { setCashMode('withdraw'); haptic('light'); });
 
 document.getElementById('withdrawAll').addEventListener('click', () => {
   document.getElementById('withdrawAmount').value = state.wallet?.available || 0;
+  if (state.withdrawMethod === 'crypto') refreshCryptoRate('withdraw');
+  haptic('light');
 });
 
 async function loadSbpBanks() {
@@ -6754,6 +6910,9 @@ loadSbpBanks();
 document.querySelectorAll('[data-withdraw-method]').forEach(btn => btn.addEventListener('click', async () => {
   state.withdrawMethod = btn.dataset.withdrawMethod;
   document.querySelectorAll('[data-withdraw-method]').forEach(x => x.classList.toggle('active', x === btn));
+  // По этому атрибуту плашка переключателя едет под выбранный способ.
+  btn.parentElement.dataset.active = state.withdrawMethod;
+  haptic('light');
   document.getElementById('withdrawSbpFields').hidden = state.withdrawMethod !== 'sbp';
   document.getElementById('withdrawCardFields').hidden = state.withdrawMethod !== 'card';
   document.getElementById('withdrawCryptoFields').hidden = state.withdrawMethod !== 'crypto';
@@ -6780,7 +6939,7 @@ document.getElementById('withdrawCard').addEventListener('input', (event) => {
   event.target.value = digits.replace(/(.{4})/g, '$1 ').trim();
 });
 
-document.getElementById('withdrawSubmit').addEventListener('click', async () => {
+document.getElementById('withdrawSubmit').addEventListener('click', (e) => withCashBusy(e.currentTarget, async () => {
   const amount = Math.trunc(Number(document.getElementById('withdrawAmount').value));
   if (!amount || amount <= 0) { toast('Укажите сумму'); return; }
 
@@ -6815,7 +6974,7 @@ document.getElementById('withdrawSubmit').addEventListener('click', async () => 
     haptic('success');
     loadWallet();
   } catch (err) { toast(err.message); haptic('error'); }
-});
+}));
 
 /* ============================================================
    ЛЕНТА ВЫИГРЫШЕЙ

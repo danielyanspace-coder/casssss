@@ -10,7 +10,7 @@
  * кешируются на диске.
  */
 import { mkdirSync, existsSync, readFileSync, writeFileSync, renameSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import { saveCatalog, catalogStats, setCoverState, gamesWithoutCoverState, gamesWithoutCover } from './casino-db.js';
 import { alert } from './ops.js';
@@ -431,7 +431,10 @@ export async function launchGame({ game, playerId, demo, ip, country, rtp, lobby
  */
 const COVER_WIDTH = 330;
 const COVER_QUALITY = 78;
-const coverDir = () => join(dirname(process.env.DB_PATH || './data/app.db'), 'casino-covers');
+// Путь абсолютный, как у самой базы в db.js: res.sendFile относительный не
+// принимает, а DB_PATH в .env.example относительный (./data/app.db), и каждая
+// обложка казино отвечала бы 500.
+const coverDir = () => join(dirname(resolve(process.env.DB_PATH || './data/app.db')), 'casino-covers');
 
 let sharpLib;
 async function sharp() {
