@@ -1022,6 +1022,22 @@ function demoUnique(rows, size) {
   return rows.filter((r) => { const k = r[1].toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; }).slice(0, size);
 }
 
+
+function stubPayoutCheck(p) {
+  const u = store.user;
+  return {
+    verdict: 'green', reasons: [], override: null, checkedAt: p.created_at || Date.now(),
+    checks: [
+      { ok: true, title: 'Баланс сходится с журналом денег', detail: 'Каждый рубль баланса объяснён операцией' },
+      { ok: true, title: 'Пополнение отыграно', detail: 'Отыгрыш депозита закрыт ставками' },
+      { ok: true, title: 'Выигрыши пересчитаны по seed', detail: 'Исходы раундов совпадают с записанными' },
+      { ok: true, title: 'Связанных аккаунтов нет', detail: 'Устройство и карта не встречаются у других игроков' },
+    ],
+    summary: { deposited: 0, paidOut: 0, gamesNet: 0, rounds: (u.rounds || []).length,
+               bestWin: 0, accountAgeDays: 0 },
+  };
+}
+
 const routes = {
   'GET /api/config': () => ({
     ...CONFIG, open: demoOpen(), casino: { rtp: demoCasinoRtp(), configured: false },
@@ -1838,7 +1854,8 @@ const routes = {
     const status = body.status || 'pending';
     const rows = (status === 'all' ? u.payouts : u.payouts.filter((p) => p.status === status))
       .map((p) => ({ ...p, user_id: u.id, tg_id: '999000001',
-                     username: u.username, first_name: u.firstName, balance: u.balance }));
+                     username: u.username, first_name: u.firstName, balance: u.balance,
+                     check: stubPayoutCheck(p) }));
     const sum = (st) => u.payouts.filter((p) => p.status === st).reduce((a, p) => a + p.amount, 0);
     return {
       rows,
@@ -1849,6 +1866,16 @@ const routes = {
       },
     };
   },
+
+  // Проверка заявки в сборке без сервера: денег в ней нет, сверять нечего,
+  // поэтому показывается зелёная плашка с теми же пунктами, что у сервера.
+  'POST /api/admin/payout/check': (body) => {
+    const p = store.user.payouts.find((x) => x.id === Number(body.id));
+    if (!p) return { status: 404, body: { error: 'Заявка не найдена' } };
+    return { check: stubPayoutCheck(p) };
+  },
+
+  'POST /api/admin/payout/override': () => ({ ok: true }),
 
   'POST /api/admin/payout/resolve': (body) => {
     const u = store.user;

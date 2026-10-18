@@ -32,6 +32,7 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import {
   db, getUserById, registerDeposit, trackEvent, payoutForGateway, startPayout, completePayout,
+  moneyTx, ledgerLink,
 } from './db.js';
 
 /* Журнал balance_transactions общий для шлюзов и создаётся в db.js. */
@@ -249,7 +250,7 @@ const DEAD = new Set(['cancelled', 'error', 'unclaimed']);
  * поправили сумму), иначе сумма ордера. Дробная часть отбрасывается:
  * баланс проекта - целые рубли, а округление вверх дарило бы деньги.
  */
-export const applyPayinStatus = db.transaction((orderId, info) => {
+export const applyPayinStatus = moneyTx('deposit', (orderId, info) => {
   const row = db.prepare("SELECT * FROM sicilia_orders WHERE id = ? AND kind = 'payin'").get(orderId);
   if (!row) throw Object.assign(new Error('Платёж не найден'), { code: 'NOT_FOUND' });
   const status = String(info.status || '');
@@ -267,6 +268,7 @@ export const applyPayinStatus = db.transaction((orderId, info) => {
   if (!(credited > 0)) return { credited: false, status, empty: true };
 
   db.prepare('UPDATE users SET balance = balance + ? WHERE id = ?').run(credited, row.user_id);
+  ledgerLink('sicilia_orders', row.id);
   db.prepare(`INSERT INTO balance_transactions (user_id, type, amount, sicilia_order_id, comment, created_at)
               VALUES (?, 'DEPOSIT', ?, ?, ?, ?)`).run(row.user_id, credited, row.id, 'СБП / карта', now);
   db.prepare(`INSERT INTO deposits (user_id, amount, source, comment, created_at)

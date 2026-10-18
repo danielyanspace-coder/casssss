@@ -129,8 +129,9 @@ function player(balance = 0) {
   reply = statusReply('completed');
   const ok = await s.handleCallback(cb);
   const after = getUserById(u.id);
+  // Бонус за первое пополнение ложится на бонусный счёт, свои - ровно сумма.
   check('подтверждённое пополнение зачислено', ok.credited && ok.amount === 1500 && siciliaPaid(u.id) === 1500
-    && after.balance === 1500 + ok.bonus, JSON.stringify(ok));
+    && after.balance === 1500 && after.bonus_balance === ok.bonus, JSON.stringify(ok));
   check('пополнение идёт через registerDeposit: долг отыгрыша и счётчик',
     after.deposit_debt >= 1500 && after.deposits_count === 1);
   check('пополнение записано в историю пополнений',

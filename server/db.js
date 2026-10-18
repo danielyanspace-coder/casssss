@@ -8,7 +8,7 @@
 import Database from 'better-sqlite3';
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
+import { createCipheriv, createDecipheriv, createHmac, randomBytes } from 'node:crypto';
 
 import { SETTING_DEFS } from './settings-defs.js';
 import { generateClientSeed, generateServerSeed, hashSeed, computeRoll } from './fair.js';
@@ -18,6 +18,7 @@ import {
   VOUCHER_MIN, VOUCHER_MAX, VOUCHER_STEP,
   CASH_PRIZE, GIFT_CASE_MAX_PRICE, SPINS_PER_CYCLE, SPIN_COOLDOWN_MS, MIN_DEPOSIT,
 } from './fortune.js';
+import { SLOT_RTP } from './slots.js';
 
 const DB_PATH = resolve(process.env.DB_PATH || './data/app.db');
 mkdirSync(dirname(DB_PATH), { recursive: true });
@@ -41,6 +42,37 @@ function decryptCard(value) {
   if (!value?.startsWith('v1.')) return value || '';
   try { const [,iv,tag,data]=value.split('.'), decipher=createDecipheriv('aes-256-gcm',payoutKey(),Buffer.from(iv,'base64url')); decipher.setAuthTag(Buffer.from(tag,'base64url')); return Buffer.concat([decipher.update(Buffer.from(data,'base64url')),decipher.final()]).toString('utf8'); }
   catch { return 'Недоступно: проверьте PAYOUT_DATA_KEY'; }
+}
+
+/**
+ * Отпечаток номера карты для поиска одной карты на разных аккаунтах.
+ *
+ * Номер шифруется со случайным вектором, и два шифра одной карты не совпадают,
+ * поэтому сравнивать их нельзя. HMAC на том же ключе совпадает для одной
+ * карты и не раскрывает номер тому, у кого есть только база.
+ */
+function cardHash(pan) {
+  const key = payoutKey();
+  const digits = String(pan || '').replace(/\D/g, '');
+  if (!key || !digits) return null;
+  return createHmac('sha256', key).update(digits).digest('hex');
+}
+
+/**
+ * Проставляет отпечаток карты заявкам, созданным до его появления. Без ключа
+ * PAYOUT_DATA_KEY делать нечего: и расшифровать, и посчитать отпечаток нельзя.
+ */
+export function ensureCardHashes() {
+  if (!payoutKey()) return 0;
+  const rows = db.prepare('SELECT id, card_number FROM payouts WHERE card_number IS NOT NULL AND card_hash IS NULL').all();
+  const set = db.prepare('UPDATE payouts SET card_hash = ? WHERE id = ?');
+  for (const r of rows) set.run(cardHash(decryptCard(r.card_number)), r.id);
+  return rows.length;
+}
+
+/** Номер карты заявки открытым текстом: нужен проверке связанных аккаунтов. */
+export function payoutCardDigits(row) {
+  return row?.card_number ? String(decryptCard(row.card_number)).replace(/\D/g, '') : '';
 }
 
 db.exec(`
@@ -732,6 +764,293 @@ db.exec(`
   );
 `);
 
+/* ============================================================
+   БОНУСНЫЙ СЧЁТ, ЖУРНАЛ ДЕНЕГ, ИСТОРИЯ SEED
+   ============================================================ */
+
+/*
+ * Бонусные деньги лежат на отдельном счёте users.bonus_balance, а не в общем
+ * балансе. Раньше бонус смешивался со своими деньгами, и непогашенный
+ * отыгрыш запирал вывод целиком: выиграл своими - всё равно жди, пока
+ * отыграешь подарок. Теперь свои деньги выводятся всегда (после отыгрыша
+ * самого пополнения), а бонус живёт своей жизнью: в него играют, когда своих
+ * не хватает на ставку, и в деньги он переходит, только когда отыгран.
+ *
+ * balance_kop объявлен здесь, а не только в casino-db.js: на него смотрит
+ * триггер журнала ниже, и колонка обязана существовать к его созданию.
+ */
+ensureColumn('users', 'balance_kop', 'INTEGER NOT NULL DEFAULT 0');
+const bonusWalletAdded = ensureColumn('users', 'bonus_balance', 'INTEGER NOT NULL DEFAULT 0');
+// Сколько бонусов за всё время перешло в настоящие деньги. Вместе с
+// deposits_total задаёт потолок перевода (см. bonusRules).
+ensureColumn('users', 'bonus_converted', 'INTEGER NOT NULL DEFAULT 0');
+const depositsTotalAdded = ensureColumn('users', 'deposits_total', 'INTEGER NOT NULL DEFAULT 0');
+// Бонусная часть ставки риск-игры: выигрыш кейса мог прийти на оба счёта.
+ensureColumn('users', 'gamble_bonus', 'INTEGER NOT NULL DEFAULT 0');
+
+// Какая часть ставки и выплаты раунда пришлась на бонусный счёт, и входные
+// данные раунда (цвет рулетки, цель апгрейда, карта риск-игры) - по ним
+// проверка заявки на вывод пересчитывает исход заново.
+ensureColumn('rounds', 'bonus_bet', 'INTEGER NOT NULL DEFAULT 0');
+ensureColumn('rounds', 'bonus_payout', 'INTEGER NOT NULL DEFAULT 0');
+ensureColumn('rounds', 'meta', 'TEXT');
+ensureColumn('crash_rounds', 'bonus_bet', 'INTEGER NOT NULL DEFAULT 0');
+// Сколько из ваучеров кейса подарочные: выигрыш с них идёт на бонусный счёт.
+// Ваучер, выпавший в платном открытии, входит в отдачу кейса и платит деньгами.
+ensureColumn('vouchers', 'bonus', 'INTEGER NOT NULL DEFAULT 0');
+ensureColumn('payouts', 'card_hash', 'TEXT');
+
+db.exec(`
+  -- События бонусного счёта: выдача, перевод в деньги, отказ. Журнал денег
+  -- ссылается сюда, и по этим строкам проверка заявки сверяет, что бонус не
+  -- превратился в деньги сверх положенного.
+  CREATE TABLE IF NOT EXISTS bonus_events (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id        INTEGER NOT NULL REFERENCES users(id),
+    kind           TEXT    NOT NULL,
+    source         TEXT,
+    amount         INTEGER NOT NULL DEFAULT 0,
+    burned         INTEGER NOT NULL DEFAULT 0,
+    wager          INTEGER NOT NULL DEFAULT 0,
+    allowance      INTEGER,
+    deposits_total INTEGER,
+    cashout_pct    REAL,
+    created_at     INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS bonus_events_user ON bonus_events(user_id, id);
+
+  -- Все server seed игрока, включая уже сменённые. В users лежат только
+  -- текущий и предыдущий, а проверке заявки нужно пересчитать любой раунд.
+  CREATE TABLE IF NOT EXISTS server_seeds (
+    hash       TEXT    PRIMARY KEY,
+    user_id    INTEGER NOT NULL,
+    seed       TEXT    NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+`);
+
+db.exec(`
+  INSERT OR IGNORE INTO server_seeds (hash, user_id, seed, created_at)
+    SELECT server_seed_hash, id, server_seed, created_at FROM users;
+  INSERT OR IGNORE INTO server_seeds (hash, user_id, seed, created_at)
+    SELECT prev_server_hash, id, prev_server_seed, created_at FROM users
+     WHERE prev_server_seed IS NOT NULL AND prev_server_hash IS NOT NULL;
+`);
+
+function rememberSeed(userId, seed) {
+  db.prepare('INSERT OR IGNORE INTO server_seeds (hash, user_id, seed, created_at) VALUES (?,?,?,?)')
+    .run(hashSeed(seed), userId, seed, Date.now());
+}
+
+/** Seed по его хешу или null, если его не сохранили (раунды до журнала). */
+export function seedByHash(hash) {
+  return db.prepare('SELECT seed FROM server_seeds WHERE hash = ?').get(hash)?.seed || null;
+}
+
+/*
+ * ЖУРНАЛ ДЕНЕГ.
+ *
+ * Каждое изменение любого из трёх полей денег (рубли, копейки казино,
+ * бонусный счёт) пишется строкой с суммой изменения и остатком после. Пишет
+ * не код, а ТРИГГЕР базы: изменить баланс мимо журнала нельзя ни забытым
+ * путём в коде, ни запросом руками. Такая строка получит вид 'unattributed',
+ * и проверка заявки на вывод покажет её красным.
+ *
+ * Вид операции и ссылку на её источник код сообщает через ledger_ctx: перед
+ * денежной операцией открывает контекст (ledgerOpen), после закрывает. Триггер
+ * берёт вид оттуда. Контекст - обычная таблица, а не временная: триггер
+ * основной базы не видит временные таблицы.
+ */
+db.exec(`
+  CREATE TABLE IF NOT EXISTS ledger (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id        INTEGER NOT NULL,
+    kind           TEXT    NOT NULL,
+    ref_table      TEXT,
+    ref_id         INTEGER,
+    real_kop       INTEGER NOT NULL,
+    bonus          INTEGER NOT NULL,
+    real_after_kop INTEGER NOT NULL,
+    bonus_after    INTEGER NOT NULL,
+    ctx            INTEGER,
+    created_at     INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS ledger_user ON ledger(user_id, id);
+  CREATE INDEX IF NOT EXISTS ledger_ref ON ledger(ref_table, ref_id);
+  CREATE INDEX IF NOT EXISTS ledger_ctx_idx ON ledger(ctx);
+
+  CREATE TABLE IF NOT EXISTS ledger_ctx (
+    id   INTEGER PRIMARY KEY CHECK (id = 1),
+    kind TEXT,
+    seq  INTEGER NOT NULL DEFAULT 0
+  );
+  INSERT OR IGNORE INTO ledger_ctx (id, kind, seq) VALUES (1, NULL, 0);
+`);
+
+const ledgerFresh = db.prepare('SELECT COUNT(*) AS n FROM ledger').get().n === 0;
+
+db.exec(`
+  CREATE TRIGGER IF NOT EXISTS ledger_users_money
+  AFTER UPDATE OF balance, balance_kop, bonus_balance ON users
+  WHEN OLD.balance IS NOT NEW.balance
+    OR OLD.balance_kop IS NOT NEW.balance_kop
+    OR OLD.bonus_balance IS NOT NEW.bonus_balance
+  BEGIN
+    INSERT INTO ledger (user_id, kind, real_kop, bonus, real_after_kop, bonus_after, ctx, created_at)
+    VALUES (NEW.id,
+            COALESCE((SELECT kind FROM ledger_ctx WHERE id = 1), 'unattributed'),
+            (NEW.balance * 100 + NEW.balance_kop) - (OLD.balance * 100 + OLD.balance_kop),
+            NEW.bonus_balance - OLD.bonus_balance,
+            NEW.balance * 100 + NEW.balance_kop,
+            NEW.bonus_balance,
+            (SELECT seq FROM ledger_ctx WHERE id = 1),
+            CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER));
+  END;
+
+  CREATE TRIGGER IF NOT EXISTS ledger_users_new
+  AFTER INSERT ON users
+  WHEN NEW.balance <> 0 OR NEW.balance_kop <> 0 OR NEW.bonus_balance <> 0
+  BEGIN
+    INSERT INTO ledger (user_id, kind, real_kop, bonus, real_after_kop, bonus_after, ctx, created_at)
+    VALUES (NEW.id,
+            COALESCE((SELECT kind FROM ledger_ctx WHERE id = 1), 'unattributed'),
+            NEW.balance * 100 + NEW.balance_kop, NEW.bonus_balance,
+            NEW.balance * 100 + NEW.balance_kop, NEW.bonus_balance,
+            (SELECT seq FROM ledger_ctx WHERE id = 1),
+            CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER));
+  END;
+`);
+
+/*
+ * Журнал появился у базы, где уже есть игроки с деньгами. Их остаток
+ * записывается одной строкой 'opening': откуда он взялся, журнал уже не
+ * знает, и проверка заявки называет это прямо, а не делает вид, что сошлось.
+ */
+if (ledgerFresh) {
+  db.exec(`
+    INSERT INTO ledger (user_id, kind, real_kop, bonus, real_after_kop, bonus_after, ctx, created_at)
+    SELECT id, 'opening', balance * 100 + balance_kop, bonus_balance,
+           balance * 100 + balance_kop, bonus_balance, 0,
+           CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)
+      FROM users
+     WHERE balance <> 0 OR balance_kop <> 0 OR bonus_balance <> 0;
+  `);
+}
+
+// Контекст держится стеком: денежные транзакции вкладываются друг в друга
+// (пачка кейсов, пополнение с бонусом внутри), и внутренняя не должна
+// стирать вид внешней, когда закончится.
+const ledgerStack = [];
+let ledgerSeq = db.prepare('SELECT COALESCE(MAX(ctx), 0) AS n FROM ledger').get().n;
+const setLedgerCtx = db.prepare('UPDATE ledger_ctx SET kind = ?, seq = ? WHERE id = 1');
+
+/* Открывает контекст денежной операции. Возвращает её номер. */
+export function ledgerOpen(kind) {
+  ledgerSeq += 1;
+  ledgerStack.push({ kind, seq: ledgerSeq });
+  setLedgerCtx.run(kind, ledgerSeq);
+  return ledgerSeq;
+}
+
+export function ledgerClose() {
+  ledgerStack.pop();
+  const top = ledgerStack[ledgerStack.length - 1];
+  setLedgerCtx.run(top ? top.kind : null, top ? top.seq : 0);
+}
+
+/**
+ * Привязывает строки журнала текущей операции к их источнику: раунду,
+ * заявке, ордеру шлюза. Источник часто появляется уже после изменения
+ * баланса (строку раунда пишут после зачисления), поэтому ссылка
+ * проставляется отдельным шагом.
+ */
+export function ledgerLink(refTable, refId) {
+  const top = ledgerStack[ledgerStack.length - 1];
+  if (!top || refId == null) return;
+  db.prepare('UPDATE ledger SET ref_table = ?, ref_id = ? WHERE ctx = ? AND ref_id IS NULL')
+    .run(refTable, Number(refId), top.seq);
+}
+
+/** Выполняет fn внутри контекста журнала. */
+export function withLedger(kind, fn) {
+  ledgerOpen(kind);
+  try { return fn(); } finally { ledgerClose(); }
+}
+
+/**
+ * Денежная транзакция: db.transaction и контекст журнала одной обёрткой.
+ * kind - строка или функция от аргументов (вид раунда зависит от игры).
+ */
+export function moneyTx(kind, fn) {
+  return db.transaction((...args) =>
+    withLedger(typeof kind === 'function' ? kind(...args) : kind, () => fn(...args)));
+}
+
+/*
+ * Откуда игрок заходит: адрес, метка браузера, браузер. Строка на сочетание,
+ * а не на запрос: нужен список «с чего заходил», а не лента кликов. По ней
+ * проверка заявки на вывод ищет аккаунты, вошедшие с того же браузера или
+ * адреса. Сессии для этого не годятся: они удаляются по сроку.
+ */
+db.exec(`
+  CREATE TABLE IF NOT EXISTS user_access (
+    user_id    INTEGER NOT NULL REFERENCES users(id),
+    ip         TEXT    NOT NULL,
+    device     TEXT    NOT NULL,
+    user_agent TEXT,
+    first_at   INTEGER NOT NULL,
+    last_at    INTEGER NOT NULL,
+    hits       INTEGER NOT NULL DEFAULT 1,
+    PRIMARY KEY (user_id, ip, device)
+  );
+  CREATE INDEX IF NOT EXISTS user_access_device ON user_access(device);
+  CREATE INDEX IF NOT EXISTS user_access_ip ON user_access(ip);
+`);
+
+// Одно и то же сочетание пишется не чаще раза в ACCESS_WRITE_MS: клиент
+// опрашивает сервер каждые несколько секунд, и запись на каждый запрос
+// превратила бы таблицу в ленту кликов.
+const ACCESS_WRITE_MS = 10 * 60 * 1000;
+const accessSeen = new Map();
+
+export function recordAccess(userId, ip, device, userAgent) {
+  if (!userId || !ip || !device) return;
+  const key = `${userId}|${ip}|${device}`;
+  const now = Date.now();
+  if (now - (accessSeen.get(key) || 0) < ACCESS_WRITE_MS) return;
+  accessSeen.set(key, now);
+  if (accessSeen.size > 50_000) accessSeen.clear();
+  db.prepare(`
+    INSERT INTO user_access (user_id, ip, device, user_agent, first_at, last_at, hits)
+    VALUES (?, ?, ?, ?, ?, ?, 1)
+    ON CONFLICT(user_id, ip, device) DO UPDATE SET last_at = excluded.last_at, hits = hits + 1,
+                                                   user_agent = excluded.user_agent
+  `).run(userId, ip, device, String(userAgent || '').slice(0, 200) || null, now, now);
+}
+
+// Пересчёт для тех, кто пополнялся до появления счётчика: от суммы настоящих
+// пополнений считается потолок перевода бонусов в деньги.
+if (depositsTotalAdded) {
+  db.exec(`UPDATE users SET deposits_total = COALESCE((
+    SELECT SUM(d.amount) FROM deposits d
+     WHERE d.user_id = users.id AND d.source IN ('beeline', 'crypto', 'sicilia', 'admin')), 0)`);
+}
+
+/*
+ * Переезд старых бонусов на бонусный счёт. До него бонус лежал в общем
+ * балансе, и отделить его можно только оценкой: долг по отыгрышу был
+ * бонусом, умноженным на 2. Столько (но не больше баланса) и переезжает,
+ * непогашенный отыгрыш остаётся прежним. Операция в журнале видна как
+ * 'migration' и денег не создаёт: рубли уходят ровно в бонус.
+ */
+if (bonusWalletAdded) {
+  withLedger('migration', () => {
+    db.prepare(`UPDATE users SET bonus_balance = MIN(balance, (wager_required + 1) / 2),
+                                 balance = balance - MIN(balance, (wager_required + 1) / 2)
+                 WHERE wager_required > 0 AND balance > 0`).run();
+  });
+}
+
 // Стартового баланса нет намеренно. Раньше новый игрок получал 1000 условных
 // единиц, и этого хватало, чтобы поставить их один раз и подать заявку на вывод,
 // не внеся ни рубля: отыгранное считается по ставкам, а откуда взялись деньги,
@@ -758,7 +1077,9 @@ const selectUser = db.prepare('SELECT * FROM users WHERE tg_id = ?');
 /** Новая строка игрока: свои seed-ы и событие регистрации. */
 function insertNewUser({ tgId = null, username = null, firstName = null, email = null, passwordHash = null }) {
   const serverSeed = generateServerSeed();
-  const info = insertUser.run({
+  // Стартовый баланс бывает только в DEV_MODE; в журнале он виден как
+  // 'signup', и проверка заявки называет его прямо.
+  const info = withLedger('signup', () => insertUser.run({
     tg_id: tgId,
     username,
     first_name: firstName,
@@ -767,7 +1088,8 @@ function insertNewUser({ tgId = null, username = null, firstName = null, email =
     server_seed_hash: hashSeed(serverSeed),
     client_seed: generateClientSeed(),
     created_at: Date.now(),
-  });
+  }));
+  rememberSeed(info.lastInsertRowid, serverSeed);
   if (email) {
     db.prepare('UPDATE users SET email = ?, password_hash = ? WHERE id = ?')
       .run(email, passwordHash, info.lastInsertRowid);
@@ -925,45 +1247,47 @@ function bumpNonce(userId) {
  * обновляет счётчики и историю. Всё одной транзакцией, поэтому параллельные
  * запросы не уведут баланс в минус.
  */
-export const settleRound = db.transaction((userId, round) => {
+export const settleRound = moneyTx((userId, round) => round.game, (userId, round) => {
   const user = getUserById(userId);
-  if (user.balance < round.bet) {
-    throw Object.assign(new Error('Недостаточно средств'), { code: 'INSUFFICIENT_FUNDS' });
-  }
+  // Слоты бонусом не играются (allowBonus = false): там отдача 94%.
+  const allowBonus = round.allowBonus !== false;
+  if ((allowBonus ? spendable(user) : Math.max(0, user.balance)) < round.bet) throw insufficient();
 
-  const newBalance = user.balance - round.bet + round.payout;
+  const paid = chargeBet(userId, round.bet, { allowBonus });
+  const won = creditPayout(userId, round.payout, paid.share);
   const multiplier = round.payout / round.bet;
 
   db.prepare(`
     UPDATE users
-       SET balance = ?,
-           total_rounds = total_rounds + 1,
+       SET total_rounds = total_rounds + 1,
            total_spent = total_spent + ?,
            total_won = total_won + ?,
            best_multiplier = MAX(best_multiplier, ?)
      WHERE id = ?
-  `).run(newBalance, round.bet, round.payout, multiplier, userId);
+  `).run(round.bet, round.payout, multiplier, userId);
 
-  db.prepare(`
+  const info = db.prepare(`
     INSERT INTO rounds (user_id, game, title, subtitle, bet, payout, multiplier,
-                        tier, roll, nonce, server_hash, client_seed, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        tier, roll, nonce, server_hash, client_seed, created_at,
+                        bonus_bet, bonus_payout, meta)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(userId, round.game, round.title, round.subtitle, round.bet, round.payout,
          multiplier, round.tier, round.roll, round.nonce, user.server_seed_hash,
-         user.client_seed, Date.now());
+         user.client_seed, Date.now(), paid.bonus, won.bonus,
+         round.meta ? JSON.stringify(round.meta) : null);
+  ledgerLink('rounds', info.lastInsertRowid);
 
-  consumeWager(userId, round.bet);
+  consumeWager(userId, { real: paid.real, bonus: paid.bonus, rtp: round.rtp ?? HOUSE_RTP });
+  settleBonus(userId);
 
-  return newBalance;
+  return getUserById(userId).balance;
 });
 
 /* ---------- Кейсы и рулетка: ставка и результат за один вызов ---------- */
 
 export const playInstantRound = db.transaction((userId, bet, resolve) => {
   const before = getUserById(userId);
-  if (before.balance < bet) {
-    throw Object.assign(new Error('Недостаточно средств'), { code: 'INSUFFICIENT_FUNDS' });
-  }
+  if (spendable(before) < bet) throw insufficient();
 
   const nonce = bumpNonce(userId);
   const user = getUserById(userId);
@@ -1008,7 +1332,9 @@ export const playSlotSpin = db.transaction((userId, slotId, bet, resolve) => {
   const user = getUserById(userId);
   const outcome = resolve(user.server_seed, user.client_seed, nonce);
 
-  const balance = settleRound(userId, { ...outcome, bet, nonce });
+  // Слоты - только свои деньги, и в отыгрыш пополнения рубль слотов идёт с
+  // весом по их отдаче (см. wagerWeight).
+  const balance = settleRound(userId, { ...outcome, bet, nonce, allowBonus: false, rtp: SLOT_RTP });
 
   if (outcome.freeSpins > 0) {
     db.prepare(`INSERT INTO slot_sessions (user_id, slot_id, spins_left, line_bet, total_win, bought, started_at)
@@ -1026,7 +1352,7 @@ export const playSlotSpin = db.transaction((userId, slotId, bet, resolve) => {
  * и отыгрыш депозита она гасит наравне с прокрутом. Раунд в историю пишется
  * с нулевой выплатой - выплаты придут прокрутами серии.
  */
-export const buySlotBonus = db.transaction((userId, slotId, price, lineBet, spins, title) => {
+export const buySlotBonus = moneyTx('slot', (userId, slotId, price, lineBet, spins, title) => {
   const user = getUserById(userId);
   if (user.balance < price) {
     throw Object.assign(new Error('Недостаточно средств'), { code: 'INSUFFICIENT_FUNDS' });
@@ -1035,15 +1361,16 @@ export const buySlotBonus = db.transaction((userId, slotId, price, lineBet, spin
     throw Object.assign(new Error('Фриспины уже идут'), { code: 'BAD' });
   }
 
-  db.prepare(`UPDATE users SET balance = balance - ?, total_spent = total_spent + ?
-               WHERE id = ?`).run(price, price, userId);
-  consumeWager(userId, price);
+  chargeBet(userId, price, { allowBonus: false });
+  db.prepare('UPDATE users SET total_spent = total_spent + ? WHERE id = ?').run(price, userId);
+  consumeWager(userId, { real: price, rtp: SLOT_RTP });
 
-  db.prepare(`
+  const bought = db.prepare(`
     INSERT INTO rounds (user_id, game, title, subtitle, bet, payout, multiplier,
                         tier, roll, nonce, server_hash, client_seed, created_at)
     VALUES (?, 'slot', ?, 'Покупка фриспинов', ?, 0, 0, 'common', 0, ?, ?, ?, ?)
   `).run(userId, title, price, user.nonce, user.server_seed_hash, user.client_seed, Date.now());
+  ledgerLink('rounds', bought.lastInsertRowid);
 
   db.prepare(`INSERT INTO slot_sessions (user_id, slot_id, spins_left, line_bet, total_win, bought, started_at)
               VALUES (?, ?, ?, ?, 0, 1, ?)`)
@@ -1060,7 +1387,7 @@ export const buySlotBonus = db.transaction((userId, slotId, price, lineBet, spin
  * растёт - отыгрыш уже засчитан прокрутом, который запустил серию, или
  * покупкой.
  */
-export const playSlotFreeSpin = db.transaction((userId, resolve) => {
+export const playSlotFreeSpin = moneyTx('slot_free', (userId, resolve) => {
   const session = getSlotSession(userId);
   if (!session) throw Object.assign(new Error('Фриспинов нет'), { code: 'BAD' });
 
@@ -1115,26 +1442,25 @@ export const playSlotFreeSpin = db.transaction((userId, resolve) => {
  * уровня «миллион рублей одному игроку», и оно обязано лежать в истории
  * отдельной строкой, иначе в отчётах его не отличить от крупной линии.
  */
-export const awardSlotJackpot = db.transaction((userId, jackpot, bet, nonce) => {
+export const awardSlotJackpot = moneyTx('slot_jackpot', (userId, jackpot, bet, nonce) => {
   const user = getUserById(userId);
   db.prepare(`UPDATE users SET balance = balance + ?, total_won = total_won + ?
                WHERE id = ?`).run(jackpot.amount, jackpot.amount, userId);
-  db.prepare(`
+  const won = db.prepare(`
     INSERT INTO rounds (user_id, game, title, subtitle, bet, payout, multiplier,
                         tier, roll, nonce, server_hash, client_seed, created_at)
     VALUES (?, 'slot', ?, ?, 0, ?, 0, 'unique', 0, ?, ?, ?, ?)
   `).run(userId, `Джекпот ${jackpot.name}`, 'TREASURE ISLAND', jackpot.amount,
          nonce, user.server_seed_hash, user.client_seed, Date.now());
+  ledgerLink('rounds', won.lastInsertRowid);
   return getUserById(userId).balance;
 });
 
 /* ---------- Краш: ставка и вывод - разные запросы ---------- */
 
-export const startCrashRound = db.transaction((userId, bet, computeCrashPoint) => {
+export const startCrashRound = moneyTx('crash_bet', (userId, bet, computeCrashPoint) => {
   const before = getUserById(userId);
-  if (before.balance < bet) {
-    throw Object.assign(new Error('Недостаточно средств'), { code: 'INSUFFICIENT_FUNDS' });
-  }
+  if (spendable(before) < bet) throw insufficient();
 
   // Незакрытый раунд закрываем как проигранный, чтобы нельзя было держать
   // несколько ставок разом и выводить только удачную.
@@ -1146,15 +1472,17 @@ export const startCrashRound = db.transaction((userId, bet, computeCrashPoint) =
   const { crashPoint, roll } = computeCrashPoint(user.server_seed, user.client_seed, nonce);
 
   // Ставка списывается сразу: выплата придёт отдельно, при выводе.
-  db.prepare('UPDATE users SET balance = balance - ? WHERE id = ?').run(bet, userId);
-  consumeWager(userId, bet);
+  const paid = chargeBet(userId, bet);
+  consumeWager(userId, { real: paid.real, bonus: paid.bonus });
 
   const info = db.prepare(`
     INSERT INTO crash_rounds (user_id, bet, crash_point, started_at, roll, nonce,
-                              server_hash, client_seed)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                              server_hash, client_seed, bonus_bet)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(userId, bet, crashPoint, Date.now(), roll, nonce,
-         user.server_seed_hash, user.client_seed);
+         user.server_seed_hash, user.client_seed, paid.bonus);
+  ledgerLink('crash_rounds', info.lastInsertRowid);
+  settleBonus(userId);
 
   return {
     roundId: info.lastInsertRowid,
@@ -1175,7 +1503,7 @@ export function getCrashRound(roundId, userId) {
  * Ставка уже списана при старте, поэтому здесь только начисляем выплату и
  * дописываем историю - счётчик потраченного увеличиваем вручную.
  */
-export const finishCrashRound = db.transaction((roundId, userId, status, cashedAt) => {
+export const finishCrashRound = moneyTx('crash', (roundId, userId, status, cashedAt) => {
   const round = db.prepare(`SELECT * FROM crash_rounds WHERE id = ? AND user_id = ?
                              AND status = 'running'`).get(roundId, userId);
   if (!round) return null;
@@ -1186,25 +1514,31 @@ export const finishCrashRound = db.transaction((roundId, userId, status, cashedA
   db.prepare('UPDATE crash_rounds SET status = ?, cashed_at = ? WHERE id = ?')
     .run(status, status === 'cashed' ? cashedAt : null, roundId);
 
+  // Выплата делится между счетами в той же доле, в какой была оплачена ставка.
+  const won = creditPayout(userId, payout, round.bet > 0 ? (round.bonus_bet || 0) / round.bet : 0);
   db.prepare(`
     UPDATE users
-       SET balance = balance + ?,
-           total_rounds = total_rounds + 1,
+       SET total_rounds = total_rounds + 1,
            total_spent = total_spent + ?,
            total_won = total_won + ?,
            best_multiplier = MAX(best_multiplier, ?)
      WHERE id = ?
-  `).run(payout, round.bet, payout, multiplier, userId);
+  `).run(round.bet, payout, multiplier, userId);
 
-  db.prepare(`
+  const info = db.prepare(`
     INSERT INTO rounds (user_id, game, title, subtitle, bet, payout, multiplier,
-                        tier, roll, nonce, server_hash, client_seed, created_at)
-    VALUES (?, 'crash', 'Краш', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        tier, roll, nonce, server_hash, client_seed, created_at,
+                        bonus_bet, bonus_payout, meta)
+    VALUES (?, 'crash', 'Краш', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(userId,
          status === 'cashed' ? `Забрал на ${cashedAt.toFixed(2)}x` : `Взорвался на ${round.crash_point.toFixed(2)}x`,
          round.bet, payout, multiplier,
          crashTier(multiplier), round.roll, round.nonce,
-         round.server_hash, round.client_seed, Date.now());
+         round.server_hash, round.client_seed, Date.now(),
+         round.bonus_bet || 0, won.bonus,
+         JSON.stringify({ crashRound: round.id, cashedAt: status === 'cashed' ? cashedAt : null }));
+  ledgerLink('rounds', info.lastInsertRowid);
+  settleBonus(userId);
 
   return {
     status,
@@ -1277,6 +1611,7 @@ export const rotateServerSeed = db.transaction((userId) => {
            nonce = 0
      WHERE id = ?
   `).run(newSeed, hashSeed(newSeed), userId);
+  rememberSeed(userId, newSeed);
 
   return {
     revealedSeed: user.server_seed,
@@ -1328,15 +1663,21 @@ export const BONUS_CONFIG = {
    ============================================================ */
 
 export function getVouchers(userId) {
-  return db.prepare('SELECT case_id, count FROM vouchers WHERE user_id = ? AND count > 0')
+  return db.prepare('SELECT case_id, count, bonus FROM vouchers WHERE user_id = ? AND count > 0')
     .all(userId);
 }
 
-function addVoucher(userId, caseId, delta = 1) {
+/**
+ * Добавляет ваучеры кейса. bonus = true у подарков (колесо, подписка,
+ * промокод, панель): выигрыш с такого ваучера уходит на бонусный счёт. Ваучер,
+ * выпавший в платном открытии, входит в отдачу кейса и платит деньгами.
+ */
+function addVoucher(userId, caseId, delta = 1, bonus = false) {
   db.prepare(`
-    INSERT INTO vouchers (user_id, case_id, count) VALUES (?, ?, ?)
-    ON CONFLICT(user_id, case_id) DO UPDATE SET count = count + excluded.count
-  `).run(userId, caseId, delta);
+    INSERT INTO vouchers (user_id, case_id, count, bonus) VALUES (?, ?, ?, ?)
+    ON CONFLICT(user_id, case_id) DO UPDATE SET count = count + excluded.count,
+                                                bonus = bonus + excluded.bonus
+  `).run(userId, caseId, delta, bonus ? delta : 0);
 }
 
 /* ---------- Удвоители ---------- */
@@ -1400,6 +1741,7 @@ function spendX2(userId, caseId) {
   const key = x2Count(userId, caseId) > 0 ? caseId : ANY_CASE;
   db.prepare('UPDATE x2_perks SET count = count - 1 WHERE user_id = ? AND case_id = ? AND count > 0')
     .run(userId, key);
+  return key;
 }
 
 /* ---------- Колесо фортуны ---------- */
@@ -1460,7 +1802,7 @@ export function fortuneHistory(userId, limit = 8) {
  * casePool приходит снаружи: справочник кейсов живёт в server/cases.js, и
  * импортировать его сюда означало бы закольцевать модули.
  */
-export const playFortuneSpin = db.transaction((userId, casePool = []) => {
+export const playFortuneSpin = moneyTx('fortune', (userId, casePool = []) => {
   const user = getUserById(userId);
   if (!user) throw Object.assign(new Error('Игрок не найден'), { code: 'NOT_FOUND' });
 
@@ -1480,7 +1822,7 @@ export const playFortuneSpin = db.transaction((userId, casePool = []) => {
   const amountNonce = bumpNonce(userId);
   const amountRoll = computeRoll(user.server_seed, user.client_seed, amountNonce);
 
-  const wager = firstDepositRules().wager;
+  const wager = bonusRules().wager;
   const prize = { kind: segment.type, segment: segment.index, amount: 0, caseId: null };
 
   if (segment.type === 'percent') {
@@ -1509,7 +1851,7 @@ export const playFortuneSpin = db.transaction((userId, casePool = []) => {
       const pick = pool[Math.min(pool.length - 1, Math.floor(amountRoll * pool.length))];
       prize.caseId = pick.id;
       prize.amount = pick.price;
-      addVoucher(userId, pick.id, 1);
+      addVoucher(userId, pick.id, 1, true);
     } else {
       // Недорогих кейсов в справочнике не осталось. Отдаём деньгами, чтобы
       // игрок не ушёл с пустыми руками из-за чужой правки справочника.
@@ -1523,20 +1865,19 @@ export const playFortuneSpin = db.transaction((userId, casePool = []) => {
   if (prize.kind === 'cash') prize.amount = CASH_PRIZE;
 
   /*
-   * Ваучер и деньги приходят бонусными, с отыгрышем.
+   * Ваучер и деньги приходят на бонусный счёт, с отыгрышем и под общим
+   * потолком перевода в деньги (bonusRules).
    *
-   * Без отыгрыша они выводятся сразу: внёс 500, отыграл их, забрал 2000
+   * Без этого они выводились бы сразу: внёс 500, отыграл их, забрал 2000
    * подарком - и акция превращается в раздачу денег на одноразовые аккаунты.
    * Множитель тот же, что у приветственного бонуса: два разных правила
    * отыгрыша в одном проекте игрок прочитать не сможет.
    */
   if (prize.kind === 'voucher' || prize.kind === 'cash') {
-    db.prepare('UPDATE users SET balance = balance + ?, bonus_granted = bonus_granted + ? WHERE id = ?')
-      .run(prize.amount, prize.amount, userId);
-    addWager(userId, prize.amount, wager);
-    db.prepare(`INSERT INTO deposits (user_id, amount, source, comment, created_at)
-                VALUES (?, ?, 'fortune', ?, ?)`)
-      .run(userId, prize.amount, 'Колесо фортуны', Date.now());
+    grantBonus(userId, prize.amount, {
+      source: 'fortune', wager,
+      history: { source: 'fortune', comment: 'Колесо фортуны' },
+    });
   }
 
   db.prepare(`UPDATE users SET fortune_spins = fortune_spins - 1, fortune_last_spin = ?
@@ -1569,7 +1910,9 @@ export const grantFreeCase = db.transaction((userId, caseId, cooldownMs) => {
     return { ok: false, reason: 'cooldown', readyAt };
   }
 
-  addVoucher(userId, caseId, 1);
+  // Подарок: выигрыш с него уходит на бонусный счёт. Иначе ферма
+  // Telegram-аккаунтов выводила бы бесплатные кейсы, не внеся ни рубля.
+  addVoucher(userId, caseId, 1, true);
   db.prepare('UPDATE users SET free_case_at = ? WHERE id = ?').run(now, userId);
 
   return { ok: true, caseId, readyAt: now + cooldownMs };
@@ -1644,7 +1987,7 @@ export const MAX_FREE_SPINS = 300;
  * Каждый прокрут берёт свой nonce, поэтому проверяется так же, как обычный.
  * Вызывать только внутри транзакции: функция двигает nonce и тратит ваучеры.
  */
-function runFreeSpinSeries(userId, caseData, startCount, resolveFree) {
+function runFreeSpinSeries(userId, caseData, startCount, resolveFree, bonusVouchers = false) {
   const spins = [];
   let remaining = startCount;
   let count = startCount;
@@ -1665,7 +2008,7 @@ function runFreeSpinSeries(userId, caseData, startCount, resolveFree) {
       // следующего платного открытия этого кейса. Иначе удвоитель, выпавший
       // на дармовом прокруте, тут же обесценивался бы на следующем таком же.
       if (fi.perk.type === 'x2') x2Won++;
-      if (fi.perk.type === 'voucher') addVoucher(userId, fi.perk.caseId, 1);
+      if (fi.perk.type === 'voucher') addVoucher(userId, fi.perk.caseId, 1, bonusVouchers);
     }
 
     payout += fi.value;
@@ -1720,17 +2063,21 @@ export function x10Rules() {
   };
 }
 
-export const playCaseRound = db.transaction((userId, caseData, resolve, resolveFree) => {
+export const playCaseRound = moneyTx('case', (userId, caseData, resolve, resolveFree) => {
   const before = getUserById(userId);
 
-  // Бесплатное открытие тратит ваучер и не трогает баланс.
-  const voucher = db.prepare('SELECT count FROM vouchers WHERE user_id = ? AND case_id = ?')
+  /*
+   * Бесплатное открытие тратит ваучер и не трогает баланс. Свои ваучеры
+   * (выпавшие в платных открытиях, входят в отдачу кейса) тратятся первыми:
+   * выигрыш с них - деньги. С подарочного ваучера выигрыш идёт на бонусный
+   * счёт с отыгрышем, как любой подарок.
+   */
+  const voucher = db.prepare('SELECT count, bonus FROM vouchers WHERE user_id = ? AND case_id = ?')
     .get(userId, caseData.id);
   const isFree = !!voucher && voucher.count > 0;
+  const voucherBonus = isFree && voucher.count - (voucher.bonus || 0) <= 0;
 
-  if (!isFree && before.balance < caseData.price) {
-    throw Object.assign(new Error('Недостаточно средств'), { code: 'INSUFFICIENT_FUNDS' });
-  }
+  if (!isFree && spendable(before) < caseData.price) throw insufficient();
 
   const nonce = bumpNonce(userId);
   const user = getUserById(userId);
@@ -1756,21 +2103,34 @@ export const playCaseRound = db.transaction((userId, caseData, resolve, resolveF
   if (x10Active) extra = Math.min(item.value * 9, x10Rule.cap * caseData.price);
   else if (x2Active) extra = cap > 0 ? Math.min(item.value, cap) : item.value;
   const payout = item.value + extra;
-  if (x2Active) spendX2(userId, caseData.id);
+  const x2Key = x2Active ? spendX2(userId, caseData.id) : null;
   if (x10Active) db.prepare('UPDATE users SET x10_state = 2 WHERE id = ?').run(userId);
+
+  // Списание до плюшек: от доли бонуса в ставке зависит, какими придут
+  // ваучеры из этого открытия и куда ляжет выигрыш.
+  let paid = { real: 0, bonus: 0, share: voucherBonus ? 1 : 0 };
+  if (isFree) {
+    db.prepare(`UPDATE vouchers SET count = count - 1, bonus = bonus - ?
+                 WHERE user_id = ? AND case_id = ?`).run(voucherBonus ? 1 : 0, userId, caseData.id);
+  } else {
+    paid = chargeBet(userId, caseData.price);
+  }
+  // Ваучер из открытия, оплаченного в основном бонусом, - тоже бонусный.
+  const bonusPerks = paid.share >= 0.5;
 
   const granted = [];
   // Фриспины прокручиваются здесь же, внутри той же транзакции: игрок не может
   // закрыть приложение между выдачей и начислением и потерять выигрыш.
   // Каждый прокрут берёт свой nonce, поэтому проверяется так же, как обычный.
   let freeSpinsPayout = 0;
+  let seriesCount = 0;
 
   if (item.perk) {
     // Сумма берётся из payout, а не из номинала: если на кейсе висел ×2,
     // бонус зачисляется удвоенным, и подпись обязана показать то же число.
     if (item.perk.type === 'credits') granted.push({ type: 'credits', amount: payout });
     if (item.perk.type === 'voucher') {
-      addVoucher(userId, item.perk.caseId, 1);
+      addVoucher(userId, item.perk.caseId, 1, bonusPerks);
       granted.push({ type: 'voucher', caseId: item.perk.caseId });
     }
     if (item.perk.type === 'x2') {
@@ -1780,8 +2140,9 @@ export const playCaseRound = db.transaction((userId, caseData, resolve, resolveF
       granted.push({ type: 'x2', caseId: caseData.id });
     }
     if (item.perk.type === 'freespins') {
-      const series = runFreeSpinSeries(userId, caseData, item.perk.count, resolveFree);
+      const series = runFreeSpinSeries(userId, caseData, item.perk.count, resolveFree, bonusPerks);
       freeSpinsPayout = series.payout;
+      seriesCount = series.count;
 
       // Удвоители, выпавшие внутри серии, копятся так же, как обычные.
       if (series.x2Won > 0) {
@@ -1802,14 +2163,26 @@ export const playCaseRound = db.transaction((userId, caseData, resolve, resolveF
     }
   }
 
-  if (isFree) {
-    db.prepare('UPDATE vouchers SET count = count - 1 WHERE user_id = ? AND case_id = ?')
-      .run(userId, caseData.id);
-  }
-
   const spent = isFree ? 0 : caseData.price;
   const totalPayout = payout + freeSpinsPayout;
-  const newBalance = before.balance - spent + totalPayout;
+
+  /*
+   * Куда идёт выигрыш.
+   *  - Доплата универсального удвоителя с колеса - подарок, а не отдача кейса:
+   *    она уходит на бонусный счёт с отыгрышем (grantBonus).
+   *  - Выигрыш с подарочного ваучера - тоже подарок, целиком туда же.
+   *  - Остальное делится между счетами в той же доле, в какой оплачена ставка.
+   */
+  const wheelExtra = x2Key === ANY_CASE ? extra : 0;
+  let viaGrant = 0;
+  let credited = { real: 0, bonus: 0 };
+  if (isFree && voucherBonus) {
+    viaGrant = grantBonus(userId, totalPayout, { source: 'gift_case' });
+  } else {
+    credited = creditPayout(userId, totalPayout - wheelExtra, paid.share);
+    if (wheelExtra > 0) viaGrant = grantBonus(userId, wheelExtra, { source: 'x2_wheel' });
+  }
+  const bonusPayout = credited.bonus + viaGrant;
 
   // Бесплатный раунд не идёт в лучший множитель: делить на нулевую ставку
   // бессмысленно, а price там условная.
@@ -1817,27 +2190,38 @@ export const playCaseRound = db.transaction((userId, caseData, resolve, resolveF
 
   db.prepare(`
     UPDATE users
-       SET balance = ?,
-           gamble_stake = ?, gamble_case = ?,
+       SET gamble_stake = ?, gamble_case = ?, gamble_bonus = ?,
            total_rounds = total_rounds + 1,
            total_spent = total_spent + ?,
            total_won = total_won + ?,
            best_multiplier = MAX(best_multiplier, ?)
      WHERE id = ?
-  `).run(newBalance, totalPayout > 0 ? totalPayout : 0,
+  `).run(totalPayout > 0 ? totalPayout : 0,
          totalPayout > 0 ? caseData.id : null,
+         totalPayout > 0 ? bonusPayout : 0,
          spent, totalPayout, multiplier, userId);
 
-  db.prepare(`
+  const info = db.prepare(`
     INSERT INTO rounds (user_id, game, case_id, title, subtitle, bet, payout, multiplier,
-                        tier, free, roll, nonce, server_hash, client_seed, created_at)
-    VALUES (?, 'case', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        tier, free, roll, nonce, server_hash, client_seed, created_at,
+                        bonus_bet, bonus_payout, meta)
+    VALUES (?, 'case', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(userId, caseData.id, caseData.name,
          item.name + (x10Active ? ' (×10)' : x2Active ? ' (×2)' : ''),
          spent, totalPayout, multiplier, item.tier, isFree ? 1 : 0,
-         roll, nonce, user.server_seed_hash, user.client_seed, Date.now());
+         roll, nonce, user.server_seed_hash, user.client_seed, Date.now(),
+         paid.bonus, bonusPayout,
+         JSON.stringify({
+           item: item.id, value: item.value, extra,
+           x2: x2Active ? (x2Key === ANY_CASE ? 'wheel' : 'case') : null,
+           x10: x10Active || undefined,
+           fs: seriesCount || undefined,
+           voucher: isFree ? (voucherBonus ? 'bonus' : 'real') : undefined,
+           granted: viaGrant || undefined,
+         }));
+  ledgerLink('rounds', info.lastInsertRowid);
 
-  consumeWager(userId, spent);
+  consumeWager(userId, { real: paid.real, bonus: paid.bonus });
 
   // Счётчик для медали «Десятикратный»: только платные открытия, подарочные
   // кейсы и купленные серии фриспинов его не двигают.
@@ -1852,6 +2236,8 @@ export const playCaseRound = db.transaction((userId, caseData, resolve, resolveF
     }
   }
 
+  settleBonus(userId);
+
   return {
     item, roll, nonce, payout, granted,
     freeSpinsPayout,
@@ -1859,7 +2245,7 @@ export const playCaseRound = db.transaction((userId, caseData, resolve, resolveF
     free: isFree,
     x2Applied: x2Active,
     x10Applied: x10Active,
-    balance: newBalance,
+    balance: getUserById(userId).balance,
   };
 });
 
@@ -1875,16 +2261,15 @@ export const playCaseRound = db.transaction((userId, caseData, resolve, resolveF
  * Ролл и nonce берутся с первого прокрута, чтобы серию можно было проверить с
  * её начала.
  */
-export const buyFreeSpins = db.transaction((userId, caseData, count, cost, resolveFree) => {
+export const buyFreeSpins = moneyTx('freespins', (userId, caseData, count, cost, resolveFree) => {
   const before = getUserById(userId);
-  if (before.balance < cost) {
-    throw Object.assign(new Error('Недостаточно средств'), { code: 'INSUFFICIENT_FUNDS' });
-  }
+  if (spendable(before) < cost) throw insufficient();
 
   const user = getUserById(userId);
-  const series = runFreeSpinSeries(userId, caseData, count, resolveFree);
+  const paid = chargeBet(userId, cost);
+  const series = runFreeSpinSeries(userId, caseData, count, resolveFree, paid.share >= 0.5);
+  const credited = creditPayout(userId, series.payout, paid.share);
 
-  const newBalance = before.balance - cost + series.payout;
   const multiplier = series.payout / cost;
 
   // Удвоители из серии копятся и ждут платного открытия этого кейса. Купленная
@@ -1894,28 +2279,31 @@ export const buyFreeSpins = db.transaction((userId, caseData, count, cost, resol
 
   db.prepare(`
     UPDATE users
-       SET balance = ?,
-           gamble_stake = ?, gamble_case = ?,
+       SET gamble_stake = ?, gamble_case = ?, gamble_bonus = ?,
            total_rounds = total_rounds + 1,
            total_spent = total_spent + ?,
            total_won = total_won + ?,
            best_multiplier = MAX(best_multiplier, ?)
      WHERE id = ?
-  `).run(newBalance,
-         series.payout > 0 ? series.payout : 0,
+  `).run(series.payout > 0 ? series.payout : 0,
          series.payout > 0 ? caseData.id : null,
+         series.payout > 0 ? credited.bonus : 0,
          cost, series.payout, multiplier, userId);
 
   const first = series.spins[0];
-  db.prepare(`
+  const info = db.prepare(`
     INSERT INTO rounds (user_id, game, case_id, title, subtitle, bet, payout, multiplier,
-                        tier, free, roll, nonce, server_hash, client_seed, created_at)
-    VALUES (?, 'case', ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)
+                        tier, free, roll, nonce, server_hash, client_seed, created_at,
+                        bonus_bet, bonus_payout, meta)
+    VALUES (?, 'case', ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(userId, caseData.id, caseData.name, `${count} фриспинов`,
          cost, series.payout, multiplier, 'unique',
-         first.roll, first.nonce, user.server_seed_hash, user.client_seed, Date.now());
+         first.roll, first.nonce, user.server_seed_hash, user.client_seed, Date.now(),
+         paid.bonus, credited.bonus, JSON.stringify({ bought: count, fs: series.count }));
+  ledgerLink('rounds', info.lastInsertRowid);
 
-  consumeWager(userId, cost);
+  consumeWager(userId, { real: paid.real, bonus: paid.bonus });
+  settleBonus(userId);
 
   return {
     count: series.count,
@@ -1926,7 +2314,7 @@ export const buyFreeSpins = db.transaction((userId, caseData, count, cost, resol
     // иначе они появляются в плашке молча.
     x2Won: series.x2Won,
     cost,
-    balance: newBalance,
+    balance: getUserById(userId).balance,
   };
 });
 
@@ -1979,81 +2367,272 @@ export function clearPendingSpins(userId) {
 }
 
 /* ============================================================
-   ОТЫГРЫШ БОНУСОВ
+   ОТЫГРЫШ И БОНУСНЫЙ СЧЁТ
    ============================================================ */
 
 /**
- * Отыгрыш - это защита от простой схемы: ввёл промокод на 1000, тут же заказал
- * вывод, ушёл. Ни во что не сыграв, игрок вынес бы подаренные деньги.
- *
- * Схема выбрана самая простая из работающих: бонус не хранится отдельным
- * кошельком, вместо этого игроку записывается долг по обороту. Выдали бонус B
- * с множителем M - к долгу прибавилось B * M. Каждая ставка гасит долг на свой
- * размер. Пока долг не погашен, вывод закрыт.
- *
- * Почему не отдельный «бонусный баланс»: тогда пришлось бы решать, из какого
- * кошелька идёт каждая ставка и в какой попадает выигрыш, и любая ошибка в
- * этой развилке видна игроку как пропавшие деньги. Долг по обороту такой
- * развилки не создаёт вовсе.
- *
- * Отыграть можно любой игрой: кейсами, крашем, рулеткой, апгрейдом. Ограничить
- * отыгрыш одной игрой было бы честнее к заведению, но игроку это правило почти
- * всегда объясняют плохо, и оно превращается в ловушку.
+ * Отдача наших игр: кейсы, краш, рулетка, апгрейд, риск-игра. От неё
+ * считается вес оборота у игр с другой отдачей (см. wagerWeight).
  */
+export const HOUSE_RTP = 0.7;
 
-/** Добавляет долг по обороту за выданный бонус. */
-function addWager(userId, bonusAmount, multiplier) {
-  if (!(bonusAmount > 0) || !(multiplier > 0)) return;
-  db.prepare('UPDATE users SET wager_required = wager_required + ? WHERE id = ?')
-    .run(Math.round(bonusAmount * multiplier), userId);
+/**
+ * Выше этой доли потолок перевода бонусов не поднимается, что бы ни стояло в
+ * окружении. Пополнение обходится игроку минимум в 30% его суммы (столько
+ * заведение в среднем забирает на обязательном отыгрыше), и бонус, который
+ * переходит в деньги в пределах 28% пополнений, на фарме аккаунтов в минусе
+ * при любой стратегии. Выставить больше значит открыть кассу, поэтому это не
+ * настройка, а предел.
+ */
+const MAX_SAFE_CASHOUT_PCT = 28;
+
+/**
+ * Правила бонусного счёта.
+ *
+ * ПОЧЕМУ ПОТОЛОК ПЕРЕВОДА, А НЕ ТОЛЬКО ОТЫГРЫШ. Отыгрыш сам по себе фарм не
+ * останавливает. В проекте есть ставки на любой множитель (краш до ×1000,
+ * апгрейд), и бонус ставится одной ставкой на большой множитель: в редком
+ * выигрыше сумма огромная, и остаток отыгрыша почти ничего не стоит. Каждый
+ * поставленный рубль приносит в среднем 70 копеек при любом множителе, и
+ * бонус B стоит фармеру около 0.7·B при отыгрыше хоть ×3, хоть ×30. Поэтому
+ * защищает потолок: в настоящие деньги переходит не больше cashoutPct от
+ * суммы всех пополнений, а пополнение D стоит фармеру 0.3·D. Пока
+ * cashoutPct < 30%, второй аккаунт ради бонуса невыгоден по построению.
+ *
+ * Отыгрыш (wager) остаётся: он задаёт, сколько обычный игрок играет бонусом,
+ * прежде чем бонус станет деньгами, и не даёт перевести подарок, не сыграв.
+ */
+export function bonusRules() {
+  const wager = Number(process.env.BONUS_WAGER ?? process.env.FIRST_DEPOSIT_WAGER ?? 3);
+  const pct = Number(process.env.BONUS_CASHOUT_PCT ?? 25);
+  return {
+    wager: Number.isFinite(wager) && wager >= 0 ? wager : 3,
+    cashoutPct: Math.min(MAX_SAFE_CASHOUT_PCT, Number.isFinite(pct) && pct >= 0 ? pct : 25),
+  };
+}
+
+/**
+ * Какая доля ставки засчитывается в отыгрыш пополнения.
+ *
+ * Отыгрыш пополнения - это не «прокрути сумму», а «отдай заведению его
+ * обычную долю»: на наших играх это 30 копеек с рубля. Казино с отдачей 80%
+ * забирает 20, слоты с отдачей 94% - 6, и рубль оборота там стоит игроку
+ * меньше. Засчитывается он поэтому меньше, ровно в пропорции к доле
+ * заведения, иначе пополнение «прокручивалось» бы в слотах почти даром, и
+ * потолок перевода бонусов перестал бы что-то значить.
+ */
+export function wagerWeight(rtp = HOUSE_RTP) {
+  const r = Number(rtp);
+  if (!Number.isFinite(r)) return 1;
+  return Math.min(1, Math.max(0, (1 - r) / (1 - HOUSE_RTP)));
+}
+
+/** Сколько игрок может поставить в наших играх: свои деньги и бонусный счёт. */
+export function spendable(user) {
+  return Math.max(0, user.balance) + Math.max(0, user.bonus_balance || 0);
+}
+
+const insufficient = () => Object.assign(new Error('Недостаточно средств'), { code: 'INSUFFICIENT_FUNDS' });
+
+/**
+ * Списывает ставку: сначала свои деньги, недостающее - с бонусного счёта.
+ *
+ * Так и обещано игроку: бонус играет, когда своих не хватает на ставку. Пока
+ * свои есть, ставка идёт из них, и выигрыш с неё - настоящие деньги, которые
+ * выводятся без всяких условий бонуса. allowBonus = false у игр, где бонусом
+ * играть нельзя (слоты: отдача 94%, бонус там стоил бы кассе втрое дороже).
+ *
+ * Ставка, на которую игрок смотрел как на выигрыш прошлого кейса, после
+ * любой новой ставки к риск-игре больше не годится: сбрасываем её здесь же.
+ */
+function chargeBet(userId, bet, { allowBonus = true } = {}) {
+  const u = getUserById(userId);
+  const amount = Math.max(0, Math.round(bet));
+  const real = Math.min(amount, Math.max(0, u.balance));
+  const bonus = amount - real;
+  if (bonus > 0 && (!allowBonus || bonus > (u.bonus_balance || 0))) throw insufficient();
+  db.prepare(`UPDATE users SET balance = balance - ?, bonus_balance = bonus_balance - ?,
+                               gamble_stake = 0, gamble_case = NULL, gamble_bonus = 0
+               WHERE id = ?`).run(real, bonus, userId);
+  return { real, bonus, share: amount > 0 ? bonus / amount : 0 };
+}
+
+/**
+ * Делит выплату между счетами в той же доле, в какой была оплачена ставка.
+ * Бонусная часть выигрыша остаётся бонусом: иначе одна удачная ставка
+ * бонусом превращала бы подарок в деньги мимо отыгрыша и потолка.
+ */
+function splitPayout(payout, share) {
+  const total = Math.max(0, Math.round(payout));
+  const bonus = Math.min(total, Math.round(total * Math.min(1, Math.max(0, share || 0))));
+  return { real: total - bonus, bonus };
+}
+
+function creditPayout(userId, payout, share) {
+  const part = splitPayout(payout, share);
+  if (part.real || part.bonus) {
+    db.prepare('UPDATE users SET balance = balance + ?, bonus_balance = bonus_balance + ? WHERE id = ?')
+      .run(part.real, part.bonus, userId);
+  }
+  return part;
+}
+
+/** Идёт ли раунд краша, оплаченный бонусом: его выплата вернётся на бонусный счёт. */
+function bonusInFlight(userId) {
+  return !!db.prepare(`SELECT 1 FROM crash_rounds
+                        WHERE user_id = ? AND status = 'running' AND bonus_bet > 0`).get(userId);
 }
 
 /**
  * Учитывает сделанную ставку.
  *
- * Делает две вещи сразу, и обе про одну ставку. Гасит долг по обороту за
- * выданный бонус - он не уходит в минус, лишнее просто сгорает. И копит
- * отыгранный оборот, которым открывается вывод внесённого.
+ * Своя часть ставки гасит долг по пополнению (с весом по отдаче игры),
+ * бонусная - отыгрыш бонуса. Одна функция на все игры: две означали бы, что
+ * однажды где-то вызовут только одну, и правило поедет молча.
  *
- * Одна функция, а не две, потому что вызывается она из каждой игры: две
- * означали бы, что однажды где-то вызовут только одну, и правило поедет
- * молча, в пользу того, кто это заметит первым.
+ * Старый вызов consumeWager(userId, сумма) по-прежнему значит «своими
+ * деньгами в нашей игре».
  */
-export function consumeWager(userId, bet) {
-  if (!(bet > 0)) return;
-  const amount = Math.round(bet);
-  // Ставка гасит долг по внесённому. Ниже нуля не уходит: переигранное сверх
-  // депозита ничего не открывает дополнительно, вывод и так уже открыт.
-  db.prepare('UPDATE users SET deposit_debt = MAX(0, deposit_debt - ?) WHERE id = ?')
-    .run(amount, userId);
+export function consumeWager(userId, opts) {
+  const o = typeof opts === 'number' ? { real: opts } : (opts || {});
+  const real = Math.max(0, Math.round(o.real || 0));
+  const bonus = Math.max(0, Math.round(o.bonus || 0));
+  if (!real && !bonus) return;
+  const weight = wagerWeight(o.rtp ?? HOUSE_RTP);
+  // Округление вниз: недосчитанная копейка оборота лучше пересчитанной.
+  // Поправка 1e-9 снимает ошибку плавающей точки: 3000 · (0.2 / 0.3) даёт
+  // 1999.9999..., и без неё игрок терял бы рубль оборота на ровном месте.
+  const counted = Math.floor(real * weight + 1e-9);
+  const countedBonus = Math.floor(bonus * weight + 1e-9);
   db.prepare(`UPDATE users
-                 SET wager_required = MAX(0, wager_required - ?),
+                 SET deposit_debt = MAX(0, deposit_debt - ?),
+                     wager_required = MAX(0, wager_required - ?),
                      wager_progress = wager_progress + ?
-               WHERE id = ?`).run(amount, amount, userId);
+               WHERE id = ?`).run(counted, countedBonus, real + bonus, userId);
 }
 
-/** Пополнение отыгрывать надо: доступное к выводу от него не растёт. */
+/**
+ * Начисляет бонус на бонусный счёт и добавляет отыгрыш.
+ *
+ * Если прошлый бонус уже проигран целиком, его недоигранный отыгрыш новому не
+ * передаётся: отыгрывать нечего, и тащить чужой долг на свежий подарок нечестно.
+ */
+export function grantBonus(userId, amount, { source, wager, history = null } = {}) {
+  const value = Math.max(0, Math.round(amount));
+  if (!value) return 0;
+  const mult = wager ?? bonusRules().wager;
+  return withLedger('bonus', () => {
+    const u = getUserById(userId);
+    const fresh = (u.bonus_balance || 0) <= 0 && !bonusInFlight(userId);
+    const need = Math.round(value * Math.max(0, Number(mult) || 0));
+    db.prepare(`UPDATE users SET bonus_balance = bonus_balance + ?, bonus_granted = bonus_granted + ?,
+                                 wager_required = ?
+                 WHERE id = ?`).run(value, value, (fresh ? 0 : u.wager_required) + need, userId);
+    const ev = db.prepare(`INSERT INTO bonus_events (user_id, kind, source, amount, wager, created_at)
+                           VALUES (?, 'grant', ?, ?, ?, ?)`)
+      .run(userId, source || null, value, need, Date.now());
+    ledgerLink('bonus_events', ev.lastInsertRowid);
+    if (history) {
+      db.prepare(`INSERT INTO deposits (user_id, amount, source, comment, created_at)
+                  VALUES (?, ?, ?, ?, ?)`).run(userId, value, history.source, history.comment, Date.now());
+    }
+    settleBonus(userId);
+    return value;
+  });
+}
+
+/**
+ * Сколько бонусных денег игрок ещё может перевести в настоящие.
+ * cashoutPct от всех его пополнений за всё время минус уже переведённое.
+ */
+export function bonusAllowance(user, rules = bonusRules()) {
+  const limit = Math.floor(((user.deposits_total || 0) * rules.cashoutPct) / 100);
+  return Math.max(0, limit - (user.bonus_converted || 0));
+}
+
+/**
+ * Переводит отыгранный бонус в настоящие деньги - в пределах потолка.
+ *
+ * Что не влезло в потолок, не сгорает: остаётся на бонусном счёте, им можно
+ * играть, и оно перейдёт в деньги после следующего пополнения, когда потолок
+ * вырастет. Сжигать игроку выигранное ради правила, которое он увидит только
+ * в этот момент, хуже, чем подождать.
+ *
+ * Вызывается после каждой операции, которая могла закончить отыгрыш:
+ * ставки, зачисления, пополнения.
+ */
+export function settleBonus(userId) {
+  const u = getUserById(userId);
+  if (!u || (u.bonus_balance || 0) <= 0 || u.wager_required > 0) return null;
+  const rules = bonusRules();
+  const allowance = bonusAllowance(u, rules);
+  const moved = Math.min(u.bonus_balance, allowance);
+  if (moved <= 0) return { moved: 0, waiting: u.bonus_balance };
+  return withLedger('bonus_convert', () => {
+    db.prepare(`UPDATE users SET balance = balance + ?, bonus_balance = bonus_balance - ?,
+                                 bonus_converted = bonus_converted + ?
+                 WHERE id = ?`).run(moved, moved, moved, userId);
+    const ev = db.prepare(`
+      INSERT INTO bonus_events (user_id, kind, source, amount, allowance, deposits_total,
+                                cashout_pct, created_at)
+      VALUES (?, 'convert', NULL, ?, ?, ?, ?, ?)
+    `).run(userId, moved, allowance, u.deposits_total || 0, rules.cashoutPct, Date.now());
+    ledgerLink('bonus_events', ev.lastInsertRowid);
+    return { moved, waiting: u.bonus_balance - moved };
+  });
+}
+
+/**
+ * Отказ от бонуса: бонусный счёт обнуляется вместе с отыгрышем.
+ *
+ * Выход для того, кому подарок мешает: например, он хочет играть в казино
+ * или слоты, где бонусом не играют, и не хочет видеть недоигранный остаток.
+ * Пока идёт раунд краша на бонусные деньги, отказ закрыт: выплата этого
+ * раунда вернулась бы на уже обнулённый счёт.
+ */
+export const refuseBonus = moneyTx('bonus_refuse', (userId) => {
+  const u = getUserById(userId);
+  if (bonusInFlight(userId)) {
+    throw Object.assign(new Error('Дождитесь конца раунда краша'), { code: 'BONUS_BUSY' });
+  }
+  const amount = u.bonus_balance || 0;
+  db.prepare('UPDATE users SET bonus_balance = 0, wager_required = 0 WHERE id = ?').run(userId);
+  if (amount > 0) {
+    const ev = db.prepare(`INSERT INTO bonus_events (user_id, kind, amount, created_at)
+                           VALUES (?, 'refuse', ?, ?)`).run(userId, amount, Date.now());
+    ledgerLink('bonus_events', ev.lastInsertRowid);
+  }
+  return { refused: amount };
+});
+
+/** События бонусного счёта для кассы игрока. */
+export function getBonusEvents(userId, limit = 30) {
+  return db.prepare(`SELECT kind, source, amount, wager, created_at FROM bonus_events
+                      WHERE user_id = ? ORDER BY id DESC LIMIT ?`).all(userId, limit);
+}
+
 /**
  * Условия поощрения за первое пополнение.
  *
  * Читается из окружения при каждом вызове, а не один раз при загрузке: правило
  * маркетинговое, его меняют чаще, чем код, и перезапуск ради процента - лишний
  * повод уронить приём платежей.
+ *
+ * 25%, а не прежние 100%: в деньги переходит не больше 25% пополнений (см.
+ * bonusRules), и стопроцентный бонус на три четверти сгорал бы в ожидании
+ * лимита. Обещать игроку то, что он не сможет забрать, хуже, чем дать меньше.
  */
 export function firstDepositRules() {
   return {
     // Процент к первому пополнению. 0 выключает поощрение целиком.
-    pct: Number(process.env.FIRST_DEPOSIT_PCT ?? 100),
-    // Потолок бонуса в рублях: процент без потолка - это подарок тому, кто
-    // внесёт миллион и сразу закажет вывод.
+    pct: Number(process.env.FIRST_DEPOSIT_PCT ?? 25),
+    // Потолок бонуса в рублях: процент без потолка - подарок тому, кто
+    // внесёт миллион.
     max: Number(process.env.FIRST_DEPOSIT_MAX ?? 1000),
     // Меньше этой суммы поощрения нет: иначе пополнение на рубль давало бы бонус.
     min: Number(process.env.FIRST_DEPOSIT_MIN ?? 500),
-    // Во сколько раз бонус надо отыграть ставками. Бонусные деньги не
-    // увеличивают отыгранное (см. withdrawable), так что вывести их, не сыграв,
-    // нельзя в любом случае; множитель задаёт, сколько надо сыграть, чтобы
-    // погас долг по обороту.
-    wager: Number(process.env.FIRST_DEPOSIT_WAGER ?? 2),
+    // Отыгрыш общий для всех бонусов: два разных правила игрок не прочитает.
+    wager: bonusRules().wager,
   };
 }
 
@@ -2072,7 +2651,8 @@ export function firstDepositBonus(amount, rules = firstDepositRules()) {
  *
  * Оборот (wager_progress) пополнение НЕ увеличивает: оборот копится ставками.
  * Зато растёт долг по депозиту (deposit_debt) - его и надо прокрутить, чтобы
- * открылся вывод.
+ * открылся вывод. И растёт сумма пополнений, от которой считается потолок
+ * перевода бонусов в деньги: бонус, ждавший лимита, переходит здесь же.
  *
  * Вызывать внутри транзакции того, кто зачисляет: бонус и счётчик пополнений
  * не должны пережить откат зачисления.
@@ -2080,10 +2660,12 @@ export function firstDepositBonus(amount, rules = firstDepositRules()) {
 export function registerDeposit(userId, amount, source = 'gateway') {
   const before = getUserById(userId);
   if (!before) return { bonus: 0 };
+  const paid = Math.max(0, Math.round(amount));
 
   db.prepare(`UPDATE users SET deposits_count = deposits_count + 1,
-                               deposit_debt = deposit_debt + ?
-               WHERE id = ?`).run(Math.max(0, Math.round(amount)), userId);
+                               deposit_debt = deposit_debt + ?,
+                               deposits_total = deposits_total + ?
+               WHERE id = ?`).run(paid, paid, userId);
   trackEvent(userId, 'deposit_paid', { amount, source });
 
   /*
@@ -2107,19 +2689,22 @@ export function registerDeposit(userId, amount, source = 'gateway') {
   const promoBonus = applyDepositBonus(userId, amount);
   if (promoBonus > 0) return { bonus: promoBonus, kind: 'promo' };
 
-  if (before.deposits_count > 0) return { bonus: 0 };
+  // Пополнение подняло потолок: бонус, ждавший лимита, переходит в деньги.
+  const settle = () => settleBonus(userId);
+
+  if (before.deposits_count > 0) { settle(); return { bonus: 0 }; }
 
   const rules = firstDepositRules();
   const bonus = firstDepositBonus(amount, rules);
-  if (bonus <= 0) return { bonus: 0 };
+  if (bonus <= 0) { settle(); return { bonus: 0 }; }
 
-  db.prepare('UPDATE users SET balance = balance + ?, bonus_granted = bonus_granted + ? WHERE id = ?')
-    .run(bonus, bonus, userId);
-  addWager(userId, bonus, rules.wager);
-  db.prepare(`INSERT INTO deposits (user_id, amount, source, comment, created_at)
-              VALUES (?, ?, 'welcome', ?, ?)`)
-    .run(userId, bonus, `Бонус за первое пополнение +${rules.pct}%`, Date.now());
+  grantBonus(userId, bonus, {
+    source: 'welcome',
+    wager: rules.wager,
+    history: { source: 'welcome', comment: `Бонус за первое пополнение +${rules.pct}%` },
+  });
   trackEvent(userId, 'deposit_first_bonus', { amount, bonus });
+  settle();
 
   return { bonus, kind: 'first' };
 }
@@ -2128,7 +2713,8 @@ export function registerDeposit(userId, amount, source = 'gateway') {
  * Сколько игрок может вывести прямо сейчас.
  *
  * Пока внесённое не прокручено через ставки - ничего. Как только прокручено -
- * весь баланс целиком, вместе с выигрышем, каким бы он ни был.
+ * все свои деньги целиком, вместе с выигрышем, каким бы он ни был. Бонусный
+ * счёт сюда не входит и вывод не запирает: он отдельный.
  *
  * Здесь легко ошибиться в другую сторону и упереть вывод в сумму ставок. Так
  * было раньше, и это наказывало ровно за то, ради чего в игру и приходят:
@@ -2345,7 +2931,7 @@ export function getPromoByCode(code) {
  * Возвращает описание того, что игрок получил, чтобы интерфейс мог сказать это
  * словами, а не «код принят».
  */
-export const redeemPromo = db.transaction((userId, rawCode, resolveCase) => {
+export const redeemPromo = moneyTx('promo', (userId, rawCode, resolveCase) => {
   const code = normalizePromoCode(rawCode);
   const fail = (message, codeName) =>
     Object.assign(new Error(message), { code: codeName || 'PROMO' });
@@ -2379,25 +2965,23 @@ export const redeemPromo = db.transaction((userId, rawCode, resolveCase) => {
 
   if (promo.type === 'balance') {
     if (!(promo.amount > 0)) throw fail('Промокод настроен неверно');
-    granted = promo.amount;
-    db.prepare('UPDATE users SET balance = balance + ?, bonus_granted = bonus_granted + ? WHERE id = ?')
-      .run(granted, granted, userId);
-    addWager(userId, granted, promo.wager_multiplier);
+    granted = grantBonus(userId, promo.amount, { source: 'promo', wager: promo.wager_multiplier });
     result = { type: 'balance', amount: granted };
 
   } else if (promo.type === 'free_case') {
     const target = resolveCase(promo.case_id);
     if (!target) throw fail('Промокод настроен неверно');
     const count = Math.max(1, promo.case_count);
-    addVoucher(userId, promo.case_id, count);
+    addVoucher(userId, promo.case_id, count, true);
 
     // Подарочный кейс стоит заведению своё матожидание, а не цену: игрок
     // получает не деньги, а прокрут. Эта же сумма потом вычитается из прибыли
     // при расчёте доли партнёра.
     granted = Math.round(target.price * target.rtp * count);
+    // Отыгрыш придёт с выигрышем: ваучер подарочный, и всё, что он выдаст,
+    // ляжет на бонусный счёт по общим правилам.
     db.prepare('UPDATE users SET bonus_granted = bonus_granted + ? WHERE id = ?')
       .run(granted, userId);
-    addWager(userId, granted, promo.wager_multiplier);
     result = { type: 'free_case', caseId: promo.case_id, caseName: target.name, count };
 
   } else if (promo.type === 'deposit_pct') {
@@ -2435,6 +3019,7 @@ export const redeemPromo = db.transaction((userId, rawCode, resolveCase) => {
     ...result,
     wagerRequired: after.wager_required,
     balance: after.balance,
+    bonusBalance: after.bonus_balance,
   };
 });
 
@@ -2502,13 +3087,16 @@ export function partnerStats(partnerId) {
     SELECT
       (SELECT COUNT(*) FROM users WHERE partner_id = @pid) AS referrals,
       (SELECT COUNT(*) FROM users WHERE partner_id = @pid AND total_rounds > 0) AS active,
-      COALESCE((SELECT SUM(r.bet) FROM rounds r
+      -- Только свои деньги игроков: ставка бонусом и выигрыш на бонусный
+      -- счёт доходом и расходом заведения не являются. Расход на бонусы - то,
+      -- что из них действительно перешло в деньги.
+      COALESCE((SELECT SUM(r.bet - r.bonus_bet) FROM rounds r
                   JOIN users u ON u.id = r.user_id
                  WHERE u.partner_id = @pid), 0) AS wagered,
-      COALESCE((SELECT SUM(r.payout) FROM rounds r
+      COALESCE((SELECT SUM(r.payout - r.bonus_payout) FROM rounds r
                   JOIN users u ON u.id = r.user_id
                  WHERE u.partner_id = @pid), 0) AS paid,
-      COALESCE((SELECT SUM(u.bonus_granted) FROM users u
+      COALESCE((SELECT SUM(u.bonus_converted) FROM users u
                  WHERE u.partner_id = @pid), 0) AS bonuses,
       COALESCE((SELECT SUM(amount) FROM partner_payouts WHERE partner_id = @pid), 0) AS payouts
   `).get({ pid: partnerId });
@@ -2667,7 +3255,10 @@ export function adminUserDetail(userId) {
       pendingOut: pendingPayoutTotal(userId),
       withdrawable: withdrawable(user),
       depositDebt: user.deposit_debt || 0,
-      wagerRequired: user.wager_required || 0,
+      wagerRequired: (user.bonus_balance || 0) > 0 ? (user.wager_required || 0) : 0,
+      bonusBalance: user.bonus_balance || 0,
+      bonusConverted: user.bonus_converted || 0,
+      bonusCashoutLeft: bonusAllowance(user),
     },
     payouts: getPayouts(userId, 15),
     deposits: getDeposits(userId, 15),
@@ -2684,7 +3275,7 @@ export function adminUserDetail(userId) {
  * Изменение баланса администратором. Отрицательная сумма списывает, но не
  * ниже нуля - уводить игрока в долг нельзя.
  */
-export const adminAdjustBalance = db.transaction((adminId, targetId, amount, note,
+export const adminAdjustBalance = moneyTx('admin', (adminId, targetId, amount, note,
                                                   { asDeposit = true } = {}) => {
   const target = getUserById(targetId);
   if (!target) throw Object.assign(new Error('Игрок не найден'), { code: 'NOT_FOUND' });
@@ -2693,10 +3284,11 @@ export const adminAdjustBalance = db.transaction((adminId, targetId, amount, not
   const applied = newBalance - target.balance;
 
   db.prepare('UPDATE users SET balance = ? WHERE id = ?').run(newBalance, targetId);
-  db.prepare(`
+  const logged = db.prepare(`
     INSERT INTO admin_log (admin_id, target_id, action, amount, note, created_at)
     VALUES (?, ?, ?, ?, ?, ?)
   `).run(adminId, targetId, amount >= 0 ? 'credit' : 'debit', applied, note || null, Date.now());
+  ledgerLink('admin_log', logged.lastInsertRowid);
 
   // Начисление показывается игроку в истории пополнений, списание - нет:
   // в кассе он должен видеть приход, а не служебные корректировки.
@@ -2737,16 +3329,12 @@ function applyDepositBonus(userId, depositAmount) {
   if (pending.max_bonus > 0) bonus = Math.min(bonus, pending.max_bonus);
   if (bonus <= 0) return 0;
 
-  db.prepare('UPDATE users SET balance = balance + ?, bonus_granted = bonus_granted + ? WHERE id = ?')
-    .run(bonus, bonus, userId);
-  addWager(userId, bonus, pending.wager_multiplier);
-
-  db.prepare(`INSERT INTO deposits (user_id, amount, source, comment, created_at)
-              VALUES (?, ?, 'promo', ?, ?)`)
-    .run(userId, bonus, `Бонус к пополнению +${pending.pct}%`, Date.now());
-
   db.prepare('DELETE FROM pending_deposit_bonus WHERE user_id = ?').run(userId);
-  return bonus;
+  return grantBonus(userId, bonus, {
+    source: pending.promo_id ? 'promo_deposit' : 'fortune_deposit',
+    wager: pending.wager_multiplier,
+    history: { source: 'promo', comment: `Бонус к пополнению +${pending.pct}%` },
+  });
 }
 
 export const adminSetBlocked = db.transaction((adminId, targetId, blocked) => {
@@ -2764,7 +3352,8 @@ export const adminSetBlocked = db.transaction((adminId, targetId, blocked) => {
 
 export const adminGrantVoucher = db.transaction((adminId, targetId, caseId, count) => {
   if (!getUserById(targetId)) throw Object.assign(new Error('Игрок не найден'), { code: 'NOT_FOUND' });
-  addVoucher(targetId, caseId, count);
+  // Подарок сотрудника - тоже подарок: выигрыш с него на бонусный счёт.
+  addVoucher(targetId, caseId, count, true);
   db.prepare(`
     INSERT INTO admin_log (admin_id, target_id, action, amount, note, created_at)
     VALUES (?, ?, 'voucher', ?, ?, ?)
@@ -2793,11 +3382,25 @@ export function adminRecentRounds(limit = 40) {
  * Ставка обнуляется внутри той же транзакции: иначе одним выигрышем можно
  * было бы рискнуть дважды, отправив два запроса подряд.
  */
-export const playGamble = db.transaction((userId, pickIndex, config, resolve) => {
+export const playGamble = moneyTx('gamble', (userId, pickIndex, config, resolve) => {
   const user = getUserById(userId);
   const stake = user.gamble_stake;
 
   if (!stake || stake <= 0) {
+    throw Object.assign(new Error('Нечем рисковать'), { code: 'NO_STAKE' });
+  }
+
+  /*
+   * Ставка - выигрыш прошлого кейса, он должен ещё лежать на счетах. Раньше
+   * это не проверялось: игрок выигрывал тысячу, заказывал её вывод и потом
+   * рисковал той же тысячей. Проигрыш уводил баланс в минус (аккаунт просто
+   * бросают), выигрыш давал 4200 из воздуха. Теперь потраченный или
+   * выведенный выигрыш рисковать не даёт.
+   */
+  const bonusStake = Math.min(stake, Math.max(0, user.gamble_bonus || 0));
+  const realStake = stake - bonusStake;
+  if (user.balance < realStake || (user.bonus_balance || 0) < bonusStake) {
+    clearGamble(userId);
     throw Object.assign(new Error('Нечем рисковать'), { code: 'NO_STAKE' });
   }
 
@@ -2807,32 +3410,39 @@ export const playGamble = db.transaction((userId, pickIndex, config, resolve) =>
   const fresh = getUserById(userId);
   const { acePosition, roll } = resolve(fresh.server_seed, fresh.client_seed, nonce);
   const won = pickIndex === acePosition;
-  const payout = won ? stake * config.payout : 0;
+  // Целые рубли: баланс хранится в рублях, и ×4.2 от нечётной ставки
+  // давало бы дробь в колонке целых. Округление вниз - в пользу правила.
+  const payout = won ? Math.floor(stake * config.payout) : 0;
 
-  // Ставка уже на балансе: при выигрыше добавляем недостающее, при проигрыше снимаем.
-  const delta = payout - stake;
+  // Ставка снимается с тех же счетов, на которые пришла, выплата делится в
+  // той же доле.
+  db.prepare(`UPDATE users SET balance = balance - ?, bonus_balance = bonus_balance - ?,
+                               gamble_stake = 0, gamble_case = NULL, gamble_bonus = 0
+               WHERE id = ?`).run(realStake, bonusStake, userId);
+  const credited = creditPayout(userId, payout, bonusStake / stake);
 
   db.prepare(`
     UPDATE users
-       SET balance = balance + ?,
-           gamble_stake = 0,
-           gamble_case = NULL,
-           total_rounds = total_rounds + 1,
+       SET total_rounds = total_rounds + 1,
            total_spent = total_spent + ?,
            total_won = total_won + ?,
            best_multiplier = MAX(best_multiplier, ?)
      WHERE id = ?
-  `).run(delta, stake, payout, won ? config.payout : 0, userId);
+  `).run(stake, payout, won ? config.payout : 0, userId);
 
-  db.prepare(`
+  const info = db.prepare(`
     INSERT INTO rounds (user_id, game, title, subtitle, bet, payout, multiplier,
-                        tier, free, roll, nonce, server_hash, client_seed, created_at)
-    VALUES (?, 'gamble', 'Риск-игра', ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)
+                        tier, free, roll, nonce, server_hash, client_seed, created_at,
+                        bonus_bet, bonus_payout, meta)
+    VALUES (?, 'gamble', 'Риск-игра', ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(userId,
          won ? `Нашёл туза - ${config.payout}x` : 'Промах',
          stake, payout, won ? config.payout : 0,
          won ? 'unique' : 'common',
-         roll, nonce, fresh.server_seed_hash, fresh.client_seed, Date.now());
+         roll, nonce, fresh.server_seed_hash, fresh.client_seed, Date.now(),
+         bonusStake, credited.bonus, JSON.stringify({ pick: pickIndex }));
+  ledgerLink('rounds', info.lastInsertRowid);
+  settleBonus(userId);
 
   return {
     won, acePosition, payout, stake, roll, nonce,
@@ -2842,7 +3452,7 @@ export const playGamble = db.transaction((userId, pickIndex, config, resolve) =>
 
 /** Сбрасывает предложенный риск, если игрок им не воспользовался. */
 export function clearGamble(userId) {
-  db.prepare('UPDATE users SET gamble_stake = 0, gamble_case = NULL WHERE id = ?').run(userId);
+  db.prepare('UPDATE users SET gamble_stake = 0, gamble_case = NULL, gamble_bonus = 0 WHERE id = ?').run(userId);
 }
 
 /* ---------- Админка: промокоды ---------- */
@@ -3046,7 +3656,7 @@ export function pendingPayoutTotal(userId) {
  * несколько заявок на один и тот же баланс, а потом проиграть его в кейсах,
  * и администратору пришлось бы выплачивать то, чего уже нет.
  */
-export const createPayout = db.transaction((userId, amount, details = {}) => {
+export const createPayout = moneyTx('payout', (userId, amount, details = {}) => {
   const user = getUserById(userId);
 
   if (amount < MIN_PAYOUT) {
@@ -3074,12 +3684,8 @@ export const createPayout = db.transaction((userId, amount, details = {}) => {
       { code: 'INSUFFICIENT_FUNDS', available: free }
     );
   }
-  if (user.wager_required > 0) {
-    throw Object.assign(
-      new Error(`Бонус не отыгран: осталось поставить ${user.wager_required}`),
-      { code: 'WAGER' }
-    );
-  }
+  // Неотыгранный бонус вывод больше не запирает: он лежит на отдельном
+  // бонусном счёте, а выводятся только свои деньги.
 
   const method = String(details.method || '').toLowerCase();
   let phone = null, bank = null, cardNumber = null;
@@ -3128,20 +3734,24 @@ export const createPayout = db.transaction((userId, amount, details = {}) => {
   // Отыгранное заявка не расходует. Долг по депозиту уже погашен ставками, и
   // «списывать» его ещё раз при выводе значило бы требовать отыграть депозит
   // повторно после каждой выплаты.
-  db.prepare('UPDATE users SET balance = balance - ? WHERE id = ?').run(amount, userId);
+  // Выигрыш, ушедший в заявку, рисковать в риск-игре больше нельзя.
+  db.prepare(`UPDATE users SET balance = balance - ?, gamble_stake = 0, gamble_case = NULL,
+                               gamble_bonus = 0 WHERE id = ?`).run(amount, userId);
   const info = db.prepare(`
     INSERT INTO payouts (user_id, amount, status, method, phone, bank, card_number,
                          crypto_currency, crypto_network, crypto_address, crypto_amount,
-                         crypto_rate, created_at)
-    VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         crypto_rate, created_at, card_hash)
+    VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(userId, amount, method, phone, bank, cardNumber ? encryptCard(cardNumber) : null,
-         cryptoCurrency, cryptoNetwork, cryptoAddress, cryptoAmount, cryptoRate, Date.now());
+         cryptoCurrency, cryptoNetwork, cryptoAddress, cryptoAmount, cryptoRate, Date.now(),
+         cardNumber ? cardHash(cardNumber) : null);
+  ledgerLink('payouts', info.lastInsertRowid);
 
   return { id: info.lastInsertRowid, amount, balance: getUserById(userId).balance };
 });
 
 /** Отмена собственной заявки: средства возвращаются на баланс. */
-export const cancelPayout = db.transaction((userId, payoutId) => {
+export const cancelPayout = moneyTx('payout_return', (userId, payoutId) => {
   const row = db.prepare(`SELECT * FROM payouts WHERE id = ? AND user_id = ?`)
     .get(payoutId, userId);
 
@@ -3153,6 +3763,7 @@ export const cancelPayout = db.transaction((userId, payoutId) => {
   db.prepare(`UPDATE payouts SET status = 'cancelled', resolved_at = ? WHERE id = ?`)
     .run(Date.now(), payoutId);
   db.prepare('UPDATE users SET balance = balance + ? WHERE id = ?').run(row.amount, userId);
+  ledgerLink('payouts', payoutId);
 
   return { balance: getUserById(userId).balance };
 });
@@ -3163,7 +3774,7 @@ export const cancelPayout = db.transaction((userId, payoutId) => {
  * При отклонении сумма возвращается игроку - она была списана авансом.
  * При выплате остаётся списанной: деньги считаются ушедшими.
  */
-export const resolvePayout = db.transaction((adminId, payoutId, status, comment) => {
+export const resolvePayout = moneyTx('payout_return', (adminId, payoutId, status, comment) => {
   const row = db.prepare('SELECT * FROM payouts WHERE id = ?').get(payoutId);
 
   if (!row) throw Object.assign(new Error('Заявка не найдена'), { code: 'NOT_FOUND' });
@@ -3179,6 +3790,7 @@ export const resolvePayout = db.transaction((adminId, payoutId, status, comment)
     .run(status, comment || null, Date.now(), adminId, payoutId);
 
   db.prepare('UPDATE users SET balance = balance + ? WHERE id = ?').run(row.amount, row.user_id);
+  ledgerLink('payouts', payoutId);
 
   db.prepare(`
     INSERT INTO admin_log (admin_id, target_id, action, amount, note, created_at)

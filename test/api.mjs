@@ -30,6 +30,27 @@ async function post(path, body, headers = {}) {
   return { status: res.status, data: await res.json().catch(() => ({})) };
 }
 
+/*
+ * Деньги тестового игрока появились правкой баланса из панели, а не
+ * пополнением, и проверка заявки честно ставит красную плашку. Такую заявку
+ * к выплате не пускают, пока сотрудник не подтвердит её с комментарием:
+ * это и проверяем (strict), а дальше подтверждаем, чтобы пройти состояния.
+ */
+async function clearRisk(id, strict = false) {
+  const { check: c } = (await post('/api/admin/payout/check', { id })).data;
+  if (!c || c.verdict !== 'red' || c.override) return;
+  if (strict) {
+    const blocked = await post('/api/admin/payout/resolve', { id, status: 'processing' });
+    check('красную заявку нельзя взять в работу без подтверждения',
+          blocked.status === 409 && blocked.data.code === 'RISK', blocked.status);
+    check('подтверждение без внятного комментария не принимается',
+          (await post('/api/admin/payout/override', { id, comment: 'ок' })).status === 400);
+  }
+  const ok = await post('/api/admin/payout/override',
+    { id, comment: 'Проверено вручную в тесте: деньги выданы сотрудником' });
+  if (strict) check('подтверждение с комментарием снимает барьер', ok.status === 200, ok.status);
+}
+
 const get = async (path) => (await fetch(BASE + path)).json();
 
 const config = await get('/api/config');
@@ -563,6 +584,7 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
    */
   const paidBefore = (await post('/api/admin/payouts', { status: 'all' })).data.stats.paidSum;
   const p3 = (await makePayout(amount)).data;
+  await clearRisk(p3.id, true);
   check('выплатить заявку в обход «в работе» нельзя',
         (await post('/api/admin/payout/resolve', { id: p3.id, status: 'paid' })).status === 400);
 
@@ -674,6 +696,7 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
         (await crypto({ cryptoRate: 0 })).data.error === 'BAD_RATE');
 
   // Тот же порядок состояний, что и у рублёвого вывода.
+  await clearRisk(made.data.id);
   await post('/api/admin/payout/resolve', { id: made.data.id, status: 'processing' });
   check('вывод криптой: заявку в работе игрок не отменяет',
         (await post('/api/payout/cancel', { id: made.data.id })).status === 400);
@@ -906,31 +929,42 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
   const before = (await post('/api/me')).data.user;
   const r = await post('/api/promo/redeem', { code: codeBalance.toLowerCase() });
   check('промокод принят без учёта регистра', r.status === 200, `HTTP ${r.status}`);
-  check('баланс вырос на сумму промокода',
-        r.data.user.balance === before.balance + 1000);
+  // Бонус ложится на отдельный бонусный счёт, свои деньги не трогает.
+  check('промокод зачислен на бонусный счёт',
+        r.data.user.bonusBalance === (before.bonusBalance || 0) + 1000
+        && r.data.user.balance === before.balance,
+        JSON.stringify({ b: r.data.user.bonusBalance, r: r.data.user.balance }));
   check('отыгрыш начислен множителем',
-        r.data.user.wagerRequired === before.wagerRequired + 2000,
+        r.data.user.wagerRequired === (before.bonusBalance > 0 ? before.wagerRequired : 0) + 2000,
         `${r.data.user.wagerRequired}`);
 
   const again = await post('/api/promo/redeem', { code: codeBalance });
   check('повторная активация отклонена', again.status === 400);
 
-  // Пока отыгрыш не закрыт, вывод недоступен.
-  const blocked = await post('/api/payout/create', { amount: config.minPayout });
-  check('вывод закрыт до отыгрыша', blocked.data.error === 'WAGER', blocked.data.error);
-
-  // Отыгрываем ставками и проверяем, что вывод открылся.
-  let guard = 0;
-  while ((await post('/api/me')).data.user.wagerRequired > 0 && guard++ < 200) {
-    await post('/api/open', { caseId: 'warmup_100', count: 2 });
-  }
-  check('ставки гасят отыгрыш',
-        (await post('/api/me')).data.user.wagerRequired === 0);
-
+  // Неотыгранный бонус вывод своих денег не запирает: счёт отдельный.
   const allowed = await post('/api/payout/create',
     { amount: config.minPayout, method: 'sbp', phone: '79001234567', bank: 'Сбербанк' });
-  check('после отыгрыша вывод открылся', allowed.status === 200, `HTTP ${allowed.status}`);
+  check('неотыгранный бонус вывод не запирает', allowed.status === 200, `HTTP ${allowed.status} ${allowed.data.error || ''}`);
   if (allowed.data.id) await post('/api/payout/cancel', { id: allowed.data.id });
+
+  // Ставки своими деньгами бонус не отыгрывают: свои тратятся первыми.
+  await post('/api/open', { caseId: 'warmup_100', count: 1 });
+  check('ставка своими деньгами отыгрыш бонуса не трогает',
+        (await post('/api/me')).data.user.wagerRequired === r.data.user.wagerRequired);
+
+  const wallet = (await post('/api/wallet')).data;
+  check('касса показывает бонусный счёт и правила',
+        wallet.bonus && wallet.bonus.balance >= 1000 && wallet.bonus.rules.wager > 0
+        && wallet.bonus.rules.cashoutPct > 0 && wallet.bonus.rules.cashoutPct < 30,
+        JSON.stringify(wallet.bonus?.rules));
+
+  // Отказ от бонуса обнуляет бонусный счёт и его отыгрыш, свои не трогает.
+  const keep = (await post('/api/me')).data.user.balance;
+  const refused = await post('/api/bonus/refuse');
+  check('отказ от бонуса обнуляет бонусный счёт',
+        refused.status === 200 && refused.data.user.bonusBalance === 0
+        && refused.data.user.wagerRequired === 0 && refused.data.user.balance === keep,
+        JSON.stringify(refused.data.user ? { b: refused.data.user.bonusBalance, w: refused.data.user.wagerRequired } : refused.data));
 
   // Бесплатный кейс.
   const codeCase = uniq('BOX');

@@ -203,7 +203,9 @@ const call = (list) => casinoWallet(list, { currency: 'RUB' });
   const row = getUserById(u.id);
   // 37 ставок по 0.20 = 7.40: в отыгрыш ушло 7 рублей, 40 копеек ждут.
   check('отыгрыш депозита гасится целыми рублями оборота', row.deposit_debt === 8, String(row.deposit_debt));
-  check('отыгрыш бонуса гасится так же', row.wager_required === 93, String(row.wager_required));
+  // Бонусом в казино не играют (агрегатор видит только свои деньги), и
+  // ставки казино отыгрыш бонуса не гасят: его гасят ставки бонусом.
+  check('отыгрыш бонуса казино не трогает', row.wager_required === 100, String(row.wager_required));
   check('остаток копеек оборота сохранён', row.casino_wager_kop === 40, String(row.casino_wager_kop));
   check('оборот казино посчитан в копейках', row.casino_bet_kop === 740, String(row.casino_bet_kop));
 }

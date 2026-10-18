@@ -384,6 +384,16 @@ function celebrate(kind, payload = {}) {
 /** Сумма с отдельно выделенным знаком рубля: он набран жирнее цифр. */
 const moneyRich = (n) => `${fmtMoney(n)} <span class="rub">₽</span>`;
 
+/*
+ * Сколько игрок может поставить в наших играх: свои деньги и бонусный счёт.
+ * Бонус играет, когда своих не хватает на ставку, поэтому кнопка «открыть»
+ * не должна гаснуть у того, у кого свои кончились, а бонус есть. Шапка
+ * показывает только свои: их выводят и ими играет казино.
+ */
+function spendableMoney() {
+  return Math.max(0, state.user?.balance || 0) + Math.max(0, state.user?.bonusBalance || 0);
+}
+
 function renderBalance() {
   const chip = document.getElementById('balanceChip');
   document.getElementById('balanceValue').innerHTML = moneyRich(state.user.balance);
@@ -415,10 +425,19 @@ function renderPerkBar() {
       ×2 ${where}${p.count > 1 ? ` · ${p.count}` : ''}</span>`);
   }
 
+  // Бонусный счёт - первым: это деньги, которыми игрок может играть сейчас.
+  // Нажатие ведёт в кассу, где расписано, сколько осталось отыграть.
+  if ((state.user.bonusBalance || 0) > 0) {
+    chips.unshift(`<span class="perk-chip is-bonus" data-goto-cashier>
+      Бонус ${money(state.user.bonusBalance)}${state.user.wagerRequired > 0
+        ? ` · отыграть ${money(state.user.wagerRequired)}` : ''}</span>`);
+  }
+
   // Выигранных кейсов здесь нет намеренно: их место в «Бонусах». Полоса над
   // полками разрасталась на несколько строк и отжимала сами кейсы вниз.
 
   bar.innerHTML = chips.join('');
+  bar.querySelector('[data-goto-cashier]')?.addEventListener('click', () => { haptic('light'); openCashier(); });
   bar.hidden = !chips.length;
   mountIcons(bar);
 
@@ -479,7 +498,8 @@ function celebrateDeposit(before, after) {
     sndCoin();
   }, 60);
   if (!before.depositsCount) {
-    const bonus = (after.wagerRequired || 0) > (before.wagerRequired || 0);
+    // Про бонус сцена говорит, только если он правда пришёл на бонусный счёт.
+    const bonus = (after.bonusBalance || 0) > (before.bonusBalance || 0);
     setTimeout(() => showFirstDepositChest(gained, bonus), 900);
   }
 }
@@ -1201,7 +1221,7 @@ function openCase(caseId) {
       openAct.textContent = `Открыть ${auto} раз`;
       openSub.textContent = `по ${money(c.price)}`;
       openPrice.textContent = money(auto * c.price);
-      openBtn.disabled = !freeCount && c.price > state.user.balance;
+      openBtn.disabled = !freeCount && c.price > spendableMoney();
       fitOpenBtn();
       return;
     }
@@ -1211,7 +1231,7 @@ function openCase(caseId) {
     openAct.textContent = paid === 0 ? 'Открыть бесплатно' : 'Открыть';
     openSub.textContent = count > 1 ? `${count} ${plural(count, 'кейс', 'кейса', 'кейсов')} сразу` : 'один кейс';
     openPrice.textContent = paid === 0 ? `×${count}` : money(paid * c.price);
-    openBtn.disabled = paid * c.price > state.user.balance;
+    openBtn.disabled = paid * c.price > spendableMoney();
     fitOpenBtn();
   };
   refresh();
@@ -1627,8 +1647,8 @@ async function startOpening(caseId, count = 1, { again = false } = {}) {
 
   const freeCount = (state.user.vouchers || []).find((v) => v.case_id === c.id)?.count || 0;
   const need = Math.max(0, count - freeCount) * c.price;
-  if (need > state.user.balance) {
-    needMoney(need - state.user.balance);
+  if (need > spendableMoney()) {
+    needMoney(need - spendableMoney());
     return;
   }
 
@@ -1906,7 +1926,7 @@ function renderFreeSpinBuy(c, locked) {
 
     return `<button class="fsbuy-btn${p.popular ? ' is-popular' : ''}" data-fs="${p.count}"
         aria-label="${p.count} прокрутов за ${money(price)}"
-        ${price > state.user.balance ? 'disabled' : ''}>
+        ${price > spendableMoney() ? 'disabled' : ''}>
       <b class="fsbuy-count">${p.count}</b>
       <span class="fsbuy-word">free spins</span>
       <span class="fsbuy-price">${money(price)}</span>
@@ -1980,7 +2000,7 @@ function confirmBuyFreeSpins(c, count, fromEl = null) {
   const perSpin = Math.round(price / count);
   document.getElementById('buyRows').innerHTML = `
     <span>по ${money(perSpin)} за прокрут</span>
-    <span>останется ${money(Math.max(0, state.user.balance - price))}</span>`;
+    <span>останется ${money(Math.max(0, spendableMoney() - price))}</span>`;
   document.getElementById('buyNote').textContent =
     'Прокруты начнутся сразу. Внутри серии может выпасть что угодно из этого кейса, включая новые фриспины.';
 
@@ -1991,7 +2011,7 @@ function confirmBuyFreeSpins(c, count, fromEl = null) {
 
   const confirmBtn = document.getElementById('buyConfirm');
   const cancelBtn = document.getElementById('buyCancel');
-  const short = price > state.user.balance;
+  const short = price > spendableMoney();
   confirmBtn.querySelector('.open-act > span').textContent = short ? 'Не хватает' : 'Купить';
   document.getElementById('buySub').textContent = `${count} ${plural(count, 'прокрут', 'прокрута', 'прокрутов')}`;
   document.getElementById('buyPrice').textContent = money(price);
@@ -2231,8 +2251,8 @@ async function runAutoOpen(caseId, times) {
     // Ваучер тратится первым, поэтому проверяем баланс только на платный
     // прокрут. Список ваучеров обновляется ответом сервера на каждом шаге.
     const freeLeft = (state.user.vouchers || []).find((v) => v.case_id === c.id)?.count || 0;
-    if (!freeLeft && c.price > state.user.balance) {
-      needMoney(c.price - state.user.balance);
+    if (!freeLeft && c.price > spendableMoney()) {
+      needMoney(c.price - spendableMoney());
       break;
     }
 
@@ -2778,7 +2798,7 @@ function showCaseResult(data, caseData) {
 function setAgainButton(btn, caseData, count) {
   const freeLeft = (state.user.vouchers || []).find((v) => v.case_id === caseData.id)?.count || 0;
   const paid = Math.max(0, count - freeLeft);
-  btn.disabled = paid * caseData.price > state.user.balance;
+  btn.disabled = paid * caseData.price > spendableMoney();
   btn.querySelector('.open-act > span').textContent = btn.disabled ? 'Не хватает' : 'Ещё раз';
   btn.querySelector('.open-act small').textContent =
     count > 1 ? `${count} ${plural(count, 'кейс', 'кейса', 'кейсов')} сразу` : 'тот же кейс';
@@ -3258,7 +3278,7 @@ function wireBetPanel(inputId, addAttr, quickAttr) {
       const cur = betValue(inputId) || 1;
       if (mode === 'half') setBet(inputId, Math.max(1, Math.floor(cur / 2)));
       if (mode === 'double') setBet(inputId, cur * 2);
-      if (mode === 'max') setBet(inputId, Math.max(1, state.user.balance));
+      if (mode === 'max') setBet(inputId, Math.max(1, spendableMoney()));
       haptic('light');
     });
   });
@@ -3509,8 +3529,8 @@ async function startCrash() {
 
   const bet = betValue('crashBet');
   if (!bet) { toast('Укажите ставку'); return; }
-  if (bet > state.user.balance) {
-    needMoney(bet - state.user.balance);
+  if (bet > spendableMoney()) {
+    needMoney(bet - spendableMoney());
     return;
   }
 
@@ -3915,8 +3935,8 @@ async function spinRoulette() {
 
   const bet = betValue('rouletteBet');
   if (!bet) { toast('Укажите ставку'); return; }
-  if (bet > state.user.balance) {
-    needMoney(bet - state.user.balance);
+  if (bet > spendableMoney()) {
+    needMoney(bet - spendableMoney());
     return;
   }
 
@@ -4246,7 +4266,10 @@ async function openAdminUser(userId) {
       { label: 'Долг по обороту', value: fmt(d.money.depositDebt),
         cls: d.money.depositDebt ? 'minus' : 'plus',
         sub: d.money.depositDebt ? 'вывод закрыт, пока не отыграет' : 'вывод открыт' },
-      { label: 'Отыграть бонус', value: fmt(d.money.wagerRequired) },
+      { label: 'Бонусный счёт', value: fmt(d.money.bonusBalance || 0),
+        sub: d.money.wagerRequired ? `отыграть ${fmt(d.money.wagerRequired)}` : 'вывод не запирает' },
+      { label: 'Бонусы в деньги', value: fmt(d.money.bonusConverted || 0),
+        sub: `ещё можно ${fmt(d.money.bonusCashoutLeft || 0)}` },
     ])}
 
     <div class="bo-daybar">
@@ -5569,6 +5592,42 @@ function siciliaPayoutBlock(p, gateway, info) {
   </div>`;
 }
 
+/*
+ * Плашка проверки заявки на вывод. Зелёная - всё сошлось, красная - есть
+ * подозрения, с причинами. Красную нельзя двинуть к выплате, пока сотрудник
+ * не разобрал причины и не подтвердил заявку комментарием: подозрение не
+ * должно уйти деньгами одним нажатием «взять в работу».
+ */
+function riskPlate(p) {
+  const c = p.check;
+  if (!c) return '';
+  const green = c.verdict === 'green';
+  const why = green ? 'Математика сходится, источники денег подтверждены'
+    : esc((c.reasons || []).join(' · '));
+  const ok = c.override
+    ? `<div class="risk-override">Подтверждено сотрудником: «${esc(c.override.comment)}»</div>` : '';
+  return `<div class="risk-plate ${green ? 'risk-green' : 'risk-red'}">
+      <span class="risk-dot" aria-hidden="true"></span>
+      <div class="risk-text"><b>${green ? 'Проверено системой' : 'Есть подозрения'}</b><small>${why}</small></div>
+      <button class="risk-more" data-risk-open="${p.id}" type="button">Подробнее</button>
+    </div>
+    ${ok}
+    <div class="risk-details" data-risk-details="${p.id}" hidden></div>`;
+}
+
+/** Полный разбор проверки: каждый пункт с подробностями. */
+function riskDetailsHtml(c) {
+  const s = c.summary || {};
+  const rows = c.checks.map((x) => `<li class="${x.ok ? 'ok' : x.level === 'info' ? 'info' : 'bad'}">
+      <span>${x.ok ? '✓' : x.level === 'info' ? 'i' : '✗'}</span>
+      <div><b>${esc(x.title)}</b><small>${esc(x.detail || '')}</small></div></li>`).join('');
+  return `<ul class="risk-list">${rows}</ul>
+    <div class="risk-summary">Пополнил ${money(s.deposited || 0)} · выплачено ${money(s.paidOut || 0)} ·
+      итог игр ${money(s.gamesNet || 0)} · раундов ${fmt(s.rounds || 0)} · лучший выигрыш ${money(s.bestWin || 0)} ·
+      аккаунту ${fmt(s.accountAgeDays || 0)} дн. · проверено ${new Date(c.checkedAt).toLocaleString('ru-RU')}</div>
+    <button class="btn btn-outline btn-sm" data-risk-recheck="${c.payoutId || ''}" type="button">Перепроверить</button>`;
+}
+
 async function loadAdminPayouts() {
   let d;
   try { d = await api('/api/admin/payouts', { status: state.admin.payoutStatus || 'pending' }); }
@@ -5607,7 +5666,16 @@ async function loadAdminPayouts() {
       <div class="payout-date">${esc(name)} · ${esc(playerIdent(p, p.user_id))} ·
         баланс ${money(p.balance)} · ${new Date(p.created_at).toLocaleString('ru-RU')}</div>
       <div class="payout-requisites">${payoutRequisites(p, { full: true })}</div>
+      ${riskPlate(p)}
       ${p.comment ? `<div class="payout-comment">${esc(p.comment)}</div>` : ''}
+      ${p.check && p.check.verdict === 'red' && !p.check.override && ['pending', 'processing'].includes(p.status) ? `
+        <textarea class="seed-input risk-note" data-risk-note="${p.id}" rows="2"
+          placeholder="Почему заявку можно выплатить: что проверено вручную"></textarea>
+        <div class="admin-actions">
+          <button class="btn btn-primary" data-risk-ok="${p.id}">Подтвердить заявку</button>
+          <button class="btn btn-outline" data-resolve="rejected" data-id="${p.id}">Отклонить</button>
+        </div>
+        <input class="seed-input payout-note" data-note="${p.id}" placeholder="комментарий игроку (при отклонении)">` : `
       ${siciliaPayoutBlock(p, d.gateway || {}, sic)}
       ${p.status === 'pending' ? `
         <input class="seed-input payout-note" data-note="${p.id}" placeholder="комментарий игроку">
@@ -5618,9 +5686,41 @@ async function loadAdminPayouts() {
         <input class="seed-input payout-note" data-note="${p.id}" placeholder="комментарий игроку">
         <div class="admin-actions">
           <button class="btn btn-primary" data-resolve="paid" data-id="${p.id}">Выполнено</button>
-        </div>` : ''}
+        </div>` : ''}`}
     </div>`;
   }).join('');
+
+  const openDetails = async (id, recheck = false) => {
+    const panel = box.querySelector(`[data-risk-details="${id}"]`);
+    if (!panel) return;
+    panel.hidden = false;
+    panel.innerHTML = '<span class="skel skel-line"></span>';
+    try {
+      const { check } = await api('/api/admin/payout/check', { id, recheck });
+      panel.innerHTML = riskDetailsHtml({ ...check, payoutId: id });
+      panel.querySelector('[data-risk-recheck]')?.addEventListener('click', async () => {
+        await openDetails(id, true);
+        loadAdminPayouts();
+      });
+    } catch (err) { panel.innerHTML = `<div class="empty">${esc(err.message)}</div>`; }
+  };
+  box.querySelectorAll('[data-risk-open]').forEach((btn) => btn.addEventListener('click', () => {
+    const id = Number(btn.dataset.riskOpen);
+    const panel = box.querySelector(`[data-risk-details="${id}"]`);
+    if (panel && !panel.hidden) { panel.hidden = true; return; }
+    openDetails(id);
+  }));
+
+  box.querySelectorAll('[data-risk-ok]').forEach((btn) => btn.addEventListener('click', async () => {
+    const id = Number(btn.dataset.riskOk);
+    const comment = box.querySelector(`[data-risk-note="${id}"]`)?.value || '';
+    try {
+      await api('/api/admin/payout/override', { id, comment });
+      toast('Заявка подтверждена, решение записано в журнал');
+      haptic('success');
+      loadAdminPayouts();
+    } catch (err) { toast(err.message); haptic('error'); }
+  }));
 
   // Выплата через шлюз - вторым нажатием: первое показывает, сколько и куда.
   box.querySelectorAll('[data-sic-pay]').forEach((btn) => {
@@ -6218,8 +6318,9 @@ function renderDepositOffer() {
 
   const cap = rules.max > 0 ? ` (не больше ${money(rules.max)})` : '';
   el.innerHTML = `<b>Первое пополнение +${rules.pct}%${cap}.</b>
-    Бонус придёт вместе с самим пополнением от ${money(rules.min)}.
-    Вывести его можно после ставок на ${rules.wager} суммы бонуса.`;
+    Бонус придёт на бонусный счёт вместе с пополнением от ${money(rules.min)}.
+    Им играют, когда своих не хватает на ставку, а после ставок бонусом на
+    ${rules.wager} его суммы он переходит в деньги. Свои деньги выводятся в любой момент.`;
 }
 
 async function loadWallet() {
@@ -6263,6 +6364,8 @@ async function loadWallet() {
    * «доступно 0» при полном балансе читается как поломка, поэтому условие
    * названо прямо здесь, с конкретным числом, а не спрятано в правилах.
    */
+  renderWalletBonus(w.bonus);
+
   document.getElementById('withdrawHint').innerHTML =
     `Доступно <b>${money(w.available)}</b><i></i>минимум ${money(w.minPayout)}`
     + (w.depositDebt > 0
@@ -6270,6 +6373,44 @@ async function loadWallet() {
            осталось поставить ${money(w.depositDebt)}. После этого выводится
            весь баланс, включая выигрыш.</span>`
       : '');
+}
+
+/**
+ * Бонусный счёт в кассе: сколько есть, сколько отыграть, сколько можно
+ * перевести в деньги, и отказ. Правило потолка называется прямо: игрок,
+ * который отыграл бонус и не увидел его в деньгах целиком, должен знать
+ * почему ещё до этого, а не после.
+ */
+function renderWalletBonus(b) {
+  const box = document.getElementById('walletBonus');
+  if (!box) return;
+  if (!b || !(b.balance > 0)) { box.hidden = true; box.innerHTML = ''; return; }
+  box.hidden = false;
+  const left = b.wagerLeft > 0
+    ? `Осталось поставить бонусом <b>${money(b.wagerLeft)}</b>, и он перейдёт в деньги.`
+    : 'Бонус отыгран и ждёт лимита: перейдёт в деньги после следующего пополнения.';
+  box.innerHTML = `
+    <div class="cash-bonus-head"><span>Бонусный счёт</span><b>${money(b.balance)}</b></div>
+    <p>${left} Бонусом играют в кейсах, краше, рулетке и апгрейде, когда своих
+      не хватает на ставку. В деньги бонусы переходят до ${b.rules.cashoutPct}% от суммы
+      пополнений: сейчас можно перевести до ${money(b.cashoutLeft)}.</p>
+    <button class="cash-bonus-refuse" id="bonusRefuse" type="button">Отказаться от бонуса</button>`;
+  const btn = document.getElementById('bonusRefuse');
+  btn.addEventListener('click', async () => {
+    // Вторым нажатием: отказ необратим, и случайное касание не должно сжечь бонус.
+    if (btn.dataset.armed !== '1') {
+      btn.dataset.armed = '1';
+      btn.textContent = `Точно отказаться от ${money(b.balance)}?`;
+      return;
+    }
+    try {
+      const r = await api('/api/bonus/refuse');
+      applyUser(r.user);
+      toast('Бонус снят, свои деньги на месте');
+      haptic('light');
+      loadWallet();
+    } catch (err) { toast(err.message); haptic('error'); }
+  });
 }
 
 /**
@@ -7460,8 +7601,8 @@ async function loadPromoState() {
   const note = document.getElementById('wagerNote');
   const parts = [];
   if (d.wagerRequired > 0) {
-    parts.push(`Бонус отыгрывается: осталось поставить <b>${money(d.wagerRequired)}</b>. ` +
-      'Пока не отыграно, вывод недоступен. Отыгрывается ставками в любой игре.');
+    parts.push(`Бонус отыгрывается: осталось поставить бонусом <b>${money(d.wagerRequired)}</b>. ` +
+      'Свои деньги выводятся и сейчас: бонус лежит на отдельном счёте и вывод не запирает.');
   }
   if (d.pendingDeposit) {
     const p = d.pendingDeposit;
@@ -8005,7 +8146,7 @@ function guestUser() {
   return {
     id: 0, username: null, firstName: null, balance: 0, isAdmin: false,
     x2Perks: [], gambleStake: 0, gambleCase: null, vouchers: [],
-    wagerRequired: 0, depositsCount: 0, caseOpens: 0,
+    wagerRequired: 0, bonusBalance: 0, bonusCashoutLeft: 0, depositsCount: 0, caseOpens: 0,
     x10: { need: 0, state: 'none', ceiling: 0 }, isPartner: false,
     email: null, hasPassword: false, telegram: null,
     stats: { rounds: 0, spent: 0, won: 0, bestMultiplier: 0, profit: 0 },
@@ -8454,8 +8595,8 @@ function fortunePrizeTitle(prize) {
     const c = state.config?.cases.find((x) => x.id === id);
     return c ? `Кейс «${c.name}» в подарок` : 'Кейс в подарок';
   }
-  if (prize.kind === 'voucher') return `Ваучер ${money(prize.amount)}`;
-  if (prize.kind === 'cash') return `${money(prize.amount)} на счёт`;
+  if (prize.kind === 'voucher') return `Ваучер ${money(prize.amount)} на бонусный счёт`;
+  if (prize.kind === 'cash') return `${money(prize.amount)} на бонусный счёт`;
   return 'Приз';
 }
 
