@@ -1574,6 +1574,23 @@ await page.waitForTimeout(500);
 check('касса: экран открывается по кнопке меню',
       await page.isVisible('#walletBalance'));
 
+// Сумма вводится с разрядами: «8 800», а не «8800». Набираем по цифре, как
+// человек, и правим середину: курсор не должен улетать в конец.
+await page.click('#walletWithdraw');
+await page.waitForTimeout(300);
+await page.fill('#withdrawAmount', '');
+await page.type('#withdrawAmount', '8800');
+const typed = await page.$eval('#withdrawAmount', (i) => i.value);
+check('касса: сумма вывода с разрядами', typed === '8\u00a0800', JSON.stringify(typed));
+await page.type('#withdrawAmount', '0');
+check('касса: разряды переставляются при наборе',
+      await page.$eval('#withdrawAmount', (i) => i.value) === '88\u00a0000');
+await page.$eval('#withdrawAmount', (i) => { i.value = ''; i.dispatchEvent(new Event('input')); });
+check('касса: кнопка вывода называется «Вывести»',
+      (await page.textContent('#withdrawSubmit')).trim() === 'Вывести');
+await page.click('#walletDeposit');
+await page.waitForTimeout(300);
+
 // Экран честности остался, но попасть на него теперь можно только из подвала.
 await page.evaluate(() => {
   const link = document.querySelector('#siteFooter [data-view="fair"]');
