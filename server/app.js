@@ -2399,6 +2399,39 @@ app.post('/api/admin/sicilia', auth, need('finance.payouts.view'), async (req, r
   });
 });
 
+/*
+ * Отзыв выплаты из шлюза и возврат заявки в «ожидают». Оба шага снимают
+ * «в работе» только после того, как шлюз сам подтвердил отмену своего ордера.
+ */
+app.post('/api/admin/sicilia/payout/recall', auth, need('finance.payouts.resolve'), async (req, res) => {
+  try {
+    res.json({ ...(await sicilia.recallPayout(req.player.id, Number(req.body?.id))), stats: payoutStats() });
+  } catch (err) {
+    const status = err.code === 'NOT_FOUND' ? 404 : ['NOT_CONFIGURED', 'GATEWAY_UNREACHABLE'].includes(err.code) ? 503 : 400;
+    res.status(status).json({ error: err.message, code: err.code });
+  }
+});
+
+app.post('/api/admin/sicilia/payout/release', auth, need('finance.payouts.resolve'), async (req, res) => {
+  try {
+    res.json({ ...(await sicilia.releasePayout(req.player.id, Number(req.body?.id))), stats: payoutStats() });
+  } catch (err) {
+    res.status(err.code === 'GATEWAY_UNREACHABLE' ? 503 : 400).json({ error: err.message, code: err.code });
+  }
+});
+
+/* Отмена пополнения с нашей стороны: отзыв ордера у шлюза. */
+app.post('/api/admin/deposit/cancel', auth, need('finance.payouts.resolve'), async (req, res) => {
+  try {
+    const r = await sicilia.cancelDeposit(req.player.id, req.body?.id);
+    if (r.credited) emitPayment(r.userId, 'payment.completed', { source: 'sicilia' });
+    res.json(r);
+  } catch (err) {
+    const status = err.code === 'NOT_FOUND' ? 404 : ['NOT_CONFIGURED', 'GATEWAY_UNREACHABLE'].includes(err.code) ? 503 : 400;
+    res.status(status).json({ error: err.message, code: err.code });
+  }
+});
+
 app.post('/api/admin/sicilia/payout', auth, need('finance.payouts.resolve'), async (req, res) => {
   if (riskGate(res, Number(req.body?.id))) return;
   try {

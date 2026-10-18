@@ -799,6 +799,9 @@ ensureColumn('crash_rounds', 'bonus_bet', 'INTEGER NOT NULL DEFAULT 0');
 // Ваучер, выпавший в платном открытии, входит в отдачу кейса и платит деньгами.
 ensureColumn('vouchers', 'bonus', 'INTEGER NOT NULL DEFAULT 0');
 ensureColumn('payouts', 'card_hash', 'TEXT');
+// Сумма, которую игрок заказал, если шлюз выплатил меньше (неполное
+// подтверждение): amount тогда равен выплаченному, остаток вернулся на баланс.
+ensureColumn('payouts', 'requested_amount', 'INTEGER');
 
 db.exec(`
   -- События бонусного счёта: выдача, перевод в деньги, отказ. Журнал денег
@@ -3638,7 +3641,7 @@ export function getPayouts(userId, limit = 50) {
   return db.prepare(`
     SELECT id, amount, status, method, phone, bank, card_number,
            crypto_currency, crypto_network, crypto_address, crypto_amount,
-           comment, created_at, processing_at, resolved_at
+           comment, created_at, processing_at, resolved_at, requested_amount
       FROM payouts WHERE user_id = ? ORDER BY id DESC LIMIT ?
   `).all(userId, limit).map(row => ({ ...row, card_number: row.card_number ? `•••• ${decryptCard(row.card_number).slice(-4)}` : null }));
 }
@@ -3825,6 +3828,51 @@ export const completePayout = db.transaction((adminId, payoutId, comment) => {
   return { status: 'paid', amount: row.amount, userId: row.user_id };
 });
 
+/**
+ * Неполная выплата: шлюз перевёл меньше, чем заказано (трейдер подтвердил
+ * часть суммы). Заявка закрывается выплаченной суммой, остаток возвращается
+ * на баланс той же транзакцией: деньги, которые не ушли игроку, не могут ни
+ * пропасть, ни уйти второй раз. Заказанная сумма сохраняется рядом.
+ */
+export const completePayoutPartial = moneyTx('payout_return', (adminId, payoutId, paidAmount, comment) => {
+  const row = db.prepare('SELECT * FROM payouts WHERE id = ?').get(payoutId);
+  if (!row) throw Object.assign(new Error('Заявка не найдена'), { code: 'NOT_FOUND' });
+  if (row.status !== 'processing') throw Object.assign(new Error('Заявка не в работе'), { code: 'BAD_STATUS' });
+  const paid = Math.floor(Number(paidAmount));
+  if (!(paid > 0) || paid >= row.amount) {
+    throw Object.assign(new Error('Неполная выплата должна быть меньше заявки'), { code: 'BAD_AMOUNT' });
+  }
+  const refund = row.amount - paid;
+  const now = Date.now();
+  db.prepare(`UPDATE payouts SET status = 'paid', amount = ?, requested_amount = ?, comment = ?,
+                     resolved_at = ?, resolved_by = ? WHERE id = ? AND status = 'processing'`)
+    .run(paid, row.amount, comment || null, now, adminId, payoutId);
+  db.prepare('UPDATE users SET balance = balance + ? WHERE id = ?').run(refund, row.user_id);
+  ledgerLink('payouts', payoutId);
+  db.prepare(`INSERT INTO admin_log (admin_id, target_id, action, amount, note, created_at)
+              VALUES (?, ?, 'payout_partial', ?, ?, ?)`).run(adminId, row.user_id, paid, comment || null, now);
+  return { status: 'paid', amount: paid, refund, userId: row.user_id };
+});
+
+/**
+ * Заявка из «в работе» обратно в «ожидают». Только после того, как шлюз
+ * подтвердил отмену своей выплаты (это проверяет вызывающий код): «в работе»
+ * существует, чтобы деньги не вернули по уже отправленному переводу, и
+ * снимать его можно, лишь когда перевода точно нет. Дальше заявку можно
+ * отклонить с возвратом или отправить заново.
+ */
+export const unstartPayout = db.transaction((adminId, payoutId, comment) => {
+  const row = db.prepare('SELECT * FROM payouts WHERE id = ?').get(payoutId);
+  if (!row) throw Object.assign(new Error('Заявка не найдена'), { code: 'NOT_FOUND' });
+  if (row.status !== 'processing') throw Object.assign(new Error('Заявка не в работе'), { code: 'BAD_STATUS' });
+  const now = Date.now();
+  db.prepare(`UPDATE payouts SET status = 'pending', processing_at = NULL, comment = ? WHERE id = ? AND status = 'processing'`)
+    .run(comment || null, payoutId);
+  db.prepare(`INSERT INTO admin_log (admin_id, target_id, action, amount, note, created_at)
+              VALUES (?, ?, 'payout_unstarted', ?, ?, ?)`).run(adminId, row.user_id, row.amount, comment || null, now);
+  return { status: 'pending', amount: row.amount, userId: row.user_id };
+});
+
 export function adminPayouts(status = 'pending', limit = 60) {
   const where = status === 'all' ? '' : 'WHERE p.status = ?';
   const args = status === 'all' ? [limit] : [status, limit];
@@ -3832,7 +3880,7 @@ export function adminPayouts(status = 'pending', limit = 60) {
     SELECT p.id, p.amount, p.status, p.method, p.phone, p.bank, p.card_number,
            p.crypto_currency, p.crypto_network, p.crypto_address, p.crypto_amount,
            p.crypto_rate,
-           p.comment, p.created_at, p.processing_at, p.resolved_at,
+           p.comment, p.created_at, p.processing_at, p.resolved_at, p.requested_amount,
            u.id AS user_id, u.tg_id, u.email, u.username, u.first_name, u.balance
       FROM payouts p JOIN users u ON u.id = p.user_id
       ${where}

@@ -34,7 +34,7 @@ import { mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import {
   db, getUserById, registerDeposit, trackEvent, payoutForGateway, startPayout, completePayout,
-  moneyTx, ledgerLink, logAdmin,
+  completePayoutPartial, unstartPayout, moneyTx, ledgerLink, logAdmin,
 } from './db.js';
 
 /* Журнал balance_transactions общий для шлюзов и создаётся в db.js. */
@@ -362,9 +362,66 @@ async function askPayin(row) {
   return info;
 }
 
-/** Спрашивает шлюз о пополнении и применяет ответ. */
-export async function confirmPayin(row) {
-  return applyPayinStatus(row.id, await askPayin(row));
+/**
+ * Спрашивает шлюз о пополнении и применяет ответ.
+ *
+ * factHint - FactSum из колбэка. Сумму с изменением шлюз присылает в колбэке,
+ * а ответ check-status её может и не содержать. Подпись колбэка FactSum не
+ * покрывает, поэтому подсказка берётся только когда шлюз сам, своим
+ * ответом, подтвердил «completed», и только если в ответе суммы нет.
+ */
+export async function confirmPayin(row, factHint = null) {
+  const info = await askPayin(row);
+  if (String(info.status) === 'completed' && (info.fact_sum == null || info.fact_sum === '') && validSum(factHint)) {
+    info.fact_sum = factHint;
+  }
+  return applyPayinStatus(row.id, info);
+}
+
+const validSum = (v) => v != null && v !== '' && Number.isFinite(Number(v)) && Number(v) > 0;
+
+/*
+ * Отзыв ордера пополнения. В документации шлюза этот путь единственный
+ * записан с /api ({API_URL}/api/orders/unclaimed), остальные без. Какой из
+ * двух верен на их сервере, станет ясно только живьём, поэтому пробуем оба:
+ * 404 на первом значит «не тот путь», а не «нет ордера».
+ */
+async function unclaimPayin(row, env = siciliaEnv()) {
+  const body = { order_invid: row.invid, signature: signInvid(row.invid, env) };
+  try {
+    return await call('PUT', '/orders/unclaimed', body);
+  } catch (err) {
+    if (err.code !== 'GATEWAY_ERROR' || (err.status !== 404 && err.status !== 405)) throw err;
+    return call('PUT', '/api/orders/unclaimed', body);
+  }
+}
+
+/**
+ * Отмена пополнения с нашей стороны (кнопка в панели): игрок передумал,
+ * оплата задвоилась, ордер завис. Отзываем у шлюза, переспрашиваем статус и
+ * закрываем у себя. Если шлюз успел ордер оплатить, деньги зачислятся, а не
+ * пропадут: отмена оплаченного не отменяет.
+ */
+export async function cancelDeposit(staffId, orderId) {
+  const env = siciliaEnv();
+  if (!isConfigured(env)) throw Object.assign(new Error('Шлюз не настроен'), { code: 'NOT_CONFIGURED' });
+  const row = db.prepare("SELECT * FROM sicilia_orders WHERE id = ? AND kind = 'payin'").get(Number(orderId));
+  if (!row) throw Object.assign(new Error('Платёж не найден'), { code: 'NOT_FOUND' });
+  if (row.paid_at) throw Object.assign(new Error('Платёж уже зачислен'), { code: 'PAID' });
+  let error = null;
+  try { await unclaimPayin(row, env); } catch (err) {
+    if (err.code === 'GATEWAY_UNREACHABLE') throw err;
+    error = err.message;
+  }
+  let result = { credited: false };
+  try { result = await confirmPayin(row); } catch { /* ордера у шлюза нет: окно не открывали */ }
+  const after = db.prepare('SELECT * FROM sicilia_orders WHERE id = ?').get(row.id);
+  if (!after.paid_at && !DEAD.has(after.status)) {
+    db.prepare("UPDATE sicilia_orders SET status = 'unclaimed', error = ?, updated_at = ? WHERE id = ?")
+      .run(error, Date.now(), row.id);
+  }
+  logAdmin(staffId, row.user_id, 'sicilia_payin_cancel', { amount: row.amount_rub, note: row.invid });
+  return { ...result, status: db.prepare('SELECT status FROM sicilia_orders WHERE id = ?').get(row.id).status, error };
 }
 
 /** Сверка по просьбе игрока: «Я оплатил, проверить». */
@@ -473,6 +530,11 @@ export async function sendPayout(adminId, payoutId, bankCode) {
   if (payout.method !== 'sbp' && payout.method !== 'card') {
     throw Object.assign(new Error('Через шлюз уходят только выводы на карту и по СБП'), { code: 'BAD_METHOD' });
   }
+  // Прошлая отправка с ошибкой могла дойти до шлюза (обрыв по таймауту):
+  // прежде чем слать заново, спрашиваем, нет ли у него того ордера.
+  for (const prev of db.prepare(`SELECT * FROM sicilia_orders WHERE kind = 'payout' AND payout_id = ? AND status = 'error'`).all(payout.id)) {
+    await settleErroredPayout(prev);
+  }
   const active = db.prepare(`SELECT * FROM sicilia_orders WHERE kind = 'payout' AND payout_id = ?
                               AND status NOT IN ('cancelled', 'error', 'unclaimed') ORDER BY id DESC`).get(payout.id);
   if (active) throw Object.assign(new Error('Заявка уже отправлена в шлюз'), { code: 'ALREADY' });
@@ -510,25 +572,48 @@ export async function sendPayout(adminId, payoutId, bankCode) {
   return gatewayPayout(payout.id);
 }
 
-/** Ответ check-status выплаты: completed закрывает заявку, cancelled - нет. */
+/**
+ * Ответ check-status выплаты: completed закрывает заявку, cancelled - нет.
+ *
+ * Неполное подтверждение: трейдер перевёл меньше заявки, и шлюз присылает
+ * fact_sum. Заявка закрывается выплаченной суммой, остаток возвращается
+ * игроку (completePayoutPartial). Больше заявки не бывает: такую сумму
+ * не применяем и зовём человека.
+ */
 export const applyPayoutStatus = db.transaction((orderId, info) => {
   const row = db.prepare("SELECT * FROM sicilia_orders WHERE id = ? AND kind = 'payout'").get(orderId);
   if (!row) throw Object.assign(new Error('Выплата не найдена'), { code: 'NOT_FOUND' });
   const status = String(info.status || row.status);
   const check = Array.isArray(info.transfer_check) ? info.transfer_check[0] : info.transfer_check;
-  db.prepare(`UPDATE sicilia_orders SET status = ?, check_url = COALESCE(?, check_url), updated_at = ? WHERE id = ?`)
-    .run(status, check || null, Date.now(), row.id);
+  const fact = validSum(info.fact_sum) ? Math.floor(Number(info.fact_sum)) : null;
+  db.prepare(`UPDATE sicilia_orders SET status = ?, check_url = COALESCE(?, check_url),
+                     fact_sum = COALESCE(?, fact_sum), updated_at = ? WHERE id = ?`)
+    .run(status, check || null, fact != null ? String(info.fact_sum) : null, Date.now(), row.id);
+  if (status === 'cancelled' && row.status !== 'cancelled') {
+    alert(`sicilia:payout-cancel:${row.id}`, `Sicilia отменила выплату ${row.invid} (заявка #${row.payout_id}, ${row.amount_rub} ₽). `
+      + 'Заявка в работе: отправьте заново или верните в ожидание.');
+  }
   if (status !== 'completed' || row.paid_at) return { closed: false, status };
   db.prepare('UPDATE sicilia_orders SET paid_at = ? WHERE id = ?').run(Date.now(), row.id);
-  const payout = db.prepare('SELECT status FROM payouts WHERE id = ?').get(row.payout_id);
+  const payout = db.prepare('SELECT status, amount FROM payouts WHERE id = ?').get(row.payout_id);
   // Заявку могли закрыть руками раньше колбэка - второй раз не закрываем.
-  if (payout?.status === 'processing') {
-    completePayout(row.sent_by, row.payout_id, check ? `Sicilia, чек: ${check}` : 'Выплачено через Sicilia');
+  if (payout?.status !== 'processing') return { closed: true, status, payoutId: row.payout_id };
+  const note = check ? `Sicilia, чек: ${check}` : 'Выплачено через Sicilia';
+  if (fact != null && fact < payout.amount) {
+    const r = completePayoutPartial(row.sent_by, row.payout_id, fact,
+      `${note}. Выплачено ${fact} из ${payout.amount} ₽, остаток ${payout.amount - fact} ₽ вернулся на баланс`);
+    return { closed: true, status, payoutId: row.payout_id, partial: true, paid: fact, refund: r.refund, userId: r.userId };
   }
+  if (fact != null && fact > payout.amount) {
+    alert(`sicilia:payout-over:${row.id}`, `Sicilia сообщает выплату ${fact} ₽ по заявке #${row.payout_id} на ${payout.amount} ₽. `
+      + 'Заявка закрыта суммой заявки, разницу проверьте со шлюзом.');
+  }
+  completePayout(row.sent_by, row.payout_id, note);
   return { closed: true, status, payoutId: row.payout_id };
 });
 
-export async function confirmPayout(row) {
+/* factHint - fact_sum из колбэка, по тем же правилам, что у пополнения. */
+export async function confirmPayout(row, factHint = null) {
   const env = siciliaEnv();
   const sum = String(row.amount_rub);
   const info = await call('POST', '/payout/orders/check-status', {
@@ -537,7 +622,60 @@ export async function confirmPayout(row) {
   if (info.invid && String(info.invid) !== row.invid) {
     throw Object.assign(new Error('Шлюз ответил про другую выплату'), { code: 'MISMATCH' });
   }
+  if (String(info.status) === 'completed' && !validSum(info.fact_sum) && validSum(factHint)) info.fact_sum = factHint;
   return applyPayoutStatus(row.id, info);
+}
+
+/**
+ * Отзыв выплаты из шлюза (кнопка в панели). Шлюз отзывает только ордер,
+ * который ещё не взял трейдер (opened). После отзыва статус переспрашивается:
+ * «в работе» снимается с заявки, только когда шлюз сам подтвердил отмену.
+ */
+export async function recallPayout(staffId, payoutId) {
+  const env = siciliaEnv();
+  if (!isConfigured(env)) throw Object.assign(new Error('Шлюз не настроен'), { code: 'NOT_CONFIGURED' });
+  const row = db.prepare("SELECT * FROM sicilia_orders WHERE kind = 'payout' AND payout_id = ? ORDER BY id DESC")
+    .get(Number(payoutId));
+  if (!row) throw Object.assign(new Error('Заявка в шлюз не отправлялась'), { code: 'NOT_FOUND' });
+  if (row.paid_at || row.status === 'completed') throw Object.assign(new Error('Шлюз уже выплатил'), { code: 'PAID' });
+  if (!DEAD.has(row.status)) {
+    await call('PATCH', '/payout/orders/unclaimed', {
+      merchant: env.merchant, invid: row.invid, signature: signPayout(String(row.amount_rub), row.invid, env),
+    });
+  }
+  const r = await confirmPayout(row);
+  logAdmin(staffId, row.user_id, 'sicilia_payout_recall', { amount: row.amount_rub, note: row.invid });
+  return { ...r, ...(await releasePayout(staffId, payoutId)) };
+}
+
+/*
+ * Отправка с ошибкой: дошёл ли ордер до шлюза? Ответ шлюза с ордером - его
+ * статус становится нашим; отказ «не найдено» (4xx) - ордера нет, ошибка
+ * остаётся; шлюз молчит - решать нельзя, наверх уходит ошибка.
+ */
+async function settleErroredPayout(row) {
+  try { await confirmPayout(row); } catch (err) {
+    if (err.code !== 'GATEWAY_ERROR' || err.status >= 500) throw err;
+  }
+  return db.prepare('SELECT * FROM sicilia_orders WHERE id = ?').get(row.id);
+}
+
+/**
+ * Вернуть заявку в «ожидают», когда шлюз её выплату отменил: после отмены
+ * трейдером (возврат в общий пул) или нашего отзыва. Только при отменённом
+ * у шлюза ордере: иначе по отправленному переводу вернули бы деньги.
+ */
+export async function releasePayout(staffId, payoutId) {
+  let row = db.prepare("SELECT * FROM sicilia_orders WHERE kind = 'payout' AND payout_id = ? ORDER BY id DESC")
+    .get(Number(payoutId));
+  if (row?.status === 'error') row = await settleErroredPayout(row);
+  if (!row || !DEAD.has(row.status) || row.paid_at) {
+    throw Object.assign(new Error('Шлюз не подтвердил отмену выплаты'), { code: 'NOT_CANCELLED' });
+  }
+  const payout = db.prepare('SELECT status FROM payouts WHERE id = ?').get(Number(payoutId));
+  if (payout?.status !== 'processing') return { payoutStatus: payout?.status || null };
+  unstartPayout(staffId, Number(payoutId), `Выплата через Sicilia отменена (${row.status}), заявка снова ждёт решения`);
+  return { payoutStatus: 'pending' };
 }
 
 /** Последняя отправка заявки в шлюз - для панели. */
@@ -547,7 +685,7 @@ export function gatewayPayout(payoutId) {
   return r ? {
     status: r.status, bank: r.bank, checkUrl: r.check_url, error: r.error, sentAt: r.created_at,
     // Оба номера: наш (invid) шлюз знает по запросам, свой (id) - по кабинету.
-    invid: r.invid, gatewayId: r.gateway_id,
+    invid: r.invid, gatewayId: r.gateway_id, factSum: r.fact_sum,
   } : null;
 }
 
@@ -579,12 +717,12 @@ export async function handleCallback(body) {
   if (body.order_type === 'payout') {
     const row = db.prepare("SELECT * FROM sicilia_orders WHERE kind = 'payout' AND invid = ?").get(String(body.invid || ''));
     if (!row) return { unknown: true };
-    return { kind: 'payout', ...(await confirmPayout(row)) };
+    return { kind: 'payout', ...(await confirmPayout(row, body.fact_sum)) };
   }
   const row = db.prepare("SELECT * FROM sicilia_orders WHERE kind = 'payin' AND invid = ?").get(String(body.InvId || ''));
   if (!row) return { unknown: true };
   if (row.paid_at) return { kind: 'payin', credited: false, duplicate: true };
-  return { kind: 'payin', ...(await confirmPayin(row)) };
+  return { kind: 'payin', ...(await confirmPayin(row, body.FactSum)) };
 }
 
 /*
@@ -613,9 +751,7 @@ export async function reconcile(now = Date.now()) {
     }
     if (status !== 'completed' && now - row.created_at > env.ttlMs) {
       // Не оплачен за отведённое время - отзываем, если окно его завело.
-      try {
-        await call('PUT', '/orders/unclaimed', { order_invid: row.invid, signature: signInvid(row.invid, env) });
-      } catch { /* ордера могло и не быть: окно не открывали */ }
+      try { await unclaimPayin(row, env); } catch { /* ордера могло и не быть: окно не открывали */ }
       db.prepare("UPDATE sicilia_orders SET status = 'expired', updated_at = ? WHERE id = ? AND paid_at IS NULL")
         .run(Date.now(), row.id);
     }
@@ -643,8 +779,11 @@ export async function reconcile(now = Date.now()) {
       if (String(info.status) === 'completed') applyPayinStatus(row.id, info);
     } catch (err) { if (err.code === 'GATEWAY_UNREACHABLE') break; }
   }
+  // Выплаты в работе у шлюза и отправки с ошибкой за последние сутки-трое:
+  // ошибка по таймауту не значит, что ордера у шлюза нет.
   const sent = db.prepare(`SELECT * FROM sicilia_orders WHERE kind = 'payout' AND paid_at IS NULL
-                            AND status IN ('opened', 'in_progress')`).all();
+                            AND (status IN ('opened', 'in_progress') OR (status = 'error' AND created_at > ?))`)
+    .all(now - LATE_WINDOW_MS);
   for (const row of sent) {
     checked++;
     try { await confirmPayout(row); } catch (err) { if (err.code === 'GATEWAY_UNREACHABLE') break; }
@@ -877,7 +1016,7 @@ export async function applyAppealCallback(body) {
          body.fact_sum != null ? String(body.fact_sum) : null, now, dispute.id);
 
   let result = { credited: false };
-  if (!row.paid_at) result = await confirmPayin(row);
+  if (!row.paid_at) result = await confirmPayin(row, body.fact_sum);
   const after = db.prepare('SELECT * FROM sicilia_orders WHERE id = ?').get(row.id);
   if (!after.paid_at) {
     db.prepare(`UPDATE sicilia_disputes SET status = 'lost', closed_at = ?, updated_at = ? WHERE id = ? AND status IN ('new', 'sent')`)

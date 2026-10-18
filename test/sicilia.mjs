@@ -253,7 +253,11 @@ function player(balance = 0) {
   check('выплата: отказ шлюза виден текстом', /Warn IP/.test(err?.message || '') && /Warn IP/.test(s.gatewayPayout(card.id).error));
   check('выплата: после отказа заявка в работе, деньги не вернулись игроку',
     db.prepare('SELECT status FROM payouts WHERE id = ?').get(card.id).status === 'processing');
-  reply = (url, m, body) => ({ status: 201, body: { id: 4, status: 'opened', invid: body.invid } });
+  // Перед повтором сервер спрашивает, не дошла ли прошлая отправка: шлюз
+  // отвечает «не найдено», и только тогда уходит новая.
+  reply = (url, m, body) => (url.endsWith('/payout/orders/check-status')
+    ? { status: 404, body: { message: 'Order not found' } }
+    : { status: 201, body: { id: 4, status: 'opened', invid: body.invid } });
   await s.sendPayout(admin.id, card.id, 'sberbank');
   const cardSent = lastCall('/payout/orders');
   check('выплата на карту: номер карты и метод card', cardSent.body.requisite_num === '4111111111111111' && cardSent.body.method === 'card');
@@ -366,6 +370,170 @@ function player(balance = 0) {
   await s.reconcile();
   check('поздняя сверка не дёргает шлюз чаще раза в час',
     !calls.some((c) => c.body?.invid === r4.invid));
+}
+
+/* ---------- Сценарии проверки шлюза: 4 на вход, 4 на выход ---------- */
+
+{
+  const admin = player();
+  const balanceOf = (id) => getUserById(id).balance;
+
+  // Вход 2: подтверждение с изменённой суммой. FactSum пришёл только в
+  // колбэке, check-status его не вернул: зачисляем по факту.
+  {
+    const u = player();
+    const o = s.createDeposit(u.id, 1000);
+    const inv = db.prepare('SELECT invid FROM sicilia_orders WHERE id = ?').get(o.id).invid;
+    reply = (url, m, body) => url.endsWith('/orders/check-status')
+      ? { status: 200, body: { id: 70, invid: body.invid, status: 'completed', sum: '1000', fact_sum: null } } : { status: 404, body: {} };
+    const r = await s.handleCallback({ InvId: inv, OutSum: '1000.0000', FactSum: '1100.00', Status: 'completed',
+      SignatureValue: sha(`1000.0000:${inv}:k3y`) });
+    check('вход 2: изменённая сумма из колбэка зачислена', r.credited && siciliaPaid(u.id) === 1100, JSON.stringify(r));
+  }
+
+  // Вход 2, обман: FactSum в колбэке без подтверждения шлюзом не берётся.
+  {
+    const u = player();
+    const o = s.createDeposit(u.id, 1000);
+    const inv = db.prepare('SELECT invid FROM sicilia_orders WHERE id = ?').get(o.id).invid;
+    reply = (url, m, body) => url.endsWith('/orders/check-status')
+      ? { status: 200, body: { id: 71, invid: body.invid, status: 'processing', sum: '1000' } } : { status: 404, body: {} };
+    await s.handleCallback({ InvId: inv, OutSum: '1000.0000', FactSum: '99999', Status: 'completed',
+      SignatureValue: sha(`1000.0000:${inv}:k3y`) });
+    check('вход 2: сумма из колбэка без подтверждения шлюза не зачисляется', siciliaPaid(u.id) === 0);
+  }
+
+  // Вход 3: отмена со стороны шлюза: колбэк cancelled, денег нет, оплата закрыта.
+  {
+    const u = player();
+    const o = s.createDeposit(u.id, 800);
+    const inv = db.prepare('SELECT invid FROM sicilia_orders WHERE id = ?').get(o.id).invid;
+    reply = (url, m, body) => url.endsWith('/orders/check-status')
+      ? { status: 200, body: { id: 72, invid: body.invid, status: 'cancelled', sum: '800' } } : { status: 404, body: {} };
+    const r = await s.handleCallback({ InvId: inv, OutSum: '800.0000', Status: 'cancelled', SignatureValue: sha(`800.0000:${inv}:k3y`) });
+    check('вход 3: отмена шлюзом закрывает оплату без денег', !r.credited && siciliaPaid(u.id) === 0
+      && s.listDeposits(u.id)[0].status === 'cancelled');
+  }
+
+  // Вход 4: отмена с нашей стороны из панели. Первый путь отзыва 404 -
+  // пробуем путь из документации с /api.
+  {
+    const u = player();
+    const o = s.createDeposit(u.id, 900);
+    const inv = db.prepare('SELECT invid FROM sicilia_orders WHERE id = ?').get(o.id).invid;
+    calls.length = 0;
+    let unclaimed = false;
+    reply = (url, m, body) => {
+      if (url === 'https://api.test/api/orders/unclaimed') return { status: 404, body: { message: 'Not Found' } };
+      if (url === 'https://api.test/api/api/orders/unclaimed') { unclaimed = true; return { status: 200, body: {} }; }
+      if (url.endsWith('/orders/check-status')) return { status: 200, body: { id: 73, invid: body.invid, status: unclaimed ? 'unclaimed' : 'pending', sum: '900' } };
+      return { status: 404, body: {} };
+    };
+    const r = await s.cancelDeposit(admin.id, o.id);
+    const un = calls.filter((c) => c.url.includes('/orders/unclaimed'));
+    check('вход 4: отзыв идёт PUT с подписью sha256(login:invid:apiKey)', un.length === 2 && un.every((c) => c.method === 'PUT'
+      && c.body.order_invid === inv && c.body.signature === sha(`lucky:${inv}:k3y`)));
+    check('вход 4: отменённая нами оплата закрыта', !r.credited && s.listDeposits(u.id)[0].status === 'unclaimed', JSON.stringify(r));
+  }
+
+  // Вход 4, гонка: игрок успел оплатить, пока отменяли - деньги зачисляются.
+  {
+    const u = player();
+    const o = s.createDeposit(u.id, 600);
+    reply = (url, m, body) => url.includes('/orders/unclaimed') ? { status: 422, body: { message: 'Order completed' } }
+      : url.endsWith('/orders/check-status') ? { status: 200, body: { id: 74, invid: body.invid, status: 'completed', sum: '600' } } : { status: 404, body: {} };
+    const r = await s.cancelDeposit(admin.id, o.id);
+    check('вход 4: отмена оплаченной не отменяет, деньги зачислены', r.credited && siciliaPaid(u.id) === 600);
+  }
+
+  // Выход: общий помощник отправки.
+  const sendOut = async (amount) => {
+    const u = player(amount + 1000);
+    const { id } = createPayout(u.id, amount, { method: 'sbp', phone: '+79120000000', bank: 'Т-Банк' });
+    reply = (url, m, body) => url.endsWith('/payout/orders')
+      ? { status: 201, body: { id: 500 + id, status: 'opened', invid: body.invid, duplicate: false } } : { status: 404, body: {} };
+    await s.sendPayout(admin.id, id, 'tinkoff');
+    const inv = lastCall('/payout/orders').body.invid;
+    return { u, id, inv };
+  };
+  const payoutRow = (id) => db.prepare('SELECT * FROM payouts WHERE id = ?').get(id);
+  const payoutCb = (inv, sum, extra = {}) => ({ order_type: 'payout', invid: inv, sum: String(sum), status: 'completed',
+    signature: sha(`lucky:${sum}:${inv}:k3y`), ...extra });
+
+  // Выход 2: неполное подтверждение - заявка закрывается выплаченной суммой,
+  // остаток возвращается игроку.
+  {
+    const { u, id, inv } = await sendOut(3000);
+    const before = balanceOf(u.id);
+    reply = (url, m, body) => url.endsWith('/payout/orders/check-status')
+      ? { status: 200, body: { invid: body.invid, status: 'completed', transfer_check: ['https://chk.test/p.pdf'] } } : { status: 404, body: {} };
+    const r = await s.handleCallback(payoutCb(inv, 3000, { fact_sum: 2000 }));
+    const p = payoutRow(id);
+    check('выход 2: заявка закрыта выплаченной суммой', r.partial && p.status === 'paid' && p.amount === 2000
+      && p.requested_amount === 3000, JSON.stringify({ r, p: { status: p.status, amount: p.amount, req: p.requested_amount } }));
+    check('выход 2: невыплаченный остаток вернулся на баланс', balanceOf(u.id) === before + 1000, `${balanceOf(u.id)} vs ${before + 1000}`);
+    const again = await s.handleCallback(payoutCb(inv, 3000, { fact_sum: 2000 }));
+    check('выход 2: повтор колбэка остаток второй раз не возвращает', !again.closed && balanceOf(u.id) === before + 1000);
+  }
+
+  // Выход 3: отмена шлюзом (возврат в общий пул выплат): заявка остаётся в
+  // работе, возвращается в ожидание только по нашей кнопке и только при
+  // отмене, подтверждённой шлюзом.
+  {
+    const { u, id, inv } = await sendOut(1500);
+    reply = (url, m, body) => url.endsWith('/payout/orders/check-status')
+      ? { status: 200, body: { invid: body.invid, status: 'in_progress' } } : { status: 404, body: {} };
+    let refused = null;
+    try { await s.releasePayout(admin.id, id); } catch (e) { refused = e.code; }
+    check('выход 3: пока шлюз выплачивает, заявку в ожидание не вернуть', refused === 'NOT_CANCELLED', refused);
+    reply = (url, m, body) => url.endsWith('/payout/orders/check-status')
+      ? { status: 200, body: { invid: body.invid, status: 'cancelled' } } : { status: 404, body: {} };
+    await s.handleCallback({ ...payoutCb(inv, 1500), status: 'cancelled' });
+    check('выход 3: отмена шлюзом не закрывает и не возвращает деньги сама', payoutRow(id).status === 'processing');
+    const back = await s.releasePayout(admin.id, id);
+    check('выход 3: после отмены шлюзом заявка снова ждёт решения', back.payoutStatus === 'pending' && payoutRow(id).status === 'pending');
+    // Отправить заново можно: прошлый ордер отменён.
+    reply = (url, m, body) => url.endsWith('/payout/orders')
+      ? { status: 201, body: { id: 990, status: 'opened', invid: body.invid } } : { status: 404, body: {} };
+    const g2 = await s.sendPayout(admin.id, id, 'tinkoff');
+    check('выход 3: отменённую выплату можно отправить заново новым номером', g2.status === 'opened' && g2.invid !== inv);
+    void u;
+  }
+
+  // Выход 4: отмена с нашей стороны - отзыв PATCH /payout/orders/unclaimed.
+  {
+    const { id, inv } = await sendOut(1200);
+    let recalled = false;
+    calls.length = 0;
+    reply = (url, m, body) => {
+      if (url.endsWith('/payout/orders/unclaimed')) { recalled = true; return { status: 200, body: {} }; }
+      if (url.endsWith('/payout/orders/check-status')) return { status: 200, body: { invid: body.invid, status: recalled ? 'cancelled' : 'opened' } };
+      return { status: 404, body: {} };
+    };
+    const r = await s.recallPayout(admin.id, id);
+    const rc = lastCall('/payout/orders/unclaimed');
+    check('выход 4: отзыв PATCH с подписью выплаты', rc?.method === 'PATCH' && rc.body.invid === inv
+      && rc.body.signature === sha(`lucky:1200:${inv}:k3y:PAYOUT`));
+    check('выход 4: отозванная заявка снова ждёт решения', r.payoutStatus === 'pending' && payoutRow(id).status === 'pending');
+  }
+
+  // Обрыв при отправке: ордер у шлюза создался, а мы получили ошибку. Заново
+  // не отправляем и в ожидание не возвращаем - иначе выплата ушла бы дважды.
+  {
+    const u = player(5000);
+    const { id } = createPayout(u.id, 2000, { method: 'sbp', phone: '+79120000001', bank: 'Т-Банк' });
+    reply = (url) => url.endsWith('/payout/orders') ? { status: 502, body: { message: 'Bad gateway' } } : { status: 404, body: {} };
+    try { await s.sendPayout(admin.id, id, 'tinkoff'); } catch { /* ошибка ожидаема */ }
+    reply = (url, m, body) => url.endsWith('/payout/orders/check-status')
+      ? { status: 200, body: { invid: body.invid, status: 'in_progress' } }
+      : url.endsWith('/payout/orders') ? { status: 201, body: { id: 991, status: 'opened', invid: body.invid } } : { status: 404, body: {} };
+    let refused = null;
+    try { await s.sendPayout(admin.id, id, 'tinkoff'); } catch (e) { refused = e.code; }
+    check('обрыв: ордер у шлюза есть - вторую выплату не шлём', refused === 'ALREADY', refused);
+    refused = null;
+    try { await s.releasePayout(admin.id, id); } catch (e) { refused = e.code; }
+    check('обрыв: ордер у шлюза есть - в ожидание не возвращаем', refused === 'NOT_CANCELLED', refused);
+  }
 }
 
 /* ---------- итог ---------- */

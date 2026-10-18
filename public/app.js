@@ -5027,6 +5027,7 @@ function depositRowHtml(r, meta) {
   const newDispute = d && d.status === 'new';
   const actions = canAct ? `<div class="dep-actions" data-dep-actions="${r.id}">
       <button class="btn btn-outline btn-sm" data-dep-recheck="${r.id}">Проверить у шлюза</button>
+      ${['created', 'pending', 'processing'].includes(r.status) ? `<button class="btn btn-outline btn-sm" data-dep-cancel="${r.id}">Отменить у шлюза</button>` : ''}
       ${!d || !['new', 'sent'].includes(d.status) || newDispute
         ? `<button class="btn btn-sm" data-dep-appeal="${r.id}" data-dispute="${newDispute ? d.id : ''}">${newDispute ? 'Отправить спор в Sicilia' : 'Открыть спор'}</button>` : ''}
       ${newDispute ? `<button class="btn btn-outline btn-sm" data-dep-decline="${d.id}">Отказать</button>` : ''}
@@ -5058,6 +5059,18 @@ function bindDepositRows(list) {
       loadAdminDeposits();
     } catch (err) { toast(err.message); }
   })));
+  list.querySelectorAll('[data-dep-cancel]').forEach((b) => b.addEventListener('click', () => {
+    // Второе нажатие подтверждает: отмена оплаты, которую игрок сейчас
+    // переводит, оставит его деньги у трейдера до разбора.
+    if (b.dataset.armed !== '1') { b.dataset.armed = '1'; b.textContent = 'Точно отменить?'; return; }
+    withCashBusy(b, async () => {
+      try {
+        const r = await api('/api/admin/deposit/cancel', { id: Number(b.dataset.depCancel) });
+        toast(r.credited ? `Оплата успела пройти: зачислено ${money(r.amount)}` : 'Оплата отменена у шлюза');
+        loadAdminDeposits();
+      } catch (err) { toast(err.message); }
+    });
+  }));
   list.querySelectorAll('[data-dep-appeal]').forEach((b) => b.addEventListener('click', () => {
     const id = b.dataset.depAppeal;
     const form = list.querySelector(`[data-dep-form="${id}"]`);
@@ -5849,12 +5862,19 @@ function siciliaPayoutBlock(p, gateway, info) {
   const line = g ? `<div class="payout-comment">Sicilia: ${esc(SICILIA_STATUS[g.status] || g.status)}${g.error ? ` - ${esc(g.error)}` : ''}${
     g.checkUrl ? ` · <a href="${esc(g.checkUrl)}" target="_blank" rel="noopener">чек</a>` : ''}</div>
     <div class="dep-ids">${idChip('Наш номер', g.invid)}${g.gatewayId ? idChip('Номер Sicilia', g.gatewayId) : ''}</div>` : '';
+  const dead = g && ['cancelled', 'error', 'unclaimed'].includes(g.status);
+  // Отзыв - пока ордер не закрыт шлюзом; возврат в «ожидают» - когда шлюз
+  // выплату отменил, а заявка ещё «в работе».
+  const manage = info.configured && g && p.status === 'processing' ? `<div class="admin-actions">
+    ${['opened', 'in_progress'].includes(g.status) ? `<button class="btn btn-outline btn-sm" data-sic-recall="${p.id}">Отозвать из Sicilia</button>` : ''}
+    ${dead ? `<button class="btn btn-outline btn-sm" data-sic-release="${p.id}">Вернуть в ожидание</button>` : ''}
+  </div>` : '';
   const canSend = info.configured && (p.method === 'sbp' || p.method === 'card')
     && (p.status === 'pending' || p.status === 'processing')
-    && (!g || ['cancelled', 'error', 'unclaimed'].includes(g.status));
-  if (!canSend) return line;
+    && (!g || dead);
+  if (!canSend) return line + manage;
   const options = info.banks.map((b) => `<option value="${esc(b.code)}"${b.code === p.gatewayBank ? ' selected' : ''}>${esc(b.name)}</option>`).join('');
-  return `${line}<div class="admin-actions sicilia-send">
+  return `${line}${manage}<div class="admin-actions sicilia-send">
     <select class="seed-input" data-sic-bank="${p.id}"><option value="">Банк получателя…</option>${options}</select>
     <button class="btn btn-outline" data-sic-pay="${p.id}" data-amount="${p.amount}">Выплатить через Sicilia</button>
   </div>`;
@@ -5929,7 +5949,7 @@ async function loadAdminPayouts() {
     const name = p.username ? '@' + p.username : (p.first_name || ('#' + p.user_id));
     return `<div class="payout-row admin ${p.status}">
       <div class="payout-head">
-        <b>${money(p.amount)}</b>
+        <b>${money(p.amount)}${p.requested_amount ? ` <small class="dep-fact">из ${money(p.requested_amount)}</small>` : ''}</b>
         <span class="payout-status ${p.status}">${STATUS_LABEL[p.status] || p.status}</span>
       </div>
       <div class="payout-date">${esc(name)} · ${esc(playerIdent(p, p.user_id))} ·
@@ -5996,6 +6016,19 @@ async function loadAdminPayouts() {
   }));
 
   // Выплата через шлюз - вторым нажатием: первое показывает, сколько и куда.
+  const sicAction = (attr, path, ok) => box.querySelectorAll(`[${attr}]`).forEach((btn) => btn.addEventListener('click', () =>
+    withCashBusy(btn, async () => {
+      try {
+        const r = await api(path, { id: Number(btn.getAttribute(attr)) });
+        toast(ok(r));
+        haptic('success');
+      } catch (err) { toast(err.message); haptic('error'); }
+      loadAdminPayouts();
+    })));
+  sicAction('data-sic-recall', '/api/admin/sicilia/payout/recall',
+    (r) => (r.payoutStatus === 'pending' ? 'Выплата отозвана, заявка снова ждёт решения' : 'Запрос на отзыв отправлен'));
+  sicAction('data-sic-release', '/api/admin/sicilia/payout/release', () => 'Заявка снова ждёт решения');
+
   box.querySelectorAll('[data-sic-pay]').forEach((btn) => {
     btn.addEventListener('click', async () => {
       const id = Number(btn.dataset.sicPay);
@@ -6770,7 +6803,7 @@ function renderPayoutList(payouts) {
     <div class="payout-row ${p.status}">
       ${p.status === 'paid' ? `<span class="payout-seal${fresh.has(String(p.id)) ? ' is-new' : ''}" aria-hidden="true">✓</span>` : ''}
       <div class="payout-head">
-        <b>${money(p.amount)}</b>
+        <b>${money(p.amount)}${p.requested_amount ? ` <small class="dep-fact">из ${money(p.requested_amount)}</small>` : ''}</b>
         <span class="payout-status ${p.status}">${STATUS_LABEL[p.status] || p.status}</span>
       </div>
       <div class="payout-date">${cashDate(p.created_at)}</div>
