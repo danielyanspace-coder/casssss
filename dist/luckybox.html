@@ -5915,6 +5915,103 @@ div.mini-row { cursor: default; }
 #view-wallet .invoice-status { margin-top: 10px; font-size: 12.5px; line-height: 1.45; color: var(--c-text-2); text-align: center; }
 #view-wallet .invoice-status:empty { display: none; }
 
+/* ---------- Перевод по реквизиту (Sicilia через API) ---------- */
+
+/* Два сегмента вместо трёх: плашка шириной в половину. */
+#view-wallet .cash-seg.is-2 { grid-template-columns: repeat(2, 1fr); }
+#view-wallet .cash-seg.is-2::before { width: calc((100% - 6px) / 2); }
+.cash-step small {
+  margin-left: 6px;
+  font-size: 11px; font-weight: 600; letter-spacing: 0; text-transform: none;
+  color: var(--c-text-3); opacity: 0.8;
+}
+/* Пять банков в строку на любом телефоне: подписи короткие намеренно. */
+#view-wallet .sic-banks { grid-template-columns: repeat(5, 1fr); }
+
+#view-wallet .payment-checkout:has(.sic-pay) { padding: 18px 16px 16px; }
+.sic-pay { display: grid; gap: 12px; }
+
+/* Сумма и таймер одной строкой: это два главных числа экрана. */
+.sic-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.sic-head-main { min-width: 0; }
+#view-wallet .sic-sum {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px;
+  margin: 4px 0 0; padding: 0;
+  border: 0; background: none; cursor: pointer; text-align: left;
+  font: 800 30px/1.1 'Unbounded', 'Manrope', system-ui, sans-serif; letter-spacing: -0.02em;
+  color: #fff; font-variant-numeric: tabular-nums;
+}
+#view-wallet .sic-sum .cash-copy {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 9px; border-radius: 10px;
+  background: rgba(255, 255, 255, 0.07);
+  font: 800 11.5px/1 'Manrope', system-ui, sans-serif; letter-spacing: 0; color: var(--text);
+}
+
+.sic-timer { position: relative; width: 58px; height: 58px; flex: none; display: grid; place-items: center; }
+.sic-timer svg { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
+.sic-timer circle { fill: none; stroke-width: 3; }
+.sic-timer-bg { stroke: rgba(255, 255, 255, 0.08); }
+.sic-timer-fg {
+  stroke: var(--c-ok); stroke-linecap: round;
+  stroke-dasharray: 100; stroke-dashoffset: 0;
+  transition: stroke-dashoffset 1s linear, stroke 0.3s;
+}
+#sicTimerText {
+  position: relative;
+  font: 700 13px/1 'JetBrains Mono', ui-monospace, monospace; color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.sic-pay[data-hurry="1"] .sic-timer-fg { stroke: var(--c-wait); }
+.sic-pay[data-hurry="1"] #sicTimerText { color: var(--c-wait); }
+.sic-pay[data-expired] .sic-timer { opacity: 0.45; }
+
+.sic-req {
+  padding: 14px 12px 4px; border-radius: 16px;
+  background: rgba(255, 255, 255, 0.03); border: 1px solid var(--c-border);
+}
+/* Номер крупно и моноширинно: его сверяют глазами по цифре. */
+#view-wallet .invoice-address.sic-target .invoice-addr {
+  font: 600 17px/1.35 'JetBrains Mono', ui-monospace, monospace; letter-spacing: 0.02em;
+  word-break: normal; overflow-wrap: anywhere;
+}
+#view-wallet .invoice-address.sic-target.is-small .invoice-addr { font-size: 14px; }
+/* Номер не рвётся посреди: подпись «Скопировать» уступает ему место, и
+   на плашке остаётся значок. Подтверждение копирования - тот же значок-галка. */
+#view-wallet .invoice-address.sic-target .invoice-addr { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#view-wallet .invoice-address.sic-target .cash-copy { padding: 9px; }
+#view-wallet .invoice-address.sic-target .cash-copy-label { display: none; }
+/* Без этого строка с запретом переноса раздувает колонку сетки за край. */
+.sic-pay > *, .sic-req { min-width: 0; }
+.sic-facts { display: grid; gap: 0; margin: 2px 0 0; }
+.sic-facts > div {
+  display: flex; justify-content: space-between; gap: 12px;
+  padding: 9px 2px; border-top: 1px solid var(--c-border);
+  font-size: 13px;
+}
+.sic-facts > div:first-child { border-top: 0; }
+.sic-facts dt { color: var(--c-text-3); font-weight: 600; }
+.sic-facts dd { margin: 0; color: var(--text); font-weight: 800; text-align: right; }
+
+.sic-how { margin: 0 2px; font-size: 13px; line-height: 1.55; color: var(--c-text-2); }
+.sic-how b { color: var(--text); }
+#view-wallet .sic-pay .cash-row2 { margin-top: 0; }
+
+.sic-done { display: grid; justify-items: center; gap: 8px; padding: 10px 0 4px; text-align: center; }
+.sic-done-mark {
+  display: grid; place-items: center; width: 54px; height: 54px; border-radius: 50%;
+  background: rgba(99, 191, 148, 0.12); color: var(--c-ok);
+  animation: cashPop 0.4s var(--ease-spring);
+}
+#view-wallet .sic-done-mark .cash-ico { width: 28px; height: 28px; }
+#view-wallet .sic-done .cash-wait-status { color: var(--c-ok); }
+#view-wallet .sic-done .sicilia-wait-sum { margin: 2px 0 8px; }
+#view-wallet .sic-done .cash-ghost { width: 100%; }
+
+@media (prefers-reduced-motion: reduce) {
+  .sic-timer-fg { transition: none; }
+}
+
 /* ---------- Счёт криптовалютой ---------- */
 
 /* Цвет монеты остаётся, но одной линией: счета USDT и биткоина различимы
@@ -10117,17 +10214,25 @@ body.cz-playing { overflow: hidden; }
           </div>
           <div class="payment-checkout" id="cryptoCheckout" hidden></div>
 
-          <!-- СБП и карта через Sicilia. Оплата идёт в окне шлюза, открытом
-               отдельной вкладкой; здесь только сумма и ожидание. -->
+          <!-- СБП и карта через Sicilia. Через API шлюза реквизит, сумма и
+               таймер показываются здесь же (siciliaCheckout); через окно шлюза
+               здесь только сумма и ожидание, способ и банк скрыты. -->
           <div class="sicilia-create" id="siciliaCreate" hidden>
+            <div class="cash-step" data-sic-h2h>Как переводите</div>
+            <div class="cash-seg is-2" id="siciliaMethod" data-active="sbp" role="group" aria-label="Способ перевода" data-sic-h2h>
+              <button class="cash-seg-btn active" type="button" data-sic-method="sbp">СБП</button>
+              <button class="cash-seg-btn" type="button" data-sic-method="card">На карту</button>
+            </div>
             <div class="cash-step">Сумма</div>
             <label class="cash-amount">
               <input id="siciliaAmount" type="number" inputmode="numeric" placeholder="0" aria-label="Сумма пополнения в рублях">
               <span class="cash-amount-cur">₽</span>
             </label>
             <div class="quick-row" id="siciliaQuick"></div>
-            <button class="cash-cta" id="siciliaCreateBtn"><span id="siciliaCreateLabel">Перейти к оплате</span><span data-cash-ico="arrow"></span></button>
-            <p class="cash-fine">Окно оплаты откроется отдельно. Оплатите точную сумму и вернитесь сюда:
+            <div class="cash-step" data-sic-h2h>Ваш банк <small>откроем перевод в приложении</small></div>
+            <div class="quick-row sic-banks" id="siciliaBank" data-sic-h2h></div>
+            <button class="cash-cta" id="siciliaCreateBtn"><span id="siciliaCreateLabel">Получить реквизиты</span><span data-cash-ico="arrow"></span></button>
+            <p class="cash-fine" id="siciliaFine">Реквизиты для перевода появятся здесь. Переведите точную сумму:
               деньги зачислятся сами, как только банк подтвердит перевод.</p>
           </div>
           <div class="payment-checkout" id="siciliaCheckout" hidden></div>
@@ -35012,7 +35117,7 @@ function markDepositMethod(method) {
 
 document.querySelector('[data-payment-method="crypto"]')?.addEventListener('click', () => {
   markDepositMethod('crypto');
-  clearInterval(siciliaState.poll);
+  stopSiciliaTimers();
   openCryptoDeposit();
 });
 
@@ -35030,24 +35135,49 @@ async function openDefaultDeposit() {
 /* ---------- СБП и карта: шлюз Sicilia ---------- */
 
 /*
- * Оплата в окне шлюза, открытом отдельно (решение заказчика). Ссылку
- * подписывает сервер; здесь только сумма, открытие окна и ожидание.
+ * Два способа, их выбирает сервер (mode в /api/sicilia/options):
+ * 'h2h' - ордер заводит сервер, реквизит, сумму и таймер показываем здесь;
+ * 'window' - оплата в окне шлюза, открытом отдельной вкладкой.
  */
-const siciliaState = { loaded: false, enabled: false, min: 500, max: 300000, poll: 0, current: null };
+const siciliaState = {
+  loaded: false, enabled: false, mode: 'h2h', min: 500, max: 300000,
+  method: 'sbp', bank: '', poll: 0, tick: 0, current: null,
+};
 // Пока карточка ожидания на экране, раз в столько спрашиваем, не пришли ли
 // деньги. Колбэк шлюза приходит на сервер раньше, и поток событий сообщит
 // сам; опрос - запас на случай, когда поток оборвался.
 const SICILIA_POLL_MS = 15000;
 const SICILIA_QUICK = [500, 1000, 3000, 5000, 10000];
+// Меньше стольких секунд до конца - таймер жёлтый: пора заканчивать перевод.
+const SICILIA_HURRY_S = 180;
+// Сколько ждём второго нажатия «Отменить»: отмена после перевода стоит денег.
+const SICILIA_CANCEL_CONFIRM_MS = 4000;
+const SICILIA_BANK_KEY = 'lb.sicilia.bank';
+
+/*
+ * Банк игрока: для этих четырёх шлюз отдаёт ссылку, открывающую перевод в
+ * приложении банка с уже заполненными полями. Коды - те же, что у шлюза.
+ */
+const SICILIA_BANKS = [
+  { code: 'sberbank', name: 'Сбер' },
+  { code: 'tinkoff', name: 'Т-Банк' },
+  { code: 'vtb', name: 'ВТБ' },
+  { code: 'alfa-bank', name: 'Альфа' },
+  { code: '', name: 'Другой' },
+];
 
 async function loadSiciliaOptions() {
   if (siciliaState.loaded) return siciliaState;
   try {
     const d = await api('/api/sicilia/options');
-    Object.assign(siciliaState, { loaded: true, enabled: !!d.enabled, min: d.min ?? 500, max: d.max ?? 300000 });
+    Object.assign(siciliaState, {
+      loaded: true, enabled: !!d.enabled, mode: d.mode === 'window' ? 'window' : 'h2h',
+      min: d.min ?? 500, max: d.max ?? 300000,
+    });
   } catch {
     siciliaState.loaded = true;
   }
+  try { siciliaState.bank = localStorage.getItem(SICILIA_BANK_KEY) || ''; } catch { /* нет хранилища */ }
   const tab = document.querySelector('[data-payment-method="sicilia"]');
   if (tab) tab.hidden = !siciliaState.enabled;
   return siciliaState;
@@ -35063,9 +35193,16 @@ function openPaymentWindow(url, pending) {
   return !!window.open(url, '_blank', 'noopener');
 }
 
-function openSiciliaDeposit() {
+function stopSiciliaTimers() {
+  clearInterval(siciliaState.poll);
+  clearInterval(siciliaState.tick);
+}
+
+function openSiciliaDeposit({ resume = true } = {}) {
+  stopSiciliaTimers();
   markDepositMethod('sicilia');
   showDepositPane('siciliaCreate');
+  const h2h = siciliaState.mode === 'h2h';
   const input = document.getElementById('siciliaAmount');
   input.placeholder = `от ${fmtMoney(siciliaState.min)}`;
   document.getElementById('siciliaQuick').innerHTML = SICILIA_QUICK
@@ -35076,31 +35213,95 @@ function openSiciliaDeposit() {
     syncSiciliaAmount();
     haptic('light');
   }));
+
+  document.querySelectorAll('[data-sic-h2h]').forEach((el) => { el.hidden = !h2h; });
+  document.getElementById('siciliaFine').textContent = h2h
+    ? 'Реквизиты для перевода появятся здесь. Переведите точную сумму: деньги зачислятся сами, как только банк подтвердит перевод.'
+    : 'Окно оплаты откроется отдельно. Оплатите точную сумму и вернитесь сюда: деньги зачислятся сами, как только банк подтвердит перевод.';
+  if (h2h) {
+    markSiciliaMethod(siciliaState.method);
+    renderSiciliaBanks();
+  }
   syncSiciliaAmount();
+
+  // Неоплаченный перевод живёт дольше кассы: вернувшийся игрок видит его, а
+  // не форму, иначе он заведёт второй и переведёт не на тот реквизит.
+  if (h2h && resume) {
+    api('/api/sicilia/list', {}, { quiet: true }).then((d) => {
+      const open = (d.rows || []).find((r) => r.requisite);
+      const pane = document.getElementById('siciliaCreate');
+      if (open && !pane.hidden) showSiciliaRequisite(open);
+    }).catch(() => {});
+  }
+}
+
+function markSiciliaMethod(method) {
+  siciliaState.method = method === 'card' ? 'card' : 'sbp';
+  const seg = document.getElementById('siciliaMethod');
+  if (!seg) return;
+  seg.dataset.active = siciliaState.method;
+  seg.querySelectorAll('[data-sic-method]').forEach((b) =>
+    b.classList.toggle('active', b.dataset.sicMethod === siciliaState.method));
+}
+document.querySelectorAll('[data-sic-method]').forEach((b) => b.addEventListener('click', () => {
+  markSiciliaMethod(b.dataset.sicMethod);
+  haptic('light');
+}));
+
+function renderSiciliaBanks() {
+  const row = document.getElementById('siciliaBank');
+  if (!row) return;
+  row.innerHTML = SICILIA_BANKS.map((b) => `<button type="button" class="quick-btn${
+    b.code === siciliaState.bank ? ' active' : ''}" data-bank="${b.code}">${b.name}</button>`).join('');
+  row.querySelectorAll('[data-bank]').forEach((btn) => btn.addEventListener('click', () => {
+    siciliaState.bank = btn.dataset.bank;
+    try { localStorage.setItem(SICILIA_BANK_KEY, siciliaState.bank); } catch { /* нет хранилища */ }
+    row.querySelectorAll('[data-bank]').forEach((x) => x.classList.toggle('active', x === btn));
+    haptic('light');
+  }));
 }
 
 /*
- * Кнопка называет сумму: «Оплатить 3 000 ₽» перед уходом в чужое окно
- * успокаивает лучше безликого «Перейти к оплате».
+ * Кнопка называет сумму: «Пополнить 3 000 ₽» успокаивает лучше безликого
+ * «Продолжить».
  */
 function syncSiciliaAmount() {
   const input = document.getElementById('siciliaAmount');
   const n = Number(input.value);
   markQuick(document.getElementById('siciliaQuick'), input);
-  document.getElementById('siciliaCreateLabel').textContent = n > 0 ? `Оплатить ${money(n)}` : 'Перейти к оплате';
+  const verb = siciliaState.mode === 'h2h' ? 'Пополнить' : 'Оплатить';
+  document.getElementById('siciliaCreateLabel').textContent = n > 0 ? `${verb} ${money(n)}`
+    : siciliaState.mode === 'h2h' ? 'Получить реквизиты' : 'Перейти к оплате';
 }
 document.getElementById('siciliaAmount')?.addEventListener('input', syncSiciliaAmount);
 
-document.querySelector('[data-payment-method="sicilia"]')?.addEventListener('click', () => {
-  clearInterval(siciliaState.poll);
-  openSiciliaDeposit();
-});
+document.querySelector('[data-payment-method="sicilia"]')?.addEventListener('click', () => openSiciliaDeposit());
 
 document.getElementById('siciliaCreateBtn')?.addEventListener('click', async () => {
   const amount = Number(document.getElementById('siciliaAmount').value);
   if (!amount || amount < siciliaState.min) return toast(`Минимум ${money(siciliaState.min)}`);
   if (amount > siciliaState.max) return toast(`Максимум ${money(siciliaState.max)}`);
   const btn = document.getElementById('siciliaCreateBtn');
+
+  if (siciliaState.mode === 'h2h') {
+    await withCashBusy(btn, async () => {
+      try {
+        const order = await api('/api/sicilia/create', { amount, method: siciliaState.method, senderBank: siciliaState.bank });
+        showSiciliaRequisite(order);
+        haptic('success');
+      } catch (err) {
+        if (err.code === 'OPEN_ORDER' && err.data?.order) {
+          showSiciliaRequisite(err.data.order);
+          toast('Сначала завершите этот перевод или отмените его');
+        } else {
+          toast(err.message);
+        }
+        haptic('error');
+      }
+    });
+    return;
+  }
+
   btn.disabled = true;
   btn.classList.add('is-busy');
   const pending = window.open('', '_blank');
@@ -35119,7 +35320,197 @@ document.getElementById('siciliaCreateBtn')?.addEventListener('click', async () 
   }
 });
 
-/** Карточка ожидания: сумма, «открыть окно снова», «я оплатил». */
+/* ---------- Перевод по реквизиту ---------- */
+
+/** «79991234567» -> «+7 999 123-45-67»: так номер сверяют глазами. */
+function fmtPhone(d) {
+  const m = String(d || '').match(/^7?(\d{3})(\d{3})(\d{2})(\d{2})$/);
+  return m ? `+7 ${m[1]} ${m[2]}-${m[3]}-${m[4]}` : String(d || '');
+}
+/** Номер карты четвёрками, как он напечатан на карте. */
+const fmtCard = (d) => String(d || '').replace(/(\d{4})(?=\d)/g, '$1 ');
+const fmtLeft = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+
+/*
+ * Что показать главным: телефон для СБП, карта для перевода на карту. Шлюз
+ * решает сам и может выдать на СБП карту - тогда показываем карту, а не
+ * пустое поле телефона.
+ */
+function siciliaTarget(r) {
+  if (r.payLink && !r.phone && !r.card && !r.account) return null;
+  if (r.account) return { label: 'Номер счёта получателя', text: r.account, copy: r.account };
+  const phone = r.phone && { label: 'Телефон для перевода по СБП', text: fmtPhone(r.phone), copy: `+${r.phone.replace(/^8/, '7')}` };
+  const card = r.card && { label: 'Номер карты получателя', text: fmtCard(r.card), copy: r.card };
+  return r.method === 'card' ? card || phone : phone || card;
+}
+
+function sicCopyRow(id, label, text, extraClass = '') {
+  return `<div class="field-label">${esc(label)}</div>
+    <button class="invoice-address sic-target ${extraClass}" id="${id}" type="button">
+      <span class="invoice-addr">${esc(text)}</span>
+      <span class="cash-copy">${cashIcon('copy')}${cashIcon('check')}<span class="cash-copy-label">Скопировать</span></span>
+    </button>`;
+}
+
+/**
+ * Экран перевода: точная сумма, реквизит, банк, получатель, таймер.
+ *
+ * Сумма и реквизит копируются нажатием на всю плашку: переписывать номер с
+ * экрана телефона - верный способ ошибиться цифрой и отправить деньги мимо.
+ */
+function showSiciliaRequisite(order) {
+  const r = order.requisite;
+  if (!r) { openSiciliaDeposit({ resume: false }); return; }
+  stopSiciliaTimers();
+  siciliaState.current = order;
+  showDepositPane('siciliaCheckout');
+  const box = document.getElementById('siciliaCheckout');
+  const target = siciliaTarget(r);
+  const sum = Number(order.paySum || order.amount);
+  const sumCopy = Number.isInteger(sum) ? String(sum) : sum.toFixed(2).replace('.', ',');
+  const howTo = target?.label.startsWith('Телефон')
+    ? `Откройте приложение своего банка, выберите перевод по СБП по номеру телефона и${r.bank ? ` банк <b>${esc(r.bank)}</b>` : ' банк получателя'}.`
+    : target?.label.startsWith('Номер счёта')
+      ? 'Откройте приложение своего банка и выберите перевод по реквизитам счёта.'
+      : 'Откройте приложение своего банка и выберите перевод на карту.';
+
+  box.innerHTML = `
+    <div class="sic-pay" data-hurry="0">
+      <div class="sic-head">
+        <div class="sic-head-main">
+          <div class="invoice-label">Переведите ровно</div>
+          <button class="sic-sum" id="sicCopySum" type="button" aria-label="Скопировать сумму">
+            <span>${money(sum)}</span>
+            <span class="cash-copy">${cashIcon('copy')}${cashIcon('check')}<span class="cash-copy-label">Скопировать</span></span>
+          </button>
+        </div>
+        <div class="sic-timer" id="sicTimer" role="timer" aria-label="Время на перевод">
+          <svg viewBox="0 0 44 44" aria-hidden="true"><circle class="sic-timer-bg" cx="22" cy="22" r="19"/>
+            <circle class="sic-timer-fg" id="sicTimerArc" cx="22" cy="22" r="19" pathLength="100"/></svg>
+          <span id="sicTimerText">--:--</span>
+        </div>
+      </div>
+
+      <div class="sic-req">
+        ${target ? sicCopyRow('sicCopyTarget', target.label, target.text) : ''}
+        ${r.bik ? sicCopyRow('sicCopyBik', 'БИК банка', r.bik, 'is-small') : ''}
+        <dl class="sic-facts">
+          ${r.bank ? `<div><dt>Банк получателя</dt><dd>${esc(r.bank)}</dd></div>` : ''}
+          ${r.holder ? `<div><dt>Получатель</dt><dd>${esc(r.holder)}</dd></div>` : ''}
+          ${r.abroad ? `<div><dt>Перевод</dt><dd>за рубеж, ${esc(r.abroad)}</dd></div>` : ''}
+        </dl>
+      </div>
+
+      ${r.deeplink ? `<a class="cash-cta" href="${esc(r.deeplink)}" target="_blank" rel="noopener"><span>Открыть в банке</span>${cashIcon('open')}</a>` : ''}
+      ${r.payLink ? `<a class="cash-cta" href="${esc(r.payLink)}" target="_blank" rel="noopener"><span>Перейти к оплате</span>${cashIcon('open')}</a>` : ''}
+
+      <p class="sic-how">${howTo} Сумма - ровно ${money(sum)}, одним переводом.</p>
+      <div class="invoice-warn">${cashIcon('warn')}<span>Другая сумма или несколько переводов задержат
+        зачисление. Реквизит одноразовый: для следующего пополнения получите новый.</span></div>
+
+      <div class="cash-row2">
+        <button class="cash-ghost" id="siciliaCheck">${cashIcon('refresh')}Я оплатил</button>
+        <button class="cash-ghost" id="siciliaCancel">Отменить</button>
+      </div>
+      <div class="invoice-status" id="siciliaStatus"></div>
+    </div>`;
+
+  bindCashCopy(document.getElementById('sicCopySum'), sumCopy);
+  if (target) bindCashCopy(document.getElementById('sicCopyTarget'), target.copy);
+  if (r.bik) bindCashCopy(document.getElementById('sicCopyBik'), r.bik);
+  document.getElementById('siciliaCheck').addEventListener('click', () => checkSicilia(order, true));
+
+  const cancel = document.getElementById('siciliaCancel');
+  let armed = 0;
+  cancel.addEventListener('click', async () => {
+    if (cancel.dataset.expired) { openSiciliaDeposit({ resume: false }); return; }
+    if (!armed) {
+      armed = setTimeout(() => { armed = 0; cancel.textContent = 'Отменить'; }, SICILIA_CANCEL_CONFIRM_MS);
+      cancel.textContent = 'Я не переводил';
+      haptic('light');
+      return;
+    }
+    clearTimeout(armed);
+    await withCashBusy(cancel, async () => {
+      try {
+        const res = await api('/api/sicilia/cancel', { id: order.id });
+        if (res.user) applyUser(res.user);
+        if (res.credited || res.payment?.paidAt) {
+          toast('Перевод уже пришёл и зачислен');
+          sndCollect(); haptic('success');
+          showSiciliaDone(res.payment?.credited);
+          loadWallet();
+          return;
+        }
+        toast('Перевод отменён');
+        loadWallet();
+        openSiciliaDeposit({ resume: false });
+      } catch (err) {
+        armed = 0;
+        cancel.textContent = 'Отменить';
+        toast(err.message);
+      }
+    });
+  });
+
+  const pay = box.querySelector('.sic-pay');
+  const arc = document.getElementById('sicTimerArc');
+  const total = Math.max(1, (order.expiresAt || 0) - (order.createdAt || 0));
+  const tick = () => {
+    if (!order.expiresAt) { document.getElementById('sicTimer').hidden = true; return; }
+    const left = Math.max(0, Math.round((order.expiresAt - Date.now()) / 1000));
+    document.getElementById('sicTimerText').textContent = fmtLeft(left);
+    arc.style.strokeDashoffset = String(100 - Math.min(100, (left * 1000 / total) * 100));
+    pay.dataset.hurry = left <= SICILIA_HURRY_S ? '1' : '0';
+    if (left === 0) siciliaExpired(pay, cancel);
+  };
+  tick();
+  siciliaState.tick = setInterval(tick, 1000);
+  siciliaState.poll = setInterval(() => {
+    if (document.hidden || box.hidden) return;
+    checkSicilia(order, false);
+  }, SICILIA_POLL_MS);
+}
+
+/*
+ * Время вышло: реквизит убирается с экрана сразу. Сервер его уже не
+ * отдаст, а перевод на него после срока шлюз не сопоставит с ордером.
+ * «Я оплатил» остаётся: перевод, ушедший в последние секунды, ещё найдётся.
+ */
+function siciliaExpired(pay, cancel) {
+  clearInterval(siciliaState.tick);
+  if (pay.dataset.expired) return;
+  pay.dataset.expired = '1';
+  pay.querySelector('.sic-req')?.remove();
+  pay.querySelectorAll('a.cash-cta, .sic-how').forEach((el) => el.remove());
+  const warn = pay.querySelector('.invoice-warn span');
+  if (warn) warn.textContent = 'Время на перевод вышло, реквизит больше не действует. Если вы успели перевести, нажмите «Я оплатил». Если нет - создайте новый перевод.';
+  cancel.textContent = 'Новый перевод';
+  cancel.dataset.expired = '1';
+}
+
+/*
+ * Деньги пришли: реквизит убирается, на его месте - итог. Оставленный на
+ * экране реквизит выглядел бы приглашением перевести ещё раз.
+ */
+function showSiciliaDone(amount) {
+  stopSiciliaTimers();
+  const box = document.getElementById('siciliaCheckout');
+  if (!box || box.hidden) return;
+  // Поток событий обычно опережает ответ проверки и суммы не знает: итог
+  // рисуется сразу, а сумма дописывается, когда её пришлёт проверка.
+  if (!box.querySelector('.sic-pay') && !(amount && box.querySelector('.sic-done'))) return;
+  box.innerHTML = `
+    <div class="sic-done">
+      <span class="sic-done-mark">${cashIcon('check')}</span>
+      <div class="cash-wait-status">Платёж зачислен</div>
+      ${amount ? `<div class="sicilia-wait-sum">${money(amount)}</div>` : ''}
+      <button class="cash-ghost" id="siciliaMore">${cashIcon('plus')}Пополнить ещё</button>
+    </div>`;
+  document.getElementById('siciliaMore').addEventListener('click', () => openSiciliaDeposit({ resume: false }));
+}
+
+/** Карточка ожидания для окна шлюза: сумма, «открыть окно снова», «я оплатил». */
 function showSiciliaCheckout(order, opened = true) {
   siciliaState.current = order;
   showDepositPane('siciliaCheckout');
@@ -35153,12 +35544,9 @@ function showSiciliaCheckout(order, opened = true) {
       toast(err.message);
     }
   });
-  document.getElementById('siciliaBack').addEventListener('click', () => {
-    clearInterval(siciliaState.poll);
-    openSiciliaDeposit();
-  });
+  document.getElementById('siciliaBack').addEventListener('click', () => openSiciliaDeposit({ resume: false }));
   document.getElementById('siciliaCheck').addEventListener('click', () => checkSicilia(order, true));
-  clearInterval(siciliaState.poll);
+  stopSiciliaTimers();
   siciliaState.poll = setInterval(() => {
     if (document.hidden || box.hidden) return;
     checkSicilia(order, false);
@@ -35171,15 +35559,16 @@ async function checkSicilia(order, byHand) {
   try {
     const r = await api('/api/sicilia/refresh', { id: order.id });
     if (r.credited || r.payment?.paidAt) {
-      clearInterval(siciliaState.poll);
+      stopSiciliaTimers();
       if (r.user) applyUser(r.user);
       if (status) status.textContent = 'Платёж зачислен.';
       if (r.credited) { toast('Платёж зачислен'); sndCollect(); haptic('success'); }
+      showSiciliaDone(r.payment?.credited);
       loadWallet();
       return;
     }
     const closed = ['cancelled', 'error', 'unclaimed', 'expired'].includes(r.payment?.status);
-    if (closed) clearInterval(siciliaState.poll);
+    if (closed) stopSiciliaTimers();
     if (status && (byHand || closed)) {
       status.textContent = closed
         ? 'Оплата не поступила и закрыта. Если вы перевели деньги, напишите в поддержку.'
@@ -35201,7 +35590,7 @@ function startPaymentEvents(){
 
   if (state.guest) return;
   const es=new EventSource('/api/payments/events');
-  es.addEventListener('payment.completed',async()=>{clearInterval(siciliaState.poll);toast('Платёж успешно поступил. Средства зачислены на счёт.');sndCollect();haptic('success');const me=await api('/api/me');applyUser(me.user);loadWallet();});
+  es.addEventListener('payment.completed',async()=>{showSiciliaDone();toast('Платёж успешно поступил. Средства зачислены на счёт.');sndCollect();haptic('success');const me=await api('/api/me');applyUser(me.user);loadWallet();});
 }
 
 document.getElementById('walletWithdraw').addEventListener('click', () => { setCashMode('withdraw'); haptic('light'); });

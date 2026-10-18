@@ -5907,6 +5907,103 @@ div.mini-row { cursor: default; }
 #view-wallet .invoice-status { margin-top: 10px; font-size: 12.5px; line-height: 1.45; color: var(--c-text-2); text-align: center; }
 #view-wallet .invoice-status:empty { display: none; }
 
+/* ---------- Перевод по реквизиту (Sicilia через API) ---------- */
+
+/* Два сегмента вместо трёх: плашка шириной в половину. */
+#view-wallet .cash-seg.is-2 { grid-template-columns: repeat(2, 1fr); }
+#view-wallet .cash-seg.is-2::before { width: calc((100% - 6px) / 2); }
+.cash-step small {
+  margin-left: 6px;
+  font-size: 11px; font-weight: 600; letter-spacing: 0; text-transform: none;
+  color: var(--c-text-3); opacity: 0.8;
+}
+/* Пять банков в строку на любом телефоне: подписи короткие намеренно. */
+#view-wallet .sic-banks { grid-template-columns: repeat(5, 1fr); }
+
+#view-wallet .payment-checkout:has(.sic-pay) { padding: 18px 16px 16px; }
+.sic-pay { display: grid; gap: 12px; }
+
+/* Сумма и таймер одной строкой: это два главных числа экрана. */
+.sic-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.sic-head-main { min-width: 0; }
+#view-wallet .sic-sum {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px;
+  margin: 4px 0 0; padding: 0;
+  border: 0; background: none; cursor: pointer; text-align: left;
+  font: 800 30px/1.1 'Unbounded', 'Manrope', system-ui, sans-serif; letter-spacing: -0.02em;
+  color: #fff; font-variant-numeric: tabular-nums;
+}
+#view-wallet .sic-sum .cash-copy {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 9px; border-radius: 10px;
+  background: rgba(255, 255, 255, 0.07);
+  font: 800 11.5px/1 'Manrope', system-ui, sans-serif; letter-spacing: 0; color: var(--text);
+}
+
+.sic-timer { position: relative; width: 58px; height: 58px; flex: none; display: grid; place-items: center; }
+.sic-timer svg { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
+.sic-timer circle { fill: none; stroke-width: 3; }
+.sic-timer-bg { stroke: rgba(255, 255, 255, 0.08); }
+.sic-timer-fg {
+  stroke: var(--c-ok); stroke-linecap: round;
+  stroke-dasharray: 100; stroke-dashoffset: 0;
+  transition: stroke-dashoffset 1s linear, stroke 0.3s;
+}
+#sicTimerText {
+  position: relative;
+  font: 700 13px/1 'JetBrains Mono', ui-monospace, monospace; color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.sic-pay[data-hurry="1"] .sic-timer-fg { stroke: var(--c-wait); }
+.sic-pay[data-hurry="1"] #sicTimerText { color: var(--c-wait); }
+.sic-pay[data-expired] .sic-timer { opacity: 0.45; }
+
+.sic-req {
+  padding: 14px 12px 4px; border-radius: 16px;
+  background: rgba(255, 255, 255, 0.03); border: 1px solid var(--c-border);
+}
+/* Номер крупно и моноширинно: его сверяют глазами по цифре. */
+#view-wallet .invoice-address.sic-target .invoice-addr {
+  font: 600 17px/1.35 'JetBrains Mono', ui-monospace, monospace; letter-spacing: 0.02em;
+  word-break: normal; overflow-wrap: anywhere;
+}
+#view-wallet .invoice-address.sic-target.is-small .invoice-addr { font-size: 14px; }
+/* Номер не рвётся посреди: подпись «Скопировать» уступает ему место, и
+   на плашке остаётся значок. Подтверждение копирования - тот же значок-галка. */
+#view-wallet .invoice-address.sic-target .invoice-addr { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#view-wallet .invoice-address.sic-target .cash-copy { padding: 9px; }
+#view-wallet .invoice-address.sic-target .cash-copy-label { display: none; }
+/* Без этого строка с запретом переноса раздувает колонку сетки за край. */
+.sic-pay > *, .sic-req { min-width: 0; }
+.sic-facts { display: grid; gap: 0; margin: 2px 0 0; }
+.sic-facts > div {
+  display: flex; justify-content: space-between; gap: 12px;
+  padding: 9px 2px; border-top: 1px solid var(--c-border);
+  font-size: 13px;
+}
+.sic-facts > div:first-child { border-top: 0; }
+.sic-facts dt { color: var(--c-text-3); font-weight: 600; }
+.sic-facts dd { margin: 0; color: var(--text); font-weight: 800; text-align: right; }
+
+.sic-how { margin: 0 2px; font-size: 13px; line-height: 1.55; color: var(--c-text-2); }
+.sic-how b { color: var(--text); }
+#view-wallet .sic-pay .cash-row2 { margin-top: 0; }
+
+.sic-done { display: grid; justify-items: center; gap: 8px; padding: 10px 0 4px; text-align: center; }
+.sic-done-mark {
+  display: grid; place-items: center; width: 54px; height: 54px; border-radius: 50%;
+  background: rgba(99, 191, 148, 0.12); color: var(--c-ok);
+  animation: cashPop 0.4s var(--ease-spring);
+}
+#view-wallet .sic-done-mark .cash-ico { width: 28px; height: 28px; }
+#view-wallet .sic-done .cash-wait-status { color: var(--c-ok); }
+#view-wallet .sic-done .sicilia-wait-sum { margin: 2px 0 8px; }
+#view-wallet .sic-done .cash-ghost { width: 100%; }
+
+@media (prefers-reduced-motion: reduce) {
+  .sic-timer-fg { transition: none; }
+}
+
 /* ---------- Счёт криптовалютой ---------- */
 
 /* Цвет монеты остаётся, но одной линией: счета USDT и биткоина различимы

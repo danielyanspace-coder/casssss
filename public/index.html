@@ -561,17 +561,25 @@
           </div>
           <div class="payment-checkout" id="cryptoCheckout" hidden></div>
 
-          <!-- СБП и карта через Sicilia. Оплата идёт в окне шлюза, открытом
-               отдельной вкладкой; здесь только сумма и ожидание. -->
+          <!-- СБП и карта через Sicilia. Через API шлюза реквизит, сумма и
+               таймер показываются здесь же (siciliaCheckout); через окно шлюза
+               здесь только сумма и ожидание, способ и банк скрыты. -->
           <div class="sicilia-create" id="siciliaCreate" hidden>
+            <div class="cash-step" data-sic-h2h>Как переводите</div>
+            <div class="cash-seg is-2" id="siciliaMethod" data-active="sbp" role="group" aria-label="Способ перевода" data-sic-h2h>
+              <button class="cash-seg-btn active" type="button" data-sic-method="sbp">СБП</button>
+              <button class="cash-seg-btn" type="button" data-sic-method="card">На карту</button>
+            </div>
             <div class="cash-step">Сумма</div>
             <label class="cash-amount">
               <input id="siciliaAmount" type="number" inputmode="numeric" placeholder="0" aria-label="Сумма пополнения в рублях">
               <span class="cash-amount-cur">₽</span>
             </label>
             <div class="quick-row" id="siciliaQuick"></div>
-            <button class="cash-cta" id="siciliaCreateBtn"><span id="siciliaCreateLabel">Перейти к оплате</span><span data-cash-ico="arrow"></span></button>
-            <p class="cash-fine">Окно оплаты откроется отдельно. Оплатите точную сумму и вернитесь сюда:
+            <div class="cash-step" data-sic-h2h>Ваш банк <small>откроем перевод в приложении</small></div>
+            <div class="quick-row sic-banks" id="siciliaBank" data-sic-h2h></div>
+            <button class="cash-cta" id="siciliaCreateBtn"><span id="siciliaCreateLabel">Получить реквизиты</span><span data-cash-ico="arrow"></span></button>
+            <p class="cash-fine" id="siciliaFine">Реквизиты для перевода появятся здесь. Переведите точную сумму:
               деньги зачислятся сами, как только банк подтвердит перевод.</p>
           </div>
           <div class="payment-checkout" id="siciliaCheckout" hidden></div>

@@ -2140,25 +2140,42 @@ app.post('/api/webhooks/heleket', limits.webhook, (req, res) => {
    ============================================================ */
 
 /*
- * Пополнение через платёжное окно шлюза, открытое отдельной вкладкой
- * (решение заказчика). Сервер подписывает ссылку, клиент её открывает,
- * деньги приходят колбэком и сверкой. Подробности - в server/sicilia.js.
+ * Пополнение СБП и картой. Через API шлюза (по умолчанию) сервер заводит
+ * ордер и отдаёт реквизит, касса показывает его сама; через окно - сервер
+ * подписывает ссылку. Деньги приходят колбэком и сверкой. Подробности - в
+ * server/sicilia.js.
  */
 app.post('/api/sicilia/options', auth, limits.read, (req, res) => {
   const env = sicilia.siciliaEnv();
-  res.json({ enabled: sicilia.payinReady(env), min: env.min, max: env.max });
+  res.json({ enabled: sicilia.payinReady(env), mode: env.payin, min: env.min, max: env.max,
+    ttlMin: Math.round(env.ttlMs / 60_000) });
 });
 
-app.post('/api/sicilia/create', auth, limits.cashier, (req, res) => {
+app.post('/api/sicilia/create', auth, limits.cashier, async (req, res) => {
   if (!setting('deposits_open')) return res.status(503).json({ error: 'Приём пополнений временно закрыт' });
   try {
-    res.status(201).json(sicilia.createDeposit(req.player.id, req.body?.amount));
+    const b = req.body || {};
+    res.status(201).json(await sicilia.createDeposit(req.player.id, b.amount, { method: b.method, senderBank: b.senderBank }));
   } catch (err) {
-    res.status(err.code === 'NOT_CONFIGURED' ? 503 : 400).json({ error: err.message, code: err.code });
+    const status = err.code === 'NOT_CONFIGURED' || err.code === 'GATEWAY_UNREACHABLE' || err.code === 'NO_REQUISITE' ? 503
+      : err.code === 'OPEN_ORDER' ? 409 : 400;
+    res.status(status).json({ error: err.message, code: err.code, order: err.order });
   }
 });
 
-/* Ссылка на то же окно ещё раз: игрок закрыл его, не заплатив. */
+/* Отмена перевода игроком: реквизит освобождается сразу, а не по сроку. */
+app.post('/api/sicilia/cancel', auth, limits.cashier, async (req, res) => {
+  try {
+    const result = await sicilia.cancelDeposit(req.body?.id, req.player.id);
+    if (result.credited) emitPayment(req.player.id, 'payment.completed', { source: 'sicilia' });
+    res.json({ ...result, user: publicUser(getUserById(req.player.id)) });
+  } catch (err) {
+    const status = err.code === 'NOT_FOUND' ? 404 : err.code === 'GATEWAY_UNREACHABLE' ? 503 : 400;
+    res.status(status).json({ error: err.message, code: err.code });
+  }
+});
+
+/* Тот же перевод ещё раз: игрок закрыл кассу или окно, не заплатив. */
 app.post('/api/sicilia/reopen', auth, limits.cashier, (req, res) => {
   try {
     res.json(sicilia.reopenDeposit(req.body?.id, req.player.id));
