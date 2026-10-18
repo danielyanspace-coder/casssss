@@ -1591,6 +1591,25 @@ check('касса: кнопка вывода называется «Вывест
 await page.click('#walletDeposit');
 await page.waitForTimeout(300);
 
+// Панель: раздел «Пополнения» с номерами сделок, фильтрами и выгрузкой.
+// В автономной сборке панели у игрока нет (её собирает demo:admin).
+if (!URL_TARGET.startsWith('file:')) {
+await goto('admin');
+await page.waitForSelector('[data-admin-tab="deposits"]', { timeout: 15000 });
+await page.click('[data-admin-tab="deposits"]');
+await page.waitForSelector('#depKpis .kpi', { timeout: 15000 });
+const depPane = await page.evaluate(() => ({
+  kpis: document.querySelectorAll('#depKpis .kpi').length,
+  filters: [...document.querySelectorAll('#depFilter [data-dep-filter]')].map((b) => b.textContent.trim()),
+  exports: document.querySelectorAll('#admin-deposits [data-fin-export]').length,
+}));
+check('панель: раздел пополнений со сводкой', depPane.kpis === 4, JSON.stringify(depPane));
+check('панель: фильтр споров в пополнениях', depPane.filters.includes('Споры'), depPane.filters.join(','));
+check('панель: выгрузка пополнений и выводов', depPane.exports === 2);
+await goto('wallet');
+await page.waitForTimeout(300);
+}
+
 // Экран честности остался, но попасть на него теперь можно только из подвала.
 await page.evaluate(() => {
   const link = document.querySelector('#siteFooter [data-view="fair"]');

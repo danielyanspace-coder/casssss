@@ -29,10 +29,12 @@
  * ограничение базы, а не в проверку в коде.
  */
 
-import { createHash, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import {
   db, getUserById, registerDeposit, trackEvent, payoutForGateway, startPayout, completePayout,
-  moneyTx, ledgerLink,
+  moneyTx, ledgerLink, logAdmin,
 } from './db.js';
 
 /* Журнал balance_transactions общий для шлюзов и создаётся в db.js. */
@@ -91,7 +93,45 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_sicilia_user ON sicilia_orders(user_id, id DESC);
   CREATE INDEX IF NOT EXISTS idx_sicilia_status ON sicilia_orders(kind, status);
   CREATE INDEX IF NOT EXISTS idx_sicilia_payout ON sicilia_orders(payout_id);
+
+  /*
+   * Споры по пополнениям: игрок перевёл, а деньги не пришли. Запись живёт у
+   * нас всегда, даже если до шлюза дело не дошло: по ней видно, кто и когда
+   * жаловался и чем кончилось. Статусы:
+   *   new      игрок сообщил, ждёт сотрудника;
+   *   sent     апелляция открыта у шлюза, ждём его решения;
+   *   won      деньги зачислены (любым путём);
+   *   lost     шлюз закрыл апелляцию без зачисления;
+   *   declined сотрудник отказал, игрок видит причину.
+   */
+  CREATE TABLE IF NOT EXISTS sicilia_disputes (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id      INTEGER NOT NULL REFERENCES sicilia_orders(id),
+    user_id       INTEGER NOT NULL REFERENCES users(id),
+    source        TEXT    NOT NULL,          -- 'player' | 'staff'
+    status        TEXT    NOT NULL DEFAULT 'new',
+    comment       TEXT,
+    receipt       TEXT,                      -- имя файла чека в receiptDir()
+    appeal_id     INTEGER,
+    appeal_status TEXT,
+    appeal_reason TEXT,
+    fact_sum      TEXT,
+    staff_id      INTEGER,
+    staff_note    TEXT,
+    error         TEXT,
+    created_at    INTEGER NOT NULL,
+    updated_at    INTEGER NOT NULL,
+    sent_at       INTEGER,
+    closed_at     INTEGER
+  );
+  CREATE INDEX IF NOT EXISTS idx_dispute_order ON sicilia_disputes(order_id);
+  CREATE INDEX IF NOT EXISTS idx_dispute_status ON sicilia_disputes(status);
 `);
+
+const orderCols = db.prepare('PRAGMA table_info(sicilia_orders)').all().map((c) => c.name);
+if (!orderCols.includes('late_checked_at')) {
+  db.exec('ALTER TABLE sicilia_orders ADD COLUMN late_checked_at INTEGER');
+}
 
 const txCols = db.prepare('PRAGMA table_info(balance_transactions)').all().map((c) => c.name);
 if (!txCols.includes('sicilia_order_id')) {
@@ -129,7 +169,19 @@ export function verifyCallback(body, env = siciliaEnv()) {
   if (body.order_type === 'payout') {
     return sameHex(body.signature, sha256(env.login, body.sum, body.invid, env.key));
   }
+  if (isAppealCallback(body)) return sameHex(body.signature, signInvid(String(body.invid), env));
   return sameHex(body.SignatureValue, sha256(body.OutSum, body.InvId, env.key));
+}
+
+/*
+ * Колбэк закрытия апелляции приходит без order_type и без полей пополнения
+ * (InvId, OutSum): только invid, status, reason, fact_sum и подпись
+ * sha256('login:invid:apiKey'). Раньше он проверялся как колбэк пополнения и
+ * отвергался, а ордер, зачтённый по апелляции позже срока сверки, не
+ * зачислялся никогда: игрок заплатил, шлюз подтвердил, а у нас пусто.
+ */
+export function isAppealCallback(body) {
+  return Boolean(body && !body.order_type && body.invid && body.InvId === undefined && body.signature);
 }
 
 export function callbackIpAllowed(ip, env = siciliaEnv()) {
@@ -186,14 +238,26 @@ function makeInvid(prefix, id) {
 
 function publicOrder(r) {
   if (!r) return null;
+  const d = lastDispute(r.id);
   return {
     id: r.id,
+    // Номер платежа для поддержки: тот же, что видит шлюз, по нему сотрудник
+    // находит оплату у себя и у Sicilia одним поиском.
+    number: r.invid,
     amount: r.amount_rub,
     status: r.status,
     credited: r.credited_rub,
     createdAt: r.created_at,
     paidAt: r.paid_at,
+    // Ордер дошёл до шлюза (окно открывали): только такие показываются игроку
+    // в «Оплатах в ожидании», брошенные до окна там лишние.
+    opened: r.gateway_id != null,
+    dispute: d ? { status: d.status, note: d.staff_note || d.appeal_reason || null, createdAt: d.created_at } : null,
   };
+}
+
+function lastDispute(orderId) {
+  return db.prepare('SELECT * FROM sicilia_disputes WHERE order_id = ? ORDER BY id DESC LIMIT 1').get(orderId) || null;
 }
 
 /** Ссылка на платёжное окно для строки пополнения. */
@@ -276,11 +340,16 @@ export const applyPayinStatus = moneyTx('deposit', (orderId, info) => {
   db.prepare('UPDATE sicilia_orders SET credited_rub = ?, paid_at = ? WHERE id = ?').run(credited, now, row.id);
   // Общие последствия любого пополнения: бонус, отыгрыш, прокруты колеса.
   const { bonus } = registerDeposit(row.user_id, credited, 'sicilia');
+  // Деньги пришли - открытый спор по этой оплате закрыт, каким бы путём ни
+  // пришло зачисление: колбэком, сверкой или решением по апелляции.
+  db.prepare(`UPDATE sicilia_disputes SET status = 'won', fact_sum = COALESCE(?, fact_sum), closed_at = ?, updated_at = ?
+               WHERE order_id = ? AND status IN ('new', 'sent', 'lost')`)
+    .run(info.fact_sum != null ? String(info.fact_sum) : null, now, now, row.id);
   return { credited: true, status, amount: credited, bonus, userId: row.user_id, balance: getUserById(row.user_id).balance };
 });
 
-/** Спрашивает шлюз о пополнении и применяет ответ. */
-export async function confirmPayin(row) {
+/** Спрашивает шлюз о пополнении. */
+async function askPayin(row) {
   const sum = String(row.amount_rub);
   const env = siciliaEnv();
   const info = await call('POST', '/orders/check-status', {
@@ -290,7 +359,12 @@ export async function confirmPayin(row) {
   if (info.invid && String(info.invid) !== row.invid) {
     throw Object.assign(new Error('Шлюз ответил про другой ордер'), { code: 'MISMATCH' });
   }
-  return applyPayinStatus(row.id, info);
+  return info;
+}
+
+/** Спрашивает шлюз о пополнении и применяет ответ. */
+export async function confirmPayin(row) {
+  return applyPayinStatus(row.id, await askPayin(row));
 }
 
 /** Сверка по просьбе игрока: «Я оплатил, проверить». */
@@ -470,7 +544,11 @@ export async function confirmPayout(row) {
 export function gatewayPayout(payoutId) {
   const r = db.prepare("SELECT * FROM sicilia_orders WHERE kind = 'payout' AND payout_id = ? ORDER BY id DESC")
     .get(payoutId);
-  return r ? { status: r.status, bank: r.bank, checkUrl: r.check_url, error: r.error, sentAt: r.created_at } : null;
+  return r ? {
+    status: r.status, bank: r.bank, checkUrl: r.check_url, error: r.error, sentAt: r.created_at,
+    // Оба номера: наш (invid) шлюз знает по запросам, свой (id) - по кабинету.
+    invid: r.invid, gatewayId: r.gateway_id,
+  } : null;
 }
 
 export function gatewayPayouts(ids) {
@@ -497,6 +575,7 @@ export async function merchantBalance() {
  * Возвращает то, что случилось, чтобы ручка могла сообщить игроку.
  */
 export async function handleCallback(body) {
+  if (isAppealCallback(body)) return { kind: 'appeal', ...(await applyAppealCallback(body)) };
   if (body.order_type === 'payout') {
     const row = db.prepare("SELECT * FROM sicilia_orders WHERE kind = 'payout' AND invid = ?").get(String(body.invid || ''));
     if (!row) return { unknown: true };
@@ -516,6 +595,8 @@ export async function handleCallback(body) {
  */
 export const RECONCILE_MS = 5 * 60_000;
 const RECONCILE_GRACE_MS = 2 * 60_000;
+export const LATE_WINDOW_MS = 72 * 3600_000;
+export const LATE_EVERY_MS = 3600_000;
 
 export async function reconcile(now = Date.now()) {
   const env = siciliaEnv();
@@ -538,6 +619,29 @@ export async function reconcile(now = Date.now()) {
       db.prepare("UPDATE sicilia_orders SET status = 'expired', updated_at = ? WHERE id = ? AND paid_at IS NULL")
         .run(Date.now(), row.id);
     }
+  }
+  /*
+   * Поздняя сверка. Ордер, закрытый у нас как неоплаченный, шлюз может зачесть
+   * позже: трейдер подтвердил вручную, сумму поправили, апелляцию решили в
+   * пользу игрока. Колбэк об этом может и не дойти, поэтому такие ордера
+   * переспрашиваются ещё LATE_WINDOW_MS, но не чаще раза в LATE_EVERY_MS,
+   * а ордера с открытой апелляцией - при каждой сверке, сколько бы ни длился спор.
+   */
+  const late = db.prepare(`SELECT o.* FROM sicilia_orders o
+                            WHERE o.kind = 'payin' AND o.paid_at IS NULL
+                              AND o.status IN ('cancelled', 'error', 'unclaimed', 'expired')
+                              AND ((o.created_at > @window AND (o.late_checked_at IS NULL OR o.late_checked_at < @every))
+                                OR EXISTS (SELECT 1 FROM sicilia_disputes d WHERE d.order_id = o.id AND d.status = 'sent'))`)
+    .all({ window: now - LATE_WINDOW_MS, every: now - LATE_EVERY_MS });
+  for (const row of late) {
+    checked++;
+    db.prepare('UPDATE sicilia_orders SET late_checked_at = ? WHERE id = ?').run(now, row.id);
+    // Применяем только зачисление: «ещё ждёт» от шлюза не должно оживлять
+    // ордер, который мы уже закрыли и отозвали.
+    try {
+      const info = await askPayin(row);
+      if (String(info.status) === 'completed') applyPayinStatus(row.id, info);
+    } catch (err) { if (err.code === 'GATEWAY_UNREACHABLE') break; }
   }
   const sent = db.prepare(`SELECT * FROM sicilia_orders WHERE kind = 'payout' AND paid_at IS NULL
                             AND status IN ('opened', 'in_progress')`).all();
@@ -563,3 +667,251 @@ export function startReconcile(onCredited) {
     }
   }, RECONCILE_MS).unref();
 }
+
+/* ============================================================
+   СПОРЫ: ЧЕК ИГРОКА И АПЕЛЛЯЦИЯ У ШЛЮЗА
+   ============================================================ */
+
+/*
+ * Чеки лежат рядом с базой, как обложки казино, и отдаются по ссылке со
+ * случайным именем: апелляция шлюза принимает чек только ссылкой на картинку
+ * (поле image), файлом его не передать. 16 случайных байт имени не угадать
+ * перебором, а список файлов сервер не отдаёт. Копия базы чеки не включает:
+ * это не деньги, а приложение к спору, и потеря файла не теряет ничего, кроме
+ * картинки.
+ */
+export const receiptDir = () => join(dirname(resolve(process.env.DB_PATH || './data/app.db')), 'sicilia-receipts');
+export const RECEIPT_MAX_BYTES = 5 * 1024 * 1024;
+export const RECEIPT_NAME_RE = /^[a-f0-9]{32}\.(jpg|png|webp)$/;
+/* Сколько дней после оплаты игрок может сообщить, что деньги не пришли. */
+export const DISPUTE_WINDOW_MS = 7 * 24 * 3600_000;
+const OPEN_DISPUTE = new Set(['new', 'sent']);
+
+const MIME = { jpg: 'image/jpeg', png: 'image/png', webp: 'image/webp' };
+
+/** Тип картинки по первым байтам, а не по тому, что прислал браузер. */
+function sniffImage(buf) {
+  if (buf.length > 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'jpg';
+  if (buf.length > 8 && buf.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return 'png';
+  if (buf.length > 12 && buf.subarray(0, 4).toString() === 'RIFF' && buf.subarray(8, 12).toString() === 'WEBP') return 'webp';
+  return null;
+}
+
+/** Сохраняет чек из data:-ссылки или base64 и возвращает имя файла. */
+export function saveReceipt(data) {
+  const raw = String(data || '').replace(/^data:[^,]*,/, '');
+  if (!raw) return null;
+  const buf = Buffer.from(raw, 'base64');
+  if (!buf.length) return null;
+  if (buf.length > RECEIPT_MAX_BYTES) throw Object.assign(new Error('Чек больше 5 МБ'), { code: 'TOO_BIG' });
+  const ext = sniffImage(buf);
+  if (!ext) throw Object.assign(new Error('Чек нужен картинкой: JPG, PNG или WEBP'), { code: 'BAD_FILE' });
+  const dir = receiptDir();
+  mkdirSync(dir, { recursive: true });
+  const name = `${randomBytes(16).toString('hex')}.${ext}`;
+  writeFileSync(join(dir, name), buf);
+  return name;
+}
+
+export function receiptFile(name) {
+  if (!RECEIPT_NAME_RE.test(String(name || ''))) return null;
+  const path = join(receiptDir(), name);
+  if (!existsSync(path)) return null;
+  return { path, type: MIME[name.split('.').pop()] };
+}
+
+function receiptUrl(name, env = siciliaEnv()) {
+  return name && env.webapp ? `${env.webapp}/receipts/${name}` : null;
+}
+
+/**
+ * Игрок сообщает: перевёл, а деньги не пришли.
+ *
+ * Сразу в шлюз это не уходит: чек может быть чужим или нарисованным, а
+ * апелляция у шлюза - это претензия мерчанта к трейдеру, и ложная бьёт по
+ * нашей репутации у шлюза. Поэтому спор сначала видит сотрудник. Перед этим
+ * статус ордера переспрашивается: часто деньги просто пришли позже, и спор
+ * тогда не нужен вовсе.
+ */
+export async function reportDeposit(userId, orderId, { comment, image } = {}) {
+  const row = db.prepare("SELECT * FROM sicilia_orders WHERE id = ? AND user_id = ? AND kind = 'payin'").get(Number(orderId), userId);
+  if (!row) throw Object.assign(new Error('Платёж не найден'), { code: 'NOT_FOUND' });
+  if (row.paid_at) throw Object.assign(new Error('Этот платёж уже зачислен'), { code: 'PAID' });
+  if (Date.now() - row.created_at > DISPUTE_WINDOW_MS) {
+    throw Object.assign(new Error('Срок для обращения по этому платежу прошёл, напишите в поддержку'), { code: 'TOO_OLD' });
+  }
+  const open = lastDispute(row.id);
+  if (open && OPEN_DISPUTE.has(open.status)) {
+    throw Object.assign(new Error('Обращение по этому платежу уже рассматривается'), { code: 'ALREADY' });
+  }
+  const text = String(comment || '').trim().slice(0, 500);
+  if (!image) throw Object.assign(new Error('Приложите чек или скриншот перевода'), { code: 'NO_RECEIPT' });
+
+  if (isConfigured()) {
+    try {
+      const r = await confirmPayin(row);
+      if (r.credited) return { credited: true, payment: publicOrder(db.prepare('SELECT * FROM sicilia_orders WHERE id = ?').get(row.id)) };
+    } catch { /* шлюз не ответил - спор всё равно примем */ }
+  }
+
+  const receipt = saveReceipt(image);
+  const now = Date.now();
+  const info = db.prepare(`INSERT INTO sicilia_disputes (order_id, user_id, source, comment, receipt, created_at, updated_at)
+                           VALUES (?, ?, 'player', ?, ?, ?, ?)`).run(row.id, userId, text || null, receipt, now, now);
+  trackEvent(userId, 'deposit_dispute', { amount: row.amount_rub });
+  alert(`sicilia:dispute:${info.lastInsertRowid}`,
+    `Игрок #${userId} сообщает, что оплата ${row.invid} на ${row.amount_rub} ₽ не зачислена. Чек приложен, спор ждёт в панели: Финансы -> Пополнения.`);
+  return { credited: false, payment: publicOrder(db.prepare('SELECT * FROM sicilia_orders WHERE id = ?').get(row.id)) };
+}
+
+/** Загрузка чека плательщика к ордеру у шлюза (multipart, только картинки). */
+async function uploadClientReceipt(row, receipt, env) {
+  const file = receiptFile(receipt);
+  if (!file || !row.gateway_id) return null;
+  const form = new FormData();
+  form.set('file', new Blob([readFileSync(file.path)], { type: file.type }), receipt);
+  form.set('signature', signInvid(row.invid, env));
+  const res = await fetch(`${env.api}/upload-client-receipt/${encodeURIComponent(row.gateway_id)}`, {
+    method: 'POST', headers: { Accept: 'application/json' }, body: form, signal: AbortSignal.timeout(TIMEOUT_MS),
+  });
+  return res.ok;
+}
+
+/**
+ * Открывает апелляцию у шлюза (кнопка в панели).
+ *
+ * disputeId - спор игрока: берётся его чек. Без него сотрудник открывает
+ * спор сам и прикладывает свой чек (image). Чек уходит двумя путями: файлом к
+ * ордеру (upload-client-receipt, если известен номер ордера у шлюза) и
+ * ссылкой в апелляции - второе обязательно, первое помогает трейдеру.
+ */
+export async function openAppeal(staffId, { orderId, disputeId, reason, image } = {}) {
+  const env = siciliaEnv();
+  if (!isConfigured(env)) throw Object.assign(new Error('Шлюз не настроен'), { code: 'NOT_CONFIGURED' });
+  if (!env.webapp) {
+    throw Object.assign(new Error('Не задан SITE_URL: шлюзу не по чему открыть чек'), { code: 'NO_SITE_URL' });
+  }
+  let dispute = disputeId
+    ? db.prepare('SELECT * FROM sicilia_disputes WHERE id = ?').get(Number(disputeId)) : null;
+  if (disputeId && !dispute) throw Object.assign(new Error('Спор не найден'), { code: 'NOT_FOUND' });
+  const row = db.prepare("SELECT * FROM sicilia_orders WHERE id = ? AND kind = 'payin'")
+    .get(dispute ? dispute.order_id : Number(orderId));
+  if (!row) throw Object.assign(new Error('Платёж не найден'), { code: 'NOT_FOUND' });
+  if (row.paid_at) throw Object.assign(new Error('Платёж уже зачислен'), { code: 'PAID' });
+  if (dispute && dispute.status === 'sent') throw Object.assign(new Error('Апелляция уже открыта'), { code: 'ALREADY' });
+  const text = String(reason || dispute?.comment || '').trim().slice(0, 500);
+  if (text.length < 5) throw Object.assign(new Error('Опишите причину спора для шлюза'), { code: 'NO_REASON' });
+
+  const now = Date.now();
+  const receipt = image ? saveReceipt(image) : dispute?.receipt;
+  if (!receipt) throw Object.assign(new Error('Нужен чек перевода'), { code: 'NO_RECEIPT' });
+  if (!dispute) {
+    const info = db.prepare(`INSERT INTO sicilia_disputes (order_id, user_id, source, comment, receipt, staff_id, created_at, updated_at)
+                             VALUES (?, ?, 'staff', ?, ?, ?, ?, ?)`).run(row.id, row.user_id, text, receipt, staffId, now, now);
+    dispute = db.prepare('SELECT * FROM sicilia_disputes WHERE id = ?').get(info.lastInsertRowid);
+  } else if (image) {
+    db.prepare('UPDATE sicilia_disputes SET receipt = ? WHERE id = ?').run(receipt, dispute.id);
+  }
+
+  // Номер ордера у шлюза нужен для загрузки файла: спросим, если не знаем.
+  if (!row.gateway_id) { try { await confirmPayin(row); } catch { /* не страшно */ } }
+  const fresh = db.prepare('SELECT * FROM sicilia_orders WHERE id = ?').get(row.id);
+  if (fresh.paid_at) return { credited: true, dispute: adminDispute(dispute.id) };
+  try { await uploadClientReceipt(fresh, receipt, env); } catch { /* файлом не вышло - ссылка в апелляции всё равно уйдёт */ }
+
+  try {
+    const res = await call('POST', '/appeals', {
+      merchant: Number(env.merchant) || env.merchant,
+      order_invid: row.invid,
+      image: receiptUrl(receipt, env),
+      // Так поле названо в их API, с двумя n.
+      openning_reason: text,
+      signature: signInvid(row.invid, env),
+    });
+    db.prepare(`UPDATE sicilia_disputes SET status = 'sent', appeal_id = ?, appeal_status = ?, staff_id = ?, comment = COALESCE(comment, ?),
+                       error = NULL, sent_at = ?, updated_at = ? WHERE id = ?`)
+      .run(res.id ?? null, res.status || 'created', staffId, text, now, now, dispute.id);
+  } catch (err) {
+    db.prepare('UPDATE sicilia_disputes SET error = ?, updated_at = ? WHERE id = ?')
+      .run(String(err.message).slice(0, 300), Date.now(), dispute.id);
+    throw err;
+  }
+  logAdmin(staffId, row.user_id, 'sicilia_appeal', { amount: row.amount_rub, note: row.invid });
+  return { credited: false, dispute: adminDispute(dispute.id) };
+}
+
+/** Сотрудник отказывает в споре: чек не тот, перевод на чужие реквизиты и т. п. */
+export function declineDispute(staffId, disputeId, note) {
+  const d = db.prepare('SELECT * FROM sicilia_disputes WHERE id = ?').get(Number(disputeId));
+  if (!d) throw Object.assign(new Error('Спор не найден'), { code: 'NOT_FOUND' });
+  if (d.status !== 'new') throw Object.assign(new Error('Спор уже в работе у шлюза или закрыт'), { code: 'RESOLVED' });
+  const text = String(note || '').trim().slice(0, 300);
+  if (text.length < 5) throw Object.assign(new Error('Напишите игроку, почему отказано'), { code: 'NO_NOTE' });
+  const now = Date.now();
+  db.prepare(`UPDATE sicilia_disputes SET status = 'declined', staff_id = ?, staff_note = ?, closed_at = ?, updated_at = ?
+               WHERE id = ?`).run(staffId, text, now, now, d.id);
+  logAdmin(staffId, d.user_id, 'sicilia_dispute_decline', { note: text });
+  return adminDispute(d.id);
+}
+
+/**
+ * Колбэк закрытия апелляции. Как и остальные колбэки, сам ничего не решает:
+ * записываем, что сказал шлюз, и переспрашиваем статус ордера своей подписью.
+ * Зачисление, если оно есть, проходит той же applyPayinStatus.
+ */
+export async function applyAppealCallback(body) {
+  const row = db.prepare("SELECT * FROM sicilia_orders WHERE kind = 'payin' AND invid = ?").get(String(body.invid));
+  if (!row) return { unknown: true };
+  const now = Date.now();
+  let dispute = lastDispute(row.id);
+  if (!dispute) {
+    // Апелляцию открыли не из панели, а в кабинете шлюза: заводим запись,
+    // чтобы спор был виден рядом с остальными.
+    const info = db.prepare(`INSERT INTO sicilia_disputes (order_id, user_id, source, status, created_at, updated_at, sent_at)
+                             VALUES (?, ?, 'staff', 'sent', ?, ?, ?)`).run(row.id, row.user_id, now, now, now);
+    dispute = db.prepare('SELECT * FROM sicilia_disputes WHERE id = ?').get(info.lastInsertRowid);
+  }
+  db.prepare(`UPDATE sicilia_disputes SET appeal_status = ?, appeal_reason = ?, fact_sum = COALESCE(?, fact_sum), updated_at = ?
+               WHERE id = ?`)
+    .run(String(body.status || ''), body.reason ? String(body.reason).slice(0, 300) : null,
+         body.fact_sum != null ? String(body.fact_sum) : null, now, dispute.id);
+
+  let result = { credited: false };
+  if (!row.paid_at) result = await confirmPayin(row);
+  const after = db.prepare('SELECT * FROM sicilia_orders WHERE id = ?').get(row.id);
+  if (!after.paid_at) {
+    db.prepare(`UPDATE sicilia_disputes SET status = 'lost', closed_at = ?, updated_at = ? WHERE id = ? AND status IN ('new', 'sent')`)
+      .run(now, now, dispute.id);
+  }
+  alert(`sicilia:appeal:${row.id}`, after.paid_at
+    ? `Апелляция по ${row.invid} решена в пользу игрока #${row.user_id}: зачислено ${after.credited_rub} ₽.`
+    : `Апелляция по ${row.invid} (игрок #${row.user_id}, ${row.amount_rub} ₽) закрыта без зачисления: ${body.reason || body.status || 'без причины'}.`);
+  return { ...result, userId: row.user_id };
+}
+
+/* ---------- Для панели ---------- */
+
+function adminDispute(id) {
+  const d = db.prepare('SELECT * FROM sicilia_disputes WHERE id = ?').get(id);
+  return d && {
+    id: d.id, orderId: d.order_id, source: d.source, status: d.status, comment: d.comment,
+    receipt: d.receipt ? `/receipts/${d.receipt}` : null,
+    appealId: d.appeal_id, appealStatus: d.appeal_status, appealReason: d.appeal_reason,
+    factSum: d.fact_sum, staffNote: d.staff_note, error: d.error,
+    createdAt: d.created_at, sentAt: d.sent_at, closedAt: d.closed_at,
+  };
+}
+
+export function openDisputesCount() {
+  return db.prepare("SELECT COUNT(*) AS n FROM sicilia_disputes WHERE status = 'new'").get().n;
+}
+
+/** Переспросить шлюз о пополнении из панели. */
+export async function recheckDeposit(orderId) {
+  const row = db.prepare("SELECT * FROM sicilia_orders WHERE id = ? AND kind = 'payin'").get(Number(orderId));
+  if (!row) throw Object.assign(new Error('Платёж не найден'), { code: 'NOT_FOUND' });
+  if (row.paid_at) return { credited: false, status: row.status, paid: true };
+  return confirmPayin(row);
+}
+
+export { adminDispute };

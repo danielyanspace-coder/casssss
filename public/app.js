@@ -4458,6 +4458,7 @@ const BO_SECTIONS = [
   { id: 'users', name: 'Игроки', group: 'Игроки', need: 'players.view', load: () => loadAdminUsers() },
   { id: 'risk', name: 'Риск', group: 'Игроки', need: 'risk.view', load: () => loadAdminRisk() },
 
+  { id: 'deposits', name: 'Пополнения', group: 'Финансы', need: 'finance.payouts.view', load: () => loadAdminDeposits() },
   { id: 'payouts', name: 'Выводы', group: 'Финансы', need: 'finance.payouts.view', load: () => loadAdminPayouts() },
 
   { id: 'promos', name: 'Промокоды', group: 'Промо', need: 'promo.view', load: () => loadAdminPromos() },
@@ -4618,7 +4619,8 @@ async function initAdminPanel() {
   document.getElementById('boNav').innerHTML = groups.map((g) => `
     <div class="bo-group">
       <div class="bo-group-name">${esc(g.name)}</div>
-      ${g.items.map((s) => `<button class="bo-link" data-admin-tab="${s.id}">${esc(s.name)}</button>`).join('')}
+      ${g.items.map((s) => `<button class="bo-link" data-admin-tab="${s.id}">${esc(s.name)}${
+        s.id === 'deposits' && me.sections?.disputes ? ` <span class="bo-badge" title="Споры ждут решения">${fmt(me.sections.disputes)}</span>` : ''}</button>`).join('')}
     </div>`).join('') || '<div class="empty">Разделов нет</div>';
 
   document.querySelectorAll('[data-admin-tab]').forEach((btn) => {
@@ -4837,6 +4839,271 @@ async function boExport(kind) {
     URL.revokeObjectURL(url);
     toast('Файл готов');
   } catch (err) { toast(err.message); }
+}
+
+/* ---------- Панель: пополнения ---------- */
+
+/*
+ * Все пополнения через шлюзы одним списком. Главное здесь - номера: наш (его
+ * шлюз видит в каждом запросе) и шлюза (его видно в их кабинете). При споре
+ * сотрудник ищет сделку по любому номеру, который ему назвали, и копирует
+ * нужный одним нажатием, а не переписывает руками.
+ */
+const DEP_FILTERS = [
+  ['all', 'Все'], ['credited', 'Зачислены'], ['open', 'Ждут оплаты'], ['failed', 'Не оплачены'], ['dispute', 'Споры'],
+];
+const DEP_STATUS = {
+  created: 'создан', pending: 'ждёт оплаты', processing: 'в обработке', completed: 'зачислен',
+  cancelled: 'отменён шлюзом', error: 'ошибка шлюза', unclaimed: 'отозван', expired: 'не оплачен вовремя',
+  paid: 'зачислен', paid_over: 'зачислен с переплатой', failed: 'не прошёл', wrong_amount: 'не та сумма',
+  cancel: 'отменён', fail: 'не прошёл', system_fail: 'сбой шлюза', process: 'в обработке', check: 'проверяется',
+};
+const DISPUTE_STATUS = {
+  new: 'Игрок сообщил: деньги не пришли', sent: 'Апелляция у шлюза', won: 'Спор выигран, зачислено',
+  lost: 'Шлюз отказал', declined: 'Отказано сотрудником',
+};
+/* Сколько дней выгружать: финансист сверяется с выпиской за месяц. */
+const EXPORT_DAYS = [7, 30, 90];
+
+function idChip(label, value) {
+  if (!value) return '';
+  return `<button class="dep-id" type="button" data-copy="${esc(String(value))}" title="Скопировать">
+    <span>${esc(label)}</span><b>${esc(String(value))}</b></button>`;
+}
+
+function bindIdChips(box) {
+  box.querySelectorAll('[data-copy]').forEach((b) => {
+    if (b.dataset.bound) return;
+    b.dataset.bound = '1';
+    b.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      try { await navigator.clipboard.writeText(b.dataset.copy); toast('Скопировано'); haptic('light'); }
+      catch { toast('Скопируйте вручную'); }
+    });
+  });
+}
+
+function exportBarHtml() {
+  return `<div class="dep-export">
+    <span>Выгрузка в Excel</span>
+    <select class="seed-input" id="depExportDays">${EXPORT_DAYS.map((d) =>
+      `<option value="${d}"${d === 30 ? ' selected' : ''}>${d} дн.</option>`).join('')}</select>
+    <button class="btn btn-outline btn-sm" data-fin-export="deposits">Пополнения</button>
+    <button class="btn btn-outline btn-sm" data-fin-export="payouts">Выводы</button>
+  </div>`;
+}
+
+function bindExportBar(box) {
+  box.querySelectorAll('[data-fin-export]').forEach((b) => b.addEventListener('click', () =>
+    finExport(b.dataset.finExport, Number(box.querySelector('#depExportDays')?.value) || 30)));
+}
+
+/* Скачивание тем же способом, что и отчёты: POST и Blob, а не ссылка. */
+async function finExport(kind, days) {
+  try {
+    const res = await fetch('/api/admin/export/finance', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind, days }),
+    });
+    if (!res.ok) throw new Error('Не удалось выгрузить');
+    const url = URL.createObjectURL(await res.blob());
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `luckybox-${kind}-${days}d.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast('Файл готов');
+  } catch (err) { toast(err.message); }
+}
+
+/*
+ * Чек с телефона - это фото на 4-8 МБ. Пережимаем в JPEG по длинной стороне
+ * RECEIPT_MAX_SIDE: текст чека читается, а файл в разы меньше, что важно на
+ * мобильной связи и для лимита шлюза. Не вышло (старый браузер) - уходит как есть.
+ */
+const RECEIPT_MAX_SIDE = 1800;
+const RECEIPT_QUALITY = 0.85;
+async function receiptDataUrl(file) {
+  if (!file) return null;
+  if (!/^image\//.test(file.type)) throw new Error('Нужна картинка: фото или скриншот чека');
+  const raw = await new Promise((ok, fail) => {
+    const r = new FileReader();
+    r.onload = () => ok(r.result);
+    r.onerror = () => fail(new Error('Не удалось прочитать файл'));
+    r.readAsDataURL(file);
+  });
+  try {
+    const img = await new Promise((ok, fail) => {
+      const i = new Image();
+      i.onload = () => ok(i);
+      i.onerror = fail;
+      i.src = raw;
+    });
+    const k = Math.min(1, RECEIPT_MAX_SIDE / Math.max(img.naturalWidth, img.naturalHeight));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(img.naturalWidth * k));
+    canvas.height = Math.max(1, Math.round(img.naturalHeight * k));
+    canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL('image/jpeg', RECEIPT_QUALITY);
+  } catch { return raw; }
+}
+
+async function loadAdminDeposits({ more = false } = {}) {
+  const box = document.getElementById('admin-deposits');
+  const st = state.admin.dep || (state.admin.dep = { filter: 'all', q: '', rows: [] });
+  if (!more) st.rows = [];
+  if (!box.dataset.built) {
+    box.dataset.built = '1';
+    box.innerHTML = `
+      <div id="depKpis"></div>
+      <div class="admin-search">
+        <input class="seed-input" id="depSearch" placeholder="номер наш или шлюза, почта, ник, id игрока">
+        <button class="btn btn-sm" id="depSearchBtn">Найти</button>
+      </div>
+      <div class="admin-tabs" id="depFilter">${DEP_FILTERS.map(([id, name]) =>
+        `<button class="tab${id === st.filter ? ' active' : ''}" data-dep-filter="${id}">${name}</button>`).join('')}</div>
+      <div id="depList"></div>
+      <button class="btn btn-outline" id="depMore" hidden>Показать ещё</button>
+      ${exportBarHtml()}`;
+    const search = () => { st.q = box.querySelector('#depSearch').value.trim(); loadAdminDeposits(); };
+    box.querySelector('#depSearchBtn').addEventListener('click', search);
+    box.querySelector('#depSearch').addEventListener('keydown', (e) => { if (e.key === 'Enter') search(); });
+    box.querySelectorAll('[data-dep-filter]').forEach((b) => b.addEventListener('click', () => {
+      st.filter = b.dataset.depFilter;
+      box.querySelectorAll('[data-dep-filter]').forEach((x) => x.classList.toggle('active', x === b));
+      loadAdminDeposits();
+    }));
+    box.querySelector('#depMore').addEventListener('click', () => loadAdminDeposits({ more: true }));
+    bindExportBar(box);
+  }
+
+  const list = box.querySelector('#depList');
+  if (!more) list.innerHTML = '<span class="skel skel-line"></span>'.repeat(4);
+  let d;
+  try {
+    d = await api('/api/admin/deposits', {
+      q: st.q, filter: st.filter, before: more && st.rows.length ? st.rows[st.rows.length - 1].created_at : 0,
+    });
+  } catch (err) { list.innerHTML = `<div class="empty">${esc(err.message)}</div>`; return; }
+  st.rows.push(...d.rows);
+  st.meta = d;
+
+  const s = d.summary;
+  box.querySelector('#depKpis').innerHTML = `<div class="admin-kpis">
+    <div class="kpi"><div class="kpi-label">Зачислено за сутки</div>
+      <div class="kpi-value plus">${money(s.paidSum)}</div><div class="kpi-sub">${fmt(s.paidCount)} оплат</div></div>
+    <div class="kpi"><div class="kpi-label">Доходят до оплаты</div>
+      <div class="kpi-value">${s.conversion == null ? '-' : Math.round(s.conversion * 100) + '%'}</div>
+      <div class="kpi-sub">из созданных за сутки</div></div>
+    <div class="kpi${s.disputesNew ? ' kpi-alert' : ''}"><div class="kpi-label">Споры ждут решения</div>
+      <div class="kpi-value">${fmt(s.disputesNew)}</div><div class="kpi-sub">сообщили игроки</div></div>
+    <div class="kpi"><div class="kpi-label">Апелляции у шлюза</div>
+      <div class="kpi-value">${fmt(s.disputesSent)}</div><div class="kpi-sub">ждём решения Sicilia</div></div>
+  </div>`;
+
+  list.innerHTML = st.rows.length ? st.rows.map((r) => depositRowHtml(r, d)).join('')
+    : `<div class="empty">${st.q ? 'Ничего не нашлось' : 'Пополнений нет'}</div>`;
+  box.querySelector('#depMore').hidden = d.rows.length < 50;
+  bindIdChips(list);
+  bindDepositRows(list);
+}
+
+function depositRowHtml(r, meta) {
+  const paid = !!r.paid_at;
+  const name = r.username ? '@' + r.username : (r.email || r.first_name || ('#' + r.user_id));
+  const tone = paid ? 'paid' : ['created', 'pending', 'processing', 'process', 'check'].includes(r.status) ? 'processing' : 'rejected';
+  const d = r.dispute;
+  const canAct = meta.canResolve && r.source === 'sicilia' && !paid;
+  const disputeBox = d ? `<div class="dep-dispute is-${d.status}">
+      <b>${esc(DISPUTE_STATUS[d.status] || d.status)}</b>
+      <small>${d.source === 'player' ? 'Сообщил игрок' : 'Открыл сотрудник'} · ${new Date(d.createdAt).toLocaleString('ru-RU')}</small>
+      ${d.comment ? `<p>«${esc(d.comment)}»</p>` : ''}
+      ${d.receipt ? `<a class="dep-receipt" href="${esc(d.receipt)}" target="_blank" rel="noopener"><img src="${esc(d.receipt)}" alt="Чек" loading="lazy"><span>Открыть чек</span></a>` : ''}
+      ${d.appealReason ? `<p>Ответ шлюза: ${esc(d.appealReason)}</p>` : ''}
+      ${d.staffNote ? `<p>Ответ игроку: ${esc(d.staffNote)}</p>` : ''}
+      ${d.error ? `<p class="dep-error">Не ушло в шлюз: ${esc(d.error)}</p>` : ''}
+    </div>` : '';
+  const newDispute = d && d.status === 'new';
+  const actions = canAct ? `<div class="dep-actions" data-dep-actions="${r.id}">
+      <button class="btn btn-outline btn-sm" data-dep-recheck="${r.id}">Проверить у шлюза</button>
+      ${!d || !['new', 'sent'].includes(d.status) || newDispute
+        ? `<button class="btn btn-sm" data-dep-appeal="${r.id}" data-dispute="${newDispute ? d.id : ''}">${newDispute ? 'Отправить спор в Sicilia' : 'Открыть спор'}</button>` : ''}
+      ${newDispute ? `<button class="btn btn-outline btn-sm" data-dep-decline="${d.id}">Отказать</button>` : ''}
+    </div>
+    <div class="dep-form" data-dep-form="${r.id}" hidden></div>` : '';
+  return `<div class="payout-row admin ${tone}">
+    <div class="payout-head">
+      <b>${money(r.amount)}${paid && r.credited !== r.amount ? ` <small class="dep-fact">зачислено ${money(r.credited)}</small>` : ''}</b>
+      <span class="payout-status ${tone}">${esc(DEP_STATUS[r.status] || r.status)}</span>
+    </div>
+    <div class="payout-date">${r.source === 'sicilia' ? 'СБП / карта · Sicilia' : `Криптовалюта${r.currency ? ' ' + esc(r.currency) : ''} · Heleket`} ·
+      <a href="#" data-dep-user="${r.user_id}">${esc(name)}</a> · ${esc(playerIdent(r, r.user_id))}</div>
+    <div class="payout-date">Создан ${new Date(r.created_at).toLocaleString('ru-RU')}${paid ? ` · зачислен ${new Date(r.paid_at).toLocaleString('ru-RU')}` : ''}</div>
+    <div class="dep-ids">${idChip('Наш номер', r.number)}${idChip(r.source === 'sicilia' ? 'Номер Sicilia' : 'Номер Heleket', r.gateway_id)}</div>
+    ${disputeBox}
+    ${actions}
+  </div>`;
+}
+
+function bindDepositRows(list) {
+  list.querySelectorAll('[data-dep-user]').forEach((a) => a.addEventListener('click', (e) => {
+    e.preventDefault();
+    openAdminUser(Number(a.dataset.depUser));
+  }));
+  list.querySelectorAll('[data-dep-recheck]').forEach((b) => b.addEventListener('click', () => withCashBusy(b, async () => {
+    try {
+      const r = await api('/api/admin/deposit/recheck', { id: Number(b.dataset.depRecheck) });
+      toast(r.credited ? `Зачислено ${money(r.amount)}` : `Шлюз отвечает: ${DEP_STATUS[r.status] || r.status || 'нет ордера'}`);
+      loadAdminDeposits();
+    } catch (err) { toast(err.message); }
+  })));
+  list.querySelectorAll('[data-dep-appeal]').forEach((b) => b.addEventListener('click', () => {
+    const id = b.dataset.depAppeal;
+    const form = list.querySelector(`[data-dep-form="${id}"]`);
+    const row = state.admin.dep.rows.find((x) => x.source === 'sicilia' && String(x.id) === id);
+    const fromPlayer = !!b.dataset.dispute;
+    if (!state.admin.dep.meta.siteUrl) { toast('Не задан SITE_URL: шлюзу не по чему открыть чек'); return; }
+    form.hidden = !form.hidden;
+    if (form.hidden) return;
+    form.innerHTML = `
+      <label class="dep-label">Причина для шлюза</label>
+      <textarea class="seed-input" rows="2" data-f="reason" placeholder="Например: перевод выполнен, чек приложен, сумма совпадает">${esc(row?.dispute?.comment || '')}</textarea>
+      <label class="dep-label">${fromPlayer ? 'Свой чек, если чек игрока не годится' : 'Чек перевода (фото или скриншот)'}</label>
+      <label class="dep-file"><span data-f="filename">Выбрать файл</span><input type="file" accept="image/*" data-f="file" hidden></label>
+      <div class="admin-actions"><button class="btn btn-primary" data-f="send">Отправить апелляцию</button></div>`;
+    form.querySelector('[data-f="file"]').addEventListener('change', (e) => {
+      form.querySelector('[data-f="filename"]').textContent = e.target.files[0]?.name || 'Выбрать файл';
+    });
+    form.querySelector('[data-f="send"]').addEventListener('click', (e) => withCashBusy(e.currentTarget, async () => {
+      try {
+        const image = await receiptDataUrl(form.querySelector('[data-f="file"]').files[0]);
+        if (!fromPlayer && !image) { toast('Приложите чек'); return; }
+        const r = await api('/api/admin/dispute/open', {
+          orderId: Number(id), disputeId: fromPlayer ? Number(b.dataset.dispute) : undefined,
+          reason: form.querySelector('[data-f="reason"]').value, image,
+        });
+        toast(r.credited ? 'Пока открывали спор, деньги пришли: зачислено' : 'Апелляция открыта, решение придёт от шлюза');
+        haptic('success');
+        loadAdminDeposits();
+      } catch (err) { toast(err.message); }
+    }));
+  }));
+  list.querySelectorAll('[data-dep-decline]').forEach((b) => b.addEventListener('click', () => {
+    const form = b.closest('.payout-row').querySelector('[data-dep-form]');
+    form.hidden = false;
+    form.innerHTML = `
+      <label class="dep-label">Ответ игроку: почему отказано</label>
+      <textarea class="seed-input" rows="2" data-f="note" placeholder="Например: перевод ушёл на реквизиты другого платежа"></textarea>
+      <div class="admin-actions"><button class="btn btn-outline" data-f="send">Отказать</button></div>`;
+    form.querySelector('[data-f="send"]').addEventListener('click', (e) => withCashBusy(e.currentTarget, async () => {
+      try {
+        await api('/api/admin/dispute/decline', { id: Number(b.dataset.depDecline), note: form.querySelector('[data-f="note"]').value });
+        toast('Игрок увидит ответ в кассе');
+        loadAdminDeposits();
+      } catch (err) { toast(err.message); }
+    }));
+  }));
 }
 
 /* ---------- Панель: риск ---------- */
@@ -5580,7 +5847,8 @@ async function siciliaAdminInfo() {
 function siciliaPayoutBlock(p, gateway, info) {
   const g = gateway[p.id];
   const line = g ? `<div class="payout-comment">Sicilia: ${esc(SICILIA_STATUS[g.status] || g.status)}${g.error ? ` - ${esc(g.error)}` : ''}${
-    g.checkUrl ? ` · <a href="${esc(g.checkUrl)}" target="_blank" rel="noopener">чек</a>` : ''}</div>` : '';
+    g.checkUrl ? ` · <a href="${esc(g.checkUrl)}" target="_blank" rel="noopener">чек</a>` : ''}</div>
+    <div class="dep-ids">${idChip('Наш номер', g.invid)}${g.gatewayId ? idChip('Номер Sicilia', g.gatewayId) : ''}</div>` : '';
   const canSend = info.configured && (p.method === 'sbp' || p.method === 'card')
     && (p.status === 'pending' || p.status === 'processing')
     && (!g || ['cancelled', 'error', 'unclaimed'].includes(g.status));
@@ -5652,7 +5920,8 @@ async function loadAdminPayouts() {
   </div>`;
 
   if (!d.rows.length) {
-    box.innerHTML = head + '<div class="empty">Заявок нет</div>';
+    box.innerHTML = head + '<div class="empty">Заявок нет</div>' + exportBarHtml();
+    bindExportBar(box);
     return;
   }
 
@@ -5689,6 +5958,10 @@ async function loadAdminPayouts() {
         </div>` : ''}`}
     </div>`;
   }).join('');
+
+  box.insertAdjacentHTML('beforeend', exportBarHtml());
+  bindExportBar(box);
+  bindIdChips(box);
 
   const openDetails = async (id, recheck = false) => {
     const panel = box.querySelector(`[data-risk-details="${id}"]`);
@@ -6358,6 +6631,7 @@ async function loadWallet() {
     : cashEmpty('Пополнений пока нет', 'Здесь появятся все зачисления на баланс');
 
   renderPayoutList(w.payouts);
+  loadSiciliaIssues();
 
   /*
    * Игроку важно не только сколько доступно, но и почему ноль. Молчаливое
@@ -7044,15 +7318,94 @@ async function checkSicilia(order, byHand) {
       return;
     }
     const closed = ['cancelled', 'error', 'unclaimed', 'expired'].includes(r.payment?.status);
-    if (closed) clearInterval(siciliaState.poll);
+    if (closed) { clearInterval(siciliaState.poll); loadSiciliaIssues(); }
     if (status && (byHand || closed)) {
       status.textContent = closed
-        ? 'Оплата не поступила и закрыта. Если вы перевели деньги, напишите в поддержку.'
+        ? 'Оплата не поступила и закрыта. Если вы перевели деньги, нажмите «Деньги не пришли» в списке ниже и приложите чек.'
         : 'Перевод ещё не подтверждён. Обычно это занимает несколько минут.';
     }
   } catch (err) {
     if (byHand && status) status.textContent = err.message;
   }
+}
+
+/* ---------- Касса: оплата не пришла ---------- */
+
+/*
+ * Оплаты СБП, которые ещё не зачислены, за последние ISSUE_WINDOW_DAYS дней.
+ * Отсюда игрок сообщает: перевёл, а деньги не пришли, и прикладывает чек.
+ * Номер платежа показан, чтобы поддержка нашла оплату одним поиском, а не по
+ * сумме и времени. Срок совпадает с серверным (DISPUTE_WINDOW_MS).
+ */
+const ISSUE_WINDOW_DAYS = 7;
+const ISSUE_STATUS = {
+  created: 'Ждём оплату', pending: 'Ждём оплату', processing: 'Банк проверяет перевод',
+  cancelled: 'Оплата не поступила', error: 'Оплата не поступила', unclaimed: 'Оплата не поступила',
+  expired: 'Оплата не поступила',
+};
+const ISSUE_DISPUTE = {
+  new: 'Чек получен, проверяем', sent: 'Передано в платёжную систему, ждём ответа',
+  won: 'Зачислено по вашему обращению', lost: 'Платёжная система не подтвердила перевод',
+  declined: 'Отказано',
+};
+
+async function loadSiciliaIssues() {
+  const wrap = document.getElementById('siciliaIssues');
+  if (!wrap || state.guest) return;
+  let rows = [];
+  try { rows = (await api('/api/sicilia/list')).rows || []; } catch { return; }
+  const from = Date.now() - ISSUE_WINDOW_DAYS * 86400000;
+  const open = rows.filter((r) => !r.paidAt && r.createdAt >= from && (r.opened || r.dispute));
+  wrap.hidden = !open.length;
+  const list = document.getElementById('siciliaIssueList');
+  list.innerHTML = open.map((r) => {
+    const d = r.dispute;
+    const canReport = !d || !['new', 'sent'].includes(d.status);
+    return `<div class="cash-issue" data-issue="${r.id}">
+      <div class="cash-issue-head">
+        <b>${money(r.amount)}</b>
+        <span>${esc(d ? ISSUE_DISPUTE[d.status] || '' : ISSUE_STATUS[r.status] || 'Ждём оплату')}</span>
+      </div>
+      <small>${cashDate(r.createdAt)} · платёж № ${esc(r.number || String(r.id))}</small>
+      ${d?.note && ['declined', 'lost'].includes(d.status) ? `<p class="cash-issue-note">${esc(d.note)}</p>` : ''}
+      ${canReport ? `<button class="cash-ghost cash-issue-btn" data-issue-report="${r.id}">${cashIcon('warn')}Деньги не пришли</button>` : ''}
+      <div class="cash-issue-form" data-issue-form="${r.id}" hidden>
+        <p>Приложите чек или скриншот перевода из приложения банка: сумма, дата и получатель должны быть видны.</p>
+        <label class="cash-issue-file">${cashIcon('plus')}<span data-issue-file-label>Выбрать чек</span>
+          <input type="file" accept="image/*" data-issue-file hidden></label>
+        <textarea class="seed-input" rows="2" maxlength="500" data-issue-comment
+          placeholder="Когда и с какого банка переводили (необязательно)"></textarea>
+        <button class="cash-cta" data-issue-send><span>Отправить</span>${cashIcon('arrow')}</button>
+      </div>
+    </div>`;
+  }).join('');
+
+  list.querySelectorAll('[data-issue-report]').forEach((b) => b.addEventListener('click', () => {
+    const form = list.querySelector(`[data-issue-form="${b.dataset.issueReport}"]`);
+    form.hidden = !form.hidden;
+    haptic('light');
+  }));
+  list.querySelectorAll('[data-issue-file]').forEach((input) => input.addEventListener('change', () => {
+    const label = input.closest('.cash-issue-file').querySelector('[data-issue-file-label]');
+    label.textContent = input.files[0] ? input.files[0].name : 'Выбрать чек';
+    input.closest('.cash-issue-file').classList.toggle('is-picked', !!input.files[0]);
+  }));
+  list.querySelectorAll('[data-issue-send]').forEach((btn) => btn.addEventListener('click', () => withCashBusy(btn, async () => {
+    const box = btn.closest('[data-issue]');
+    const file = box.querySelector('[data-issue-file]').files[0];
+    if (!file) { toast('Приложите чек перевода'); return; }
+    try {
+      const image = await receiptDataUrl(file);
+      const r = await api('/api/sicilia/report', {
+        id: Number(box.dataset.issue), image, comment: box.querySelector('[data-issue-comment]').value,
+      });
+      if (r.user) applyUser(r.user);
+      if (r.credited) { toast('Платёж нашёлся и зачислен'); sndCollect(); loadWallet(); }
+      else toast('Чек получен. Проверим перевод и вернёмся с ответом здесь же');
+      haptic('success');
+      loadSiciliaIssues();
+    } catch (err) { toast(err.message); haptic('error'); }
+  })));
 }
 
 function startPaymentEvents(){

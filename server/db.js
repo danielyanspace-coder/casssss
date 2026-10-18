@@ -2756,7 +2756,7 @@ const ALL_EVENTS = new Set([
   ...CLIENT_EVENTS,
   'deposit_first_bonus', 'promo_redeemed', 'freespins_bought', 'bot_reminder',
   'fortune_unlocked', 'fortune_spin', 'casino_launch',
-  'slot_spin', 'slot_jackpot', 'slot_bonus_bought', 'login',
+  'slot_spin', 'slot_jackpot', 'slot_bonus_bought', 'login', 'deposit_dispute',
 ]);
 
 const insertEvent = db.prepare(

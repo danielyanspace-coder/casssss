@@ -54,6 +54,7 @@ import {
 import { limits } from './ratelimit.js';
 import * as crypto from './crypto.js';
 import * as sicilia from './sicilia.js';
+import { adminDeposits, depositsSummary, depositsCsvRows, payoutsCsvRows, toCsv } from './cashdesk.js';
 import {
   BONUS_CONFIG,
   claimBonus,
@@ -2294,6 +2295,92 @@ app.post('/api/webhooks/sicilia', limits.webhook, async (req, res) => {
   }
 });
 
+/*
+ * «Перевёл, а деньги не пришли»: чек игрока и его слова. Сразу в шлюз это не
+ * уходит, спор сначала видит сотрудник (почему - в sicilia.reportDeposit).
+ * Лимит кассы, а не чтения: каждое обращение пишет файл на диск.
+ */
+app.post('/api/sicilia/report', auth, limits.cashier, async (req, res) => {
+  try {
+    const r = await sicilia.reportDeposit(req.player.id, req.body?.id, { comment: req.body?.comment, image: req.body?.image });
+    if (r.credited) emitPayment(req.player.id, 'payment.completed', { source: 'sicilia' });
+    res.json({ ...r, user: publicUser(getUserById(req.player.id)) });
+  } catch (err) {
+    res.status(err.code === 'NOT_FOUND' ? 404 : 400).json({ error: err.message, code: err.code });
+  }
+});
+
+/*
+ * Чек к спору. Ссылку открывает трейдер шлюза из апелляции, поэтому она без
+ * входа; имя файла - 16 случайных байт, список файлов не отдаётся, а
+ * поисковикам и кешам сказано файл не хранить.
+ */
+app.get('/receipts/:name', (req, res) => {
+  const file = sicilia.receiptFile(req.params.name);
+  if (!file) return res.status(404).end();
+  res.set({ 'Content-Type': file.type, 'Cache-Control': 'private, max-age=3600', 'X-Robots-Tag': 'noindex, nofollow' });
+  res.sendFile(file.path);
+});
+
+/* Панель: все пополнения через шлюзы, с номерами нашими и шлюза. */
+app.post('/api/admin/deposits', auth, need('finance.payouts.view'), (req, res) => {
+  const filter = ['all', 'credited', 'open', 'failed', 'dispute'].includes(req.body?.filter) ? req.body.filter : 'all';
+  res.json({
+    rows: adminDeposits({ q: req.body?.q, filter, before: req.body?.before }),
+    summary: depositsSummary(),
+    canResolve: req.perms.has('finance.payouts.resolve'),
+    siteUrl: Boolean(sicilia.siciliaEnv().webapp),
+    configured: sicilia.isConfigured(),
+  });
+});
+
+/* Переспросить шлюз о пополнении сейчас, не дожидаясь сверки. */
+app.post('/api/admin/deposit/recheck', auth, need('finance.payouts.view'), async (req, res) => {
+  try {
+    const r = await sicilia.recheckDeposit(req.body?.id);
+    if (r.credited) emitPayment(r.userId, 'payment.completed', { source: 'sicilia' });
+    res.json(r);
+  } catch (err) {
+    const status = err.code === 'NOT_FOUND' ? 404 : err.code === 'GATEWAY_UNREACHABLE' ? 503 : 400;
+    res.status(status).json({ error: err.message, code: err.code });
+  }
+});
+
+/* Апелляция у шлюза: по спору игрока или по оплате, с чеком сотрудника. */
+app.post('/api/admin/dispute/open', auth, need('finance.payouts.resolve'), async (req, res) => {
+  try {
+    const r = await sicilia.openAppeal(req.player.id, {
+      orderId: req.body?.orderId, disputeId: req.body?.disputeId, reason: req.body?.reason, image: req.body?.image,
+    });
+    res.json(r);
+  } catch (err) {
+    const status = err.code === 'NOT_FOUND' ? 404
+      : ['NOT_CONFIGURED', 'GATEWAY_UNREACHABLE', 'NO_SITE_URL'].includes(err.code) ? 503 : 400;
+    res.status(status).json({ error: err.message, code: err.code });
+  }
+});
+
+app.post('/api/admin/dispute/decline', auth, need('finance.payouts.resolve'), (req, res) => {
+  try {
+    res.json({ dispute: sicilia.declineDispute(req.player.id, req.body?.id, req.body?.note) });
+  } catch (err) {
+    res.status(err.code === 'NOT_FOUND' ? 404 : 400).json({ error: err.message, code: err.code });
+  }
+});
+
+/*
+ * Выгрузка сделок построчно: пополнения или выводы, с номерами нашими и
+ * шлюза. Отдельно от отчётов и под правом финансов: в файле игроки и их
+ * реквизиты, а не сводные цифры.
+ */
+app.post('/api/admin/export/finance', auth, need('finance.payouts.view'), (req, res) => {
+  const kind = req.body?.kind === 'payouts' ? 'payouts' : 'deposits';
+  const days = Math.min(366, Math.max(1, Number(req.body?.days) || 30));
+  const { head, rows } = kind === 'payouts' ? payoutsCsvRows(days) : depositsCsvRows(days);
+  logAdmin(req.player.id, 0, 'export', { note: kind, meta: { days, rows: rows.length } });
+  res.type('text/csv; charset=utf-8').send(toCsv(head, rows));
+});
+
 /* Панель: готовность шлюза, баланс мерчанта и коды банков для выплат. */
 app.post('/api/admin/sicilia', auth, need('finance.payouts.view'), async (req, res) => {
   const env = sicilia.siciliaEnv();
@@ -2458,6 +2545,8 @@ app.post('/api/admin/me', auth, adminOnly, (req, res) => {
     sections: {
       players: req.perms.has('players.view'),
       finance: req.perms.has('finance.payouts.view'),
+      // Споры игроков ждут человека: число показывается на вкладке раздела.
+      disputes: req.perms.has('finance.payouts.view') ? sicilia.openDisputesCount() : 0,
       promo: req.perms.has('promo.view') || req.perms.has('partners.view'),
       risk: req.perms.has('risk.view'),
       reports: req.perms.has('reports.view'),

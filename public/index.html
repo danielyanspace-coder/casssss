@@ -579,6 +579,12 @@
           <div class="payment-checkout" id="siciliaCheckout" hidden></div>
         </div>
 
+        <!-- Оплаты СБП, которые ещё не зачислены: отсюда игрок сообщает,
+             что перевёл, а деньги не пришли (public/app.js, renderSiciliaIssues). -->
+        <div id="siciliaIssues" hidden>
+          <h2 class="cash-h2">Оплаты в ожидании</h2>
+          <div class="cash-list" id="siciliaIssueList"></div>
+        </div>
         <h2 class="cash-h2">История пополнений</h2>
         <div class="cash-list" id="depositList"></div>
       </div>
@@ -839,6 +845,7 @@
             <div id="payoutAdminList"></div>
           </div>
 
+          <div class="admin-pane" id="admin-deposits"></div>
           <div class="admin-pane" id="admin-risk"></div>
           <div class="admin-pane" id="admin-promos"></div>
           <div class="admin-pane" id="admin-partners"></div>

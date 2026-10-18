@@ -1779,6 +1779,12 @@ const routes = {
    */
   // Шлюза Sicilia в файле нет: вкладка «СБП и карта» не показывается.
   'POST /api/sicilia/options': () => ({ enabled: false, min: 100, max: 300000 }),
+  // Оплат СБП в файле нет: шлюза без сервера не бывает.
+  'POST /api/sicilia/list': () => ({ rows: [] }),
+  'POST /api/admin/deposits': () => ({
+    rows: [], canResolve: true, siteUrl: false, configured: false,
+    summary: { paidCount: 0, paidSum: 0, conversion: null, disputesNew: 0, disputesSent: 0 },
+  }),
 
   'POST /api/crypto/options': () => ({
     enabled: true,

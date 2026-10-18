@@ -1195,6 +1195,26 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
         bytes[0] === 0xEF && bytes[1] === 0xBB && bytes[2] === 0xBF,
         `первые байты ${bytes[0]} ${bytes[1]} ${bytes[2]}`);
 
+  /* Касса в панели: пополнения с номерами, споры, выгрузки сделок. */
+  const deps = await post('/api/admin/deposits', { filter: 'all' });
+  check('панель: список пополнений отдаётся', deps.status === 200 && Array.isArray(deps.data.rows)
+    && typeof deps.data.summary?.disputesNew === 'number', deps.status);
+  check('панель: поиск пополнений по номеру', (await post('/api/admin/deposits', { q: 'lb-нет-такого' })).data.rows?.length === 0);
+  for (const kind of ['deposits', 'payouts']) {
+    const r = await fetch(BASE + '/api/admin/export/finance', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind, days: 30 }),
+    });
+    const t = new TextDecoder('utf-8').decode(new Uint8Array(await r.arrayBuffer()));
+    check(`панель: выгрузка сделок (${kind}) с номерами шлюза`, r.ok && t.includes('номер') && t.includes(';'), t.slice(0, 80));
+  }
+  const meDisputes = (await post('/api/admin/me')).data.sections?.disputes;
+  check('панель: число споров для вкладки', typeof meDisputes === 'number', String(meDisputes));
+  check('чек: чужое имя файла не отдаётся', (await fetch(BASE + '/receipts/..%2Fapp.db')).status === 404);
+  check('чек: несуществующий не отдаётся', (await fetch(BASE + '/receipts/' + 'a'.repeat(32) + '.png')).status === 404);
+  check('спор по чужой оплате не заводится', (await post('/api/sicilia/report', { id: 999999, image: 'x' })).status === 404);
+  check('апелляция без права на выводы закрыта для игрока без шлюза',
+    [400, 404, 503].includes((await post('/api/admin/dispute/open', { orderId: 999999, reason: 'проверка' })).status));
+
   /* Журнал: всё, что мы только что сделали, должно в нём быть. */
   const journal = await post('/api/admin/journal', { limit: 200 });
   check('панель: журнал отдаётся', journal.status === 200 && Array.isArray(journal.data.rows));

@@ -44,7 +44,8 @@ const sha = (str) => createHash('sha256').update(str).digest('hex');
 const calls = [];
 let reply = () => ({ status: 404, body: { message: 'нет' } });
 globalThis.fetch = async (url, opts = {}) => {
-  const body = opts.body ? JSON.parse(opts.body) : null;
+  // Чек к ордеру уходит формой (multipart), остальное - JSON.
+  const body = typeof opts.body === 'string' ? JSON.parse(opts.body) : opts.body || null;
   calls.push({ url: String(url), method: opts.method || 'GET', body, headers: opts.headers || {} });
   const r = reply(String(url), opts.method || 'GET', body);
   return { ok: r.status < 400, status: r.status, json: async () => r.body };
@@ -273,10 +274,105 @@ function player(balance = 0) {
     && bc.headers.signature === sha(`${bc.headers.timestamp}:7:k3y`));
 }
 
+/* ---------- Споры: чек игрока, апелляция, колбэк закрытия, поздняя сверка ---------- */
+
+{
+  // Самая маленькая настоящая PNG: проверка типа идёт по первым байтам.
+  const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+  const u = player();
+  const order = s.createDeposit(u.id, 2000);
+  const row = db.prepare('SELECT * FROM sicilia_orders WHERE id = ?').get(order.id);
+  check('номер платежа виден игроку для поддержки', order.number === row.invid && /^lb-/.test(order.number));
+
+  reply = () => ({ status: 200, body: { id: 812, invid: row.invid, status: 'pending', sum: '2000' } });
+  let refused = '';
+  try { await s.reportDeposit(u.id, order.id, { comment: 'перевёл' }); } catch (e) { refused = e.code; }
+  check('спор без чека не принимается', refused === 'NO_RECEIPT', refused);
+  try { await s.reportDeposit(u.id, order.id, { image: 'data:image/png;base64,' + Buffer.from('not an image').toString('base64') }); }
+  catch (e) { refused = e.code; }
+  check('чек не картинкой не принимается', refused === 'BAD_FILE', refused);
+
+  const rep = await s.reportDeposit(u.id, order.id, { comment: 'перевёл в 12:00 со Сбера', image: png });
+  const d1 = db.prepare('SELECT * FROM sicilia_disputes WHERE order_id = ?').get(order.id);
+  check('спор игрока заведён и ждёт сотрудника', !rep.credited && d1?.status === 'new' && d1.source === 'player');
+  check('чек сохранён и отдаётся по случайному имени', s.RECEIPT_NAME_RE.test(d1.receipt) && !!s.receiptFile(d1.receipt));
+  check('чужие имена файлов не открываются', !s.receiptFile('../app.db') && !s.receiptFile('x.png'));
+  check('спор видно игроку в его оплатах', s.listDeposits(u.id)[0].dispute?.status === 'new');
+  try { await s.reportDeposit(u.id, order.id, { image: png }); } catch (e) { refused = e.code; }
+  check('второй спор по той же оплате не заводится', refused === 'ALREADY', refused);
+
+  // Сотрудник открывает апелляцию: файл к ордеру и апелляция со ссылкой на чек.
+  calls.length = 0;
+  reply = (url, m, body) => url.endsWith('/appeals')
+    ? { status: 201, body: { id: 31, order_id: 812, inv_id: body.order_invid, status: 'created' } }
+    : url.includes('/upload-client-receipt/') ? { status: 201, body: { receipt: { id: 1 } } }
+      : { status: 200, body: { id: 812, invid: row.invid, status: 'pending', sum: '2000' } };
+  const admin = player();
+  const opened = await s.openAppeal(admin.id, { disputeId: d1.id, reason: 'Перевод есть, чек приложен' });
+  const ap = lastCall('/appeals');
+  check('апелляция: подпись sha256(login:invid:apiKey) и наш номер', ap.body.order_invid === row.invid
+    && ap.body.signature === sha(`lucky:${row.invid}:k3y`) && ap.body.merchant === 7);
+  check('апелляция: чек ссылкой на наш сайт', ap.body.image === `https://luckybox.test/receipts/${d1.receipt}`);
+  check('апелляция: причина в поле openning_reason', ap.body.openning_reason === 'Перевод есть, чек приложен');
+  check('чек загружен файлом к ордеру шлюза', calls.some((c) => c.url.endsWith('/upload-client-receipt/812')));
+  check('спор переведён в «у шлюза»', opened.dispute.status === 'sent' && opened.dispute.appealId === 31);
+
+  // Ордер истёк у нас, а шлюз решил апелляцию в пользу игрока и прислал колбэк.
+  db.prepare("UPDATE sicilia_orders SET status = 'expired', created_at = ? WHERE id = ?").run(Date.now() - 5 * 86400000, order.id);
+  const cb = { invid: row.invid, status: 'completed', reason: 'чек подтверждён', fact_sum: '1990', signature: sha(`lucky:${row.invid}:k3y`) };
+  check('колбэк апелляции: подпись sha256(login:invid:apiKey) принимается', s.verifyCallback(cb));
+  check('колбэк апелляции: чужая подпись отвергается', !s.verifyCallback({ ...cb, signature: sha(`x:${row.invid}:k3y`) }));
+  reply = () => ({ status: 200, body: { id: 812, invid: row.invid, status: 'completed', sum: '2000', fact_sum: '1990' } });
+  const won = await s.handleCallback(cb);
+  const d2 = db.prepare('SELECT * FROM sicilia_disputes WHERE id = ?').get(d1.id);
+  check('апелляция в пользу игрока зачисляет по факту шлюза', won.kind === 'appeal' && won.credited && won.amount === 1990
+    && siciliaPaid(u.id) === 1990, JSON.stringify(won));
+  check('спор закрыт победой с причиной шлюза', d2.status === 'won' && d2.appeal_reason === 'чек подтверждён');
+  const again = await s.handleCallback(cb);
+  check('повтор колбэка апелляции денег не даёт', !again.credited && siciliaPaid(u.id) === 1990);
+
+  // Проигранная апелляция: шлюз отказал, денег нет.
+  const u2 = player();
+  const o2 = s.createDeposit(u2.id, 1000);
+  const r2 = db.prepare('SELECT * FROM sicilia_orders WHERE id = ?').get(o2.id);
+  reply = () => ({ status: 200, body: { id: 813, invid: r2.invid, status: 'cancelled', sum: '1000' } });
+  const lost = await s.handleCallback({ invid: r2.invid, status: 'rejected', reason: 'чек не совпал', signature: sha(`lucky:${r2.invid}:k3y`) });
+  const d3 = db.prepare('SELECT * FROM sicilia_disputes WHERE order_id = ?').get(o2.id);
+  check('апелляция из кабинета шлюза видна в споре', d3?.source === 'staff' && d3.status === 'lost' && !lost.credited);
+
+  // Отказ сотрудника: только по новому спору и с причиной для игрока.
+  const u3 = player();
+  const o3 = s.createDeposit(u3.id, 700);
+  reply = () => ({ status: 200, body: { status: 'pending' } });
+  await s.reportDeposit(u3.id, o3.id, { image: png });
+  const d4 = db.prepare('SELECT * FROM sicilia_disputes WHERE order_id = ?').get(o3.id);
+  try { s.declineDispute(admin.id, d4.id, ''); } catch (e) { refused = e.code; }
+  check('отказ в споре без причины не проходит', refused === 'NO_NOTE', refused);
+  s.declineDispute(admin.id, d4.id, 'Перевод ушёл на чужие реквизиты');
+  check('отказ виден игроку', s.listDeposits(u3.id)[0].dispute?.status === 'declined'
+    && s.listDeposits(u3.id)[0].dispute.note === 'Перевод ушёл на чужие реквизиты');
+
+  // Поздняя сверка: ордер истёк у нас, а потом шлюз зачёл его без колбэка.
+  const u4 = player();
+  const o4 = s.createDeposit(u4.id, 900);
+  const r4 = db.prepare('SELECT * FROM sicilia_orders WHERE id = ?').get(o4.id);
+  db.prepare("UPDATE sicilia_orders SET status = 'expired', created_at = ? WHERE id = ?").run(Date.now() - 3600_000, o4.id);
+  reply = (url, m, body) => url.endsWith('/orders/check-status') && body.invid === r4.invid
+    ? { status: 200, body: { id: 900, invid: r4.invid, status: 'completed', sum: '900' } }
+    : { status: 200, body: { invid: body?.invid, status: 'cancelled' } };
+  await s.reconcile();
+  check('поздняя сверка зачисляет ордер, зачтённый после срока', siciliaPaid(u4.id) === 900);
+  calls.length = 0;
+  await s.reconcile();
+  check('поздняя сверка не дёргает шлюз чаще раза в час',
+    !calls.some((c) => c.body?.invid === r4.invid));
+}
+
 /* ---------- итог ---------- */
 
 db.close();
 for (const t of ['', '-wal', '-shm']) rmSync(process.env.DB_PATH + t, { force: true });
+rmSync(s.receiptDir(), { recursive: true, force: true });
 if (failures.length) {
   console.error(`Sicilia: ${failures.length} провалов из ${passed + failures.length}`);
   for (const f of failures) console.error('  ✗ ' + f);
