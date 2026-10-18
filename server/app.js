@@ -86,6 +86,7 @@ import {
   playGamble,
   clearGamble,
   MIN_PAYOUT,
+  PAYOUT_STEP,
   getDeposits,
   getPayouts,
   pendingPayoutTotal,
@@ -1205,6 +1206,8 @@ app.post('/api/wallet', auth, limits.read, (req, res) => {
     depositDebt: req.player.deposit_debt || 0,
     wagerProgress: req.player.wager_progress,
     minPayout: minPayoutNow(),
+    // Шаг суммы для карты и СБП: клиент подсказывает его и округляет «Всё».
+    payoutStep: PAYOUT_STEP,
     deposits: getDeposits(req.player.id),
     payouts: getPayouts(req.player.id),
   });
@@ -1243,7 +1246,7 @@ app.post('/api/payout/create', auth, limits.cashier, (req, res) => {
     // так». WAGER - невыполненный отыгрыш бонуса, остальные - проверки
     // реквизитов платёжного модуля.
     if ([
-      'MIN', 'INSUFFICIENT_FUNDS', 'WAGER', 'WAGER_PROGRESS',
+      'MIN', 'STEP', 'INSUFFICIENT_FUNDS', 'WAGER', 'WAGER_PROGRESS',
       'BAD_PHONE', 'BAD_BANK', 'BAD_CARD', 'BAD_METHOD', 'PAYOUT_KEY_MISSING',
       'BAD_CURRENCY', 'BAD_NETWORK', 'BAD_ADDRESS', 'BAD_RATE',
     ].includes(err.code)) {

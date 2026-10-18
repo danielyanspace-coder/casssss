@@ -58,7 +58,8 @@ export function siciliaEnv() {
     key: String(process.env.SICILIA_API_KEY || '').trim(),
     min: Number(process.env.SICILIA_MIN || 500),
     max: Number(process.env.SICILIA_MAX || 300_000),
-    ttlMs: Number(process.env.SICILIA_ORDER_TTL_MIN || 30) * 60_000,
+    // Срок реквизита после выдачи: столько идёт таймер в кассе (решение заказчика).
+    ttlMs: Number(process.env.SICILIA_ORDER_TTL_MIN || 10) * 60_000,
     callbackIps: String(process.env.SICILIA_CALLBACK_IPS || '').split(',').map((s) => s.trim()).filter(Boolean),
     webapp: String(process.env.SITE_URL || process.env.WEBAPP_URL || '').replace(/\/+$/, ''),
   };

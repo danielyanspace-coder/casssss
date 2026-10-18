@@ -1897,14 +1897,30 @@ check('честность: личная статистика убрана', fair
         `столов ${liveCount}, ${JSON.stringify(live)}`);
 
   await page.click('#czSeg [data-kind="fast"]');
-  await page.waitForSelector('.cz-block[data-block="popular-fast"] .cz-tile[data-game]', { timeout: 15000 });
-  const fastNames = await page.evaluate(() => [...document.querySelectorAll('#czBody .cz-name')].map((n) => n.textContent));
-  check('казино: быстрые игры своей вкладкой', fastNames.some((n) => /aviator/i.test(n)), fastNames.slice(0, 4).join(' | '));
-  const fastPopular = await page.evaluate(() => [...document.querySelectorAll(
-    '.cz-block[data-block="popular-fast"] .cz-tile[data-game] .cz-name')].map((n) => n.textContent));
-  check('казино: Balloon в конце быстрых игр', fastPopular[fastPopular.length - 1] === 'Balloon', fastPopular.join(' | '));
-  check('казино: чипы новой вкладки видны с начала',
-    await page.evaluate(() => document.getElementById('czChips').scrollLeft === 0));
+  await page.waitForSelector('.cz-fast .cz-tile[data-game]', { timeout: 15000 });
+  const fast = await page.evaluate(() => ({
+    names: [...document.querySelectorAll('.cz-fast .cz-tile[data-game] .cz-name')].map((n) => n.textContent),
+    own: [...document.querySelectorAll('.cz-fast .cz-tile[data-own]')].map((t) => t.dataset.own),
+    first: document.querySelector('.cz-fast .cz-tile')?.dataset.own || '',
+    blocks: document.querySelectorAll('#czBody .cz-block[data-block]').length,
+    chips: document.getElementById('czChips').hidden,
+    covers: [...document.querySelectorAll('.cz-fast .cz-tile[data-own] img')].every((i) => /fast-(crash|upgrade)/.test(i.src)),
+  }));
+  check('казино: быстрые игры своей вкладкой', fast.names.some((n) => /aviator/i.test(n)), fast.names.slice(0, 4).join(' | '));
+  // Решение заказчика: игр немного, поэтому одна сетка без категорий и лент.
+  check('казино: быстрые игры одной сеткой, без категорий и чипов', fast.blocks === 0 && fast.chips,
+    JSON.stringify({ blocks: fast.blocks, chips: fast.chips }));
+  check('казино: Краш и Апгрейд первыми в быстрых играх, со своими обложками',
+    fast.own.join(',') === 'crash,upgrade' && fast.first === 'crash' && fast.covers, JSON.stringify(fast.own));
+  check('казино: Balloon в конце быстрых игр', fast.names[fast.names.length - 1] === 'Balloon', fast.names.join(' | '));
+  await page.click('.cz-fast .cz-tile[data-own="crash"]');
+  await page.waitForTimeout(400);
+  check('казино: плитка Краш открывает нашу игру', await page.isVisible('#view-crash'));
+  await page.click('#brandHome');
+  await page.waitForTimeout(300);
+  await page.evaluate(() => document.getElementById('promoCasino').scrollIntoView({ block: 'center' }));
+  await page.click('#promoCasino');
+  await page.waitForSelector('#czSeg [data-kind="slots"]', { state: 'visible', timeout: 15000 });
 
   await page.click('#czSeg [data-kind="slots"]');
   await page.waitForSelector('.cz-block[data-block="popular"] .cz-tile[data-game]', { timeout: 15000 });

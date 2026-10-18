@@ -3017,6 +3017,18 @@ export function partnerPayoutHistory(partnerId, limit = 30) {
 /** Минимальная сумма заявки на вывод. */
 export const MIN_PAYOUT = Number(process.env.MIN_PAYOUT || 1000);
 
+/*
+ * Вывод на карту и по СБП - только круглой суммой, шагом в сотню (решение
+ * заказчика): выплату по реквизиту шлюз подбирает под сумму, и копеечные
+ * хвосты вроде 7 850 подбираются хуже. Криптовалюта шага не имеет: там сумма
+ * всё равно пересчитывается в монету по курсу.
+ */
+export const PAYOUT_STEP = 100;
+const STEPPED_METHODS = new Set(['sbp', 'card']);
+
+/** Шаг вывода для способа: 1 - без шага. */
+export const payoutStep = (method) => (STEPPED_METHODS.has(String(method || '').toLowerCase()) ? PAYOUT_STEP : 1);
+
 export function getDeposits(userId, limit = 50) {
   return db.prepare(`
     SELECT amount, source, comment, created_at
@@ -3081,6 +3093,11 @@ export const createPayout = db.transaction((userId, amount, details = {}) => {
     );
   }
 
+  // Шаг проверяется после денег: «недостаточно средств» важнее, чем «не кратно 100».
+  const step = payoutStep(details.method);
+  if (amount % step !== 0) {
+    throw Object.assign(new Error(`На карту и по СБП выводится сумма, кратная ${step} ₽`), { code: 'STEP', step });
+  }
   const method = String(details.method || '').toLowerCase();
   let phone = null, bank = null, cardNumber = null;
   let cryptoCurrency = null, cryptoNetwork = null, cryptoAddress = null;

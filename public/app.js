@@ -5687,6 +5687,9 @@ document.getElementById('adminSearchBtn').addEventListener('click', () => {
 const casino = createCasino({
   api, esc, money, toast, haptic, state, plural,
   onUser: (user) => applyUser(user),
+  // Наши Краш и Апгрейд в сетке быстрых игр открываются своими разделами.
+  openOwn: (view) => switchView(view),
+  ownOpen: (view) => viewOpen(view),
 });
 
 /*
