@@ -172,10 +172,24 @@ validateFortune();
 // было получить, дописав себе строку в таблицу. Ключ - Telegram ID
 // (ADMIN_TG_IDS) или почта аккаунта (ADMIN_EMAILS).
 const splitList = (raw) => String(raw || '').split(',').map((s) => s.trim()).filter(Boolean);
+/*
+ * Почта при регистрации не подтверждается, и адрес владельца не секрет: кто
+ * первым зарегистрирует его, тот и стал бы владельцем панели. Поэтому почта
+ * даёт права владельца только вместе со служебным ботом и закреплённым
+ * Telegram владельца (OPS_BOT_TOKEN, OPS_OWNER_CHAT_ID): вход в панель тогда
+ * подтверждается в его Telegram, и чужой аккаунт с той же почтой дальше
+ * подтверждения не пройдёт. Telegram ID (ADMIN_TG_IDS) подлинность доказывает
+ * сам и работает всегда.
+ */
+const OWNER_EMAILS_GUARDED = Boolean(process.env.OPS_BOT_TOKEN && process.env.OPS_OWNER_CHAT_ID);
 const OWNER_KEYS = [
   ...splitList(process.env.ADMIN_TG_IDS),
-  ...splitList(process.env.ADMIN_EMAILS).map((e) => e.toLowerCase()),
+  ...(OWNER_EMAILS_GUARDED ? splitList(process.env.ADMIN_EMAILS).map((e) => e.toLowerCase()) : []),
 ];
+if (!OWNER_EMAILS_GUARDED && splitList(process.env.ADMIN_EMAILS).length && process.env.DEV_MODE !== 'true') {
+  console.warn('[staff] ADMIN_EMAILS не действует без OPS_BOT_TOKEN и OPS_OWNER_CHAT_ID: '
+    + 'почту никто не подтверждает, и владельцем стал бы первый, кто её зарегистрирует.');
+}
 syncStaff(OWNER_KEYS);
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -919,7 +933,9 @@ app.post('/api/roulette', auth, limits.play, gameGate('roulette'), (req, res) =>
       const slot = rouletteSlotFromRoll(roll);
       const landed = rouletteColorOf(slot);
       const won = landed === color;
-      const payout = won ? bet * ROULETTE_CONFIG.payouts[color] : 0;
+      // Выплата целыми рублями вниз: ×1.5 на нечётной ставке давал дробь, а
+      // зачисление округляло её вверх, и ставка в 1 ₽ платила 2 (отдача 93%).
+      const payout = won ? Math.floor(bet * ROULETTE_CONFIG.payouts[color]) : 0;
 
       return {
         game: 'roulette',
@@ -1050,7 +1066,9 @@ app.post('/api/crash/cashout', auth, limits.play, (req, res) => {
     });
   }
 
-  const cashedAt = Number(current.toFixed(2));
+  // Вниз до сотых, а не по правилам округления: 1.996 при взрыве на 2.00 не
+  // должно стать выводом ровно в точке взрыва и выплатой выше положенной.
+  const cashedAt = Math.floor(current * 100 + 1e-9) / 100;
   const result = finishCrashRound(round.id, req.player.id, 'cashed', cashedAt);
   if (!result) return res.status(400).json({ error: 'Раунд уже завершён' });
 
@@ -1269,6 +1287,7 @@ app.post('/api/payout/create', auth, limits.cashier, (req, res) => {
 
   try {
     const result = createPayout(req.player.id, amount, {
+      minPayout: minPayoutNow(),
       method: req.body?.method,
       phone: req.body?.phone,
       bank: req.body?.bank,
@@ -1515,9 +1534,12 @@ app.post('/api/casino/launch', auth, limits.play, gameGate('casino'), async (req
       playerId: casinoPlayerId(req.player.id),
       demo,
       ip: req.ip?.replace(/^::ffff:/, '') || '',
-      country: req.get('cf-ipcountry') || '',
+      // Страна из CASINO_COUNTRY (launchGame), а не из заголовка cf-ipcountry:
+      // Cloudflare перед сервером нет, и заголовок прислал бы сам игрок.
+      country: '',
       rtp: casinoRtp(),
-      lobbyUrl: process.env.PUBLIC_URL || '',
+      // Адрес сайта один на весь проект - SITE_URL.
+      lobbyUrl: process.env.SITE_URL || process.env.PUBLIC_URL || '',
     });
     if (!result.ok) {
       console.error('[casino] запуск', game.id, result.status, result.message);
@@ -1759,6 +1781,12 @@ app.post('/api/slot/free', auth, limits.play, gameGate('slots'), (req, res) => {
   let result;
   try {
     result = playSlotFreeSpin(user.id, (serverSeed, clientSeed, nonce, session) => {
+      // Серия играется тем слотом, в котором выпала или куплена: цена покупки
+      // считается по его отдаче, и крутить её в другом слоте (с множителем
+      // фриспинов) значило бы поменять отдачу покупки.
+      if (session.slot_id && session.slot_id !== slot.id) {
+        throw Object.assign(new Error('Фриспины этой серии - в другом слоте'), { code: 'WRONG_SLOT' });
+      }
       const roll = computeRoll(serverSeed, clientSeed, nonce);
       const offsets = offsetsFrom(roll, slot.strips);
       // Во фриспинах wild расширяется на весь барабан - это и есть бонус.
@@ -1778,7 +1806,7 @@ app.post('/api/slot/free', auth, limits.play, gameGate('slots'), (req, res) => {
       };
     });
   } catch (err) {
-    if (err.code === 'BAD') return res.status(400).json({ error: err.message });
+    if (err.code === 'BAD' || err.code === 'WRONG_SLOT') return res.status(400).json({ error: err.message });
     throw err;
   }
 
@@ -2021,6 +2049,13 @@ app.post('/api/admin/block', auth, need('players.block'), (req, res) => {
   const targetId = Number(req.body?.userId);
   if (targetId === req.player.id) {
     return res.status(400).json({ error: 'Нельзя заблокировать самого себя' });
+  }
+  // Сотрудника блокирует только тот, кто вправе им управлять: иначе
+  // риск-менеджер запер бы владельца, и вернуть доступ можно было бы лишь
+  // правкой базы руками.
+  const targetStaff = staffRow(targetId);
+  if (targetStaff && !canManage(req.perms, req.staff?.role, targetStaff.role)) {
+    return res.status(403).json({ error: 'Этого сотрудника блокировать может только тот, кто им управляет' });
   }
   try {
     res.json(adminSetBlocked(req.player.id, targetId, !!req.body?.blocked));
@@ -2789,7 +2824,10 @@ for (const sig of ['SIGTERM', 'SIGINT']) {
   });
 }
 
-app.listen(PORT, () => {
+// HOST задаёт служба (deploy/luckybox.service): на сервере только 127.0.0.1,
+// снаружи вход один - через nginx. Без HOST слушаем все адреса, как раньше:
+// так работают разработка и тесты.
+app.listen(PORT, process.env.HOST || undefined, () => {
   startOpsBot();
   if (crashedBefore) inform('Сервер перезапустился после сбоя: прошлый процесс не остановился штатно. Причина - в journalctl -u luckybox.');
   startFeed();

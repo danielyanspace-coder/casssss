@@ -10,13 +10,15 @@ set -euo pipefail
 
 APP_DIR=/srv/luckybox
 APP_USER=luckybox
-BRANCH="${1:-claude/freespins-cases-logic-pa9pa1}"
+BRANCH="${1:-claude/github-text-document-aja1hm}"
 
 [ "$(id -u)" -eq 0 ] || { echo "Нужен root"; exit 1; }
 
 echo "==> Копия базы перед выкатом"
-sudo -u "$APP_USER" env $(grep -v '^#' "$APP_DIR/.env" | xargs -d '\n') \
-  node "$APP_DIR/deploy/backup.mjs"
+# Через службу копий, а не разбором .env в командной строке: systemd сам
+# читает EnvironmentFile, а самодельный разбор ломался на значении с пробелом
+# (MAIL_FROM=LUCKYBOX <...>) и обрывал выкат на первом шаге.
+systemctl start luckybox-backup
 
 echo "==> Свежий код ($BRANCH)"
 cd "$APP_DIR"

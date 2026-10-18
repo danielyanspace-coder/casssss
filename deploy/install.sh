@@ -25,7 +25,7 @@ echo "==> Проверка прав"
 
 echo "==> Системные пакеты"
 apt-get update -qq
-apt-get install -y -qq curl git nginx certbot python3-certbot-nginx build-essential
+apt-get install -y -qq curl git rsync nginx certbot build-essential rclone
 
 echo "==> Node.js 20"
 if ! command -v node >/dev/null || [ "$(node -v | cut -c2-3)" -lt 18 ]; then
@@ -83,27 +83,50 @@ cp "$APP_DIR"/deploy/luckybox.service "$APP_DIR"/deploy/luckybox-bot.service \
 systemctl daemon-reload
 systemctl enable luckybox luckybox-bot luckybox-backup.timer luckybox-watchdog.timer
 
-echo "==> nginx"
-sed "s/ваш-домен\.ru/$DOMAIN/g" "$APP_DIR/deploy/nginx.conf" > /etc/nginx/sites-available/luckybox
-
+echo "==> nginx и сертификат"
+# Два шага. Полный конфиг слушает 443 с сертификатом, и без сертификата nginx
+# его не примет вовсе. Поэтому сначала временный конфиг только на 80 порту,
+# через него certbot подтверждает домен (webroot), и уже потом полный.
+CONF=/etc/nginx/sites-available/luckybox
+CERT=/etc/letsencrypt/live/$DOMAIN/fullchain.pem
+mkdir -p /var/www/html
 # Конфиг слушает и IPv4, и IPv6. Если на машине IPv6 выключен, nginx не просто
 # пропустит эти строки, а откажется стартовать: «socket() [::]:80 failed».
-# Проверяем и убираем их, иначе установка падает на ровном месте, а причина
-# выглядит как поломка nginx.
-if [ ! -f /proc/net/if_inet6 ]; then
-  echo "    IPv6 на машине нет - убираю строки listen [::]"
-  sed -i '/listen \[::\]/d' /etc/nginx/sites-available/luckybox
-fi
-ln -sf /etc/nginx/sites-available/luckybox /etc/nginx/sites-enabled/luckybox
-rm -f /etc/nginx/sites-enabled/default
-nginx -t
-systemctl reload nginx
+strip_ipv6() { [ -f /proc/net/if_inet6 ] || sed -i '/listen \[::\]/d' "$1"; }
 
-echo "==> Сертификат"
-certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos --register-unsafely-without-email || {
-  echo "    Certbot не отработал. Проверьте, что домен $DOMAIN указывает на этот сервер,"
-  echo "    и повторите: sudo certbot --nginx -d $DOMAIN"
+if [ ! -f "$CERT" ]; then
+  cat > "$CONF" <<NGINX
+server {
+    listen 80;
+    listen [::]:80;
+    server_name $DOMAIN;
+    location /.well-known/acme-challenge/ { root /var/www/html; }
+    location / { return 503; }
 }
+NGINX
+  strip_ipv6 "$CONF"
+  ln -sf "$CONF" /etc/nginx/sites-enabled/luckybox
+  rm -f /etc/nginx/sites-enabled/default
+  nginx -t
+  systemctl reload nginx
+  # Перевыпуск раз в два месяца делает таймер certbot сам; после него nginx
+  # должен перечитать сертификат, иначе через 90 дней сайт откроется с ошибкой.
+  certbot certonly --webroot -w /var/www/html -d "$DOMAIN" --non-interactive --agree-tos \
+    --register-unsafely-without-email --deploy-hook "systemctl reload nginx" || true
+fi
+
+if [ -f "$CERT" ]; then
+  sed "s/ваш-домен\.ru/$DOMAIN/g" "$APP_DIR/deploy/nginx.conf" > "$CONF"
+  strip_ipv6 "$CONF"
+  ln -sf "$CONF" /etc/nginx/sites-enabled/luckybox
+  rm -f /etc/nginx/sites-enabled/default
+  nginx -t
+  systemctl reload nginx
+  echo "    Сертификат есть, сайт отдаётся по https."
+else
+  echo "    СЕРТИФИКАТ НЕ ВЫПУЩЕН. Проверьте, что домен $DOMAIN указывает на этот"
+  echo "    сервер (A-запись), и запустите установку ещё раз: sudo bash deploy/install.sh $DOMAIN"
+fi
 
 cat <<EOF
 

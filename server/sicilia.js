@@ -34,7 +34,7 @@ import { mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import {
   db, getUserById, registerDeposit, trackEvent, payoutForGateway, startPayout, completePayout,
-  completePayoutPartial, unstartPayout, moneyTx, ledgerLink, logAdmin,
+  completePayoutPartial, unstartPayout, moneyTx, ledgerLink, logAdmin, assertDepositAllowed,
 } from './db.js';
 
 /* Журнал balance_transactions общий для шлюзов и создаётся в db.js. */
@@ -294,6 +294,7 @@ export function createDeposit(userId, amountRub) {
   if (amount > env.max) {
     throw Object.assign(new Error(`Максимальная сумма пополнения - ${env.max} ₽`), { code: 'MAX' });
   }
+  assertDepositAllowed(userId, amount);
   const now = Date.now();
   const info = db.prepare(`INSERT INTO sicilia_orders (kind, user_id, invid, amount_rub, created_at, updated_at)
                            VALUES ('payin', ?, ?, ?, ?, ?)`).run(userId, `tmp-${now}-${Math.random()}`, amount, now, now);

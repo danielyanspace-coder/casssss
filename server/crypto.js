@@ -32,7 +32,7 @@
  */
 
 import { createHash, timingSafeEqual } from 'node:crypto';
-import { db, getUserById, registerDeposit, trackEvent, moneyTx, ledgerLink } from './db.js';
+import { db, getUserById, registerDeposit, trackEvent, moneyTx, ledgerLink, assertDepositAllowed } from './db.js';
 
 /* Журнал balance_transactions общий для шлюзов и создаётся в db.js. */
 import { alert, countError } from './ops.js';
@@ -374,6 +374,7 @@ export async function createDeposit(userId, amountRub, currency, network, rubRat
   if (!Number.isFinite(amount) || amount < CRYPTO_MIN) {
     throw Object.assign(new Error(`Минимальная сумма пополнения - ${CRYPTO_MIN} ₽`), { code: 'MIN' });
   }
+  assertDepositAllowed(userId, amount);
   if (amount > CRYPTO_MAX) {
     throw Object.assign(new Error(`Максимальная сумма пополнения - ${CRYPTO_MAX} ₽`), { code: 'MAX' });
   }

@@ -469,10 +469,21 @@ if (userColumns.includes('total_opened') && !userColumns.includes('total_rounds'
  * пересчётам: их надо выполнить ровно один раз, в момент появления колонки, и
  * заводить ради этого отдельную таблицу отметок незачем.
  */
+/*
+ * Добавляет колонку, если её нет. db.js импортируют два процесса (сервер и
+ * бот), и при выкате оба стартуют разом: второй, проверив таблицу до того,
+ * как первый успел её поменять, получил бы «duplicate column» и упал на
+ * старте. Такой отказ значит «колонка уже есть», а не ошибку.
+ */
 function ensureColumn(table, column, definition) {
   const cols = db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
   if (cols.includes(column)) return false;
-  db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition};`);
+  try {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition};`);
+  } catch (err) {
+    if (/duplicate column/i.test(err.message)) return false;
+    throw err;
+  }
   return true;
 }
 
@@ -637,7 +648,7 @@ if (depositDebtAdded) {
   db.exec(`UPDATE users SET deposit_debt = MAX(0,
       COALESCE((SELECT SUM(d.amount) FROM deposits d
                  WHERE d.user_id = users.id
-                   AND d.source IN ('beeline','crypto','admin')), 0)
+                   AND d.source IN ('beeline','crypto','sicilia','admin')), 0)
     - COALESCE((SELECT SUM(r.bet) FROM rounds r WHERE r.user_id = users.id), 0));`);
 }
 
@@ -1716,7 +1727,14 @@ export function getX2Perks(userId) {
  */
 const ANY_CASE = '*';
 
-const fortuneX2Cap = () => Math.max(0, Math.round(Number(process.env.FORTUNE_X2_CAP) || 0));
+// Без переменной в .env потолок FORTUNE_X2_CAP_DEFAULT: забытая строка не
+// должна означать «без потолка». Явный 0 - осознанное «без потолка».
+const FORTUNE_X2_CAP_DEFAULT = 5000;
+const fortuneX2Cap = () => {
+  const raw = process.env.FORTUNE_X2_CAP;
+  if (raw === undefined || raw === '') return FORTUNE_X2_CAP_DEFAULT;
+  return Math.max(0, Math.round(Number(raw) || 0));
+};
 
 function x2Count(userId, caseId) {
   const row = db.prepare('SELECT count FROM x2_perks WHERE user_id = ? AND case_id = ?')
@@ -2097,11 +2115,14 @@ export const playCaseRound = moneyTx('case', (userId, caseData, resolve, resolve
   const x10Rule = x10Rules();
   const x10Active = !isFree && item.value > 0 && before.x10_state === 1
     && caseData.price <= before.x10_ceiling;
-  const x2Active = !x10Active && item.value > 0 && x2Available(userId, caseData.id);
-  // Потолок ограничивает ДОПЛАТУ, а не выигрыш: сам предмет игрок получает
-  // целиком в любом случае, урезается только та часть, которую добавил
-  // удвоитель. Ноль в настройке означает «без потолка».
-  const cap = fortuneX2Cap();
+  // Удвоитель - только на платном открытии (правило в CLAUDE.md): ваучер
+  // уже подарок, и удвоенный подарок в отдачу кейса не заложен.
+  const x2Active = !isFree && !x10Active && item.value > 0 && x2Available(userId, caseData.id);
+  // Потолок ограничивает ДОПЛАТУ, а не выигрыш, и только у удвоителя с
+  // колеса (ключ ANY_CASE): свой удвоитель кейса заложен в его отдачу целиком,
+  // и урезать его значило бы платить меньше объявленного. Ноль - без потолка.
+  const fromWheel = x2Active && x2Count(userId, caseData.id) === 0;
+  const cap = fromWheel ? fortuneX2Cap() : 0;
   let extra = 0;
   if (x10Active) extra = Math.min(item.value * 9, x10Rule.cap * caseData.price);
   else if (x2Active) extra = cap > 0 ? Math.min(item.value, cap) : item.value;
@@ -2451,6 +2472,7 @@ const insufficient = () => Object.assign(new Error('Недостаточно с�
 function chargeBet(userId, bet, { allowBonus = true } = {}) {
   const u = getUserById(userId);
   const amount = Math.max(0, Math.round(bet));
+  assertPlayAllowed(userId, amount);
   const real = Math.min(amount, Math.max(0, u.balance));
   const bonus = amount - real;
   if (bonus > 0 && (!allowBonus || bonus > (u.bonus_balance || 0))) throw insufficient();
@@ -2500,18 +2522,22 @@ export function consumeWager(userId, opts) {
   const o = typeof opts === 'number' ? { real: opts } : (opts || {});
   const real = Math.max(0, Math.round(o.real || 0));
   const bonus = Math.max(0, Math.round(o.bonus || 0));
-  if (!real && !bonus) return;
+  if (!real && !bonus) return { debtCut: 0 };
   const weight = wagerWeight(o.rtp ?? HOUSE_RTP);
   // Округление вниз: недосчитанная копейка оборота лучше пересчитанной.
   // Поправка 1e-9 снимает ошибку плавающей точки: 3000 · (0.2 / 0.3) даёт
   // 1999.9999..., и без неё игрок терял бы рубль оборота на ровном месте.
   const counted = Math.floor(real * weight + 1e-9);
   const countedBonus = Math.floor(bonus * weight + 1e-9);
+  const debtBefore = getUserById(userId)?.deposit_debt || 0;
   db.prepare(`UPDATE users
                  SET deposit_debt = MAX(0, deposit_debt - ?),
                      wager_required = MAX(0, wager_required - ?),
                      wager_progress = wager_progress + ?
                WHERE id = ?`).run(counted, countedBonus, real + bonus, userId);
+  // Сколько долга пополнения реально погашено: казино возвращает его, если
+  // агрегатор отменит ставку (отменённая ставка риска не несла).
+  return { debtCut: Math.min(counted, debtBefore) };
 }
 
 /**
@@ -3247,10 +3273,10 @@ export function adminUserDetail(userId) {
     // по трём разным экранам и ошибается.
     money: {
       deposited: db.prepare(
-        "SELECT COALESCE(SUM(amount),0) AS n FROM deposits WHERE user_id = ? AND source <> 'promo'")
+        `SELECT COALESCE(SUM(amount),0) AS n FROM deposits WHERE user_id = ? AND source IN ${REAL_DEPOSIT_SQL}`)
         .get(userId).n,
       bonus: db.prepare(
-        "SELECT COALESCE(SUM(amount),0) AS n FROM deposits WHERE user_id = ? AND source = 'promo'")
+        `SELECT COALESCE(SUM(amount),0) AS n FROM deposits WHERE user_id = ? AND source NOT IN ${REAL_DEPOSIT_SQL}`)
         .get(userId).n,
       paidOut: db.prepare(
         "SELECT COALESCE(SUM(amount),0) AS n FROM payouts WHERE user_id = ? AND status = 'paid'")
@@ -3388,6 +3414,7 @@ export function adminRecentRounds(limit = 40) {
 export const playGamble = moneyTx('gamble', (userId, pickIndex, config, resolve) => {
   const user = getUserById(userId);
   const stake = user.gamble_stake;
+  if (stake > 0) assertPlayAllowed(userId, stake);
 
   if (!stake || stake <= 0) {
     throw Object.assign(new Error('Нечем рисковать'), { code: 'NO_STAKE' });
@@ -3483,7 +3510,10 @@ export const adminSavePromo = db.transaction((adminId, data) => {
     min_deposit: Math.max(0, Math.trunc(Number(data.min_deposit) || 0)),
     case_id: data.case_id || null,
     case_count: Math.max(1, Math.trunc(Number(data.case_count) || 1)),
-    wager_multiplier: Math.max(0, Number(data.wager_multiplier) || 0),
+    // Пустое поле - общий отыгрыш бонусов (BONUS_WAGER), а не ноль: промокод
+    // без отыгрыша превращал бы подарок в деньги сразу. Ноль - только явно.
+    wager_multiplier: data.wager_multiplier === '' || data.wager_multiplier == null
+      ? bonusRules().wager : Math.max(0, Number(data.wager_multiplier) || 0),
     max_uses: Math.max(0, Math.trunc(Number(data.max_uses) || 0)),
     per_user_limit: Math.max(0, Math.trunc(Number(data.per_user_limit) || 1)),
     new_players_only: data.new_players_only ? 1 : 0,
@@ -3662,8 +3692,10 @@ export function pendingPayoutTotal(userId) {
 export const createPayout = moneyTx('payout', (userId, amount, details = {}) => {
   const user = getUserById(userId);
 
-  if (amount < MIN_PAYOUT) {
-    throw Object.assign(new Error(`Минимальная сумма вывода - ${MIN_PAYOUT}`), { code: 'MIN' });
+  // Минимум передаёт ручка (настройка из панели); без него - из окружения.
+  const min = details.minPayout || MIN_PAYOUT;
+  if (amount < min) {
+    throw Object.assign(new Error(`Минимальная сумма вывода - ${min}`), { code: 'MIN' });
   }
   if (amount > user.balance) {
     throw Object.assign(new Error('Недостаточно средств'), { code: 'INSUFFICIENT_FUNDS' });
@@ -4194,6 +4226,49 @@ export const setPlayerLimits = db.transaction((actorId, userId, patch) => {
   return getPlayerLimits(userId);
 });
 
+/**
+ * Лимиты ответственной игры перед ставкой и пополнением.
+ *
+ * Раньше их исполняло только казино провайдеров, а кейсы, краш, рулетка,
+ * апгрейд, риск-игра и кассы лимиты не видели: игрок с самоисключением
+ * продолжал играть. Проверка стоит в chargeBet - через него проходит каждая
+ * ставка наших игр, - и в создании пополнения у обоих шлюзов. Ошибка несёт
+ * status 403: ручки отдают её текст игроку как есть.
+ */
+const limitError = (message) => Object.assign(new Error(message), { code: 'LIMIT', status: 403 });
+
+export function assertPlayAllowed(userId, bet = 0) {
+  const limits = getPlayerLimits(userId);
+  if ((limits.excluded_until || 0) > Date.now()) {
+    throw limitError(`Вы установили перерыв в игре до ${new Date(limits.excluded_until).toLocaleString('ru-RU')}`);
+  }
+  if (!limits.wager_day && !limits.loss_day) return;
+  const day = dayActivity(userId);
+  if (limits.wager_day && day.wagered + bet > limits.wager_day) {
+    throw limitError(`Достигнут ваш лимит ставок за сутки: ${limits.wager_day} ₽`);
+  }
+  if (limits.loss_day && day.lost + bet > limits.loss_day) {
+    throw limitError(`Достигнут ваш лимит проигрыша за сутки: ${limits.loss_day} ₽`);
+  }
+}
+
+export function assertDepositAllowed(userId, amount = 0) {
+  const limits = getPlayerLimits(userId);
+  if ((limits.excluded_until || 0) > Date.now()) {
+    throw limitError(`Вы установили перерыв в игре до ${new Date(limits.excluded_until).toLocaleString('ru-RU')}`);
+  }
+  if (limits.deposit_day && dayActivity(userId).deposited + amount > limits.deposit_day) {
+    throw limitError(`Достигнут ваш лимит пополнений за сутки: ${limits.deposit_day} ₽`);
+  }
+}
+
+/*
+ * Источники настоящих денег в deposits. Остальные строки (welcome, promo,
+ * fortune, correction) - подарки и поправки: в «внесено», лимит пополнений и
+ * чистый приход кассы они не входят.
+ */
+export const REAL_DEPOSIT_SQL = "('sicilia', 'crypto', 'beeline', 'admin')";
+
 /** Сколько игрок уже поставил и проиграл за последние сутки. */
 export function dayActivity(userId) {
   const from = Date.now() - 86400000;
@@ -4203,6 +4278,7 @@ export function dayActivity(userId) {
   `).get(userId, from);
   const deposited = db.prepare(`
     SELECT COALESCE(SUM(amount), 0) AS n FROM deposits WHERE user_id = ? AND created_at > ?
+       AND source IN ${REAL_DEPOSIT_SQL}
   `).get(userId, from).n;
   return { wagered: rounds.wagered, lost: Math.max(0, rounds.wagered - rounds.paid), deposited };
 }
@@ -4288,7 +4364,7 @@ export function revenueDaily(days = 30) {
     SELECT created_at, bet, payout, user_id FROM rounds WHERE created_at > ?
   `).all(from);
   const deposits = db.prepare(`
-    SELECT created_at, amount FROM deposits WHERE created_at > ?
+    SELECT created_at, amount FROM deposits WHERE created_at > ? AND source IN ${REAL_DEPOSIT_SQL}
   `).all(from);
   const payouts = db.prepare(`
     SELECT created_at, amount FROM payouts WHERE created_at > ? AND status = 'paid'

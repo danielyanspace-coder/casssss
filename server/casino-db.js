@@ -115,6 +115,10 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS casino_tx_game ON casino_tx (game_id, created_at);
   CREATE INDEX IF NOT EXISTS casino_tx_user ON casino_tx (user_id, created_at);
 `);
+// Сколько долга пополнения погасила эта ставка: при отмене ставки
+// агрегатором он возвращается, иначе отменённые ставки гасили бы отыгрыш
+// пополнения, не рискуя ни рублём.
+ensureColumn('casino_tx', 'wager_cut', 'INTEGER NOT NULL DEFAULT 0');
 
 /*
  * Поля каталога, появившиеся с блоками лобби:
@@ -232,12 +236,12 @@ export function casinoRtp() {
  * Бонусом в казино не играют: агрегатор видит только свои деньги.
  */
 function addWager(userId, kop) {
-  if (!(kop > 0)) return;
+  if (!(kop > 0)) return 0;
   const pending = (getUserById(userId).casino_wager_kop || 0) + kop;
   const rub = Math.floor(pending / 100);
   db.prepare('UPDATE users SET casino_wager_kop = ?, casino_bet_kop = casino_bet_kop + ? WHERE id = ?')
     .run(pending % 100, kop, userId);
-  if (rub > 0) consumeWager(userId, { real: rub, rtp: casinoRtp() / 100 });
+  return rub > 0 ? consumeWager(userId, { real: rub, rtp: casinoRtp() / 100 }).debtCut : 0;
 }
 
 /* ---------- Игрок ---------- */
@@ -265,9 +269,9 @@ export function casinoExcluded(userId) {
 
 const insertTx = db.prepare(`
   INSERT INTO casino_tx (user_id, method, dedupe_key, tx_id, orig_tx_id, round_id,
-                         game_id, provider_id, amount_kop, free_round, balance_kop, created_at)
+                         game_id, provider_id, amount_kop, free_round, balance_kop, wager_cut, created_at)
   VALUES (@user_id, @method, @dedupe_key, @tx_id, @orig_tx_id, @round_id,
-          @game_id, @provider_id, @amount_kop, @free_round, @balance_kop, @created_at)
+          @game_id, @provider_id, @amount_kop, @free_round, @balance_kop, @wager_cut, @created_at)
 `);
 
 const fail = (status, extra = {}) => Object.assign(new Error(MESSAGES[status] || 'error'), { status, ...extra });
@@ -373,7 +377,7 @@ const applyBatch = moneyTx('casino', (userId, list, currency) => {
       round_id: req.roundId ? String(req.roundId) : null,
       game_id: req.gameId ? String(req.gameId) : null,
       provider_id: req.providerId ? String(req.providerId) : null,
-      amount_kop: amount, free_round: free ? 1 : 0, balance_kop: 0, created_at: now,
+      amount_kop: amount, free_round: free ? 1 : 0, balance_kop: 0, wager_cut: 0, created_at: now,
     };
 
     if (method === 'bet') {
@@ -385,7 +389,7 @@ const applyBatch = moneyTx('casino', (userId, list, currency) => {
       if (debit > kop) throw fail(CASINO_STATUS.LOW_BALANCE);
       kop -= debit;
       writeKop(userId, kop);
-      addWager(userId, debit);
+      row.wager_cut = addWager(userId, debit);
     } else if (method === 'win' || method === 'cashout') {
       // Выигрыш без ставки - ошибка агрегатора или подделка. Начислять его
       // нельзя: сценарии партнёра проверяют ровно это.
@@ -405,13 +409,22 @@ const applyBatch = moneyTx('casino', (userId, list, currency) => {
        * в минус: недостачу видно в панели по разнице в строке отмены.
        */
       let net = 0;
+      let debtBack = 0;
+      let betBack = 0;
       for (const t of targets) {
         const paid = t.method === 'bet' ? (t.free_round ? 0 : t.amount_kop) : -t.amount_kop;
         net += paid;
+        if (t.method === 'bet') { debtBack += t.wager_cut || 0; betBack += t.free_round ? 0 : t.amount_kop; }
       }
       kop = Math.max(0, kop + net);
       amount = net;
       writeKop(userId, kop);
+      // Отменённая ставка не была игрой: погашенный ею долг пополнения и
+      // оборот казино возвращаются.
+      if (debtBack || betBack) {
+        db.prepare(`UPDATE users SET deposit_debt = deposit_debt + ?, casino_bet_kop = MAX(0, casino_bet_kop - ?)
+                     WHERE id = ?`).run(debtBack, betBack, userId);
+      }
       const marks = targets.map(() => '?').join(',');
       db.prepare(`UPDATE casino_tx SET rolled_back = 1 WHERE id IN (${marks})`).run(...targets.map((t) => t.id));
       row.amount_kop = net;
