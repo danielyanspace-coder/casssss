@@ -49,7 +49,7 @@ export function siciliaEnv() {
     merchant: String(process.env.SICILIA_MERCHANT || '').trim(),
     login: String(process.env.SICILIA_LOGIN || '').trim(),
     key: String(process.env.SICILIA_API_KEY || '').trim(),
-    min: Number(process.env.SICILIA_MIN || 500),
+    min: Number(process.env.SICILIA_MIN || 100),
     max: Number(process.env.SICILIA_MAX || 300_000),
     ttlMs: Number(process.env.SICILIA_ORDER_TTL_MIN || 30) * 60_000,
     callbackIps: String(process.env.SICILIA_CALLBACK_IPS || '').split(',').map((s) => s.trim()).filter(Boolean),

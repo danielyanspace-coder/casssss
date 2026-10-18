@@ -128,7 +128,7 @@ const config = {
   minPayout: 1000,
   // Условия те же, что по умолчанию на сервере: демо показывает предложение
   // первого пополнения ровно таким, каким его увидит живой игрок.
-  firstDeposit: { pct: 100, max: 1000, min: 500, wager: 2 },
+  firstDeposit: { pct: 25, max: 1000, min: 500, wager: 3 },
 };
 
 /**
@@ -1778,11 +1778,11 @@ const routes = {
    * невозможен и обещать его нечестно.
    */
   // Шлюза Sicilia в файле нет: вкладка «СБП и карта» не показывается.
-  'POST /api/sicilia/options': () => ({ enabled: false, min: 500, max: 300000 }),
+  'POST /api/sicilia/options': () => ({ enabled: false, min: 100, max: 300000 }),
 
   'POST /api/crypto/options': () => ({
     enabled: true,
-    min: 500,
+    min: 100,
     max: 500000,
     coins: [
       { currency: 'USDT', name: 'Tether', networks: [

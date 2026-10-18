@@ -9430,8 +9430,6 @@ body.mo-receded .opener-scroll { filter: blur(4px) saturate(.55); transform: sca
 .cz-skel-title { display: block; width: 140px; height: 18px; border-radius: 8px; }
 
 /* Отдача под лобби: та же настройка, что в окне запуска и в «Честности». */
-.cz-note { margin-top: 22px; text-align: center; color: var(--muted); font-size: 12px; line-height: 1.5; }
-.cz-note b { color: var(--gold); }
 
 /* ---------- Заголовок списка: Назад, название, счёт ---------- */
 .cz-listhead { display: flex; align-items: center; gap: 10px; margin: 14px 0 12px; min-height: 40px; }
@@ -9548,13 +9546,6 @@ body.mo-receded .opener-scroll { filter: blur(4px) saturate(.55); transform: sca
 .cz-sheet-body { padding: 16px; }
 .cz-sheet-body h4 { margin: 0; font: 800 18px/1.2 'Unbounded', 'Manrope', system-ui, sans-serif; color: var(--text); }
 .cz-sheet-body p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
-.cz-sheet-rtp {
-  display: flex; align-items: center; justify-content: space-between; gap: 10px;
-  margin-top: 12px; padding: 10px 12px; border-radius: 12px;
-  background: rgba(223, 190, 98, 0.08); box-shadow: inset 0 0 0 1px rgba(223, 190, 98, 0.25);
-  font-size: 13px; font-weight: 700; color: var(--text);
-}
-.cz-sheet-rtp b { color: var(--gold); font: 800 15px/1 'Unbounded', 'Manrope', system-ui, sans-serif; text-align: right; }
 .cz-sheet-actions { display: flex; gap: 10px; margin-top: 14px; }
 .cz-sheet-actions > * { flex: 1; }
 .cz-sheet-actions .open-cta { justify-content: center; }
