@@ -4041,48 +4041,6 @@ div.mini-row { cursor: default; }
 .balance-chip { cursor: pointer; font-family: inherit; }
 .balance-chip:active { transform: scale(0.95); }
 
-.wallet-card {
-  padding: 24px 20px;
-  border-radius: var(--radius);
-  background:
-    radial-gradient(circle at 50% 0%, rgba(255, 214, 10, 0.2), transparent 65%),
-    linear-gradient(150deg, var(--card-hi), var(--card));
-  border: 2px solid var(--gold);
-  box-shadow: 0 10px 40px -12px var(--gold);
-  text-align: center;
-  margin-bottom: 18px;
-}
-.wallet-label { font-size: 13px; color: var(--muted); margin-bottom: 8px; }
-.wallet-balance {
-  font-size: 40px; font-weight: 900; color: var(--gold);
-  font-variant-numeric: tabular-nums;
-  margin-bottom: 18px;
-}
-.wallet-rows { display: flex; flex-direction: column; gap: 8px; }
-.wallet-row {
-  display: flex; justify-content: space-between; align-items: center;
-  padding: 10px 14px; border-radius: 12px;
-  background: rgba(0, 0, 0, 0.3);
-  font-size: 13px; color: var(--muted);
-}
-.wallet-row b { color: var(--text); font-variant-numeric: tabular-nums; font-size: 14.5px; }
-.wallet-row.pending b { color: var(--cyan); }
-
-.wallet-actions { display: flex; gap: 12px; margin-bottom: 8px; }
-.wallet-actions .btn { flex: 1; padding: 17px; font-size: 16px; }
-
-.wallet-pane { animation: fade 0.25s ease; }
-
-.withdraw-form {
-  padding: 16px;
-  border-radius: var(--radius);
-  background: var(--card);
-  border: 1.5px solid var(--line);
-  margin-bottom: 8px;
-}
-.withdraw-hint { font-size: 13px; color: var(--muted); margin-bottom: 12px; }
-.withdraw-hint b { color: var(--gold); }
-
 .payout-row {
   padding: 14px 16px;
   border-radius: 14px;
@@ -4121,10 +4079,6 @@ div.mini-row { cursor: default; }
 .payout-note { width: 100%; margin-top: 12px; font-size: 13px; }
 .payout-row.admin .admin-actions { margin-bottom: 0; }
 
-.payout-methods { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:12px 0; }
-.payout-methods .payment-method { min-height:48px; }
-#withdrawSbpFields, #withdrawCardFields { display:grid; gap:10px; margin:10px 0 14px; }
-#withdrawSbpFields[hidden], #withdrawCardFields[hidden] { display:none; }
 .field-label { color:var(--muted); font-size:12px; margin-bottom:-6px; }
 .payout-requisites { margin-top:8px; padding:9px 11px; border-radius:10px; background:rgba(255,255,255,.045); color:var(--muted); line-height:1.45; }
 .settings-help { color:var(--muted); font-size:12px; line-height:1.45; margin:0; }
@@ -5610,17 +5564,552 @@ div.mini-row { cursor: default; }
 }
 
 
-/* То же предложение внутри кассы: там оно уже не зовёт никуда, а объясняет,
-   что будет начислено сверх суммы. */
-.deposit-offer {
-  margin: 0 0 12px;
-  padding: 11px 14px;
-  border: 1px dashed var(--pink);
-  border-radius: 13px;
-  font-size: 13px;
-  line-height: 1.45;
+/* ============================================================
+   КАССА: оформление
+   ============================================================ */
+
+/*
+ * Касса держится на одной шкале: стеклянные поверхности с тонкой границей,
+ * розовый только для выбора и действия, золото только для денег. Раньше
+ * каждый блок был в своём стиле: жёлтая рамка со свечением у баланса, две
+ * кнопки разных градиентов, жёлтые обводки у способов, пунктир у бонуса,
+ * моноширинный шрифт в полях и рамка в рамке у счёта. Всё правило ниже
+ * привязано к #view-wallet: .payout-row и .payment-status живут ещё и в
+ * панели, и её трогать незачем.
+ */
+#view-wallet {
+  --c-surface: rgba(255, 255, 255, 0.035);
+  --c-border: rgba(255, 255, 255, 0.08);
+  --c-border-2: rgba(255, 255, 255, 0.15);
+  --c-text-2: rgba(241, 235, 247, 0.66);
+  --c-text-3: rgba(241, 235, 247, 0.44);
+  --c-accent: var(--pink);
+  --c-accent-soft: rgba(224, 81, 140, 0.12);
+  --c-accent-line: rgba(224, 81, 140, 0.62);
+  --c-ok: var(--green);
+  --c-wait: var(--gold);
+  --c-fail: var(--red);
+  --c-review: var(--cyan);
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  font-family: 'Manrope', system-ui, sans-serif;
 }
-.deposit-offer b { color: var(--pink); }
+
+#view-wallet .cash-ico { width: 18px; height: 18px; flex: none; display: block; }
+
+/* ---------- Баланс ---------- */
+
+#view-wallet .cash-hero {
+  position: relative;
+  overflow: hidden;
+  padding: 18px 18px 16px;
+  margin-bottom: 0;
+  border-radius: 22px;
+  background:
+    radial-gradient(120% 90% at 100% 0%, rgba(223, 190, 98, 0.12), transparent 55%),
+    radial-gradient(90% 80% at 0% 100%, rgba(147, 102, 208, 0.2), transparent 60%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
+  border: 1px solid var(--c-border);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 20px 40px -24px rgba(0, 0, 0, 0.8);
+}
+.cash-hero-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.cash-eyebrow {
+  font-size: 11.5px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--c-text-3);
+}
+.cash-secure {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 5px 9px 5px 7px; border-radius: 999px;
+  font-size: 11.5px; font-weight: 700; color: var(--c-text-2);
+  background: rgba(255, 255, 255, 0.05); border: 1px solid var(--c-border);
+}
+#view-wallet .cash-secure .cash-ico { width: 14px; height: 14px; color: var(--c-ok); }
+
+.cash-balance {
+  margin: 14px 0 18px;
+  font: 800 clamp(30px, 9vw, 40px)/1 'Unbounded', 'Manrope', system-ui, sans-serif;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+  white-space: nowrap;
+}
+.cash-cur { margin-left: 8px; font-size: 0.55em; color: var(--gold); letter-spacing: 0; }
+
+.cash-stats {
+  display: grid; grid-auto-flow: column; grid-auto-columns: 1fr;
+  padding-top: 14px;
+  border-top: 1px solid var(--c-border);
+}
+.cash-stat { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 0 12px; }
+.cash-stat:first-child { padding-left: 0; }
+.cash-stat + .cash-stat { border-left: 1px solid var(--c-border); }
+.cash-stat span { font-size: 11.5px; color: var(--c-text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cash-stat b { font-size: 15px; font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cash-stat.is-pending b { color: var(--c-wait); }
+
+/* ---------- Переключатель «Пополнить / Вывести» ---------- */
+
+#view-wallet .cash-switch {
+  position: relative;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 0;
+  margin: 14px 0;
+  padding: 4px;
+  border-radius: 16px;
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid var(--c-border);
+}
+.cash-switch-thumb {
+  position: absolute; top: 4px; bottom: 4px; left: 4px;
+  width: calc(50% - 4px);
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0.06));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 6px 16px -8px rgba(0, 0, 0, 0.8);
+  transition: transform 0.38s var(--ease-out);
+}
+.cash-switch[data-mode="withdraw"] .cash-switch-thumb { transform: translateX(100%); }
+.cash-tab {
+  position: relative; z-index: 1;
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+  height: 44px; border: 0; background: none;
+  font: 800 15px/1 'Manrope', system-ui, sans-serif; color: var(--c-text-3);
+  cursor: pointer;
+  transition: color 0.25s;
+}
+.cash-tab.active { color: #fff; }
+#view-wallet .cash-tab .cash-ico { width: 17px; height: 17px; transition: transform 0.3s var(--ease-out), color 0.25s; }
+#view-wallet .cash-tab.active .cash-ico { color: var(--c-accent); }
+#view-wallet .cash-tab:active .cash-ico { transform: scale(0.85); }
+
+#view-wallet .wallet-pane { animation: none; }
+#view-wallet .wallet-pane.is-entering { animation: cashIn 0.38s var(--ease-out); }
+@keyframes cashIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+
+/* ---------- Панель с формой ---------- */
+
+#view-wallet .cash-panel {
+  padding: 16px;
+  margin: 0;
+  border-radius: 22px;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+}
+
+/* Подписи шагов: мелкие и спокойные, форма читается сверху вниз сама. */
+.cash-step {
+  margin: 20px 2px 10px;
+  font-size: 12px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--c-text-3);
+}
+.cash-panel > .cash-step:first-child,
+.cash-panel > .deposit-offer[hidden] + .cash-step { margin-top: 2px; }
+
+/* Бонус первого пополнения: подарок вместо пунктирной рамки. */
+#view-wallet .deposit-offer {
+  position: relative;
+  margin: 0 0 14px;
+  padding: 12px 14px 12px 50px;
+  border: 1px solid rgba(224, 81, 140, 0.28);
+  border-radius: 16px;
+  background: linear-gradient(100deg, rgba(224, 81, 140, 0.14), rgba(147, 102, 208, 0.06));
+  font-size: 12.5px; line-height: 1.5; color: var(--c-text-2);
+}
+#view-wallet .deposit-offer::before {
+  content: '';
+  position: absolute; left: 13px; top: 13px;
+  width: 26px; height: 26px; border-radius: 9px;
+  background: rgba(224, 81, 140, 0.2) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23e0518c' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='4' y='9' width='16' height='11' rx='2'/%3E%3Cpath d='M3 9h18M12 9v11'/%3E%3Cpath d='M12 9c-2.5 0-4.5-1-4.5-2.8S10 4 12 9Zm0 0c2.5 0 4.5-1 4.5-2.8S14 4 12 9Z'/%3E%3C/svg%3E") center / 16px no-repeat;
+}
+#view-wallet .deposit-offer b { display: block; margin-bottom: 2px; font-size: 13.5px; color: #fff; }
+
+/* Способ пополнения */
+#view-wallet .deposit-methods { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 0; }
+#view-wallet .payment-method {
+  min-height: 0;
+  display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 10px;
+  padding: 12px; min-width: 0;
+  border-radius: 16px;
+  border: 1px solid var(--c-border);
+  background: var(--c-surface);
+  box-shadow: none;
+  color: var(--text); font: inherit; text-align: left;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s, transform 0.15s;
+}
+#view-wallet .payment-method:active { transform: scale(0.98); }
+#view-wallet .payment-method.active {
+  border-color: var(--c-accent-line);
+  background: var(--c-accent-soft);
+  box-shadow: inset 0 0 0 1px rgba(224, 81, 140, 0.3);
+}
+/* Если способ один (шлюз Sicilia не настроен), плитка во всю ширину и в строку. */
+#view-wallet .deposit-methods .payment-method:last-child:nth-child(odd),
+#view-wallet .deposit-methods .payment-method[hidden] + .payment-method {
+  grid-column: 1 / -1; flex-direction: row; align-items: center;
+}
+.cash-method-ico {
+  width: 34px; height: 34px; flex: none;
+  display: grid; place-items: center;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--c-text-2);
+  transition: background 0.2s, color 0.2s;
+}
+#view-wallet .payment-method.active .cash-method-ico { background: rgba(224, 81, 140, 0.18); color: var(--c-accent); }
+.cash-method-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.cash-method-text b { font-size: 14px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cash-method-text small { font-size: 11.5px; color: var(--c-text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Монеты: выбранная подсвечивается своим цветом, как и раньше, но без
+   двойной рамки - одна тонкая линия и мягкий фон. */
+#view-wallet .coin-grid { gap: 8px; margin: 0; }
+#view-wallet .coin-card {
+  border: 1px solid var(--c-border);
+  border-radius: 14px;
+  background: var(--c-surface);
+  font: inherit;
+  transition: border-color 0.2s, background 0.2s, transform 0.15s;
+}
+#view-wallet .coin-card.active {
+  border-color: color-mix(in srgb, var(--coin) 70%, transparent);
+  background: color-mix(in srgb, var(--coin) 12%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--coin) 35%, transparent);
+}
+#view-wallet .coin-name { font-size: 10px; color: var(--c-text-3); }
+#view-wallet .coin-note { margin: 0; font-size: 11.5px; line-height: 1.5; color: var(--c-text-3); }
+
+/* Сумма: крупное поле с рублём справа, без стрелок числового поля. */
+.cash-amount {
+  position: relative;
+  display: flex; align-items: center; gap: 8px;
+  height: 60px; padding: 0 12px 0 16px;
+  border-radius: 16px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--c-border);
+  transition: border-color 0.2s, box-shadow 0.2s;
+  cursor: text;
+}
+.cash-amount:focus-within { border-color: var(--c-accent-line); box-shadow: 0 0 0 4px rgba(224, 81, 140, 0.12); }
+.cash-amount input {
+  flex: 1; min-width: 0; height: 100%;
+  border: 0; outline: 0; background: none; padding: 0;
+  font: 800 24px/1 'Unbounded', 'Manrope', system-ui, sans-serif; letter-spacing: -0.02em;
+  color: #fff; font-variant-numeric: tabular-nums;
+  -moz-appearance: textfield;
+}
+.cash-amount input::-webkit-outer-spin-button,
+.cash-amount input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.cash-amount input::placeholder { color: var(--c-text-3); font-size: 18px; }
+.cash-amount-cur { font: 800 18px/1 'Unbounded', 'Manrope', system-ui, sans-serif; color: var(--c-text-3); }
+.cash-amount-all {
+  height: 34px; padding: 0 12px;
+  border: 1px solid var(--c-border-2); border-radius: 10px;
+  background: rgba(255, 255, 255, 0.06);
+  font: 800 13px/1 'Manrope', system-ui, sans-serif; color: var(--text);
+  cursor: pointer;
+  transition: transform 0.15s;
+}
+.cash-amount-all:active { transform: scale(0.94); }
+
+#view-wallet .quick-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(56px, 1fr)); gap: 6px; margin: 8px 0 0; }
+#view-wallet .quick-btn {
+  height: 36px; padding: 0 6px;
+  border: 1px solid var(--c-border); border-radius: 11px;
+  background: var(--c-surface);
+  font: 700 12.5px/1 'Manrope', system-ui, sans-serif; color: var(--c-text-2);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+  transition: color 0.2s, border-color 0.2s, background 0.2s, transform 0.15s;
+}
+#view-wallet .quick-btn:active { transform: scale(0.95); }
+#view-wallet .quick-btn.active { color: #fff; border-color: var(--c-accent-line); background: var(--c-accent-soft); }
+
+/* Пересчёт в монету: сводка, а не три строки разного кегля вразнобой. */
+#view-wallet .rate-line { margin: 12px 0 0; min-height: 0; }
+#view-wallet .rate-line:empty { display: none; }
+#view-wallet .rate-line:has(.rate-amount) {
+  padding: 12px 14px; border-radius: 14px;
+  background: rgba(0, 0, 0, 0.22); border: 1px solid var(--c-border);
+}
+#view-wallet .rate-amount { font-size: 17px; font-weight: 800; }
+#view-wallet .rate-course { font-size: 12px; color: var(--c-text-2); margin-top: 4px; }
+#view-wallet .rate-note { font-size: 11px; line-height: 1.45; color: var(--c-text-3); opacity: 1; margin-top: 6px; }
+
+/* Главная кнопка: один стиль на всю кассу, без неонового ореола. */
+.cash-cta {
+  position: relative; overflow: hidden;
+  width: 100%; height: 54px; margin-top: 16px;
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  border: 0; border-radius: 16px;
+  background: linear-gradient(180deg, #ea6299, #d4457f);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 10px 24px -14px rgba(224, 81, 140, 0.9);
+  font: 800 16px/1 'Manrope', system-ui, sans-serif; color: #fff;
+  font-variant-numeric: tabular-nums; text-decoration: none;
+  cursor: pointer;
+  transition: transform 0.15s, filter 0.2s;
+}
+.cash-cta:hover { filter: brightness(1.06); }
+.cash-cta:active { transform: scale(0.98); filter: brightness(0.95); }
+#view-wallet .cash-cta .cash-ico { width: 19px; height: 19px; transition: transform 0.3s var(--ease-out); }
+.cash-cta:hover .cash-ico { transform: translateX(3px); }
+.cash-cta:disabled { opacity: 1; cursor: default; }
+.cash-cta.is-busy { color: transparent; pointer-events: none; }
+#view-wallet .cash-cta.is-busy .cash-ico { opacity: 0; }
+.cash-cta.is-busy::after {
+  content: '';
+  position: absolute; left: 50%; top: 50%;
+  width: 20px; height: 20px; margin: -10px 0 0 -10px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.35); border-top-color: #fff;
+  animation: cashSpin 0.7s linear infinite;
+}
+@keyframes cashSpin { to { transform: rotate(360deg); } }
+
+.cash-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+.cash-ghost {
+  height: 46px; padding: 0 10px;
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+  border: 1px solid var(--c-border-2); border-radius: 14px;
+  background: transparent;
+  font: 700 14px/1 'Manrope', system-ui, sans-serif; color: var(--text);
+  cursor: pointer;
+  transition: background 0.2s, transform 0.15s;
+}
+.cash-ghost:active { background: rgba(255, 255, 255, 0.05); transform: scale(0.98); }
+#view-wallet .cash-ghost .cash-ico { width: 16px; height: 16px; color: var(--c-text-2); }
+
+.cash-fine { margin: 12px 6px 0; font-size: 11.5px; line-height: 1.55; color: var(--c-text-3); text-align: center; }
+
+/* ---------- Ожидание оплаты (СБП и карта) ---------- */
+
+#view-wallet .payment-checkout {
+  margin: 16px 0 0; padding: 16px;
+  border: 1px solid var(--c-border); border-radius: 18px;
+  background: rgba(0, 0, 0, 0.22);
+  text-align: left;
+  animation: cashIn 0.45s var(--ease-out);
+}
+#view-wallet .sicilia-wait { display: block; text-align: left; }
+.cash-wait-head { display: flex; align-items: center; gap: 12px; }
+.cash-pulse { position: relative; width: 10px; height: 10px; flex: none; margin: 0 4px; border-radius: 50%; background: var(--c-wait); }
+.cash-pulse::after {
+  content: ''; position: absolute; inset: 0; border-radius: 50%;
+  background: inherit; animation: cashPing 1.6s var(--ease-out) infinite;
+}
+@keyframes cashPing { from { transform: scale(1); opacity: 0.7; } to { transform: scale(3.2); opacity: 0; } }
+.cash-wait-status { font-size: 14px; font-weight: 800; color: var(--c-wait); }
+#view-wallet .sicilia-wait-sub { margin-top: 2px; font-size: 12px; font-weight: 600; color: var(--c-text-3); }
+#view-wallet .sicilia-wait-sum {
+  margin: 16px 0 6px;
+  font: 800 32px/1 'Unbounded', 'Manrope', system-ui, sans-serif; letter-spacing: -0.02em;
+  color: #fff;
+}
+#view-wallet .sicilia-wait p { margin: 0; font-size: 13px; line-height: 1.55; color: var(--c-text-2); }
+
+#view-wallet .invoice-status { margin-top: 10px; font-size: 12.5px; line-height: 1.45; color: var(--c-text-2); text-align: center; }
+#view-wallet .invoice-status:empty { display: none; }
+
+/* ---------- Счёт криптовалютой ---------- */
+
+/* Цвет монеты остаётся, но одной линией: счета USDT и биткоина различимы
+   и без светящейся рамки внутри рамки. */
+#view-wallet .crypto-invoice {
+  border: 0; padding: 0; background: none; box-shadow: none;
+}
+#view-wallet .payment-checkout:has(.crypto-invoice) {
+  border-color: color-mix(in srgb, var(--coin, #fff) 30%, var(--c-border));
+}
+#view-wallet .invoice-head { gap: 14px; margin-bottom: 16px; }
+.invoice-label { font-size: 11.5px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--c-text-3); }
+#view-wallet .invoice-sum { margin-top: 3px; font: 800 24px/1.1 'Unbounded', 'Manrope', system-ui, sans-serif; letter-spacing: -0.01em; }
+#view-wallet .invoice-sub { margin-top: 4px; font-size: 12.5px; color: var(--c-text-2); }
+#view-wallet .invoice-qr { margin: 0 auto 16px; border-radius: 14px; }
+#view-wallet .payment-checkout .field-label { display: block; margin: 0 2px 6px; }
+
+#view-wallet .invoice-address {
+  display: flex; align-items: center; gap: 12px;
+  width: 100%; margin: 0 0 10px; padding: 12px 12px 12px 14px;
+  border: 1px solid var(--c-border-2); border-radius: 14px;
+  background: rgba(0, 0, 0, 0.3);
+  text-align: left; color: var(--text); cursor: pointer;
+  transition: border-color 0.2s;
+}
+#view-wallet .invoice-address.is-copied { border-color: rgba(99, 191, 148, 0.55); }
+#view-wallet .invoice-address .cash-copy-label { display: inline; font: inherit; }
+#view-wallet .invoice-address .invoice-addr {
+  flex: 1; min-width: 0;
+  font: 400 12.5px/1.5 'JetBrains Mono', ui-monospace, monospace; word-break: break-all;
+}
+/* Селектор длинный нарочно: старое .invoice-address span делает любой span
+   внутри адреса моноширинным блоком, и подпись падала под значок. */
+#view-wallet .invoice-address .cash-copy {
+  display: flex; align-items: center; gap: 6px; flex: none;
+  font-family: 'Manrope', system-ui, sans-serif; line-height: 1; white-space: nowrap;
+  padding: 7px 10px; border-radius: 10px;
+  background: rgba(255, 255, 255, 0.07);
+  font-size: 12px; font-weight: 800; color: var(--text);
+  transition: background 0.2s, color 0.2s;
+}
+#view-wallet .cash-copy .cash-ico { width: 15px; height: 15px; }
+#view-wallet .cash-copy .cash-ico + .cash-ico { display: none; }
+.is-copied .cash-copy { color: var(--c-ok); background: rgba(99, 191, 148, 0.12); }
+#view-wallet .is-copied .cash-copy .cash-ico:first-child { display: none; }
+#view-wallet .is-copied .cash-copy .cash-ico + .cash-ico { display: block; animation: cashPop 0.35s var(--ease-spring); }
+@keyframes cashPop { from { transform: scale(0.3); } to { transform: scale(1); } }
+
+#view-wallet .invoice-warn {
+  display: flex; gap: 10px;
+  margin: 0; padding: 11px 12px;
+  border: 1px solid rgba(223, 190, 98, 0.22); border-left: 1px solid rgba(223, 190, 98, 0.22);
+  border-radius: 14px;
+  background: rgba(223, 190, 98, 0.07);
+  font-size: 12.5px; line-height: 1.5; color: var(--c-text-2);
+}
+#view-wallet .invoice-warn .cash-ico { width: 17px; height: 17px; margin-top: 1px; color: var(--c-wait); }
+
+/* ---------- Вывод ---------- */
+
+#view-wallet .withdraw-form { margin: 0; }
+#view-wallet .withdraw-hint {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px;
+  margin: 8px 2px 0;
+  font-size: 12.5px; color: var(--c-text-3);
+}
+#view-wallet .withdraw-hint b { color: var(--c-text-2); font-weight: 800; }
+#view-wallet .withdraw-hint i { width: 3px; height: 3px; border-radius: 50%; background: currentColor; }
+#view-wallet .withdraw-locked {
+  flex-basis: 100%; margin-top: 6px; padding: 10px 12px; border-radius: 12px;
+  background: rgba(223, 190, 98, 0.07); border: 1px solid rgba(223, 190, 98, 0.2);
+  font-size: 12px; line-height: 1.5; color: var(--c-text-2);
+}
+
+/* Способ вывода: три сегмента с плашкой, которая едет под выбранный. */
+#view-wallet .cash-seg {
+  position: relative;
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 0;
+  margin: 0; padding: 3px; border-radius: 13px;
+  background: rgba(0, 0, 0, 0.28); border: 1px solid var(--c-border);
+}
+#view-wallet .cash-seg::before {
+  content: '';
+  position: absolute; top: 3px; bottom: 3px; left: 3px; width: calc((100% - 6px) / 3);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.1);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  transition: transform 0.35s var(--ease-out);
+}
+#view-wallet .cash-seg[data-active="card"]::before { transform: translateX(100%); }
+#view-wallet .cash-seg[data-active="crypto"]::before { transform: translateX(200%); }
+.cash-seg-btn {
+  position: relative; height: 38px;
+  border: 0; background: none;
+  font: 800 14px/1 'Manrope', system-ui, sans-serif; color: var(--c-text-3);
+  cursor: pointer; transition: color 0.2s;
+}
+.cash-seg-btn.active { color: #fff; }
+
+#view-wallet .cash-fields { display: grid; gap: 12px; margin: 14px 0 0; }
+.cash-field { display: grid; gap: 6px; }
+#view-wallet .field-label { margin: 0 0 0 2px; font-size: 12px; font-weight: 700; color: var(--c-text-3); }
+#view-wallet .cash-field .seed-input {
+  width: 100%; height: 50px; padding: 0 14px;
+  border-radius: 14px;
+  border: 1px solid var(--c-border);
+  background: rgba(0, 0, 0, 0.3);
+  font: 600 16px/1 'Manrope', system-ui, sans-serif; color: #fff;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+#view-wallet .cash-field .seed-input.cash-mono { font: 400 14px/1 'JetBrains Mono', ui-monospace, monospace; }
+#view-wallet .cash-field .seed-input::placeholder { color: var(--c-text-3); }
+#view-wallet .cash-field .seed-input:focus { border-color: var(--c-accent-line); box-shadow: 0 0 0 4px rgba(224, 81, 140, 0.12); }
+#view-wallet .cash-field select.seed-input {
+  padding-right: 40px;
+  background: rgba(0, 0, 0, 0.3) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a698c0' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3C/svg%3E") right 14px center / 18px no-repeat;
+}
+#view-wallet .cash-field select.seed-input option { background: var(--bg-soft); color: #fff; }
+#view-wallet #coinNetwork { margin-top: 12px; }
+
+/* ---------- История ---------- */
+
+.cash-h2 {
+  margin: 26px 4px 10px;
+  font-size: 12px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--c-text-3);
+}
+.cash-list {
+  border-radius: 18px;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  overflow: hidden;
+}
+.cash-list > .skel-line { margin: 14px; }
+.cash-tx {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; column-gap: 12px;
+  padding: 12px 14px;
+}
+.cash-tx + .cash-tx { border-top: 1px solid var(--c-border); }
+.cash-tx-ico {
+  width: 36px; height: 36px; display: grid; place-items: center;
+  border-radius: 12px; background: rgba(255, 255, 255, 0.06); color: var(--c-text-2);
+}
+#view-wallet .cash-tx-ico .cash-ico { width: 17px; height: 17px; }
+.cash-tx-main, .cash-tx-side { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.cash-tx-side { align-items: flex-end; }
+.cash-tx-main b { font-size: 14px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cash-tx-side b { font-size: 14.5px; font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cash-tx small { font-size: 12px; color: var(--c-text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cash-tx.tone-ok .cash-tx-ico { color: var(--c-ok); background: rgba(99, 191, 148, 0.12); }
+.cash-tx.tone-ok .cash-tx-side b, .cash-tx.tone-ok .cash-tx-side small { color: var(--c-ok); }
+
+/* Заявки на вывод: та же строка списка, цвет статуса - точкой и словом,
+   а не толстой полосой слева. Печать выплаты и её удар остались. */
+#view-wallet .payout-row {
+  margin: 0; padding: 14px 16px;
+  border: 0; border-radius: 0;
+  background: none;
+}
+#view-wallet .payout-row + .payout-row { border-top: 1px solid var(--c-border); }
+#view-wallet .payout-row.cancelled { opacity: 0.55; }
+#view-wallet .payout-head b { font: 800 17px/1.2 'Unbounded', 'Manrope', system-ui, sans-serif; letter-spacing: -0.01em; }
+#view-wallet .payout-status {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 0; border: 0;
+  font-size: 12px; font-weight: 800; letter-spacing: 0;
+}
+#view-wallet .payout-status::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+#view-wallet .payout-status.pending { color: var(--c-wait); }
+#view-wallet .payout-status.processing { color: var(--c-review); }
+#view-wallet .payout-row.pending .payout-status::before { animation: cashBlink 1.6s ease-in-out infinite; }
+@keyframes cashBlink { 50% { opacity: 0.35; } }
+#view-wallet .payout-date { margin-top: 4px; font-size: 12px; color: var(--c-text-3); }
+#view-wallet .payout-requisites {
+  margin-top: 10px; padding: 9px 11px; border-radius: 11px;
+  background: rgba(0, 0, 0, 0.22);
+  font-size: 12.5px; color: var(--c-text-2);
+}
+#view-wallet .payout-comment {
+  margin-top: 8px; padding: 9px 11px; border-radius: 11px;
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 12.5px; color: var(--c-text-2);
+}
+#view-wallet .payout-cancel {
+  width: auto; height: 34px; margin-top: 10px; padding: 0 12px;
+  border: 1px solid var(--c-border-2); border-radius: 10px; background: none;
+  font: 700 13px/1 'Manrope', system-ui, sans-serif; color: var(--text); cursor: pointer;
+}
+
+.cash-empty { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 28px 20px; text-align: center; }
+.cash-empty-ico {
+  width: 44px; height: 44px; margin-bottom: 8px; display: grid; place-items: center;
+  border-radius: 14px; background: rgba(255, 255, 255, 0.05); color: var(--c-text-3);
+}
+#view-wallet .cash-empty-ico .cash-ico { width: 20px; height: 20px; }
+.cash-empty b { font-size: 14.5px; font-weight: 800; }
+.cash-empty small { font-size: 12.5px; color: var(--c-text-3); }
+
+@media (prefers-reduced-motion: reduce) {
+  #view-wallet *, #view-wallet *::before, #view-wallet *::after {
+    animation-duration: 0.001ms !important; transition-duration: 0.001ms !important;
+  }
+}
 
 /* ---------- Первый заход ---------- */
 
@@ -6538,6 +7027,12 @@ div.mini-row { cursor: default; }
   }
   #view-wallet > .wallet-card { grid-area: card; margin: 0; position: sticky; top: 90px; }
   #view-wallet > .wallet-actions { grid-area: acts; margin: 0; }
+  /* Баланс липкий, и переключатель липнет сразу под ним: иначе полупрозрачная
+     карточка баланса наезжала бы на него при прокрутке истории. Высоту
+     карточки кладёт в --cash-hero-h код (watchCashHero). */
+  #view-wallet > .wallet-card { z-index: 2; }
+  #view-wallet > .cash-switch { position: sticky; top: calc(90px + var(--cash-hero-h, 190px) + 18px); z-index: 2; }
+  #view-wallet .cash-panel { padding: 20px; }
   #view-wallet > .wallet-pane { grid-area: pane; margin: 0; }
 
   .coin-grid { grid-template-columns: repeat(6, 1fr); }

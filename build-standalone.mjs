@@ -15,7 +15,7 @@
  */
 
 import { chromium } from 'playwright';
-import { readFileSync, writeFileSync, mkdirSync, readdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 'node:fs';
 import { CASES, CATEGORIES, TIERS, publicCase, FREESPIN_PACKS } from './server/cases.js';
 import {
   CRASH_CONFIG, ROULETTE_CONFIG, ROULETTE_WHEEL, GAMBLE_CONFIG, UPGRADE_CONFIG,
@@ -220,9 +220,14 @@ const DEMO_ADMIN = process.env.DEMO_ADMIN === '1';
 
 const coverFiles = readdirSync(coverDir).filter((f) => f.endsWith('.webp'));
 
-const shrinkBrowser = await chromium.launch({
-  executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
-});
+/*
+ * Готовый chromium облачного окружения берём, только если он есть: в CI его
+ * нет, там браузер ставит `npx playwright install`, и зашитый путь ронял
+ * сборку ещё до первой обложки.
+ */
+const PRESET_CHROMIUM = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+const shrinkBrowser = await chromium.launch(
+  existsSync(PRESET_CHROMIUM) ? { executablePath: PRESET_CHROMIUM } : {});
 const shrinkPage = await shrinkBrowser.newPage();
 
 const coverArt = {};
