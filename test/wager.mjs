@@ -17,6 +17,10 @@ process.env.DB_PATH = './data/wager-test.db';
 // Поощрение первого пополнения здесь только мешало бы: проверяется правило
 // вывода, а не маркетинг. Отключаем явно.
 process.env.FIRST_DEPOSIT_PCT = '0';
+// В DEV_MODE новый игрок получает стартовый миллион (единственное исключение
+// из правила «стартового баланса нет»), и арифметика счёта поехала бы. CI
+// гоняет тесты с DEV_MODE=true, поэтому выключаем его здесь явно.
+process.env.DEV_MODE = 'false';
 for (const t of ['', '-wal', '-shm']) rmSync(process.env.DB_PATH + t, { force: true });
 
 const {

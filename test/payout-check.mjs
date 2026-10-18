@@ -12,6 +12,9 @@
 import { rmSync } from 'node:fs';
 
 process.env.DB_PATH = './data/payout-check-test.db';
+// В DEV_MODE новый игрок получает стартовый миллион, и счёт денег поехал
+// бы. CI гоняет тесты с DEV_MODE=true, поэтому выключаем его явно.
+process.env.DEV_MODE = 'false';
 process.env.PAYOUT_DATA_KEY = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
 delete process.env.FIRST_DEPOSIT_PCT;
 delete process.env.BONUS_WAGER;

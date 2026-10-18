@@ -10,6 +10,9 @@
 import { rmSync } from 'node:fs';
 
 process.env.DB_PATH = './data/fortune-test.db';
+// В DEV_MODE новый игрок получает стартовый миллион, и счёт денег поехал
+// бы. CI гоняет тесты с DEV_MODE=true, поэтому выключаем его явно.
+process.env.DEV_MODE = 'false';
 // Приветственный бонус здесь только мешал бы: он тоже висит на пополнении,
 // а проверяется колесо.
 process.env.FIRST_DEPOSIT_PCT = '0';
