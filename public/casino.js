@@ -519,8 +519,10 @@ export function createCasino(deps) {
   }
 
   /* Баннер «Большие джекпоты» в казино ведёт к блоку «Популярные». */
-  function focusBlock(id) {
-    if (ui.kind !== 'slots' || ui.view.type !== 'home') { setKind('slots'); }
+  async function focusBlock(id) {
+    // Блок ищется после того, как вкладка слотов дорисована: до этого его
+    // нет в разметке, и баннер никуда не прокручивал.
+    if (ui.kind !== 'slots' || ui.view.type !== 'home') await setKind('slots');
     const el = root().querySelector(`[data-block="${id}"]`);
     el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
@@ -593,7 +595,13 @@ export function createCasino(deps) {
     iframe.setAttribute('referrerpolicy', 'no-referrer-when-downgrade');
     // Агрегатор отдаёт либо адрес, либо готовый HTML - одно из двух.
     if (data.url) iframe.src = data.url;
-    else iframe.srcdoc = data.html || '';
+    else {
+      // Готовый HTML в srcdoc получил бы адрес нашего сайта, и его скрипты
+      // ходили бы в наши ручки с сессией игрока. Песочница без
+      // allow-same-origin делает его чужим для нашего сайта.
+      iframe.setAttribute('sandbox', 'allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox');
+      iframe.srcdoc = data.html || '';
+    }
     host.append(iframe);
     frame.hidden = false;
     document.body.classList.add('cz-playing');

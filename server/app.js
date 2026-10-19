@@ -91,7 +91,7 @@ import {
   getDeposits,
   getPayouts,
   pendingPayoutTotal,
-  createPayout, withdrawable, spendable, refuseBonus, bonusRules, bonusAllowance, getBonusEvents,
+  lastPasswordResetAt, createPayout, withdrawable, spendable, refuseBonus, bonusRules, bonusAllowance, getBonusEvents,
   recordAccess,
   cancelPayout,
   resolvePayout,
@@ -194,6 +194,26 @@ syncStaff(OWNER_KEYS);
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
+
+/*
+ * Express 4 не ловит ошибки async-ручек: исключение внутри уходит в
+ * unhandledRejection, ответ не отправляется, и запрос висит до таймаута
+ * nginx, а игрок видит «зависшую» кнопку. Оборачиваем каждую ручку один
+ * раз здесь, чтобы ошибка ушла в общий обработчик и вернулась ответом.
+ * Обработчики ошибок (четыре аргумента) не трогаем: Express узнаёт их по
+ * числу аргументов.
+ */
+const wrapAsync = (fn) => (typeof fn !== 'function' || fn.length === 4 ? fn
+  : function wrapped(req, res, next) {
+    const out = fn.call(this, req, res, next);
+    if (out && typeof out.catch === 'function') out.catch(next);
+    return out;
+  });
+for (const method of ['get', 'post', 'put', 'patch', 'delete']) {
+  const original = app[method].bind(app);
+  app[method] = (path, ...handlers) => (handlers.length
+    ? original(path, ...handlers.map(wrapAsync)) : original(path));
+}
 
 /*
  * За nginx все запросы приходят с адреса самого nginx. Без этой строки
@@ -505,7 +525,9 @@ app.get('/api/config', (req, res) => {
     casino: { rtp: casinoRtp(), configured: casinoConfigured() },
     // Условия приветственного бонуса нужны клиенту, чтобы показать их в кассе
     // до пополнения, а не после.
-    firstDeposit: firstDepositRules(),
+    // Потолок перевода бонуса в деньги нужен тексту правил: обещание без
+    // него («отыграл - выводи») было бы неправдой.
+    firstDeposit: { ...firstDepositRules(), cashoutPct: bonusRules().cashoutPct },
   });
 });
 
@@ -597,17 +619,46 @@ app.post('/api/auth/register', authGate, limits.auth, async (req, res) => {
   }
 });
 
+/*
+ * Неудачные входы на одну почту. Лимит по адресу (limits.auth, nginx) не
+ * мешает перебирать пароль одного аккаунта с сотни адресов. После
+ * LOGIN_FAIL_MAX неудач за LOGIN_FAIL_WINDOW_MS почта закрывается для входа
+ * до конца окна. Считаем и несуществующие почты: иначе по разнице ответов
+ * было бы видно, кто зарегистрирован. Память процесса, а не база: после
+ * перезапуска счёт начинается заново, и это допустимо.
+ */
+const LOGIN_FAIL_MAX = 10;
+const LOGIN_FAIL_WINDOW_MS = 30 * 60_000;
+const loginFails = new Map();
+function loginLocked(email, now = Date.now()) {
+  const f = loginFails.get(email);
+  if (!f || now - f.first > LOGIN_FAIL_WINDOW_MS) { loginFails.delete(email); return false; }
+  return f.count >= LOGIN_FAIL_MAX;
+}
+function loginFailed(email, now = Date.now()) {
+  const f = loginFails.get(email);
+  if (!f || now - f.first > LOGIN_FAIL_WINDOW_MS) loginFails.set(email, { first: now, count: 1 });
+  else f.count += 1;
+  if (loginFails.size > 50_000) loginFails.clear();
+}
+
 app.post('/api/auth/login', authGate, limits.auth, async (req, res) => {
   const email = String(req.body?.email || '').trim().toLowerCase();
   const password = String(req.body?.password ?? '');
+  if (email && loginLocked(email)) {
+    return res.status(429).json({ error: 'Слишком много попыток входа. Подождите полчаса или восстановите пароль', code: 'LOGIN_LOCKED' });
+  }
   const user = email ? findUserByEmail(email) : null;
   if (!user || !user.password_hash) {
     await burnPasswordCheck(password);
+    if (email) loginFailed(email);
     return res.status(401).json({ error: 'Почта или пароль не подходят', code: 'LOGIN' });
   }
   if (!(await verifyPassword(password, user.password_hash))) {
+    loginFailed(email);
     return res.status(401).json({ error: 'Почта или пароль не подходят', code: 'LOGIN' });
   }
+  loginFails.delete(email);
   welcome(req, res, user);
 });
 
@@ -669,6 +720,7 @@ function siteUrl() {
     .replace(/\/+$/, '');
 }
 
+const RESET_RESEND_MS = 5 * 60_000;
 app.post('/api/auth/forgot', authGate, limits.auth, async (req, res) => {
   if (!isMailConfigured()) {
     return res.status(503).json({ error: 'Восстановление по почте пока недоступно, напишите в поддержку' });
@@ -678,6 +730,11 @@ app.post('/api/auth/forgot', authGate, limits.auth, async (req, res) => {
   try { email = normalizeEmail(req.body?.email); } catch (err) { return authError(res, err); }
   const user = findUserByEmail(email);
   if (!user) return done();
+  // Одно письмо на почту раз в RESET_RESEND_MS: лимит по адресу не мешает
+  // засыпать чужой ящик письмами с разных адресов и выжечь суточную квоту
+  // почтового сервиса, после чего сброс перестал бы работать у всех. Ответ
+  // тот же, что и на отправку: по нему нельзя понять, есть ли такая почта.
+  if (Date.now() - lastPasswordResetAt(user.id) < RESET_RESEND_MS) return done();
   const { token, tokenHash } = newResetToken();
   createPasswordReset(user.id, tokenHash, RESET_TTL_MS);
   try {
@@ -1746,7 +1803,7 @@ app.post('/api/slot/spin', auth, limits.play, gameGate('slots'), (req, res) => {
   const jackpot = jackpotFrom(slot, jackpotRoll(result.roll), bet.total);
   let balance = result.balance;
   if (jackpot) {
-    balance = awardSlotJackpot(user.id, jackpot, bet.total, result.nonce);
+    balance = awardSlotJackpot(user.id, jackpot, bet.total, result.nonce, slot.name);
     trackEvent(user.id, 'slot_jackpot',
                { slot: slot.id, id: jackpot.id, amount: jackpot.amount, bet: bet.total });
   }
@@ -2501,7 +2558,11 @@ app.post('/api/casino/wallet', (req, res) => {
   const ip = String(req.ip || '').replace(/^::ffff:/, '');
   if (env.callbackIps.length && !env.callbackIps.includes(ip)) {
     console.error('[casino] кошелёк: чужой адрес', ip);
-    return res.status(403).json({ statusCode: CASINO_STATUS.INVALID_CREDENTIALS, message: 'Forbidden' });
+    // Код 200 и statusCode в теле, как требует их протокол: HTTP-ошибку
+    // агрегатор принял бы за сбой сети, а не за отказ, если его адреса
+    // сменятся. Оповещение - чтобы смену адресов не искать по жалобам.
+    countError('casino:foreign-ip', `Казино: кошелёк вызван с адреса ${ip}, его нет в CASINO_CALLBACK_IPS`, { threshold: 3 });
+    return res.json({ statusCode: CASINO_STATUS.INVALID_CREDENTIALS, message: 'Forbidden' });
   }
   if (!sameSecret(req.get('x-agent-name'), env.agent) || !sameSecret(req.get('x-agent-token'), env.token)) {
     return res.json({ statusCode: CASINO_STATUS.INVALID_CREDENTIALS, message: 'Invalid credentials' });
@@ -2537,10 +2598,20 @@ function emitPayment(userId, event, data) {
   }
 }
 
+// Потоков на игрока не больше нескольких вкладок: поток не заканчивается, и
+// один аккаунт иначе держал бы тысячи соединений. Лишний закрывает самый
+// старый, а не отказывает новой вкладке.
+const STREAMS_PER_PLAYER = 5;
 app.get('/api/payments/events', auth, (req, res) => {
   res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
   res.flushHeaders(); res.write('event: connected\ndata: {}\n\n');
-  const set = paymentStreams.get(req.player.id) || new Set(); set.add(res); paymentStreams.set(req.player.id, set);
+  const set = paymentStreams.get(req.player.id) || new Set();
+  while (set.size >= STREAMS_PER_PLAYER) {
+    const oldest = set.values().next().value;
+    set.delete(oldest);
+    try { oldest.end(); } catch { /* уже закрыт */ }
+  }
+  set.add(res); paymentStreams.set(req.player.id, set);
   const keepalive = setInterval(() => res.write(': keepalive\n\n'), 25000);
   req.on('close', () => { clearInterval(keepalive); set.delete(res); if (!set.size) paymentStreams.delete(req.player.id); });
 });
@@ -2654,6 +2725,16 @@ app.post('/api/admin/staff/save', auth, need('staff.manage'), (req, res) => {
   const notMine = extra.filter((p) => !req.perms.has(p));
   if (notMine.length) {
     return res.status(403).json({ error: `Нельзя выдать то, чего нет у вас: ${notMine.join(', ')}` });
+  }
+
+  // Потолок правки баланса - тоже право: свой потолок нельзя раздать шире.
+  // Ноль означает «без потолка», то есть шире любого числа.
+  const myCap = balanceCapFor(req.staff);
+  if (myCap > 0 && body.balanceCap !== null && body.balanceCap !== undefined) {
+    const cap = Math.max(0, Math.trunc(Number(body.balanceCap) || 0));
+    if (cap === 0 || cap > myCap) {
+      return res.status(403).json({ error: `Потолок правки баланса не может быть выше вашего (${myCap})` });
+    }
   }
 
   const target = findUserByAnyId(body.userKey);

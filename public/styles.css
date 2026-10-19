@@ -3387,6 +3387,8 @@ div.mini-row { cursor: default; }
     0 1px 0 #8a4f08, 0 8px 18px -8px rgba(255, 170, 40, 0.45);
 }
 .open-cta:disabled { filter: grayscale(0.85) brightness(0.6); cursor: default; }
+/* Денег не хватает: кнопка выглядит приглушённой, но жмётся и ведёт в кассу. */
+.open-cta.is-short { filter: grayscale(0.6) brightness(0.75); }
 /* Блик раз в четыре секунды: притягивает взгляд, но не мигает. */
 .open-cta::after {
   content: ''; position: absolute; inset: 0; translate: -130% 0; pointer-events: none;

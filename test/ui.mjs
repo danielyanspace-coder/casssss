@@ -638,7 +638,20 @@ async function openCaseAndVerify(caseId) {
     const fs = document.getElementById('freespins');
     const btn = document.getElementById('fsCollect');
     return (!!res && !res.hidden) || (!!fs && !fs.hidden && !!btn && !btn.hidden);
-  }, null, { timeout: 180000 });
+  }, null, { timeout: Number(process.env.UI_CASE_TIMEOUT) || 180000 }).catch(async (e) => {
+    // Без снимка состояния таймаут здесь ничего не говорит: показываем, что
+    // стоит на экране, иначе причину ищут перезапусками.
+    const seen = await page.evaluate(() => ({
+      opener: !document.getElementById('opener')?.hidden,
+      button: document.getElementById('doOpenBtn')?.outerHTML.slice(0, 200),
+      toast: document.querySelector('.toast')?.textContent || '',
+      balance: document.getElementById('balanceChip')?.textContent || '',
+      shown: [...document.querySelectorAll('[id$="Backdrop"], #freespins, #result')]
+        .filter((b) => !b.hidden).map((b) => b.id),
+    })).catch(() => null);
+    console.error('кейс не доиграл:', JSON.stringify(seen));
+    throw e;
+  });
 
   /*
    * Забирать серию приходится в цикле: фриспин может выдать новые фриспины, и
@@ -2363,8 +2376,9 @@ slotChecks: {
 
   // Открыть кейс без аккаунта нельзя: вместо кассы и тоста - окно входа.
   await g.evaluate(() => document.querySelector('.case-card').click());
-  await g.waitForTimeout(500);
-  await g.evaluate(() => document.getElementById('openBtn')?.click());
+  await g.waitForTimeout(800);
+  check('гость: просмотр кейса не зовёт ко входу', !(await g.isVisible('#authBackdrop')));
+  await g.evaluate(() => document.getElementById('doOpenBtn')?.click());
   await g.waitForTimeout(500);
   check('гость: попытка открыть кейс зовёт ко входу', await g.isVisible('#authBackdrop'));
   check('гость: первым предлагается регистрация',

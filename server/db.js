@@ -252,8 +252,6 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_promo_red_user ON promo_redemptions(user_id, id DESC);
   CREATE INDEX IF NOT EXISTS idx_promo_red_promo ON promo_redemptions(promo_id);
 
-  -- Обещанный процент к пополнению. Ждёт здесь, пока игрок не пополнит счёт:
-  -- платёжного шлюза ещё нет, и применить его прямо сейчас не к чему.
   -- Обещанный процент к следующему пополнению. Источников у него два:
   -- промокод и колесо фортуны, поэтому promo_id может быть пустым.
   CREATE TABLE IF NOT EXISTS pending_deposit_bonus (
@@ -610,16 +608,6 @@ ensureColumn('users', 'fortune_spins', 'INTEGER NOT NULL DEFAULT 0');
 ensureColumn('users', 'fortune_last_spin', 'INTEGER NOT NULL DEFAULT 0');
 ensureColumn('users', 'fortune_cycles', 'INTEGER NOT NULL DEFAULT 0');
 
-/*
- * Отыгранный оборот: сколько из внесённого игрок уже прокрутил ставками.
- *
- * Правило простое: вывести можно не больше, чем поставлено. Внёс тысячу и
- * сразу пошёл выводить - вывести нечего; поставил двести - двести и доступно.
- *
- * Счётчик, а не флаг, потому что открывается вывод постепенно, по мере игры,
- * а не разом после какой-то отметки. Растёт от каждой ставки, уменьшается на
- * сумму заявки на вывод и возвращается, если заявку отменили или отклонили.
- */
 // Сколько игрок поставил за всё время. На право вывода больше не влияет (см.
 // deposit_debt ниже) - это счётчик оборота для отчётов и для кассы, где игроку
 // показывают, сколько он уже прокрутил.
@@ -1226,6 +1214,11 @@ export function purgeExpiredSessions() {
 
 /* ---------- Сброс пароля ---------- */
 
+/** Когда этому игроку в последний раз выписывали ссылку сброса (0 - не было). */
+export function lastPasswordResetAt(userId) {
+  return db.prepare('SELECT MAX(created_at) AS t FROM password_resets WHERE user_id = ?').get(userId)?.t || 0;
+}
+
 export function createPasswordReset(userId, tokenHash, ttlMs) {
   const now = Date.now();
   // Новая ссылка отменяет прежние: в ящике может лежать старое письмо.
@@ -1456,7 +1449,7 @@ export const playSlotFreeSpin = moneyTx('slot_free', (userId, resolve) => {
  * уровня «миллион рублей одному игроку», и оно обязано лежать в истории
  * отдельной строкой, иначе в отчётах его не отличить от крупной линии.
  */
-export const awardSlotJackpot = moneyTx('slot_jackpot', (userId, jackpot, bet, nonce) => {
+export const awardSlotJackpot = moneyTx('slot_jackpot', (userId, jackpot, bet, nonce, slotName = '') => {
   const user = getUserById(userId);
   db.prepare(`UPDATE users SET balance = balance + ?, total_won = total_won + ?
                WHERE id = ?`).run(jackpot.amount, jackpot.amount, userId);
@@ -1464,7 +1457,7 @@ export const awardSlotJackpot = moneyTx('slot_jackpot', (userId, jackpot, bet, n
     INSERT INTO rounds (user_id, game, title, subtitle, bet, payout, multiplier,
                         tier, roll, nonce, server_hash, client_seed, created_at)
     VALUES (?, 'slot', ?, ?, 0, ?, 0, 'unique', 0, ?, ?, ?, ?)
-  `).run(userId, `Джекпот ${jackpot.name}`, 'TREASURE ISLAND', jackpot.amount,
+  `).run(userId, `Джекпот ${jackpot.name}`, slotName || 'Слот', jackpot.amount,
          nonce, user.server_seed_hash, user.client_seed, Date.now());
   ledgerLink('rounds', won.lastInsertRowid);
   return getUserById(userId).balance;
@@ -1477,9 +1470,10 @@ export const startCrashRound = moneyTx('crash_bet', (userId, bet, computeCrashPo
   if (spendable(before) < bet) throw insufficient();
 
   // Незакрытый раунд закрываем как проигранный, чтобы нельзя было держать
-  // несколько ставок разом и выводить только удачную.
-  db.prepare(`UPDATE crash_rounds SET status = 'busted'
-               WHERE user_id = ? AND status = 'running'`).run(userId);
+  // несколько ставок разом и выводить только удачную. Через finishCrashRound,
+  // а не голым UPDATE: брошенный раунд обязан попасть в rounds (отчёты,
+  // статистика, лимиты), а не пропасть из учёта вместе со ставкой.
+  closeOpenCrashRounds(userId);
 
   const nonce = bumpNonce(userId);
   const user = getUserById(userId);
@@ -1612,9 +1606,9 @@ export const rotateServerSeed = db.transaction((userId) => {
   const newSeed = generateServerSeed();
 
   // Незавершённый раунд краша использует старый seed - закрываем его,
-  // иначе после ротации проверка результата не сойдётся.
-  db.prepare(`UPDATE crash_rounds SET status = 'busted'
-               WHERE user_id = ? AND status = 'running'`).run(userId);
+  // иначе после ротации проверка результата не сойдётся. Как проигрыш и с
+  // записью в rounds, как и при старте нового раунда.
+  closeOpenCrashRounds(userId);
 
   db.prepare(`
     UPDATE users
@@ -1645,25 +1639,6 @@ const BONUS_BALANCE_LIMIT = Number(process.env.BONUS_BALANCE_LIMIT || 250);
  */
 export const claimBonus = db.transaction((userId) => {
   return { ok: false, reason: 'disabled' };
-});
-
-const claimBonusLegacy = db.transaction((userId) => {
-  const user = getUserById(userId);
-  const now = Date.now();
-  const waitLeft = user.last_bonus_at + BONUS_COOLDOWN_MS - now;
-
-  if (user.balance > BONUS_BALANCE_LIMIT) {
-    return { ok: false, reason: 'balance', limit: BONUS_BALANCE_LIMIT };
-  }
-  if (waitLeft > 0) {
-    return { ok: false, reason: 'cooldown', waitLeft };
-  }
-
-  const newBalance = user.balance + BONUS_AMOUNT;
-  db.prepare('UPDATE users SET balance = ?, last_bonus_at = ? WHERE id = ?')
-    .run(newBalance, now, userId);
-
-  return { ok: true, amount: BONUS_AMOUNT, balance: newBalance };
 });
 
 export const BONUS_CONFIG = {
@@ -2504,8 +2479,27 @@ function creditPayout(userId, payout, share) {
 
 /** Идёт ли раунд краша, оплаченный бонусом: его выплата вернётся на бонусный счёт. */
 function bonusInFlight(userId) {
+  closeStaleCrashRounds(userId);
   return !!db.prepare(`SELECT 1 FROM crash_rounds
                         WHERE user_id = ? AND status = 'running' AND bonus_bet > 0`).get(userId);
+}
+
+/*
+ * Раунд краша закрывается, когда клиент спрашивает его состояние. Брошенный
+ * (закрыли вкладку) так и висел «идущим»: держал «Отказ от бонуса» и не
+ * попадал в учёт. CRASH_STALE_MS заведомо больше любого раунда: множитель
+ * растёт экспонентой и к этому времени давно миновал любую точку взрыва.
+ */
+const CRASH_STALE_MS = 15 * 60_000;
+function closeStaleCrashRounds(userId) {
+  const stale = db.prepare(`SELECT id FROM crash_rounds WHERE user_id = ? AND status = 'running' AND started_at < ?`)
+    .all(userId, Date.now() - CRASH_STALE_MS);
+  for (const r of stale) finishCrashRound(r.id, userId, 'busted', 0);
+}
+function closeOpenCrashRounds(userId) {
+  for (const r of db.prepare(`SELECT id FROM crash_rounds WHERE user_id = ? AND status = 'running'`).all(userId)) {
+    finishCrashRound(r.id, userId, 'busted', 0);
+  }
 }
 
 /**
@@ -3164,13 +3158,6 @@ export function partnerReferrals(partnerId, limit = 50) {
    ============================================================ */
 
 /** Помечает администраторами всех, чей Telegram ID указан в настройках. */
-export function syncAdmins(tgIds) {
-  db.prepare('UPDATE users SET is_admin = 0').run();
-  if (!tgIds.length) return;
-  const marks = tgIds.map(() => '?').join(',');
-  db.prepare(`UPDATE users SET is_admin = 1 WHERE tg_id IN (${marks})`).run(...tgIds);
-}
-
 export function adminOverview() {
   const users = db.prepare(`
     SELECT COUNT(*) AS total,

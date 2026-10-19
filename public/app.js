@@ -1221,7 +1221,9 @@ function openCase(caseId) {
       openAct.textContent = `Открыть ${auto} раз`;
       openSub.textContent = `по ${money(c.price)}`;
       openPrice.textContent = money(auto * c.price);
-      openBtn.disabled = !freeCount && c.price > spendableMoney();
+      // Не disabled: у отключённой кнопки клик не срабатывает, и игрок без
+      // денег не попадал в «Пополнить». Нехватку показывает приглушённый вид.
+      openBtn.classList.toggle('is-short', !freeCount && c.price > spendableMoney());
       fitOpenBtn();
       return;
     }
@@ -1231,7 +1233,7 @@ function openCase(caseId) {
     openAct.textContent = paid === 0 ? 'Открыть бесплатно' : 'Открыть';
     openSub.textContent = count > 1 ? `${count} ${plural(count, 'кейс', 'кейса', 'кейсов')} сразу` : 'один кейс';
     openPrice.textContent = paid === 0 ? `×${count}` : money(paid * c.price);
-    openBtn.disabled = paid * c.price > spendableMoney();
+    openBtn.classList.toggle('is-short', paid * c.price > spendableMoney());
     fitOpenBtn();
   };
   refresh();
@@ -1301,7 +1303,8 @@ async function resumePendingSpins(c) {
   if (state.busy) return;
 
   let pending;
-  try { ({ pending } = await api('/api/freespins/pending')); }
+  // Тихо: гость смотрит кейс, и окно входа на просмотре ему не нужно.
+  try { ({ pending } = await api('/api/freespins/pending', null, { quiet: true })); }
   catch { return; }
 
   if (!pending || pending.caseId !== c.id) return;
@@ -2903,7 +2906,7 @@ async function loadCaseHistory(caseTitle) {
   }
   let history;
   try {
-    ({ history } = await api('/api/history', { caseTitle, limit: HISTORY_LOAD }));
+    ({ history } = await api('/api/history', { caseTitle, limit: HISTORY_LOAD }, { quiet: true }));
   } catch { box.innerHTML = ''; return; }
 
   const c = state.config.cases.find((x) => x.name === caseTitle);
@@ -3171,7 +3174,7 @@ async function pickGambleCard(index) {
 
     setTimeout(() => {
       if (data.won) {
-        out.innerHTML = `<b>Туз ваш!</b><span>Выигрыш вырос в ${g.payout} раза: ${money(data.payout)} уже на балансе</span>`;
+        out.innerHTML = `<b>Туз ваш!</b><span>Выигрыш вырос в ${String(g.payout).replace('.', ',')} раза: ${money(data.payout)} уже на балансе</span>`;
       } else {
         const [title, line] = GAMBLE_LOSE_LINES[Math.floor(Math.random() * GAMBLE_LOSE_LINES.length)];
         out.innerHTML = `<b>${title}</b><span>${line.replace('{n}', data.acePosition + 1)}. Кейс по-прежнему ждёт вас</span>`;
@@ -4542,7 +4545,7 @@ async function renderAdminGate(st) {
         <button class="btn btn-outline btn-wide" id="gateLinked">Я нажал Start</button>
       </div>`;
     document.getElementById('gateLink').onclick = async () => {
-      const tab = window.open('', '_blank');
+      const tab = openBlankTab();
       try {
         const { url } = await api('/api/admin/2fa/link');
         if (tab && !tab.closed) tab.location.href = url; else window.open(url, '_blank', 'noopener');
@@ -4839,7 +4842,8 @@ async function boExport(kind) {
     a.href = url;
     a.download = `luckybox-${kind}-${state.admin.reportDays}d.csv`;
     a.click();
-    URL.revokeObjectURL(url);
+    // Отзыв ссылки сразу после click() в Safari и Firefox иногда отменял загрузку.
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
     toast('Файл готов');
   } catch (err) { toast(err.message); }
 }
@@ -4915,7 +4919,8 @@ async function finExport(kind, days) {
     a.href = url;
     a.download = `luckybox-${kind}-${days}d.csv`;
     a.click();
-    URL.revokeObjectURL(url);
+    // Отзыв ссылки сразу после click() в Safari и Firefox иногда отменял загрузку.
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
     toast('Файл готов');
   } catch (err) { toast(err.message); }
 }
@@ -6033,6 +6038,13 @@ async function loadAdminPayouts() {
   sicAction('data-sic-release', '/api/admin/sicilia/payout/release', () => 'Заявка снова ждёт решения');
 
   box.querySelectorAll('[data-sic-pay]').forEach((btn) => {
+    // Сменили банк после первого нажатия - подтверждение снимается: уйти
+    // выплата должна ровно в тот банк, что был показан на кнопке.
+    box.querySelector(`[data-sic-bank="${btn.dataset.sicPay}"]`)?.addEventListener('change', () => {
+      btn.dataset.armed = '';
+      btn.textContent = 'Выплатить через Sicilia';
+      btn.classList.replace('btn-primary', 'btn-outline');
+    });
     btn.addEventListener('click', async () => {
       const id = Number(btn.dataset.sicPay);
       const select = box.querySelector(`[data-sic-bank="${id}"]`);
@@ -6065,12 +6077,15 @@ async function loadAdminPayouts() {
         return;
       }
 
-      try {
-        await api('/api/admin/payout/resolve', { id, status, comment: note });
-        toast(status === 'paid' ? 'Заявка выполнена' : status === 'processing' ? 'Заявка поставлена в работу' : 'Заявка отклонена, средства возвращены');
-        haptic('success');
-        loadAdminPayouts();
-      } catch (err) { toast(err.message); haptic('error'); }
+      // Второе нажатие, пока идёт первое, не шлёт второй запрос.
+      await withCashBusy(btn, async () => {
+        try {
+          await api('/api/admin/payout/resolve', { id, status, comment: note });
+          toast(status === 'paid' ? 'Заявка выполнена' : status === 'processing' ? 'Заявка поставлена в работу' : 'Заявка отклонена, средства возвращены');
+          haptic('success');
+          loadAdminPayouts();
+        } catch (err) { toast(err.message); haptic('error'); }
+      });
     });
   });
 }
@@ -6628,8 +6643,9 @@ function renderDepositOffer() {
   const cap = rules.max > 0 ? ` (не больше ${money(rules.max)})` : '';
   el.innerHTML = `<b>Первое пополнение +${rules.pct}%${cap}.</b>
     Бонус придёт на бонусный счёт вместе с пополнением от ${money(rules.min)}.
-    Им играют, когда своих не хватает на ставку, а после ставок бонусом на
-    ${rules.wager} его суммы он переходит в деньги. Свои деньги выводятся в любой момент.`;
+    Им играют, когда своих не хватает на ставку, а после ставок бонусом на ×${rules.wager} от
+    его суммы он переходит в деньги${rules.cashoutPct ? `, но не больше ${rules.cashoutPct}% от ваших пополнений` : ''}.
+    Свои деньги выводятся в любой момент.`;
 }
 
 async function loadWallet() {
@@ -6820,7 +6836,7 @@ function renderPayoutList(payouts) {
   // Кнопка отмены есть только у заявок в обработке: после решения
   // администратора отменять уже нечего.
   box.querySelectorAll('[data-cancel]').forEach((btn) => {
-    btn.addEventListener('click', async () => {
+    btn.addEventListener('click', () => withCashBusy(btn, async () => {
       try {
         const r = await api('/api/payout/cancel', { id: Number(btn.dataset.cancel) });
         applyUser(r.user);
@@ -6829,7 +6845,7 @@ function renderPayoutList(payouts) {
         haptic('success');
         loadWallet();
       } catch (err) { toast(err.message); haptic('error'); }
-    });
+    }));
   });
 }
 
@@ -7229,6 +7245,17 @@ async function loadSiciliaOptions() {
 }
 
 /*
+ * Пустая вкладка под окно шлюза, открытая до запроса (иначе браузер сочтёт
+ * её всплывающим окном). Ссылку на наш сайт у неё отбираем сразу: страница
+ * шлюза иначе получила бы window.opener и могла подменить нашу вкладку.
+ */
+function openBlankTab() {
+  const tab = window.open('', '_blank');
+  if (tab) { try { tab.opener = null; } catch { /* чужая вкладка */ } }
+  return tab;
+}
+
+/*
  * Окно оплаты открывается отдельной вкладкой, а сайт остаётся открытым и
  * ждёт. Вкладку открываем ДО запроса к серверу (pending), иначе браузер
  * сочтёт её всплывающим окном и заблокирует.
@@ -7278,7 +7305,7 @@ document.getElementById('siciliaCreateBtn')?.addEventListener('click', async () 
   const btn = document.getElementById('siciliaCreateBtn');
   btn.disabled = true;
   btn.classList.add('is-busy');
-  const pending = window.open('', '_blank');
+  const pending = openBlankTab();
   try {
     const order = await api('/api/sicilia/create', { amount });
     const opened = openPaymentWindow(order.url, pending);
@@ -7319,7 +7346,7 @@ function showSiciliaCheckout(order, opened = true) {
       <div class="invoice-status" id="siciliaStatus"></div>
     </div>`;
   document.getElementById('siciliaReopen').addEventListener('click', async () => {
-    const pending = window.open('', '_blank');
+    const pending = openBlankTab();
     try {
       const again = await api('/api/sicilia/reopen', { id: order.id });
       openPaymentWindow(again.url, pending);
@@ -7455,7 +7482,16 @@ function startPaymentEvents(){
 
   if (state.guest) return;
   const es=new EventSource('/api/payments/events');
-  es.addEventListener('payment.completed',async()=>{clearInterval(siciliaState.poll);toast('Платёж успешно поступил. Средства зачислены на счёт.');sndCollect();haptic('success');const me=await api('/api/me');applyUser(me.user);loadWallet();});
+  es.addEventListener('payment.completed', async () => {
+    clearInterval(siciliaState.poll);
+    toast('Платёж успешно поступил. Средства зачислены на счёт.');
+    sndCollect();
+    haptic('success');
+    // Сбой сети здесь не должен оставить необработанную ошибку: баланс
+    // всё равно обновит касса ниже.
+    try { applyUser((await api('/api/me')).user); } catch { /* обновится при следующем запросе */ }
+    loadWallet();
+  });
 }
 
 document.getElementById('walletWithdraw').addEventListener('click', () => { setCashMode('withdraw'); haptic('light'); });
@@ -7842,9 +7878,9 @@ document.getElementById('freeCase').addEventListener('click', async () => {
     toast('Бесплатный кейс ваш - он в плашке сверху');
     sndCollect();
     haptic('success');
-    const me = await api('/api/me');
-    applyUser(me.user);
     renderFreeCase({ enabled: true, readyAt: res.readyAt });
+    // Кейс уже выдан: сбой обновления баланса не повод показывать ошибку.
+    api('/api/me').then((me) => applyUser(me.user)).catch(() => {});
   } catch (err) {
     toast(err.message);
     haptic('error');
@@ -7888,9 +7924,10 @@ async function applyPromo() {
   const input = document.getElementById('promoInput');
   const box = document.getElementById('promoResult');
   const code = input.value.trim();
-  if (!code) return;
-
   const btn = document.getElementById('promoBtn');
+  // Enter в поле идёт мимо кнопки: без этой проверки двойной Enter слал два
+  // запроса, и ответ «уже активирован» затирал успех под полем.
+  if (!code || btn.disabled) return;
   btn.disabled = true;
 
   try {
@@ -8440,7 +8477,7 @@ const ONBOARDING = [
   {
     art: '🗝️',
     title: 'Всё видно до открытия',
-    text: 'Содержимое каждого кейса и шанс каждого предмета показаны заранее. ' +
+    text: 'Содержимое каждого кейса и стоимость каждого предмета показаны заранее. ' +
       'Открыв кейс, вы не узнаете ничего, чего не могли увидеть до нажатия.',
   },
   {
@@ -8503,7 +8540,8 @@ function renderOnboarding() {
       const cap = rules.max > 0 ? ` до ${money(rules.max)}` : '';
       title = `Первое пополнение +${rules.pct}%${cap}`;
       text = `Бонус приходит сразу вместе с пополнением от ${money(rules.min)}. ` +
-        `Вывести его можно после ставок на ${rules.wager} суммы бонуса. ` +
+        `Им играют, когда своих не хватает на ставку; после ставок бонусом на ×${rules.wager} от его суммы он переходит в деньги` +
+        (rules.cashoutPct ? `, но не больше ${rules.cashoutPct}% от ваших пополнений. ` : '. ') +
         'Если у вас есть промокод, введите его в разделе «Бонусы».';
     } else {
       title = 'Готово';
@@ -9070,6 +9108,8 @@ function setFortuneStep(el, done, okText, badText) {
 
 /** Прокрут: сервер решает приз, колесо лишь доезжает до нужного сектора. */
 async function spinFortune() {
+  // Гостю колесо не крутится - предлагаем вход, а не молчим.
+  if (state.guest) { openAuth(authDefaultPane()); return; }
   if (state.fortune.busy || !state.fortune.data) return;
   if (!state.fortune.data.canSpin) {
     // Сутки ещё не прошли - это не повод для окна с шагами.
@@ -9198,7 +9238,7 @@ function fortuneHighlight(wheel, spinMs, winner) {
 
 /** Окно выигрыша: крупно что выпало и одна строка о том, что с этим делать. */
 function showFortuneWin(prize) {
-  const wager = state.config?.firstDeposit?.wager || 2;
+  const wager = state.config?.firstDeposit?.wager ?? 3;
   const art = {
     percent: '<span class="fortune-win-sign">%</span>',
     x2: '<span class="fortune-win-sign">×2</span>',

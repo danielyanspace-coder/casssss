@@ -363,6 +363,8 @@ async function pollOnce() {
  * перестаёт требоваться, в журнал пишется причина. Иначе панель оказалась бы
  * заперта на боте, который не может ответить.
  */
+const BROKEN_RETRY_MS = 10 * 60_000;
+
 export async function startOpsBot() {
   if (!opsConfigured() || bot.running) return;
   if (process.env.TELEGRAM_TOKEN && process.env.TELEGRAM_TOKEN === opsToken()) {
@@ -394,6 +396,16 @@ export async function startOpsBot() {
           bot.broken = 'служебный бот читает кто-то ещё: проверьте, что OPS_BOT_TOKEN не используется в другом месте';
           console.error(`[ops] ${bot.broken}`);
           bot.running = false;
+          /*
+           * Молча выключенное подтверждение входа - находка для того, кто
+           * завладел токеном: достаточно начать читать бота самому. Поэтому
+           * владельцам уходит тревога (отправка этим токеном ещё работает),
+           * а бот через BROKEN_RETRY_MS пробует вернуться и снова включить
+           * подтверждение.
+           */
+          alert('ops:broken', `Служебный бот: ${bot.broken}. Подтверждение входа в панель выключено. `
+            + 'Если это не вы - перевыпустите токен в @BotFather.');
+          setTimeout(() => { bot.broken = ''; startOpsBot(); }, BROKEN_RETRY_MS).unref?.();
           return;
         }
         await new Promise((r) => setTimeout(r, backoff));
