@@ -3387,6 +3387,8 @@ div.mini-row { cursor: default; }
     0 1px 0 #8a4f08, 0 8px 18px -8px rgba(255, 170, 40, 0.45);
 }
 .open-cta:disabled { filter: grayscale(0.85) brightness(0.6); cursor: default; }
+/* Денег не хватает: кнопка выглядит приглушённой, но жмётся и ведёт в кассу. */
+.open-cta.is-short { filter: grayscale(0.6) brightness(0.75); }
 /* Блик раз в четыре секунды: притягивает взгляд, но не мигает. */
 .open-cta::after {
   content: ''; position: absolute; inset: 0; translate: -130% 0; pointer-events: none;
@@ -4084,6 +4086,53 @@ div.mini-row { cursor: default; }
 
 /* Плашка проверки заявки на вывод. Цвет - единственное, что сотрудник должен
    увидеть с первого взгляда, поэтому вся плашка залита им, а не только точка. */
+/* ---------- Панель: пополнения и споры ---------- */
+
+.bo-badge {
+  display: inline-block; min-width: 18px; padding: 1px 6px; margin-left: 4px;
+  border-radius: 999px; background: var(--red); color: #fff;
+  font-size: 10.5px; font-weight: 900; text-align: center; vertical-align: 1px;
+}
+.kpi.kpi-alert { box-shadow: inset 0 0 0 1.5px var(--red); }
+.dep-ids { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.dep-id {
+  display: inline-flex; align-items: baseline; gap: 6px; max-width: 100%;
+  padding: 5px 9px; border-radius: 8px; border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.03); color: var(--text); font: inherit; cursor: pointer;
+}
+.dep-id span { font-size: 10.5px; color: var(--muted); }
+.dep-id b { font: 700 12px/1.2 'JetBrains Mono', ui-monospace, monospace; overflow-wrap: anywhere; }
+.dep-id:active { transform: scale(0.97); }
+.dep-fact { font-size: 12px; font-weight: 700; color: var(--muted); }
+.dep-dispute {
+  margin-top: 10px; padding: 10px 12px; border-radius: 10px;
+  border: 1px solid var(--line); background: rgba(255, 214, 10, 0.06);
+}
+.dep-dispute.is-new { border-color: var(--red); background: rgba(255, 23, 68, 0.07); }
+.dep-dispute.is-won { border-color: var(--green); background: rgba(0, 200, 120, 0.06); }
+.dep-dispute b { display: block; font-size: 13px; }
+.dep-dispute small { display: block; color: var(--muted); font-size: 11px; margin-top: 2px; }
+.dep-dispute p { margin: 6px 0 0; font-size: 12.5px; line-height: 1.45; }
+.dep-error { color: var(--red); }
+.dep-receipt { display: inline-flex; align-items: center; gap: 8px; margin-top: 8px; color: var(--gold); font-size: 12px; }
+.dep-receipt img { width: 56px; height: 56px; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); }
+.dep-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.dep-form { margin-top: 10px; display: grid; gap: 6px; }
+.dep-label { font-size: 11.5px; color: var(--muted); }
+.dep-export {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line);
+  font-size: 12px; color: var(--muted);
+}
+.dep-export .seed-input { width: 110px; flex: 0 0 auto; padding: 6px 10px; }
+#depMore { width: 100%; margin-top: 4px; }
+.payout-row.admin a[data-dep-user] { color: var(--gold); }
+.dep-file {
+  display: block; padding: 10px 12px; border-radius: 10px; cursor: pointer;
+  border: 1px dashed var(--line); color: var(--muted); font-size: 12.5px; font-weight: 700;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
 .risk-plate {
   display: flex; align-items: center; gap: 12px;
   margin-top: 10px; padding: 11px 12px;
@@ -6115,6 +6164,27 @@ div.mini-row { cursor: default; }
 .cash-tx small { font-size: 12px; color: var(--c-text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cash-tx.tone-ok .cash-tx-ico { color: var(--c-ok); background: rgba(99, 191, 148, 0.12); }
 .cash-tx.tone-ok .cash-tx-side b, .cash-tx.tone-ok .cash-tx-side small { color: var(--c-ok); }
+
+/* Оплата не пришла: строка ожидающей оплаты и форма с чеком. */
+.cash-issue { padding: 12px 14px; display: grid; gap: 4px; }
+.cash-issue + .cash-issue { border-top: 1px solid var(--c-border); }
+.cash-issue-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.cash-issue-head b { font: 800 16px/1.2 'Unbounded', 'Manrope', system-ui, sans-serif; }
+.cash-issue-head span { font-size: 12px; font-weight: 700; color: var(--c-wait); text-align: right; }
+.cash-issue small { font-size: 12px; color: var(--c-text-3); overflow-wrap: anywhere; }
+.cash-issue-note { margin: 4px 0 0; font-size: 12.5px; color: var(--c-text-2); }
+.cash-issue-btn { justify-self: start; margin-top: 6px; }
+.cash-issue-form { display: grid; gap: 8px; margin-top: 8px; }
+.cash-issue-form[hidden] { display: none; }
+#view-wallet .cash-issue-form textarea { font: 500 14px/1.4 'Manrope', system-ui, sans-serif; resize: vertical; }
+.cash-issue-form p { margin: 0; font-size: 12.5px; line-height: 1.45; color: var(--c-text-2); }
+.cash-issue-file {
+  display: flex; align-items: center; gap: 8px; padding: 12px 14px; cursor: pointer;
+  border-radius: 12px; border: 1px dashed var(--c-border-2); color: var(--c-text-2); font-size: 13px; font-weight: 700;
+}
+.cash-issue-file.is-picked { border-style: solid; border-color: var(--c-ok); color: var(--c-ok); }
+.cash-issue-file span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#view-wallet .cash-issue-file .cash-ico { width: 17px; height: 17px; flex: none; }
 
 /* Заявки на вывод: та же строка списка, цвет статуса - точкой и словом,
    а не толстой полосой слева. Печать выплаты и её удар остались. */

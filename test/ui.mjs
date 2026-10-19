@@ -638,7 +638,20 @@ async function openCaseAndVerify(caseId) {
     const fs = document.getElementById('freespins');
     const btn = document.getElementById('fsCollect');
     return (!!res && !res.hidden) || (!!fs && !fs.hidden && !!btn && !btn.hidden);
-  }, null, { timeout: 180000 });
+  }, null, { timeout: Number(process.env.UI_CASE_TIMEOUT) || 180000 }).catch(async (e) => {
+    // Без снимка состояния таймаут здесь ничего не говорит: показываем, что
+    // стоит на экране, иначе причину ищут перезапусками.
+    const seen = await page.evaluate(() => ({
+      opener: !document.getElementById('opener')?.hidden,
+      button: document.getElementById('doOpenBtn')?.outerHTML.slice(0, 200),
+      toast: document.querySelector('.toast')?.textContent || '',
+      balance: document.getElementById('balanceChip')?.textContent || '',
+      shown: [...document.querySelectorAll('[id$="Backdrop"], #freespins, #result')]
+        .filter((b) => !b.hidden).map((b) => b.id),
+    })).catch(() => null);
+    console.error('кейс не доиграл:', JSON.stringify(seen));
+    throw e;
+  });
 
   /*
    * Забирать серию приходится в цикле: фриспин может выдать новые фриспины, и
@@ -1162,9 +1175,12 @@ check('показ выигрыша убирает за собой', stuckAfter.l
   await page.waitForFunction(() => {
     const res = document.getElementById('result');
     const btn = document.getElementById('fsCollect');
-    return !res.hidden || !btn.hidden;
+    return !res.hidden || (!document.getElementById('freespins').hidden && !btn.hidden);
   }, null, { timeout: 180000 });
-  while (await page.evaluate(() => !document.getElementById('fsCollect').hidden)) {
+  // Серия ждёт «Забрать», только когда видна и сама панель фриспинов: у
+  // свернувшейся панели кнопка остаётся без hidden, но нажать её нельзя.
+  while (await page.evaluate(() => !document.getElementById('freespins').hidden
+      && !document.getElementById('fsCollect').hidden)) {
     await page.click('#fsCollect');
     await page.waitForTimeout(800);
   }
@@ -1278,9 +1294,12 @@ check('показ выигрыша убирает за собой', stuckAfter.l
   await page.click('#autoRunRow .auto-btn.is-running');
   await page.waitForFunction(() => {
     const box = document.getElementById('batchSummary');
-    return !box.hidden || !document.getElementById('fsCollect').hidden;
+    return !box.hidden || (!document.getElementById('freespins').hidden && !document.getElementById('fsCollect').hidden);
   }, null, { timeout: 180000 });
-  while (await page.evaluate(() => !document.getElementById('fsCollect').hidden)) {
+  // Серия ждёт «Забрать», только когда видна и сама панель фриспинов: у
+  // свернувшейся панели кнопка остаётся без hidden, но нажать её нельзя.
+  while (await page.evaluate(() => !document.getElementById('freespins').hidden
+      && !document.getElementById('fsCollect').hidden)) {
     await page.click('#fsCollect');
     await page.waitForTimeout(800);
   }
@@ -1590,6 +1609,25 @@ check('касса: кнопка вывода называется «Вывест
       (await page.textContent('#withdrawSubmit')).trim() === 'Вывести');
 await page.click('#walletDeposit');
 await page.waitForTimeout(300);
+
+// Панель: раздел «Пополнения» с номерами сделок, фильтрами и выгрузкой.
+// В автономной сборке панели у игрока нет (её собирает demo:admin).
+if (!URL_TARGET.startsWith('file:')) {
+await goto('admin');
+await page.waitForSelector('[data-admin-tab="deposits"]', { timeout: 15000 });
+await page.click('[data-admin-tab="deposits"]');
+await page.waitForSelector('#depKpis .kpi', { timeout: 15000 });
+const depPane = await page.evaluate(() => ({
+  kpis: document.querySelectorAll('#depKpis .kpi').length,
+  filters: [...document.querySelectorAll('#depFilter [data-dep-filter]')].map((b) => b.textContent.trim()),
+  exports: document.querySelectorAll('#admin-deposits [data-fin-export]').length,
+}));
+check('панель: раздел пополнений со сводкой', depPane.kpis === 4, JSON.stringify(depPane));
+check('панель: фильтр споров в пополнениях', depPane.filters.includes('Споры'), depPane.filters.join(','));
+check('панель: выгрузка пополнений и выводов', depPane.exports === 2);
+await goto('wallet');
+await page.waitForTimeout(300);
+}
 
 // Экран честности остался, но попасть на него теперь можно только из подвала.
 await page.evaluate(() => {
@@ -2338,8 +2376,9 @@ slotChecks: {
 
   // Открыть кейс без аккаунта нельзя: вместо кассы и тоста - окно входа.
   await g.evaluate(() => document.querySelector('.case-card').click());
-  await g.waitForTimeout(500);
-  await g.evaluate(() => document.getElementById('openBtn')?.click());
+  await g.waitForTimeout(800);
+  check('гость: просмотр кейса не зовёт ко входу', !(await g.isVisible('#authBackdrop')));
+  await g.evaluate(() => document.getElementById('doOpenBtn')?.click());
   await g.waitForTimeout(500);
   check('гость: попытка открыть кейс зовёт ко входу', await g.isVisible('#authBackdrop'));
   check('гость: первым предлагается регистрация',

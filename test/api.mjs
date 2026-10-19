@@ -1149,18 +1149,29 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
   /*
    * Лимиты. Главная проверка здесь не в том, что число сохранилось, а в том,
    * что ослабление откладывается: лимит, снимаемый сразу, не лимит.
+   *
+   * Лимит ставится отдельному игроку, а не тестовому из DEV_MODE: лимиты
+   * исполняются при каждой ставке, и лимит проигрыша 1000 на тестовом игроке
+   * запер бы ему кейсы до конца прогона, а следом и весь test:ui.
    */
-  await post('/api/admin/player/limits', { userId: me.id, patch: { loss_day: 5000 } });
-  const tight = await post('/api/admin/player/limits', { userId: me.id, patch: { loss_day: 1000 } });
+  const limitReg = await fetch(BASE + '/api/auth/register', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Dev-Anon': '1' },
+    body: JSON.stringify({ email: `limits${Date.now()}@mail.ru`, password: 'secret123', nick: 'Лимиты' }),
+  }).then((r) => r.json());
+  const limitUser = limitReg.user?.id;
+  check('панель: игрок для проверки лимитов заведён', !!limitUser, JSON.stringify(limitReg));
+  await post('/api/admin/player/limits', { userId: limitUser, patch: { loss_day: 5000 } });
+  const tight = await post('/api/admin/player/limits', { userId: limitUser, patch: { loss_day: 1000 } });
   check('панель: ужесточение лимита действует сразу',
         tight.data.limits.loss_day === 1000, `${tight.data.limits.loss_day}`);
-  const loose = await post('/api/admin/player/limits', { userId: me.id, patch: { loss_day: 90000 } });
+  const loose = await post('/api/admin/player/limits', { userId: limitUser, patch: { loss_day: 90000 } });
   check('панель: ослабление лимита откладывается',
         loose.data.limits.loss_day === 1000 && loose.data.limits.pending_loss === 90000,
         `текущий ${loose.data.limits.loss_day}, отложенный ${loose.data.limits.pending_loss}`);
   check('панель: у отложенного ослабления есть срок',
         loose.data.limits.pending_at > Date.now());
-  const drop = await post('/api/admin/player/limits', { userId: me.id, patch: { loss_day: 0 } });
+  const drop = await post('/api/admin/player/limits', { userId: limitUser, patch: { loss_day: 0 } });
   check('панель: снятие лимита это тоже ослабление',
         drop.data.limits.loss_day === 1000, `${drop.data.limits.loss_day}`);
 
@@ -1194,6 +1205,26 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
   check('панель: у выгрузки есть BOM для Excel',
         bytes[0] === 0xEF && bytes[1] === 0xBB && bytes[2] === 0xBF,
         `первые байты ${bytes[0]} ${bytes[1]} ${bytes[2]}`);
+
+  /* Касса в панели: пополнения с номерами, споры, выгрузки сделок. */
+  const deps = await post('/api/admin/deposits', { filter: 'all' });
+  check('панель: список пополнений отдаётся', deps.status === 200 && Array.isArray(deps.data.rows)
+    && typeof deps.data.summary?.disputesNew === 'number', deps.status);
+  check('панель: поиск пополнений по номеру', (await post('/api/admin/deposits', { q: 'lb-нет-такого' })).data.rows?.length === 0);
+  for (const kind of ['deposits', 'payouts']) {
+    const r = await fetch(BASE + '/api/admin/export/finance', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind, days: 30 }),
+    });
+    const t = new TextDecoder('utf-8').decode(new Uint8Array(await r.arrayBuffer()));
+    check(`панель: выгрузка сделок (${kind}) с номерами шлюза`, r.ok && t.includes('номер') && t.includes(';'), t.slice(0, 80));
+  }
+  const meDisputes = (await post('/api/admin/me')).data.sections?.disputes;
+  check('панель: число споров для вкладки', typeof meDisputes === 'number', String(meDisputes));
+  check('чек: чужое имя файла не отдаётся', (await fetch(BASE + '/receipts/..%2Fapp.db')).status === 404);
+  check('чек: несуществующий не отдаётся', (await fetch(BASE + '/receipts/' + 'a'.repeat(32) + '.png')).status === 404);
+  check('спор по чужой оплате не заводится', (await post('/api/sicilia/report', { id: 999999, image: 'x' })).status === 404);
+  check('апелляция без права на выводы закрыта для игрока без шлюза',
+    [400, 404, 503].includes((await post('/api/admin/dispute/open', { orderId: 999999, reason: 'проверка' })).status));
 
   /* Журнал: всё, что мы только что сделали, должно в нём быть. */
   const journal = await post('/api/admin/journal', { limit: 200 });
@@ -1319,8 +1350,9 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
 
   const wallet = await post('/api/casino/wallet', [{ method: 'get_balance', userId: `lb${me.id}` }],
     { 'x-agent-name': 'x', 'x-agent-token': 'y' });
-  check('казино: кошелёк не принимает чужой адрес', wallet.status === 403 && wallet.data.statusCode !== 0,
-        `статус ${wallet.status}`);
+  // По протоколу агрегатора ответ всегда 200, отказ - кодом в теле.
+  check('казино: кошелёк не принимает чужой адрес', wallet.status === 200 && wallet.data.statusCode === 4,
+        `статус ${wallet.status}, код ${wallet.data.statusCode}`);
 
   // Отдача из панели доходит до конфига и зажимается в пределы агрегатора.
   await post('/api/admin/settings/save', { patch: { casino_rtp: 75 } });

@@ -252,8 +252,6 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_promo_red_user ON promo_redemptions(user_id, id DESC);
   CREATE INDEX IF NOT EXISTS idx_promo_red_promo ON promo_redemptions(promo_id);
 
-  -- Обещанный процент к пополнению. Ждёт здесь, пока игрок не пополнит счёт:
-  -- платёжного шлюза ещё нет, и применить его прямо сейчас не к чему.
   -- Обещанный процент к следующему пополнению. Источников у него два:
   -- промокод и колесо фортуны, поэтому promo_id может быть пустым.
   CREATE TABLE IF NOT EXISTS pending_deposit_bonus (
@@ -469,10 +467,21 @@ if (userColumns.includes('total_opened') && !userColumns.includes('total_rounds'
  * пересчётам: их надо выполнить ровно один раз, в момент появления колонки, и
  * заводить ради этого отдельную таблицу отметок незачем.
  */
+/*
+ * Добавляет колонку, если её нет. db.js импортируют два процесса (сервер и
+ * бот), и при выкате оба стартуют разом: второй, проверив таблицу до того,
+ * как первый успел её поменять, получил бы «duplicate column» и упал на
+ * старте. Такой отказ значит «колонка уже есть», а не ошибку.
+ */
 function ensureColumn(table, column, definition) {
   const cols = db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
   if (cols.includes(column)) return false;
-  db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition};`);
+  try {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition};`);
+  } catch (err) {
+    if (/duplicate column/i.test(err.message)) return false;
+    throw err;
+  }
   return true;
 }
 
@@ -599,16 +608,6 @@ ensureColumn('users', 'fortune_spins', 'INTEGER NOT NULL DEFAULT 0');
 ensureColumn('users', 'fortune_last_spin', 'INTEGER NOT NULL DEFAULT 0');
 ensureColumn('users', 'fortune_cycles', 'INTEGER NOT NULL DEFAULT 0');
 
-/*
- * Отыгранный оборот: сколько из внесённого игрок уже прокрутил ставками.
- *
- * Правило простое: вывести можно не больше, чем поставлено. Внёс тысячу и
- * сразу пошёл выводить - вывести нечего; поставил двести - двести и доступно.
- *
- * Счётчик, а не флаг, потому что открывается вывод постепенно, по мере игры,
- * а не разом после какой-то отметки. Растёт от каждой ставки, уменьшается на
- * сумму заявки на вывод и возвращается, если заявку отменили или отклонили.
- */
 // Сколько игрок поставил за всё время. На право вывода больше не влияет (см.
 // deposit_debt ниже) - это счётчик оборота для отчётов и для кассы, где игроку
 // показывают, сколько он уже прокрутил.
@@ -637,7 +636,7 @@ if (depositDebtAdded) {
   db.exec(`UPDATE users SET deposit_debt = MAX(0,
       COALESCE((SELECT SUM(d.amount) FROM deposits d
                  WHERE d.user_id = users.id
-                   AND d.source IN ('beeline','crypto','admin')), 0)
+                   AND d.source IN ('beeline','crypto','sicilia','admin')), 0)
     - COALESCE((SELECT SUM(r.bet) FROM rounds r WHERE r.user_id = users.id), 0));`);
 }
 
@@ -799,6 +798,9 @@ ensureColumn('crash_rounds', 'bonus_bet', 'INTEGER NOT NULL DEFAULT 0');
 // Ваучер, выпавший в платном открытии, входит в отдачу кейса и платит деньгами.
 ensureColumn('vouchers', 'bonus', 'INTEGER NOT NULL DEFAULT 0');
 ensureColumn('payouts', 'card_hash', 'TEXT');
+// Сумма, которую игрок заказал, если шлюз выплатил меньше (неполное
+// подтверждение): amount тогда равен выплаченному, остаток вернулся на баланс.
+ensureColumn('payouts', 'requested_amount', 'INTEGER');
 
 db.exec(`
   -- События бонусного счёта: выдача, перевод в деньги, отказ. Журнал денег
@@ -1212,6 +1214,11 @@ export function purgeExpiredSessions() {
 
 /* ---------- Сброс пароля ---------- */
 
+/** Когда этому игроку в последний раз выписывали ссылку сброса (0 - не было). */
+export function lastPasswordResetAt(userId) {
+  return db.prepare('SELECT MAX(created_at) AS t FROM password_resets WHERE user_id = ?').get(userId)?.t || 0;
+}
+
 export function createPasswordReset(userId, tokenHash, ttlMs) {
   const now = Date.now();
   // Новая ссылка отменяет прежние: в ящике может лежать старое письмо.
@@ -1442,7 +1449,7 @@ export const playSlotFreeSpin = moneyTx('slot_free', (userId, resolve) => {
  * уровня «миллион рублей одному игроку», и оно обязано лежать в истории
  * отдельной строкой, иначе в отчётах его не отличить от крупной линии.
  */
-export const awardSlotJackpot = moneyTx('slot_jackpot', (userId, jackpot, bet, nonce) => {
+export const awardSlotJackpot = moneyTx('slot_jackpot', (userId, jackpot, bet, nonce, slotName = '') => {
   const user = getUserById(userId);
   db.prepare(`UPDATE users SET balance = balance + ?, total_won = total_won + ?
                WHERE id = ?`).run(jackpot.amount, jackpot.amount, userId);
@@ -1450,7 +1457,7 @@ export const awardSlotJackpot = moneyTx('slot_jackpot', (userId, jackpot, bet, n
     INSERT INTO rounds (user_id, game, title, subtitle, bet, payout, multiplier,
                         tier, roll, nonce, server_hash, client_seed, created_at)
     VALUES (?, 'slot', ?, ?, 0, ?, 0, 'unique', 0, ?, ?, ?, ?)
-  `).run(userId, `Джекпот ${jackpot.name}`, 'TREASURE ISLAND', jackpot.amount,
+  `).run(userId, `Джекпот ${jackpot.name}`, slotName || 'Слот', jackpot.amount,
          nonce, user.server_seed_hash, user.client_seed, Date.now());
   ledgerLink('rounds', won.lastInsertRowid);
   return getUserById(userId).balance;
@@ -1463,9 +1470,10 @@ export const startCrashRound = moneyTx('crash_bet', (userId, bet, computeCrashPo
   if (spendable(before) < bet) throw insufficient();
 
   // Незакрытый раунд закрываем как проигранный, чтобы нельзя было держать
-  // несколько ставок разом и выводить только удачную.
-  db.prepare(`UPDATE crash_rounds SET status = 'busted'
-               WHERE user_id = ? AND status = 'running'`).run(userId);
+  // несколько ставок разом и выводить только удачную. Через finishCrashRound,
+  // а не голым UPDATE: брошенный раунд обязан попасть в rounds (отчёты,
+  // статистика, лимиты), а не пропасть из учёта вместе со ставкой.
+  closeOpenCrashRounds(userId);
 
   const nonce = bumpNonce(userId);
   const user = getUserById(userId);
@@ -1598,9 +1606,9 @@ export const rotateServerSeed = db.transaction((userId) => {
   const newSeed = generateServerSeed();
 
   // Незавершённый раунд краша использует старый seed - закрываем его,
-  // иначе после ротации проверка результата не сойдётся.
-  db.prepare(`UPDATE crash_rounds SET status = 'busted'
-               WHERE user_id = ? AND status = 'running'`).run(userId);
+  // иначе после ротации проверка результата не сойдётся. Как проигрыш и с
+  // записью в rounds, как и при старте нового раунда.
+  closeOpenCrashRounds(userId);
 
   db.prepare(`
     UPDATE users
@@ -1631,25 +1639,6 @@ const BONUS_BALANCE_LIMIT = Number(process.env.BONUS_BALANCE_LIMIT || 250);
  */
 export const claimBonus = db.transaction((userId) => {
   return { ok: false, reason: 'disabled' };
-});
-
-const claimBonusLegacy = db.transaction((userId) => {
-  const user = getUserById(userId);
-  const now = Date.now();
-  const waitLeft = user.last_bonus_at + BONUS_COOLDOWN_MS - now;
-
-  if (user.balance > BONUS_BALANCE_LIMIT) {
-    return { ok: false, reason: 'balance', limit: BONUS_BALANCE_LIMIT };
-  }
-  if (waitLeft > 0) {
-    return { ok: false, reason: 'cooldown', waitLeft };
-  }
-
-  const newBalance = user.balance + BONUS_AMOUNT;
-  db.prepare('UPDATE users SET balance = ?, last_bonus_at = ? WHERE id = ?')
-    .run(newBalance, now, userId);
-
-  return { ok: true, amount: BONUS_AMOUNT, balance: newBalance };
 });
 
 export const BONUS_CONFIG = {
@@ -1713,7 +1702,14 @@ export function getX2Perks(userId) {
  */
 const ANY_CASE = '*';
 
-const fortuneX2Cap = () => Math.max(0, Math.round(Number(process.env.FORTUNE_X2_CAP) || 0));
+// Без переменной в .env потолок FORTUNE_X2_CAP_DEFAULT: забытая строка не
+// должна означать «без потолка». Явный 0 - осознанное «без потолка».
+const FORTUNE_X2_CAP_DEFAULT = 5000;
+const fortuneX2Cap = () => {
+  const raw = process.env.FORTUNE_X2_CAP;
+  if (raw === undefined || raw === '') return FORTUNE_X2_CAP_DEFAULT;
+  return Math.max(0, Math.round(Number(raw) || 0));
+};
 
 function x2Count(userId, caseId) {
   const row = db.prepare('SELECT count FROM x2_perks WHERE user_id = ? AND case_id = ?')
@@ -2094,11 +2090,14 @@ export const playCaseRound = moneyTx('case', (userId, caseData, resolve, resolve
   const x10Rule = x10Rules();
   const x10Active = !isFree && item.value > 0 && before.x10_state === 1
     && caseData.price <= before.x10_ceiling;
-  const x2Active = !x10Active && item.value > 0 && x2Available(userId, caseData.id);
-  // Потолок ограничивает ДОПЛАТУ, а не выигрыш: сам предмет игрок получает
-  // целиком в любом случае, урезается только та часть, которую добавил
-  // удвоитель. Ноль в настройке означает «без потолка».
-  const cap = fortuneX2Cap();
+  // Удвоитель - только на платном открытии (правило в CLAUDE.md): ваучер
+  // уже подарок, и удвоенный подарок в отдачу кейса не заложен.
+  const x2Active = !isFree && !x10Active && item.value > 0 && x2Available(userId, caseData.id);
+  // Потолок ограничивает ДОПЛАТУ, а не выигрыш, и только у удвоителя с
+  // колеса (ключ ANY_CASE): свой удвоитель кейса заложен в его отдачу целиком,
+  // и урезать его значило бы платить меньше объявленного. Ноль - без потолка.
+  const fromWheel = x2Active && x2Count(userId, caseData.id) === 0;
+  const cap = fromWheel ? fortuneX2Cap() : 0;
   let extra = 0;
   if (x10Active) extra = Math.min(item.value * 9, x10Rule.cap * caseData.price);
   else if (x2Active) extra = cap > 0 ? Math.min(item.value, cap) : item.value;
@@ -2448,6 +2447,7 @@ const insufficient = () => Object.assign(new Error('Недостаточно с�
 function chargeBet(userId, bet, { allowBonus = true } = {}) {
   const u = getUserById(userId);
   const amount = Math.max(0, Math.round(bet));
+  assertPlayAllowed(userId, amount);
   const real = Math.min(amount, Math.max(0, u.balance));
   const bonus = amount - real;
   if (bonus > 0 && (!allowBonus || bonus > (u.bonus_balance || 0))) throw insufficient();
@@ -2479,8 +2479,27 @@ function creditPayout(userId, payout, share) {
 
 /** Идёт ли раунд краша, оплаченный бонусом: его выплата вернётся на бонусный счёт. */
 function bonusInFlight(userId) {
+  closeStaleCrashRounds(userId);
   return !!db.prepare(`SELECT 1 FROM crash_rounds
                         WHERE user_id = ? AND status = 'running' AND bonus_bet > 0`).get(userId);
+}
+
+/*
+ * Раунд краша закрывается, когда клиент спрашивает его состояние. Брошенный
+ * (закрыли вкладку) так и висел «идущим»: держал «Отказ от бонуса» и не
+ * попадал в учёт. CRASH_STALE_MS заведомо больше любого раунда: множитель
+ * растёт экспонентой и к этому времени давно миновал любую точку взрыва.
+ */
+const CRASH_STALE_MS = 15 * 60_000;
+function closeStaleCrashRounds(userId) {
+  const stale = db.prepare(`SELECT id FROM crash_rounds WHERE user_id = ? AND status = 'running' AND started_at < ?`)
+    .all(userId, Date.now() - CRASH_STALE_MS);
+  for (const r of stale) finishCrashRound(r.id, userId, 'busted', 0);
+}
+function closeOpenCrashRounds(userId) {
+  for (const r of db.prepare(`SELECT id FROM crash_rounds WHERE user_id = ? AND status = 'running'`).all(userId)) {
+    finishCrashRound(r.id, userId, 'busted', 0);
+  }
 }
 
 /**
@@ -2497,18 +2516,22 @@ export function consumeWager(userId, opts) {
   const o = typeof opts === 'number' ? { real: opts } : (opts || {});
   const real = Math.max(0, Math.round(o.real || 0));
   const bonus = Math.max(0, Math.round(o.bonus || 0));
-  if (!real && !bonus) return;
+  if (!real && !bonus) return { debtCut: 0 };
   const weight = wagerWeight(o.rtp ?? HOUSE_RTP);
   // Округление вниз: недосчитанная копейка оборота лучше пересчитанной.
   // Поправка 1e-9 снимает ошибку плавающей точки: 3000 · (0.2 / 0.3) даёт
   // 1999.9999..., и без неё игрок терял бы рубль оборота на ровном месте.
   const counted = Math.floor(real * weight + 1e-9);
   const countedBonus = Math.floor(bonus * weight + 1e-9);
+  const debtBefore = getUserById(userId)?.deposit_debt || 0;
   db.prepare(`UPDATE users
                  SET deposit_debt = MAX(0, deposit_debt - ?),
                      wager_required = MAX(0, wager_required - ?),
                      wager_progress = wager_progress + ?
                WHERE id = ?`).run(counted, countedBonus, real + bonus, userId);
+  // Сколько долга пополнения реально погашено: казино возвращает его, если
+  // агрегатор отменит ставку (отменённая ставка риска не несла).
+  return { debtCut: Math.min(counted, debtBefore) };
 }
 
 /**
@@ -2756,7 +2779,7 @@ const ALL_EVENTS = new Set([
   ...CLIENT_EVENTS,
   'deposit_first_bonus', 'promo_redeemed', 'freespins_bought', 'bot_reminder',
   'fortune_unlocked', 'fortune_spin', 'casino_launch',
-  'slot_spin', 'slot_jackpot', 'slot_bonus_bought', 'login',
+  'slot_spin', 'slot_jackpot', 'slot_bonus_bought', 'login', 'deposit_dispute',
 ]);
 
 const insertEvent = db.prepare(
@@ -3135,13 +3158,6 @@ export function partnerReferrals(partnerId, limit = 50) {
    ============================================================ */
 
 /** Помечает администраторами всех, чей Telegram ID указан в настройках. */
-export function syncAdmins(tgIds) {
-  db.prepare('UPDATE users SET is_admin = 0').run();
-  if (!tgIds.length) return;
-  const marks = tgIds.map(() => '?').join(',');
-  db.prepare(`UPDATE users SET is_admin = 1 WHERE tg_id IN (${marks})`).run(...tgIds);
-}
-
 export function adminOverview() {
   const users = db.prepare(`
     SELECT COUNT(*) AS total,
@@ -3244,10 +3260,10 @@ export function adminUserDetail(userId) {
     // по трём разным экранам и ошибается.
     money: {
       deposited: db.prepare(
-        "SELECT COALESCE(SUM(amount),0) AS n FROM deposits WHERE user_id = ? AND source <> 'promo'")
+        `SELECT COALESCE(SUM(amount),0) AS n FROM deposits WHERE user_id = ? AND source IN ${REAL_DEPOSIT_SQL}`)
         .get(userId).n,
       bonus: db.prepare(
-        "SELECT COALESCE(SUM(amount),0) AS n FROM deposits WHERE user_id = ? AND source = 'promo'")
+        `SELECT COALESCE(SUM(amount),0) AS n FROM deposits WHERE user_id = ? AND source NOT IN ${REAL_DEPOSIT_SQL}`)
         .get(userId).n,
       paidOut: db.prepare(
         "SELECT COALESCE(SUM(amount),0) AS n FROM payouts WHERE user_id = ? AND status = 'paid'")
@@ -3385,6 +3401,7 @@ export function adminRecentRounds(limit = 40) {
 export const playGamble = moneyTx('gamble', (userId, pickIndex, config, resolve) => {
   const user = getUserById(userId);
   const stake = user.gamble_stake;
+  if (stake > 0) assertPlayAllowed(userId, stake);
 
   if (!stake || stake <= 0) {
     throw Object.assign(new Error('Нечем рисковать'), { code: 'NO_STAKE' });
@@ -3480,7 +3497,10 @@ export const adminSavePromo = db.transaction((adminId, data) => {
     min_deposit: Math.max(0, Math.trunc(Number(data.min_deposit) || 0)),
     case_id: data.case_id || null,
     case_count: Math.max(1, Math.trunc(Number(data.case_count) || 1)),
-    wager_multiplier: Math.max(0, Number(data.wager_multiplier) || 0),
+    // Пустое поле - общий отыгрыш бонусов (BONUS_WAGER), а не ноль: промокод
+    // без отыгрыша превращал бы подарок в деньги сразу. Ноль - только явно.
+    wager_multiplier: data.wager_multiplier === '' || data.wager_multiplier == null
+      ? bonusRules().wager : Math.max(0, Number(data.wager_multiplier) || 0),
     max_uses: Math.max(0, Math.trunc(Number(data.max_uses) || 0)),
     per_user_limit: Math.max(0, Math.trunc(Number(data.per_user_limit) || 1)),
     new_players_only: data.new_players_only ? 1 : 0,
@@ -3638,7 +3658,7 @@ export function getPayouts(userId, limit = 50) {
   return db.prepare(`
     SELECT id, amount, status, method, phone, bank, card_number,
            crypto_currency, crypto_network, crypto_address, crypto_amount,
-           comment, created_at, processing_at, resolved_at
+           comment, created_at, processing_at, resolved_at, requested_amount
       FROM payouts WHERE user_id = ? ORDER BY id DESC LIMIT ?
   `).all(userId, limit).map(row => ({ ...row, card_number: row.card_number ? `•••• ${decryptCard(row.card_number).slice(-4)}` : null }));
 }
@@ -3659,8 +3679,10 @@ export function pendingPayoutTotal(userId) {
 export const createPayout = moneyTx('payout', (userId, amount, details = {}) => {
   const user = getUserById(userId);
 
-  if (amount < MIN_PAYOUT) {
-    throw Object.assign(new Error(`Минимальная сумма вывода - ${MIN_PAYOUT}`), { code: 'MIN' });
+  // Минимум передаёт ручка (настройка из панели); без него - из окружения.
+  const min = details.minPayout || MIN_PAYOUT;
+  if (amount < min) {
+    throw Object.assign(new Error(`Минимальная сумма вывода - ${min}`), { code: 'MIN' });
   }
   if (amount > user.balance) {
     throw Object.assign(new Error('Недостаточно средств'), { code: 'INSUFFICIENT_FUNDS' });
@@ -3825,6 +3847,51 @@ export const completePayout = db.transaction((adminId, payoutId, comment) => {
   return { status: 'paid', amount: row.amount, userId: row.user_id };
 });
 
+/**
+ * Неполная выплата: шлюз перевёл меньше, чем заказано (трейдер подтвердил
+ * часть суммы). Заявка закрывается выплаченной суммой, остаток возвращается
+ * на баланс той же транзакцией: деньги, которые не ушли игроку, не могут ни
+ * пропасть, ни уйти второй раз. Заказанная сумма сохраняется рядом.
+ */
+export const completePayoutPartial = moneyTx('payout_return', (adminId, payoutId, paidAmount, comment) => {
+  const row = db.prepare('SELECT * FROM payouts WHERE id = ?').get(payoutId);
+  if (!row) throw Object.assign(new Error('Заявка не найдена'), { code: 'NOT_FOUND' });
+  if (row.status !== 'processing') throw Object.assign(new Error('Заявка не в работе'), { code: 'BAD_STATUS' });
+  const paid = Math.floor(Number(paidAmount));
+  if (!(paid > 0) || paid >= row.amount) {
+    throw Object.assign(new Error('Неполная выплата должна быть меньше заявки'), { code: 'BAD_AMOUNT' });
+  }
+  const refund = row.amount - paid;
+  const now = Date.now();
+  db.prepare(`UPDATE payouts SET status = 'paid', amount = ?, requested_amount = ?, comment = ?,
+                     resolved_at = ?, resolved_by = ? WHERE id = ? AND status = 'processing'`)
+    .run(paid, row.amount, comment || null, now, adminId, payoutId);
+  db.prepare('UPDATE users SET balance = balance + ? WHERE id = ?').run(refund, row.user_id);
+  ledgerLink('payouts', payoutId);
+  db.prepare(`INSERT INTO admin_log (admin_id, target_id, action, amount, note, created_at)
+              VALUES (?, ?, 'payout_partial', ?, ?, ?)`).run(adminId, row.user_id, paid, comment || null, now);
+  return { status: 'paid', amount: paid, refund, userId: row.user_id };
+});
+
+/**
+ * Заявка из «в работе» обратно в «ожидают». Только после того, как шлюз
+ * подтвердил отмену своей выплаты (это проверяет вызывающий код): «в работе»
+ * существует, чтобы деньги не вернули по уже отправленному переводу, и
+ * снимать его можно, лишь когда перевода точно нет. Дальше заявку можно
+ * отклонить с возвратом или отправить заново.
+ */
+export const unstartPayout = db.transaction((adminId, payoutId, comment) => {
+  const row = db.prepare('SELECT * FROM payouts WHERE id = ?').get(payoutId);
+  if (!row) throw Object.assign(new Error('Заявка не найдена'), { code: 'NOT_FOUND' });
+  if (row.status !== 'processing') throw Object.assign(new Error('Заявка не в работе'), { code: 'BAD_STATUS' });
+  const now = Date.now();
+  db.prepare(`UPDATE payouts SET status = 'pending', processing_at = NULL, comment = ? WHERE id = ? AND status = 'processing'`)
+    .run(comment || null, payoutId);
+  db.prepare(`INSERT INTO admin_log (admin_id, target_id, action, amount, note, created_at)
+              VALUES (?, ?, 'payout_unstarted', ?, ?, ?)`).run(adminId, row.user_id, row.amount, comment || null, now);
+  return { status: 'pending', amount: row.amount, userId: row.user_id };
+});
+
 export function adminPayouts(status = 'pending', limit = 60) {
   const where = status === 'all' ? '' : 'WHERE p.status = ?';
   const args = status === 'all' ? [limit] : [status, limit];
@@ -3832,7 +3899,7 @@ export function adminPayouts(status = 'pending', limit = 60) {
     SELECT p.id, p.amount, p.status, p.method, p.phone, p.bank, p.card_number,
            p.crypto_currency, p.crypto_network, p.crypto_address, p.crypto_amount,
            p.crypto_rate,
-           p.comment, p.created_at, p.processing_at, p.resolved_at,
+           p.comment, p.created_at, p.processing_at, p.resolved_at, p.requested_amount,
            u.id AS user_id, u.tg_id, u.email, u.username, u.first_name, u.balance
       FROM payouts p JOIN users u ON u.id = p.user_id
       ${where}
@@ -4146,6 +4213,49 @@ export const setPlayerLimits = db.transaction((actorId, userId, patch) => {
   return getPlayerLimits(userId);
 });
 
+/**
+ * Лимиты ответственной игры перед ставкой и пополнением.
+ *
+ * Раньше их исполняло только казино провайдеров, а кейсы, краш, рулетка,
+ * апгрейд, риск-игра и кассы лимиты не видели: игрок с самоисключением
+ * продолжал играть. Проверка стоит в chargeBet - через него проходит каждая
+ * ставка наших игр, - и в создании пополнения у обоих шлюзов. Ошибка несёт
+ * status 403: ручки отдают её текст игроку как есть.
+ */
+const limitError = (message) => Object.assign(new Error(message), { code: 'LIMIT', status: 403 });
+
+export function assertPlayAllowed(userId, bet = 0) {
+  const limits = getPlayerLimits(userId);
+  if ((limits.excluded_until || 0) > Date.now()) {
+    throw limitError(`Вы установили перерыв в игре до ${new Date(limits.excluded_until).toLocaleString('ru-RU')}`);
+  }
+  if (!limits.wager_day && !limits.loss_day) return;
+  const day = dayActivity(userId);
+  if (limits.wager_day && day.wagered + bet > limits.wager_day) {
+    throw limitError(`Достигнут ваш лимит ставок за сутки: ${limits.wager_day} ₽`);
+  }
+  if (limits.loss_day && day.lost + bet > limits.loss_day) {
+    throw limitError(`Достигнут ваш лимит проигрыша за сутки: ${limits.loss_day} ₽`);
+  }
+}
+
+export function assertDepositAllowed(userId, amount = 0) {
+  const limits = getPlayerLimits(userId);
+  if ((limits.excluded_until || 0) > Date.now()) {
+    throw limitError(`Вы установили перерыв в игре до ${new Date(limits.excluded_until).toLocaleString('ru-RU')}`);
+  }
+  if (limits.deposit_day && dayActivity(userId).deposited + amount > limits.deposit_day) {
+    throw limitError(`Достигнут ваш лимит пополнений за сутки: ${limits.deposit_day} ₽`);
+  }
+}
+
+/*
+ * Источники настоящих денег в deposits. Остальные строки (welcome, promo,
+ * fortune, correction) - подарки и поправки: в «внесено», лимит пополнений и
+ * чистый приход кассы они не входят.
+ */
+export const REAL_DEPOSIT_SQL = "('sicilia', 'crypto', 'beeline', 'admin')";
+
 /** Сколько игрок уже поставил и проиграл за последние сутки. */
 export function dayActivity(userId) {
   const from = Date.now() - 86400000;
@@ -4155,6 +4265,7 @@ export function dayActivity(userId) {
   `).get(userId, from);
   const deposited = db.prepare(`
     SELECT COALESCE(SUM(amount), 0) AS n FROM deposits WHERE user_id = ? AND created_at > ?
+       AND source IN ${REAL_DEPOSIT_SQL}
   `).get(userId, from).n;
   return { wagered: rounds.wagered, lost: Math.max(0, rounds.wagered - rounds.paid), deposited };
 }
@@ -4240,7 +4351,7 @@ export function revenueDaily(days = 30) {
     SELECT created_at, bet, payout, user_id FROM rounds WHERE created_at > ?
   `).all(from);
   const deposits = db.prepare(`
-    SELECT created_at, amount FROM deposits WHERE created_at > ?
+    SELECT created_at, amount FROM deposits WHERE created_at > ? AND source IN ${REAL_DEPOSIT_SQL}
   `).all(from);
   const payouts = db.prepare(`
     SELECT created_at, amount FROM payouts WHERE created_at > ? AND status = 'paid'

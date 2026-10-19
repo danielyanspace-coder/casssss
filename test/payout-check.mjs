@@ -78,6 +78,16 @@ if (hb >= 1000 && getUserById(honest.id).deposit_debt === 0) {
   const res = checkPayout(p.id);
   check('честный игрок получает зелёный итог', res.verdict === 'green', verdictOf(res));
   check('зелёная заявка пропускается дальше без подтверждения', payoutCleared(p.id));
+
+  // Неполная выплата шлюзом: заявка закрыта выплаченной суммой, остаток
+  // вернулся. Журнал при этом обязан сходиться, иначе все следующие заявки
+  // игрока стали бы красными.
+  dbm.startPayout(honest.id, p.id, 'тест');
+  const before = getUserById(honest.id).balance;
+  dbm.completePayoutPartial(honest.id, p.id, 600, 'выплачено частично');
+  check('неполная выплата вернула остаток на баланс', getUserById(honest.id).balance === before + 400);
+  const again = checkPayout(p.id);
+  check('после неполной выплаты журнал сходится', !failed(again, 'sources'), verdictOf(again));
   check('проверка пересчитала раунды', /пересчитано раундов: [1-9]/.test(res.checks.find((c) => c.id === 'fair').detail),
     res.checks.find((c) => c.id === 'fair').detail);
 } else {

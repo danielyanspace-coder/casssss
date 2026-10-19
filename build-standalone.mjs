@@ -1715,11 +1715,12 @@ const routes = {
     const u = store.user;
     const pending = u.payouts.filter((p) => p.status === 'pending')
       .reduce((a, p) => a + p.amount, 0);
-    // Доступно меньшее из баланса и отыгранного - как на сервере.
-    const available = Math.max(0, Math.min(u.balance, u.wagerProgress || 0));
+    // Правило сервера: отыграл внесённое - выводится весь баланс. Денег в
+    // файле не вносят, долга пополнения нет, поэтому доступен весь баланс.
+    const available = Math.max(0, u.balance);
     return {
       balance: u.balance, pending, available,
-      wagerProgress: u.wagerProgress || 0,
+      wagerProgress: u.wagerProgress || 0, depositDebt: 0, bonus: null,
       minPayout: CONFIG.minPayout,
       deposits: u.deposits, payouts: u.payouts,
     };
@@ -1736,22 +1737,8 @@ const routes = {
     if (amount > u.balance) {
       return { status: 400, body: { error: 'INSUFFICIENT_FUNDS', message: 'Недостаточно средств' } };
     }
-    if (u.wagerRequired > 0) {
-      return { status: 400, body: { error: 'WAGER',
-        message: 'Бонус не отыгран: осталось поставить ' + u.wagerRequired } };
-    }
-    const free = Math.max(0, Math.min(u.balance, u.wagerProgress || 0));
-    if (amount > free) {
-      return { status: 400, body: { error: 'WAGER_PROGRESS', available: free,
-        message: free > 0
-          ? 'Доступно к выводу ' + free + ' - остальное нужно отыграть ставками'
-          : 'Сначала сыграйте: вывести можно не больше, чем поставлено' } };
-    }
-
     // Списываем сразу - как на сервере: иначе один баланс можно заявить дважды.
-    // Вместе с деньгами расходуется и отыгранное.
     u.balance -= amount;
-    u.wagerProgress = Math.max(0, (u.wagerProgress || 0) - amount);
     const id = Date.now();
     u.payouts.unshift({
       id, amount, status: 'pending', comment: null,
@@ -1779,6 +1766,12 @@ const routes = {
    */
   // Шлюза Sicilia в файле нет: вкладка «СБП и карта» не показывается.
   'POST /api/sicilia/options': () => ({ enabled: false, min: 100, max: 300000 }),
+  // Оплат СБП в файле нет: шлюза без сервера не бывает.
+  'POST /api/sicilia/list': () => ({ rows: [] }),
+  'POST /api/admin/deposits': () => ({
+    rows: [], canResolve: true, siteUrl: false, configured: false,
+    summary: { paidCount: 0, paidSum: 0, conversion: null, disputesNew: 0, disputesSent: 0 },
+  }),
 
   'POST /api/crypto/options': () => ({
     enabled: true,
@@ -1809,10 +1802,13 @@ const routes = {
     },
   }),
 
+  // «Я оплатил» в счёте: сети нет, платёж в файле не приходит никогда.
+  'POST /api/crypto/refresh': () => ({ credited: false, payment: {} }),
+
   'POST /api/crypto/create': (body) => {
     const amount = Math.trunc(Number(body.amount));
-    if (!amount || amount < 500) {
-      return { status: 400, body: { error: 'MIN', message: 'Минимальная сумма - 500 ₽' } };
+    if (!amount || amount < 100) {
+      return { status: 400, body: { error: 'MIN', message: 'Минимальная сумма - 100 ₽' } };
     }
     if (!body.currency || !body.network) {
       return { status: 400, body: { error: 'BAD_CURRENCY', message: 'Выберите монету и сеть' } };

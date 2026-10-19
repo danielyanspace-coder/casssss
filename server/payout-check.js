@@ -214,11 +214,17 @@ function checkSources(user, rows) {
       if (!p) { bad.push(`заявка #${g.id} не найдена`); continue; }
       const created = g.rows.filter((r) => r.kind === 'payout').reduce((n, r) => n + r.real_kop, 0);
       const back = g.rows.filter((r) => r.kind === 'payout_return').reduce((n, r) => n + r.real_kop, 0);
-      if (created && created !== -p.amount * 100) bad.push(`заявка #${p.id}: списано ${fmt(rub(-created))} ₽ вместо ${fmt(p.amount)} ₽`);
+      // Неполная выплата: шлюз перевёл меньше заявки, заявка закрыта
+      // выплаченной суммой (amount), остаток вернулся. Списано тогда
+      // requested_amount, а возвращено ровно requested_amount - amount.
+      const ordered = p.requested_amount || p.amount;
+      const partial = p.status === 'paid' && p.requested_amount > p.amount;
+      if (created && created !== -ordered * 100) bad.push(`заявка #${p.id}: списано ${fmt(rub(-created))} ₽ вместо ${fmt(ordered)} ₽`);
       if (back) {
         returns.set(p.id, (returns.get(p.id) || 0) + back);
-        if (!['cancelled', 'rejected'].includes(p.status)) bad.push(`заявка #${p.id}: деньги вернулись, а статус «${p.status}»`);
-        if (back !== p.amount * 100) bad.push(`заявка #${p.id}: возвращено ${fmt(rub(back))} ₽ вместо ${fmt(p.amount)} ₽`);
+        const due = partial ? ordered - p.amount : p.amount;
+        if (!partial && !['cancelled', 'rejected'].includes(p.status)) bad.push(`заявка #${p.id}: деньги вернулись, а статус «${p.status}»`);
+        if (back !== due * 100) bad.push(`заявка #${p.id}: возвращено ${fmt(rub(back))} ₽ вместо ${fmt(due)} ₽`);
       }
       continue;
     }
@@ -342,12 +348,16 @@ function checkRound(round, seed, crashRows) {
 
   if (round.game === 'roulette') {
     const landed = rouletteColorOf(rouletteSlotFromRoll(roll));
-    const pays = round.bet * ROULETTE_CONFIG.payouts[landed];
+    // Выплата целыми рублями вниз. Раунды до этого правила записаны дробью
+    // (ставка × множитель), их тоже принимаем: игрок тут ни при чём.
+    const exact = round.bet * ROULETTE_CONFIG.payouts[landed];
+    const pays = Math.floor(exact);
+    const same = (v) => v === pays || v === exact;
     if (meta.color) {
-      const expected = meta.color === landed ? pays : 0;
-      return expected === round.payout ? null : `выпал ${landed}, выплачено ${round.payout} ₽ вместо ${expected} ₽`;
+      const ok = meta.color === landed ? same(round.payout) : round.payout === 0;
+      return ok ? null : `выпал ${landed}, выплачено ${round.payout} ₽ вместо ${meta.color === landed ? pays : 0} ₽`;
     }
-    return round.payout === 0 || round.payout === pays ? null : `выплата не соответствует сектору ${landed}`;
+    return round.payout === 0 || same(round.payout) ? null : `выплата не соответствует сектору ${landed}`;
   }
 
   if (round.game === 'upgrade') {

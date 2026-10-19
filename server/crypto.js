@@ -32,7 +32,7 @@
  */
 
 import { createHash, timingSafeEqual } from 'node:crypto';
-import { db, getUserById, registerDeposit, trackEvent, moneyTx, ledgerLink } from './db.js';
+import { db, getUserById, registerDeposit, trackEvent, moneyTx, ledgerLink, assertDepositAllowed } from './db.js';
 
 /* Журнал balance_transactions общий для шлюзов и создаётся в db.js. */
 import { alert, countError } from './ops.js';
@@ -374,6 +374,7 @@ export async function createDeposit(userId, amountRub, currency, network, rubRat
   if (!Number.isFinite(amount) || amount < CRYPTO_MIN) {
     throw Object.assign(new Error(`Минимальная сумма пополнения - ${CRYPTO_MIN} ₽`), { code: 'MIN' });
   }
+  assertDepositAllowed(userId, amount);
   if (amount > CRYPTO_MAX) {
     throw Object.assign(new Error(`Максимальная сумма пополнения - ${CRYPTO_MAX} ₽`), { code: 'MAX' });
   }
@@ -486,6 +487,13 @@ export const applyWebhook = moneyTx('deposit', (payload) => {
                WHERE id=?`)
     .run(status, payload.txid || null, currency, network, row.id);
 
+  if (status === 'wrong_amount' && row.status !== 'wrong_amount') {
+    // Недоплата: деньги пришли, но меньше счёта. Сами не зачисляем (сумма
+    // в монете требует сверки курса), но человек должен узнать сразу:
+    // игрок заплатил и ждёт.
+    alert(`crypto:wrong:${row.id}`, `Heleket: недоплата по счёту ${row.order_id} (игрок #${row.user_id}, ${row.amount_rub} ₽). `
+      + 'Сверьте пришедшую сумму в кабинете Heleket и зачислите правкой баланса с комментарием.');
+  }
   if (!PAID_STATUSES.has(status)) return { credited: false, status };
 
   const already = db.prepare('SELECT 1 FROM balance_transactions WHERE crypto_payment_id=?').get(row.id);
@@ -597,8 +605,13 @@ export async function refreshDeposit(id, userId) {
   if (row.paid_at) return { payment: publicPayment(row), credited: false };
 
   const info = await call('/payment/info', { order_id: row.order_id });
+  // Суммы передаются вместе со статусом: без них переплата (paid_over)
+  // зачислялась бы суммой счёта, а поздний вебхук с настоящей суммой уже
+  // считался бы повтором.
   const result = applyWebhook({
     order_id: row.order_id, status: info.payment_status, txid: info.txid,
+    payment_amount: info.payment_amount, payer_amount: info.payer_amount, amount: info.amount,
+    payer_currency: info.payer_currency,
   });
   return {
     payment: publicPayment(db.prepare('SELECT * FROM crypto_payments WHERE id=?').get(row.id)),

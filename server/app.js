@@ -54,6 +54,7 @@ import {
 import { limits } from './ratelimit.js';
 import * as crypto from './crypto.js';
 import * as sicilia from './sicilia.js';
+import { adminDeposits, depositsSummary, depositsCsvRows, payoutsCsvRows, toCsv } from './cashdesk.js';
 import {
   BONUS_CONFIG,
   claimBonus,
@@ -90,7 +91,7 @@ import {
   getDeposits,
   getPayouts,
   pendingPayoutTotal,
-  createPayout, withdrawable, spendable, refuseBonus, bonusRules, bonusAllowance, getBonusEvents,
+  lastPasswordResetAt, createPayout, withdrawable, spendable, refuseBonus, bonusRules, bonusAllowance, getBonusEvents,
   recordAccess,
   cancelPayout,
   resolvePayout,
@@ -171,14 +172,48 @@ validateFortune();
 // было получить, дописав себе строку в таблицу. Ключ - Telegram ID
 // (ADMIN_TG_IDS) или почта аккаунта (ADMIN_EMAILS).
 const splitList = (raw) => String(raw || '').split(',').map((s) => s.trim()).filter(Boolean);
+/*
+ * Почта при регистрации не подтверждается, и адрес владельца не секрет: кто
+ * первым зарегистрирует его, тот и стал бы владельцем панели. Поэтому почта
+ * даёт права владельца только вместе со служебным ботом и закреплённым
+ * Telegram владельца (OPS_BOT_TOKEN, OPS_OWNER_CHAT_ID): вход в панель тогда
+ * подтверждается в его Telegram, и чужой аккаунт с той же почтой дальше
+ * подтверждения не пройдёт. Telegram ID (ADMIN_TG_IDS) подлинность доказывает
+ * сам и работает всегда.
+ */
+const OWNER_EMAILS_GUARDED = Boolean(process.env.OPS_BOT_TOKEN && process.env.OPS_OWNER_CHAT_ID);
 const OWNER_KEYS = [
   ...splitList(process.env.ADMIN_TG_IDS),
-  ...splitList(process.env.ADMIN_EMAILS).map((e) => e.toLowerCase()),
+  ...(OWNER_EMAILS_GUARDED ? splitList(process.env.ADMIN_EMAILS).map((e) => e.toLowerCase()) : []),
 ];
+if (!OWNER_EMAILS_GUARDED && splitList(process.env.ADMIN_EMAILS).length && process.env.DEV_MODE !== 'true') {
+  console.warn('[staff] ADMIN_EMAILS не действует без OPS_BOT_TOKEN и OPS_OWNER_CHAT_ID: '
+    + 'почту никто не подтверждает, и владельцем стал бы первый, кто её зарегистрирует.');
+}
 syncStaff(OWNER_KEYS);
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
+
+/*
+ * Express 4 не ловит ошибки async-ручек: исключение внутри уходит в
+ * unhandledRejection, ответ не отправляется, и запрос висит до таймаута
+ * nginx, а игрок видит «зависшую» кнопку. Оборачиваем каждую ручку один
+ * раз здесь, чтобы ошибка ушла в общий обработчик и вернулась ответом.
+ * Обработчики ошибок (четыре аргумента) не трогаем: Express узнаёт их по
+ * числу аргументов.
+ */
+const wrapAsync = (fn) => (typeof fn !== 'function' || fn.length === 4 ? fn
+  : function wrapped(req, res, next) {
+    const out = fn.call(this, req, res, next);
+    if (out && typeof out.catch === 'function') out.catch(next);
+    return out;
+  });
+for (const method of ['get', 'post', 'put', 'patch', 'delete']) {
+  const original = app[method].bind(app);
+  app[method] = (path, ...handlers) => (handlers.length
+    ? original(path, ...handlers.map(wrapAsync)) : original(path));
+}
 
 /*
  * За nginx все запросы приходят с адреса самого nginx. Без этой строки
@@ -490,7 +525,9 @@ app.get('/api/config', (req, res) => {
     casino: { rtp: casinoRtp(), configured: casinoConfigured() },
     // Условия приветственного бонуса нужны клиенту, чтобы показать их в кассе
     // до пополнения, а не после.
-    firstDeposit: firstDepositRules(),
+    // Потолок перевода бонуса в деньги нужен тексту правил: обещание без
+    // него («отыграл - выводи») было бы неправдой.
+    firstDeposit: { ...firstDepositRules(), cashoutPct: bonusRules().cashoutPct },
   });
 });
 
@@ -582,17 +619,46 @@ app.post('/api/auth/register', authGate, limits.auth, async (req, res) => {
   }
 });
 
+/*
+ * Неудачные входы на одну почту. Лимит по адресу (limits.auth, nginx) не
+ * мешает перебирать пароль одного аккаунта с сотни адресов. После
+ * LOGIN_FAIL_MAX неудач за LOGIN_FAIL_WINDOW_MS почта закрывается для входа
+ * до конца окна. Считаем и несуществующие почты: иначе по разнице ответов
+ * было бы видно, кто зарегистрирован. Память процесса, а не база: после
+ * перезапуска счёт начинается заново, и это допустимо.
+ */
+const LOGIN_FAIL_MAX = 10;
+const LOGIN_FAIL_WINDOW_MS = 30 * 60_000;
+const loginFails = new Map();
+function loginLocked(email, now = Date.now()) {
+  const f = loginFails.get(email);
+  if (!f || now - f.first > LOGIN_FAIL_WINDOW_MS) { loginFails.delete(email); return false; }
+  return f.count >= LOGIN_FAIL_MAX;
+}
+function loginFailed(email, now = Date.now()) {
+  const f = loginFails.get(email);
+  if (!f || now - f.first > LOGIN_FAIL_WINDOW_MS) loginFails.set(email, { first: now, count: 1 });
+  else f.count += 1;
+  if (loginFails.size > 50_000) loginFails.clear();
+}
+
 app.post('/api/auth/login', authGate, limits.auth, async (req, res) => {
   const email = String(req.body?.email || '').trim().toLowerCase();
   const password = String(req.body?.password ?? '');
+  if (email && loginLocked(email)) {
+    return res.status(429).json({ error: 'Слишком много попыток входа. Подождите полчаса или восстановите пароль', code: 'LOGIN_LOCKED' });
+  }
   const user = email ? findUserByEmail(email) : null;
   if (!user || !user.password_hash) {
     await burnPasswordCheck(password);
+    if (email) loginFailed(email);
     return res.status(401).json({ error: 'Почта или пароль не подходят', code: 'LOGIN' });
   }
   if (!(await verifyPassword(password, user.password_hash))) {
+    loginFailed(email);
     return res.status(401).json({ error: 'Почта или пароль не подходят', code: 'LOGIN' });
   }
+  loginFails.delete(email);
   welcome(req, res, user);
 });
 
@@ -654,6 +720,7 @@ function siteUrl() {
     .replace(/\/+$/, '');
 }
 
+const RESET_RESEND_MS = 5 * 60_000;
 app.post('/api/auth/forgot', authGate, limits.auth, async (req, res) => {
   if (!isMailConfigured()) {
     return res.status(503).json({ error: 'Восстановление по почте пока недоступно, напишите в поддержку' });
@@ -663,6 +730,11 @@ app.post('/api/auth/forgot', authGate, limits.auth, async (req, res) => {
   try { email = normalizeEmail(req.body?.email); } catch (err) { return authError(res, err); }
   const user = findUserByEmail(email);
   if (!user) return done();
+  // Одно письмо на почту раз в RESET_RESEND_MS: лимит по адресу не мешает
+  // засыпать чужой ящик письмами с разных адресов и выжечь суточную квоту
+  // почтового сервиса, после чего сброс перестал бы работать у всех. Ответ
+  // тот же, что и на отправку: по нему нельзя понять, есть ли такая почта.
+  if (Date.now() - lastPasswordResetAt(user.id) < RESET_RESEND_MS) return done();
   const { token, tokenHash } = newResetToken();
   createPasswordReset(user.id, tokenHash, RESET_TTL_MS);
   try {
@@ -918,7 +990,9 @@ app.post('/api/roulette', auth, limits.play, gameGate('roulette'), (req, res) =>
       const slot = rouletteSlotFromRoll(roll);
       const landed = rouletteColorOf(slot);
       const won = landed === color;
-      const payout = won ? bet * ROULETTE_CONFIG.payouts[color] : 0;
+      // Выплата целыми рублями вниз: ×1.5 на нечётной ставке давал дробь, а
+      // зачисление округляло её вверх, и ставка в 1 ₽ платила 2 (отдача 93%).
+      const payout = won ? Math.floor(bet * ROULETTE_CONFIG.payouts[color]) : 0;
 
       return {
         game: 'roulette',
@@ -1049,7 +1123,9 @@ app.post('/api/crash/cashout', auth, limits.play, (req, res) => {
     });
   }
 
-  const cashedAt = Number(current.toFixed(2));
+  // Вниз до сотых, а не по правилам округления: 1.996 при взрыве на 2.00 не
+  // должно стать выводом ровно в точке взрыва и выплатой выше положенной.
+  const cashedAt = Math.floor(current * 100 + 1e-9) / 100;
   const result = finishCrashRound(round.id, req.player.id, 'cashed', cashedAt);
   if (!result) return res.status(400).json({ error: 'Раунд уже завершён' });
 
@@ -1268,6 +1344,7 @@ app.post('/api/payout/create', auth, limits.cashier, (req, res) => {
 
   try {
     const result = createPayout(req.player.id, amount, {
+      minPayout: minPayoutNow(),
       method: req.body?.method,
       phone: req.body?.phone,
       bank: req.body?.bank,
@@ -1514,9 +1591,12 @@ app.post('/api/casino/launch', auth, limits.play, gameGate('casino'), async (req
       playerId: casinoPlayerId(req.player.id),
       demo,
       ip: req.ip?.replace(/^::ffff:/, '') || '',
-      country: req.get('cf-ipcountry') || '',
+      // Страна из CASINO_COUNTRY (launchGame), а не из заголовка cf-ipcountry:
+      // Cloudflare перед сервером нет, и заголовок прислал бы сам игрок.
+      country: '',
       rtp: casinoRtp(),
-      lobbyUrl: process.env.PUBLIC_URL || '',
+      // Адрес сайта один на весь проект - SITE_URL.
+      lobbyUrl: process.env.SITE_URL || process.env.PUBLIC_URL || '',
     });
     if (!result.ok) {
       console.error('[casino] запуск', game.id, result.status, result.message);
@@ -1723,7 +1803,7 @@ app.post('/api/slot/spin', auth, limits.play, gameGate('slots'), (req, res) => {
   const jackpot = jackpotFrom(slot, jackpotRoll(result.roll), bet.total);
   let balance = result.balance;
   if (jackpot) {
-    balance = awardSlotJackpot(user.id, jackpot, bet.total, result.nonce);
+    balance = awardSlotJackpot(user.id, jackpot, bet.total, result.nonce, slot.name);
     trackEvent(user.id, 'slot_jackpot',
                { slot: slot.id, id: jackpot.id, amount: jackpot.amount, bet: bet.total });
   }
@@ -1758,6 +1838,12 @@ app.post('/api/slot/free', auth, limits.play, gameGate('slots'), (req, res) => {
   let result;
   try {
     result = playSlotFreeSpin(user.id, (serverSeed, clientSeed, nonce, session) => {
+      // Серия играется тем слотом, в котором выпала или куплена: цена покупки
+      // считается по его отдаче, и крутить её в другом слоте (с множителем
+      // фриспинов) значило бы поменять отдачу покупки.
+      if (session.slot_id && session.slot_id !== slot.id) {
+        throw Object.assign(new Error('Фриспины этой серии - в другом слоте'), { code: 'WRONG_SLOT' });
+      }
       const roll = computeRoll(serverSeed, clientSeed, nonce);
       const offsets = offsetsFrom(roll, slot.strips);
       // Во фриспинах wild расширяется на весь барабан - это и есть бонус.
@@ -1777,7 +1863,7 @@ app.post('/api/slot/free', auth, limits.play, gameGate('slots'), (req, res) => {
       };
     });
   } catch (err) {
-    if (err.code === 'BAD') return res.status(400).json({ error: err.message });
+    if (err.code === 'BAD' || err.code === 'WRONG_SLOT') return res.status(400).json({ error: err.message });
     throw err;
   }
 
@@ -2020,6 +2106,13 @@ app.post('/api/admin/block', auth, need('players.block'), (req, res) => {
   const targetId = Number(req.body?.userId);
   if (targetId === req.player.id) {
     return res.status(400).json({ error: 'Нельзя заблокировать самого себя' });
+  }
+  // Сотрудника блокирует только тот, кто вправе им управлять: иначе
+  // риск-менеджер запер бы владельца, и вернуть доступ можно было бы лишь
+  // правкой базы руками.
+  const targetStaff = staffRow(targetId);
+  if (targetStaff && !canManage(req.perms, req.staff?.role, targetStaff.role)) {
+    return res.status(403).json({ error: 'Этого сотрудника блокировать может только тот, кто им управляет' });
   }
   try {
     res.json(adminSetBlocked(req.player.id, targetId, !!req.body?.blocked));
@@ -2294,6 +2387,92 @@ app.post('/api/webhooks/sicilia', limits.webhook, async (req, res) => {
   }
 });
 
+/*
+ * «Перевёл, а деньги не пришли»: чек игрока и его слова. Сразу в шлюз это не
+ * уходит, спор сначала видит сотрудник (почему - в sicilia.reportDeposit).
+ * Лимит кассы, а не чтения: каждое обращение пишет файл на диск.
+ */
+app.post('/api/sicilia/report', auth, limits.cashier, async (req, res) => {
+  try {
+    const r = await sicilia.reportDeposit(req.player.id, req.body?.id, { comment: req.body?.comment, image: req.body?.image });
+    if (r.credited) emitPayment(req.player.id, 'payment.completed', { source: 'sicilia' });
+    res.json({ ...r, user: publicUser(getUserById(req.player.id)) });
+  } catch (err) {
+    res.status(err.code === 'NOT_FOUND' ? 404 : 400).json({ error: err.message, code: err.code });
+  }
+});
+
+/*
+ * Чек к спору. Ссылку открывает трейдер шлюза из апелляции, поэтому она без
+ * входа; имя файла - 16 случайных байт, список файлов не отдаётся, а
+ * поисковикам и кешам сказано файл не хранить.
+ */
+app.get('/receipts/:name', (req, res) => {
+  const file = sicilia.receiptFile(req.params.name);
+  if (!file) return res.status(404).end();
+  res.set({ 'Content-Type': file.type, 'Cache-Control': 'private, max-age=3600', 'X-Robots-Tag': 'noindex, nofollow' });
+  res.sendFile(file.path);
+});
+
+/* Панель: все пополнения через шлюзы, с номерами нашими и шлюза. */
+app.post('/api/admin/deposits', auth, need('finance.payouts.view'), (req, res) => {
+  const filter = ['all', 'credited', 'open', 'failed', 'dispute'].includes(req.body?.filter) ? req.body.filter : 'all';
+  res.json({
+    rows: adminDeposits({ q: req.body?.q, filter, before: req.body?.before }),
+    summary: depositsSummary(),
+    canResolve: req.perms.has('finance.payouts.resolve'),
+    siteUrl: Boolean(sicilia.siciliaEnv().webapp),
+    configured: sicilia.isConfigured(),
+  });
+});
+
+/* Переспросить шлюз о пополнении сейчас, не дожидаясь сверки. */
+app.post('/api/admin/deposit/recheck', auth, need('finance.payouts.view'), async (req, res) => {
+  try {
+    const r = await sicilia.recheckDeposit(req.body?.id);
+    if (r.credited) emitPayment(r.userId, 'payment.completed', { source: 'sicilia' });
+    res.json(r);
+  } catch (err) {
+    const status = err.code === 'NOT_FOUND' ? 404 : err.code === 'GATEWAY_UNREACHABLE' ? 503 : 400;
+    res.status(status).json({ error: err.message, code: err.code });
+  }
+});
+
+/* Апелляция у шлюза: по спору игрока или по оплате, с чеком сотрудника. */
+app.post('/api/admin/dispute/open', auth, need('finance.payouts.resolve'), async (req, res) => {
+  try {
+    const r = await sicilia.openAppeal(req.player.id, {
+      orderId: req.body?.orderId, disputeId: req.body?.disputeId, reason: req.body?.reason, image: req.body?.image,
+    });
+    res.json(r);
+  } catch (err) {
+    const status = err.code === 'NOT_FOUND' ? 404
+      : ['NOT_CONFIGURED', 'GATEWAY_UNREACHABLE', 'NO_SITE_URL'].includes(err.code) ? 503 : 400;
+    res.status(status).json({ error: err.message, code: err.code });
+  }
+});
+
+app.post('/api/admin/dispute/decline', auth, need('finance.payouts.resolve'), (req, res) => {
+  try {
+    res.json({ dispute: sicilia.declineDispute(req.player.id, req.body?.id, req.body?.note) });
+  } catch (err) {
+    res.status(err.code === 'NOT_FOUND' ? 404 : 400).json({ error: err.message, code: err.code });
+  }
+});
+
+/*
+ * Выгрузка сделок построчно: пополнения или выводы, с номерами нашими и
+ * шлюза. Отдельно от отчётов и под правом финансов: в файле игроки и их
+ * реквизиты, а не сводные цифры.
+ */
+app.post('/api/admin/export/finance', auth, need('finance.payouts.view'), (req, res) => {
+  const kind = req.body?.kind === 'payouts' ? 'payouts' : 'deposits';
+  const days = Math.min(366, Math.max(1, Number(req.body?.days) || 30));
+  const { head, rows } = kind === 'payouts' ? payoutsCsvRows(days) : depositsCsvRows(days);
+  logAdmin(req.player.id, 0, 'export', { note: kind, meta: { days, rows: rows.length } });
+  res.type('text/csv; charset=utf-8').send(toCsv(head, rows));
+});
+
 /* Панель: готовность шлюза, баланс мерчанта и коды банков для выплат. */
 app.post('/api/admin/sicilia', auth, need('finance.payouts.view'), async (req, res) => {
   const env = sicilia.siciliaEnv();
@@ -2310,6 +2489,39 @@ app.post('/api/admin/sicilia', auth, need('finance.payouts.view'), async (req, r
     balanceError,
     banks,
   });
+});
+
+/*
+ * Отзыв выплаты из шлюза и возврат заявки в «ожидают». Оба шага снимают
+ * «в работе» только после того, как шлюз сам подтвердил отмену своего ордера.
+ */
+app.post('/api/admin/sicilia/payout/recall', auth, need('finance.payouts.resolve'), async (req, res) => {
+  try {
+    res.json({ ...(await sicilia.recallPayout(req.player.id, Number(req.body?.id))), stats: payoutStats() });
+  } catch (err) {
+    const status = err.code === 'NOT_FOUND' ? 404 : ['NOT_CONFIGURED', 'GATEWAY_UNREACHABLE'].includes(err.code) ? 503 : 400;
+    res.status(status).json({ error: err.message, code: err.code });
+  }
+});
+
+app.post('/api/admin/sicilia/payout/release', auth, need('finance.payouts.resolve'), async (req, res) => {
+  try {
+    res.json({ ...(await sicilia.releasePayout(req.player.id, Number(req.body?.id))), stats: payoutStats() });
+  } catch (err) {
+    res.status(err.code === 'GATEWAY_UNREACHABLE' ? 503 : 400).json({ error: err.message, code: err.code });
+  }
+});
+
+/* Отмена пополнения с нашей стороны: отзыв ордера у шлюза. */
+app.post('/api/admin/deposit/cancel', auth, need('finance.payouts.resolve'), async (req, res) => {
+  try {
+    const r = await sicilia.cancelDeposit(req.player.id, req.body?.id);
+    if (r.credited) emitPayment(r.userId, 'payment.completed', { source: 'sicilia' });
+    res.json(r);
+  } catch (err) {
+    const status = err.code === 'NOT_FOUND' ? 404 : ['NOT_CONFIGURED', 'GATEWAY_UNREACHABLE'].includes(err.code) ? 503 : 400;
+    res.status(status).json({ error: err.message, code: err.code });
+  }
 });
 
 app.post('/api/admin/sicilia/payout', auth, need('finance.payouts.resolve'), async (req, res) => {
@@ -2346,7 +2558,11 @@ app.post('/api/casino/wallet', (req, res) => {
   const ip = String(req.ip || '').replace(/^::ffff:/, '');
   if (env.callbackIps.length && !env.callbackIps.includes(ip)) {
     console.error('[casino] кошелёк: чужой адрес', ip);
-    return res.status(403).json({ statusCode: CASINO_STATUS.INVALID_CREDENTIALS, message: 'Forbidden' });
+    // Код 200 и statusCode в теле, как требует их протокол: HTTP-ошибку
+    // агрегатор принял бы за сбой сети, а не за отказ, если его адреса
+    // сменятся. Оповещение - чтобы смену адресов не искать по жалобам.
+    countError('casino:foreign-ip', `Казино: кошелёк вызван с адреса ${ip}, его нет в CASINO_CALLBACK_IPS`, { threshold: 3 });
+    return res.json({ statusCode: CASINO_STATUS.INVALID_CREDENTIALS, message: 'Forbidden' });
   }
   if (!sameSecret(req.get('x-agent-name'), env.agent) || !sameSecret(req.get('x-agent-token'), env.token)) {
     return res.json({ statusCode: CASINO_STATUS.INVALID_CREDENTIALS, message: 'Invalid credentials' });
@@ -2382,10 +2598,20 @@ function emitPayment(userId, event, data) {
   }
 }
 
+// Потоков на игрока не больше нескольких вкладок: поток не заканчивается, и
+// один аккаунт иначе держал бы тысячи соединений. Лишний закрывает самый
+// старый, а не отказывает новой вкладке.
+const STREAMS_PER_PLAYER = 5;
 app.get('/api/payments/events', auth, (req, res) => {
   res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
   res.flushHeaders(); res.write('event: connected\ndata: {}\n\n');
-  const set = paymentStreams.get(req.player.id) || new Set(); set.add(res); paymentStreams.set(req.player.id, set);
+  const set = paymentStreams.get(req.player.id) || new Set();
+  while (set.size >= STREAMS_PER_PLAYER) {
+    const oldest = set.values().next().value;
+    set.delete(oldest);
+    try { oldest.end(); } catch { /* уже закрыт */ }
+  }
+  set.add(res); paymentStreams.set(req.player.id, set);
   const keepalive = setInterval(() => res.write(': keepalive\n\n'), 25000);
   req.on('close', () => { clearInterval(keepalive); set.delete(res); if (!set.size) paymentStreams.delete(req.player.id); });
 });
@@ -2458,6 +2684,8 @@ app.post('/api/admin/me', auth, adminOnly, (req, res) => {
     sections: {
       players: req.perms.has('players.view'),
       finance: req.perms.has('finance.payouts.view'),
+      // Споры игроков ждут человека: число показывается на вкладке раздела.
+      disputes: req.perms.has('finance.payouts.view') ? sicilia.openDisputesCount() : 0,
       promo: req.perms.has('promo.view') || req.perms.has('partners.view'),
       risk: req.perms.has('risk.view'),
       reports: req.perms.has('reports.view'),
@@ -2497,6 +2725,16 @@ app.post('/api/admin/staff/save', auth, need('staff.manage'), (req, res) => {
   const notMine = extra.filter((p) => !req.perms.has(p));
   if (notMine.length) {
     return res.status(403).json({ error: `Нельзя выдать то, чего нет у вас: ${notMine.join(', ')}` });
+  }
+
+  // Потолок правки баланса - тоже право: свой потолок нельзя раздать шире.
+  // Ноль означает «без потолка», то есть шире любого числа.
+  const myCap = balanceCapFor(req.staff);
+  if (myCap > 0 && body.balanceCap !== null && body.balanceCap !== undefined) {
+    const cap = Math.max(0, Math.trunc(Number(body.balanceCap) || 0));
+    if (cap === 0 || cap > myCap) {
+      return res.status(403).json({ error: `Потолок правки баланса не может быть выше вашего (${myCap})` });
+    }
   }
 
   const target = findUserByAnyId(body.userKey);
@@ -2667,7 +2905,10 @@ for (const sig of ['SIGTERM', 'SIGINT']) {
   });
 }
 
-app.listen(PORT, () => {
+// HOST задаёт служба (deploy/luckybox.service): на сервере только 127.0.0.1,
+// снаружи вход один - через nginx. Без HOST слушаем все адреса, как раньше:
+// так работают разработка и тесты.
+app.listen(PORT, process.env.HOST || undefined, () => {
   startOpsBot();
   if (crashedBefore) inform('Сервер перезапустился после сбоя: прошлый процесс не остановился штатно. Причина - в journalctl -u luckybox.');
   startFeed();

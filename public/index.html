@@ -490,7 +490,7 @@
 число = первые 8 hex-символов / 2^32</pre>
         <p class="fair-note">
           <strong>Кейс:</strong> число попадает в интервал предмета по таблице шансов.<br>
-          <strong>Краш:</strong> точка взрыва = 0.95 / (1 - число), округлённая вниз до сотых.<br>
+          <strong>Краш:</strong> точка взрыва = 0.70 / (1 - число), округлённая вниз до сотых, не меньше 1.00 и не больше 1000.<br>
           <strong>Рулетка:</strong> сектор = ⌊число × 15⌋.
         </p>
       </div>
@@ -579,6 +579,12 @@
           <div class="payment-checkout" id="siciliaCheckout" hidden></div>
         </div>
 
+        <!-- Оплаты СБП, которые ещё не зачислены: отсюда игрок сообщает,
+             что перевёл, а деньги не пришли (public/app.js, renderSiciliaIssues). -->
+        <div id="siciliaIssues" hidden>
+          <h2 class="cash-h2">Оплаты в ожидании</h2>
+          <div class="cash-list" id="siciliaIssueList"></div>
+        </div>
         <h2 class="cash-h2">История пополнений</h2>
         <div class="cash-list" id="depositList"></div>
       </div>
@@ -657,7 +663,7 @@
 
       <div class="game-head">
         <h1 class="game-title">FREE MONEY</h1>
-        <p class="game-sub">Розыгрыши и подарки. Участие ничего не стоит.</p>
+        <p class="game-sub">Розыгрыши и подарки. Прокруты колеса за пополнение от 500 ₽.</p>
       </div>
 
       <!-- ---------- Ивент: Lucky Fortune ---------- -->
@@ -839,6 +845,7 @@
             <div id="payoutAdminList"></div>
           </div>
 
+          <div class="admin-pane" id="admin-deposits"></div>
           <div class="admin-pane" id="admin-risk"></div>
           <div class="admin-pane" id="admin-promos"></div>
           <div class="admin-pane" id="admin-partners"></div>
@@ -875,7 +882,7 @@
             <img src="/assets/ui/logo.webp" alt="LUCKYBOX" class="opener-logo">
             <div class="opener-viewers" id="openerViewers"></div>
           </div>
-          <button class="opener-close" id="closeOpenerTop" data-ico="back"></button>
+          <button class="opener-close" id="closeOpenerTop" data-ico="back" aria-label="Закрыть"></button>
         </div>
 
         <div class="opener-case" id="openerCaseName"></div>
@@ -1008,7 +1015,7 @@
     <div class="doc-sheet">
       <div class="doc-head">
         <h2 class="doc-title" id="docTitle"></h2>
-        <button class="opener-close" id="docClose" data-ico="back"></button>
+        <button class="opener-close" id="docClose" data-ico="back" aria-label="Закрыть"></button>
       </div>
       <div class="doc-body" id="docBody"></div>
     </div>

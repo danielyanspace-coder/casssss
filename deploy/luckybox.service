@@ -18,6 +18,10 @@ Type=simple
 User=luckybox
 Group=luckybox
 WorkingDirectory=/srv/luckybox
+# Только локальный адрес: снаружи сервер доступен через nginx. Открытый
+# наружу порт 3000 позволил бы прислать свой X-Forwarded-For и обойти
+# проверку адресов шлюзов и ограничитель частоты. В .env можно переопределить.
+Environment=HOST=127.0.0.1
 EnvironmentFile=/srv/luckybox/.env
 ExecStart=/usr/bin/node server/app.js
 
