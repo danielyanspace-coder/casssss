@@ -9743,7 +9743,7 @@ document.getElementById('fmGiftsToggle')?.addEventListener('click', (e) => {
   setGiftsOpen(e.currentTarget.getAttribute('aria-expanded') !== 'true');
 });
 
-/* ---------- Lucky Drive: розыгрыш автомобиля ---------- */
+/* ---------- Dream Car: розыгрыш автомобиля ---------- */
 
 /*
  * Собран по образцу 1Win, присланному заказчиком: фото во всю карточку,
