@@ -156,7 +156,7 @@ console.log('\n=== Кейсы с плюшками: симуляция цепоч
           while (remaining > 0 && done < 300) {
             remaining--;
             const fRoll = computeRoll(seed, `perk:${c.id}:fs`, n * 1000 + done);
-            const fi = pickItem(c, fRoll);
+            const fi = pickItem(c, fRoll, true);
             done++;
 
             const doubled = seriesX2 && fi.value > 0;

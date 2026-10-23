@@ -70,7 +70,7 @@ import {
   rotateServerSeed,
   setClientSeed,
   startCrashRound,
-  getVouchers, getX2Perks,
+  getVouchers, getX2Perks, startCaseState, startCaseRules, RAFFLE_TICKET_TURNOVER, RAFFLE_MAX_TICKETS,
   fortuneState, fortuneHistory, playFortuneSpin,
   syncStaff, staffRow, staffList, staffSave, staffRemove, findUserByAnyId,
   playerNotes, addPlayerNote, deletePlayerNote,
@@ -88,6 +88,7 @@ import {
   playGamble,
   clearGamble,
   MIN_PAYOUT,
+  PAYOUT_STEP,
   getDeposits,
   getPayouts,
   pendingPayoutTotal,
@@ -155,6 +156,7 @@ import {
   subscriptionConfig,
   FREE_CASE_COOLDOWN_MS,
 } from './subscription.js';
+import { wheelConfig } from './promo-wheel.js';
 // Если математика поехала - падаем на старте, до первого игрока.
 const caseReport = validateCases();
 const gameReport = validateGames();
@@ -390,6 +392,8 @@ function publicUser(user) {
     gambleStake: user.gamble_stake,
     gambleCase: user.gamble_case,
     vouchers: getVouchers(user.id),
+    // Бесплатный кейс «Начало» и билеты розыгрыша: шкалы в Free Money.
+    ...startCaseState(user),
     /*
      * Бонусный счёт отдельно от своих денег. balance - свои (их показывает
      * шапка, ими играет казино, их выводят), bonusBalance - подарки, которыми
@@ -492,8 +496,18 @@ app.get('/api/config', (req, res) => {
       minStake: UPGRADE_CONFIG.minStake,
       multipliers: UPGRADE_CONFIG.multipliers,
     },
-    feed: { minMultiplier: FEED_CONFIG.minMultiplier, minValue: FEED_CONFIG.minValue },
+    // synthetic: выдуманные витрина и счётчики «N играют» в казино. Один
+    // выключатель FEED_SYNTHETIC на всё оживление, которого нет на самом деле.
+    feed: { minMultiplier: FEED_CONFIG.minMultiplier, minValue: FEED_CONFIG.minValue, synthetic: FEED_CONFIG.synthetic },
     freeCase: subscriptionConfig(),
+    // Колесо удачи за промокод: сектора и их доли круга (угол = вероятность).
+    promoWheel: wheelConfig(),
+    // Телеграм-бот проекта: ивент в Free Money и откуда берутся коды колеса.
+    projectBot: (process.env.PROJECT_BOT_USERNAME || 'luckybox_bot').replace(/^@/, ''),
+    // Розыгрыш автомобиля: условие билетов (startCaseState считает сами билеты).
+    raffle: { prize: 'Rolls-Royce Wraith', step: RAFFLE_TICKET_TURNOVER, max: RAFFLE_MAX_TICKETS },
+    // Кейс «Начало»: за какое пополнение и за какой оборот.
+    startCase: startCaseRules(),
     // Чем можно войти. Виджет Telegram показывается, только если задан бот:
     // без его имени виджет не загрузится, а кнопка, которая не работает, хуже
     // отсутствующей. Сброс пароля - только при настроенной почте.
@@ -826,10 +840,25 @@ app.post('/api/open', auth, limits.play, gameGate('cases'), (req, res) => {
     return res.status(403).json({ error: `Кейс откроется ${starts}` });
   }
 
-  const count = Math.min(MAX_BATCH, Math.max(1, Math.trunc(Number(req.body?.count) || 1)));
+  let count = Math.min(MAX_BATCH, Math.max(1, Math.trunc(Number(req.body?.count) || 1)));
 
   const user = req.player;
   const vouchers = getVouchers(user.id).find((v) => v.case_id === caseData.id)?.count || 0;
+
+  /*
+   * Бесплатный кейс открывается только подарком, по одному. Без подарка -
+   * отказ с условием: клиент рисует по нему сцену «пополни от 100 ₽» или
+   * шкалу оборота. Цена кейса - номинал решателя, списать её нельзя.
+   */
+  if (caseData.free) {
+    if (vouchers <= 0) {
+      const st = startCaseState(user).startCase;
+      return res.status(403).json({ error: st.needDeposit
+        ? `Пополните баланс от ${st.minDeposit} ₽, и этот кейс ваш бесплатно`
+        : `Поставьте ещё ${st.step - st.progress} ₽, и кейс снова ваш`, code: 'START_LOCKED', startCase: st });
+    }
+    count = 1;
+  }
   // Ваучеры покрывают первые открытия пачки, остальное оплачивается балансом.
   const payable = Math.max(0, count - vouchers);
   const need = payable * caseData.price;
@@ -842,9 +871,9 @@ app.post('/api/open', auth, limits.play, gameGate('cases'), (req, res) => {
       const roll = computeRoll(serverSeed, clientSeed, nonce);
       return { item: pickItem(caseData, roll), roll };
     }, (serverSeed, clientSeed, nonce) => {
-      // Фриспин крутит ту же полную таблицу, что и платное открытие.
+      // Фриспин крутит свою таблицу: крупное в серии выпадает чаще.
       const roll = computeRoll(serverSeed, clientSeed, nonce);
-      return { item: pickItem(caseData, roll), roll };
+      return { item: pickItem(caseData, roll, true), roll };
     });
   } catch (err) {
     if (err.code === 'INSUFFICIENT_FUNDS') return sendInsufficient(res, need - spendable(user));
@@ -924,6 +953,7 @@ app.post('/api/freespins/buy', auth, limits.play, gameGate('cases'), (req, res) 
     return res.status(403).json({ error: `Кейс откроется ${starts}` });
   }
 
+  if (caseData.free) return res.status(400).json({ error: 'В этом кейсе фриспины не продаются' });
   const count = Math.trunc(Number(req.body?.count));
   const cost = freeSpinPackPrice(caseData, count);
   if (!cost) return res.status(400).json({ error: 'Такой пачки нет' });
@@ -936,7 +966,7 @@ app.post('/api/freespins/buy', auth, limits.play, gameGate('cases'), (req, res) 
     result = buyFreeSpins(user.id, caseData, count, cost,
       (serverSeed, clientSeed, nonce) => {
         const roll = computeRoll(serverSeed, clientSeed, nonce);
-        return { item: pickItem(caseData, roll), roll };
+        return { item: pickItem(caseData, roll, true), roll };
       });
   } catch (err) {
     if (err.code === 'INSUFFICIENT_FUNDS') return sendInsufficient(res, cost - spendable(user));
@@ -1180,7 +1210,20 @@ app.post('/api/promo/redeem', auth, limits.guess, (req, res) => {
   res.json({ result, user: publicUser(getUserById(req.player.id)) });
 });
 
-/** Всё, что показывается в разделе «Бонусы». */
+/** Прокрут «Колеса удачи» промокодом (server/promo-wheel.js). */
+app.post('/api/wheel/spin', auth, limits.guess, (req, res) => {
+  let result;
+  try {
+    result = redeemPromo(req.player.id, req.body?.code, promoCaseResolver, { wheel: true });
+  } catch (err) {
+    if (err.code === 'PROMO' || err.code === 'BAD') return res.status(400).json({ error: err.message });
+    throw err;
+  }
+  trackEvent(req.player.id, 'promo_redeemed', { type: 'wheel' });
+  res.json({ result, user: publicUser(getUserById(req.player.id)) });
+});
+
+/** Всё, что показывается в Free Money: промокоды, ожидающий процент, отыгрыш. */
 app.post('/api/promo/state', auth, (req, res) => {
   res.json({
     pendingDeposit: pendingDepositBonus(req.player.id),
@@ -1302,6 +1345,8 @@ app.post('/api/wallet', auth, limits.read, (req, res) => {
     depositDebt: req.player.deposit_debt || 0,
     wagerProgress: req.player.wager_progress,
     minPayout: minPayoutNow(),
+    // Шаг суммы для карты и СБП: клиент подсказывает его и округляет «Всё».
+    payoutStep: PAYOUT_STEP,
     deposits: getDeposits(req.player.id),
     payouts: getPayouts(req.player.id),
     bonus: {
@@ -1366,7 +1411,7 @@ app.post('/api/payout/create', auth, limits.cashier, (req, res) => {
     // так». WAGER_PROGRESS - не отыграно пополнение, остальные - проверки
     // реквизитов платёжного модуля. Бонус вывод больше не запирает.
     if ([
-      'MIN', 'INSUFFICIENT_FUNDS', 'WAGER', 'WAGER_PROGRESS',
+      'MIN', 'STEP', 'INSUFFICIENT_FUNDS', 'WAGER', 'WAGER_PROGRESS',
       'BAD_PHONE', 'BAD_BANK', 'BAD_CARD', 'BAD_METHOD', 'PAYOUT_KEY_MISSING',
       'BAD_CURRENCY', 'BAD_NETWORK', 'BAD_ADDRESS', 'BAD_RATE',
     ].includes(err.code)) {
@@ -2324,25 +2369,42 @@ app.post('/api/webhooks/heleket', limits.webhook, (req, res) => {
    ============================================================ */
 
 /*
- * Пополнение через платёжное окно шлюза, открытое отдельной вкладкой
- * (решение заказчика). Сервер подписывает ссылку, клиент её открывает,
- * деньги приходят колбэком и сверкой. Подробности - в server/sicilia.js.
+ * Пополнение СБП и картой. Через API шлюза (по умолчанию) сервер заводит
+ * ордер и отдаёт реквизит, касса показывает его сама; через окно - сервер
+ * подписывает ссылку. Деньги приходят колбэком и сверкой. Подробности - в
+ * server/sicilia.js.
  */
 app.post('/api/sicilia/options', auth, limits.read, (req, res) => {
   const env = sicilia.siciliaEnv();
-  res.json({ enabled: sicilia.payinReady(env), min: env.min, max: env.max });
+  res.json({ enabled: sicilia.payinReady(env), mode: env.payin, min: env.min, max: env.max,
+    ttlMin: Math.round(env.ttlMs / 60_000) });
 });
 
-app.post('/api/sicilia/create', auth, limits.cashier, (req, res) => {
+app.post('/api/sicilia/create', auth, limits.cashier, async (req, res) => {
   if (!setting('deposits_open')) return res.status(503).json({ error: 'Приём пополнений временно закрыт' });
   try {
-    res.status(201).json(sicilia.createDeposit(req.player.id, req.body?.amount));
+    const b = req.body || {};
+    res.status(201).json(await sicilia.createDeposit(req.player.id, b.amount, { method: b.method, senderBank: b.senderBank }));
   } catch (err) {
-    res.status(err.code === 'NOT_CONFIGURED' ? 503 : 400).json({ error: err.message, code: err.code });
+    const status = err.code === 'NOT_CONFIGURED' || err.code === 'GATEWAY_UNREACHABLE' || err.code === 'NO_REQUISITE' ? 503
+      : err.code === 'OPEN_ORDER' ? 409 : 400;
+    res.status(status).json({ error: err.message, code: err.code, order: err.order });
   }
 });
 
-/* Ссылка на то же окно ещё раз: игрок закрыл его, не заплатив. */
+/* Отмена перевода игроком: реквизит освобождается сразу, а не по сроку. */
+app.post('/api/sicilia/cancel', auth, limits.cashier, async (req, res) => {
+  try {
+    const result = await sicilia.cancelDeposit(req.body?.id, req.player.id);
+    if (result.credited) emitPayment(req.player.id, 'payment.completed', { source: 'sicilia' });
+    res.json({ ...result, user: publicUser(getUserById(req.player.id)) });
+  } catch (err) {
+    const status = err.code === 'NOT_FOUND' ? 404 : err.code === 'GATEWAY_UNREACHABLE' ? 503 : 400;
+    res.status(status).json({ error: err.message, code: err.code });
+  }
+});
+
+/* Тот же перевод ещё раз: игрок закрыл кассу или окно, не заплатив. */
 app.post('/api/sicilia/reopen', auth, limits.cashier, (req, res) => {
   try {
     res.json(sicilia.reopenDeposit(req.body?.id, req.player.id));
@@ -2375,7 +2437,12 @@ app.post('/api/sicilia/refresh', auth, limits.cashier, async (req, res) => {
  * отвечаем 503, и шлюз повторит; деньги не теряются и сверкой по расписанию.
  */
 app.post('/api/webhooks/sicilia', limits.webhook, async (req, res) => {
-  if (!sicilia.callbackIpAllowed(req.ip)) return res.status(403).json({ error: 'Чужой адрес' });
+  if (!sicilia.callbackIpAllowed(req.ip)) {
+    // Адрес в журнал: если шлюз сменит адрес отправки, его видно отсюда и
+    // дописывают в SICILIA_CALLBACK_IPS. Деньги до тех пор зачисляет сверка.
+    console.error('[sicilia] колбэк: чужой адрес', req.ip);
+    return res.status(403).json({ error: 'Чужой адрес' });
+  }
   if (!sicilia.verifyCallback(req.body)) return res.status(401).json({ error: 'Подпись не совпала' });
   try {
     const result = await sicilia.handleCallback(req.body);
@@ -2515,7 +2582,7 @@ app.post('/api/admin/sicilia/payout/release', auth, need('finance.payouts.resolv
 /* Отмена пополнения с нашей стороны: отзыв ордера у шлюза. */
 app.post('/api/admin/deposit/cancel', auth, need('finance.payouts.resolve'), async (req, res) => {
   try {
-    const r = await sicilia.cancelDeposit(req.player.id, req.body?.id);
+    const r = await sicilia.staffCancelDeposit(req.player.id, req.body?.id);
     if (r.credited) emitPayment(r.userId, 'payment.completed', { source: 'sicilia' });
     res.json(r);
   } catch (err) {

@@ -5,11 +5,18 @@
  * шлюз, а шлюз сообщает нам о результате колбэком. Документация:
  * https://documenter.getpostman.com/view/24855881/2sB2x2LaNf
  *
- * ПОПОЛНЕНИЕ - ЧЕРЕЗ ИХ ПЛАТЁЖНОЕ ОКНО, ОТКРЫТОЕ ОТДЕЛЬНО (решение
- * заказчика). Мы не создаём ордер сами и не рисуем реквизиты: сервер
- * подписывает ссылку на окно (sum, invid, merchant, callback_url), клиент
- * открывает её отдельной вкладкой, ордер заводит само окно. Строка в нашей базе
- * появляется ДО того, как игрок ушёл в окно: колбэк находит её по invid.
+ * ПОПОЛНЕНИЕ - ДВА СПОСОБА, выбирается SICILIA_PAYIN.
+ *
+ * 'h2h' (по умолчанию): ордер заводим мы сами (orders/create), шлюз отвечает
+ * реквизитом - карта или телефон получателя, банк, имя, иногда диплинк, - и
+ * касса показывает его у нас вместе с суммой и таймером. Так решил заказчик,
+ * чтобы не ждать, пока шлюз настроит окно под мерчант.
+ *
+ * 'window': платёжное окно шлюза отдельной вкладкой. Сервер подписывает
+ * ссылку (sum, invid, merchant, callback_url), ордер заводит само окно.
+ *
+ * В обоих случаях строка в нашей базе появляется ДО ордера у шлюза: колбэк
+ * находит её по invid.
  *
  * КОЛБЭКУ ОДНОМУ НЕ ВЕРИМ. Подпись колбэка - sha256('sum:invid:apiKey'), и
  * статуса в ней нет. Значит, подпись отменённого ордера годится и для
@@ -48,12 +55,14 @@ export function siciliaEnv() {
   return {
     api: (process.env.SICILIA_API_URL || 'https://api.sicilia.ink/api').replace(/\/+$/, ''),
     payUrl: (process.env.SICILIA_PAY_URL || '').replace(/\/+$/, ''),
+    payin: String(process.env.SICILIA_PAYIN || 'h2h').trim().toLowerCase() === 'window' ? 'window' : 'h2h',
     merchant: String(process.env.SICILIA_MERCHANT || '').trim(),
     login: String(process.env.SICILIA_LOGIN || '').trim(),
     key: String(process.env.SICILIA_API_KEY || '').trim(),
     min: Number(process.env.SICILIA_MIN || 100),
     max: Number(process.env.SICILIA_MAX || 300_000),
-    ttlMs: Number(process.env.SICILIA_ORDER_TTL_MIN || 30) * 60_000,
+    // Срок реквизита после выдачи: столько идёт таймер в кассе (решение заказчика).
+    ttlMs: Number(process.env.SICILIA_ORDER_TTL_MIN || 10) * 60_000,
     callbackIps: String(process.env.SICILIA_CALLBACK_IPS || '').split(',').map((s) => s.trim()).filter(Boolean),
     webapp: String(process.env.SITE_URL || process.env.WEBAPP_URL || '').replace(/\/+$/, ''),
   };
@@ -64,9 +73,9 @@ export function isConfigured(env = siciliaEnv()) {
   return Boolean(env.merchant && env.login && env.key);
 }
 
-/** Пополнение доступно, когда известен ещё и адрес платёжного окна. */
+/** Пополнение доступно: через API - сразу с ключами, через окно - ещё и с его адресом. */
 export function payinReady(env = siciliaEnv()) {
-  return isConfigured(env) && Boolean(env.payUrl);
+  return isConfigured(env) && (env.payin === 'h2h' || Boolean(env.payUrl));
 }
 
 db.exec(`
@@ -128,10 +137,16 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_dispute_status ON sicilia_disputes(status);
 `);
 
+/*
+ * Реквизит ордера, выданный шлюзом (JSON), и до какого времени он наш. Нужен,
+ * чтобы игрок, закрывший кассу, вернулся к тому же переводу: второй ордер
+ * занял бы второй реквизит, а оплаченный первый пришлось бы искать.
+ */
 const orderCols = db.prepare('PRAGMA table_info(sicilia_orders)').all().map((c) => c.name);
-if (!orderCols.includes('late_checked_at')) {
-  db.exec('ALTER TABLE sicilia_orders ADD COLUMN late_checked_at INTEGER');
-}
+if (!orderCols.includes('late_checked_at')) db.exec('ALTER TABLE sicilia_orders ADD COLUMN late_checked_at INTEGER');
+if (!orderCols.includes('requisite')) db.exec('ALTER TABLE sicilia_orders ADD COLUMN requisite TEXT');
+if (!orderCols.includes('pay_sum')) db.exec('ALTER TABLE sicilia_orders ADD COLUMN pay_sum TEXT');
+if (!orderCols.includes('expires_at')) db.exec('ALTER TABLE sicilia_orders ADD COLUMN expires_at INTEGER');
 
 const txCols = db.prepare('PRAGMA table_info(balance_transactions)').all().map((c) => c.name);
 if (!txCols.includes('sicilia_order_id')) {
@@ -236,23 +251,41 @@ function makeInvid(prefix, id) {
   return `${prefix}-${id}-${Date.now().toString(36)}`;
 }
 
+/** Ордер ещё можно оплатить: не зачислен, не закрыт и время не вышло. */
+function payable(r, now = Date.now()) {
+  return !r.paid_at && !DEAD.has(r.status) && r.status !== 'expired' && (!r.expires_at || now < r.expires_at);
+}
+
+/*
+ * Реквизит отдаётся только пока ордер открыт. Реквизиты у шлюза живые и
+ * переходят от ордера к ордеру: карта, показанная в истории неделю спустя,
+ * уже чужая, и перевод на неё не найдёт никто.
+ */
 function publicOrder(r) {
   if (!r) return null;
   const d = lastDispute(r.id);
+  let requisite = null;
+  if (r.requisite && payable(r)) {
+    try { requisite = JSON.parse(r.requisite); } catch { requisite = null; }
+  }
   return {
     id: r.id,
     // Номер платежа для поддержки: тот же, что видит шлюз, по нему сотрудник
     // находит оплату у себя и у Sicilia одним поиском.
     number: r.invid,
     amount: r.amount_rub,
+    paySum: r.pay_sum != null ? Number(r.pay_sum) : r.amount_rub,
+    method: r.method || null,
     status: r.status,
     credited: r.credited_rub,
     createdAt: r.created_at,
+    expiresAt: r.expires_at || null,
     paidAt: r.paid_at,
-    // Ордер дошёл до шлюза (окно открывали): только такие показываются игроку
-    // в «Оплатах в ожидании», брошенные до окна там лишние.
+    // Ордер дошёл до шлюза (окно открывали или реквизит выдан): только такие
+    // показываются игроку в «Оплатах в ожидании», брошенные до окна там лишние.
     opened: r.gateway_id != null,
     dispute: d ? { status: d.status, note: d.staff_note || d.appeal_reason || null, createdAt: d.created_at } : null,
+    requisite,
   };
 }
 
@@ -277,16 +310,24 @@ function payUrlFor(row, env = siciliaEnv()) {
   return `${env.payUrl}/?${q}`;
 }
 
-/**
- * Заводит пополнение и возвращает ссылку на окно.
- *
- * Сеть здесь не нужна: ордер заводит окно, когда игрок его откроет. Поэтому
- * отказ шлюза мы увидим не здесь, а при сверке (ордер не нашёлся - значит,
- * игрок окно не открыл, и строка просто истечёт).
+/*
+ * Способ оплаты игрока -> метод ордера шлюза. Только два: перевод по СБП на
+ * телефон и с карты на карту. Остальные методы шлюза (внутрибанк, QR,
+ * трансгран) включаются у них по договорённости, и показывать игроку то, что
+ * для мерчанта не включено, значит получать отказ на каждом ордере.
  */
-export function createDeposit(userId, amountRub) {
-  const env = siciliaEnv();
-  if (!payinReady(env)) throw Object.assign(new Error('Способ оплаты временно недоступен'), { code: 'NOT_CONFIGURED' });
+const PAYIN_METHODS = { sbp: 'sbp', card: 'any-bank' };
+
+/*
+ * Банк игрока: по нему шлюз отдаёт диплинк, открывающий перевод в приложении
+ * банка с уже заполненными полями. Диплинк бывает только у этих четырёх.
+ */
+export const DEEPLINK_BANKS = ['sberbank', 'tinkoff', 'vtb', 'alfa-bank'];
+
+/* Отказы шлюза, которые значат «сейчас нет реквизита», а не поломку. */
+const NO_REQUISITE = /no available (calls|traders)/i;
+
+function validAmount(amountRub, env) {
   const amount = Math.trunc(Number(amountRub));
   if (!Number.isFinite(amount) || amount < env.min) {
     throw Object.assign(new Error(`Минимальная сумма пополнения - ${env.min} ₽`), { code: 'MIN' });
@@ -294,15 +335,121 @@ export function createDeposit(userId, amountRub) {
   if (amount > env.max) {
     throw Object.assign(new Error(`Максимальная сумма пополнения - ${env.max} ₽`), { code: 'MAX' });
   }
+  return amount;
+}
+
+function insertPayin(userId, amount, method, env) {
   assertDepositAllowed(userId, amount);
   const now = Date.now();
-  const info = db.prepare(`INSERT INTO sicilia_orders (kind, user_id, invid, amount_rub, created_at, updated_at)
-                           VALUES ('payin', ?, ?, ?, ?, ?)`).run(userId, `tmp-${now}-${Math.random()}`, amount, now, now);
+  const info = db.prepare(`INSERT INTO sicilia_orders (kind, user_id, invid, amount_rub, method, expires_at, created_at, updated_at)
+                           VALUES ('payin', ?, ?, ?, ?, ?, ?, ?)`)
+    .run(userId, `tmp-${now}-${Math.random()}`, amount, method, now + env.ttlMs, now, now);
   const invid = makeInvid('lb', info.lastInsertRowid);
   db.prepare('UPDATE sicilia_orders SET invid = ? WHERE id = ?').run(invid, info.lastInsertRowid);
-  const row = db.prepare('SELECT * FROM sicilia_orders WHERE id = ?').get(info.lastInsertRowid);
+  return db.prepare('SELECT * FROM sicilia_orders WHERE id = ?').get(info.lastInsertRowid);
+}
+
+/** Из ответа orders/create - только то, что нужно игроку для перевода. */
+function requisiteFrom(info, method) {
+  const card = info.card || {};
+  const digits = (v) => String(v || '').replace(/\D/g, '');
+  const req = {
+    method,
+    phone: digits(card.telefon) || null,
+    card: digits(card.number) || null,
+    account: info.account_transfer ? digits(card.account_number) || null : null,
+    bik: info.account_transfer ? digits(card.bank_id_code) || null : null,
+    holder: String(info.fio || '').trim() || null,
+    bank: String(info.bank_data?.name || '').trim() || null,
+    bankCode: String(info.bank_data?.code || info.bank || '').trim() || null,
+    deeplink: /^https?:\/\//i.test(String(info.deeplink || '')) ? String(info.deeplink) : null,
+    payLink: /^https?:\/\//i.test(String(card.payment_link || '')) ? String(card.payment_link) : null,
+    abroad: info.trans_gov ? String(info.trans_gov_country || '').trim() || 'да' : null,
+  };
+  // Куда переводить, решает шлюз: на СБП он может выдать и карту, и телефон.
+  // Показываем то, что подходит выбранному способу, а при его отсутствии - что есть.
+  const target = method === 'sbp' ? req.phone || req.card : req.card || req.phone;
+  return target || req.account || req.payLink ? req : null;
+}
+
+/**
+ * Заводит пополнение.
+ *
+ * Через API: ордер у шлюза создаётся здесь же, и игрок получает реквизит.
+ * Через окно: сеть не нужна, ордер заведёт окно, когда игрок его откроет.
+ */
+export async function createDeposit(userId, amountRub, { method = 'sbp', senderBank = '' } = {}) {
+  const env = siciliaEnv();
+  if (!payinReady(env)) throw Object.assign(new Error('Способ оплаты временно недоступен'), { code: 'NOT_CONFIGURED' });
+  const amount = validAmount(amountRub, env);
+
+  if (env.payin === 'window') {
+    const row = insertPayin(userId, amount, null, env);
+    trackEvent(userId, 'deposit_created', { amount, method: 'sicilia' });
+    return { ...publicOrder(row), url: payUrlFor(row, env) };
+  }
+
+  if (!PAYIN_METHODS[method]) throw Object.assign(new Error('Выберите способ оплаты'), { code: 'BAD_METHOD' });
+  /*
+   * Один открытый перевод на игрока. Второй ордер занял бы второй реквизит,
+   * а если первый к тому времени оплачен, отменять его нельзя: деньги ушли.
+   * Поэтому новый не заводится, пока старый не закрыт, и игрок видит старый.
+   */
+  const open = db.prepare(`SELECT * FROM sicilia_orders WHERE kind = 'payin' AND user_id = ? AND requisite IS NOT NULL
+                            ORDER BY id DESC LIMIT 5`).all(userId).find((r) => payable(r));
+  if (open) {
+    throw Object.assign(new Error('У вас уже есть неоплаченный перевод. Оплатите его или отмените.'),
+      { code: 'OPEN_ORDER', order: publicOrder(open) });
+  }
+
+  const row = insertPayin(userId, amount, method, env);
+  const sum = String(amount);
+  const body = {
+    currency: 'RUB',
+    merchant: Number(env.merchant) || env.merchant,
+    invid: row.invid,
+    sum: amount,
+    bank: PAYIN_METHODS[method],
+    signature: signPayin(sum, row.invid, env),
+    operation: 'Пополнение',
+    external_user_id: String(userId),
+  };
+  if (env.webapp) body.callback_url = `${env.webapp}/api/webhooks/sicilia`;
+  if (DEEPLINK_BANKS.includes(senderBank)) body.sender_bank = senderBank;
+
+  const fail = (status, error) => db.prepare('UPDATE sicilia_orders SET status = ?, error = ?, updated_at = ? WHERE id = ?')
+    .run(status, String(error).slice(0, 500), Date.now(), row.id);
+  let info;
+  try {
+    info = await call('POST', '/orders/create', body);
+  } catch (err) {
+    if (err.code === 'GATEWAY_UNREACHABLE') {
+      // Ответа не было: ордер у шлюза мог и создаться. Строку не закрываем,
+      // сверка спросит статус и отзовёт его по сроку.
+      db.prepare('UPDATE sicilia_orders SET error = ?, updated_at = ? WHERE id = ?').run(err.message, Date.now(), row.id);
+      throw err;
+    }
+    fail('error', err.message);
+    if (NO_REQUISITE.test(err.message)) {
+      throw Object.assign(new Error('Сейчас нет свободных реквизитов на эту сумму. Попробуйте другую сумму или другой способ.'),
+        { code: 'NO_REQUISITE' });
+    }
+    throw Object.assign(new Error('Не удалось создать платёж. Попробуйте ещё раз чуть позже.'), { code: 'GATEWAY_ERROR' });
+  }
+  // Ответ обязан быть про наш ордер, а реквизит - настоящим.
+  const requisite = info.invid && String(info.invid) !== row.invid ? null : requisiteFrom(info, method);
+  if (!requisite) {
+    fail('error', 'Шлюз не выдал реквизит');
+    try { await unclaimPayin(row, env); } catch { /* нечего отзывать */ }
+    throw Object.assign(new Error('Не удалось получить реквизиты. Попробуйте ещё раз.'), { code: 'GATEWAY_ERROR' });
+  }
+  const paySum = Number(info.sum);
+  db.prepare(`UPDATE sicilia_orders SET status = ?, gateway_id = ?, bank = ?, requisite = ?, pay_sum = ?, updated_at = ?
+               WHERE id = ?`)
+    .run(String(info.status || 'processing'), info.id ?? null, requisite.bankCode, JSON.stringify(requisite),
+      Number.isFinite(paySum) && paySum > 0 ? String(paySum) : sum, Date.now(), row.id);
   trackEvent(userId, 'deposit_created', { amount, method: 'sicilia' });
-  return { ...publicOrder(row), url: payUrlFor(row, env) };
+  return publicOrder(db.prepare('SELECT * FROM sicilia_orders WHERE id = ?').get(row.id));
 }
 
 /** Статусы шлюза, после которых ордер уже не оплатят. */
@@ -403,7 +550,7 @@ async function unclaimPayin(row, env = siciliaEnv()) {
  * закрываем у себя. Если шлюз успел ордер оплатить, деньги зачислятся, а не
  * пропадут: отмена оплаченного не отменяет.
  */
-export async function cancelDeposit(staffId, orderId) {
+export async function staffCancelDeposit(staffId, orderId) {
   const env = siciliaEnv();
   if (!isConfigured(env)) throw Object.assign(new Error('Шлюз не настроен'), { code: 'NOT_CONFIGURED' });
   const row = db.prepare("SELECT * FROM sicilia_orders WHERE id = ? AND kind = 'payin'").get(Number(orderId));
@@ -449,10 +596,38 @@ export function reopenDeposit(id, userId) {
   const row = db.prepare("SELECT * FROM sicilia_orders WHERE id = ? AND user_id = ? AND kind = 'payin'")
     .get(Number(id), userId);
   if (!row) throw Object.assign(new Error('Платёж не найден'), { code: 'NOT_FOUND' });
-  if (row.paid_at || DEAD.has(row.status) || row.status === 'expired') {
+  if (!payable(row)) {
     throw Object.assign(new Error('Эта оплата уже закрыта, создайте новую'), { code: 'CLOSED' });
   }
-  return { ...publicOrder(row), url: payUrlFor(row) };
+  // Ордер, заведённый через API, оплачивается по реквизиту, окна у него нет.
+  return row.requisite ? publicOrder(row) : { ...publicOrder(row), url: payUrlFor(row) };
+}
+
+/**
+ * Игрок отменил перевод. Сначала спрашиваем статус: если деньги уже пришли,
+ * отмена означала бы потерю платежа, и вместо неё платёж зачисляется.
+ * Только потом ордер отзывается у шлюза, чтобы реквизит освободился сразу.
+ */
+export async function cancelDeposit(id, userId) {
+  const env = siciliaEnv();
+  const row = db.prepare("SELECT * FROM sicilia_orders WHERE id = ? AND user_id = ? AND kind = 'payin'")
+    .get(Number(id), userId);
+  if (!row) throw Object.assign(new Error('Платёж не найден'), { code: 'NOT_FOUND' });
+  if (row.paid_at) return { payment: publicOrder(row), credited: false };
+  if (!payable(row)) return { payment: publicOrder(row), credited: false };
+  try {
+    const r = await confirmPayin(row);
+    if (r.credited || r.status === 'completed') {
+      return { payment: publicOrder(db.prepare('SELECT * FROM sicilia_orders WHERE id = ?').get(row.id)), credited: r.credited };
+    }
+  } catch (err) {
+    // Шлюз недоступен - не отменяем вслепую: перевод мог уже уйти.
+    if (err.code === 'GATEWAY_UNREACHABLE' || err.status >= 500) throw err;
+  }
+  try { await unclaimPayin(row, env); } catch { /* ордер шлюз уже закрыл сам или не заводил */ }
+  db.prepare("UPDATE sicilia_orders SET status = 'unclaimed', updated_at = ? WHERE id = ? AND paid_at IS NULL")
+    .run(Date.now(), row.id);
+  return { payment: publicOrder(db.prepare('SELECT * FROM sicilia_orders WHERE id = ?').get(row.id)), credited: false };
 }
 
 export function listDeposits(userId, limit = 20) {
@@ -750,7 +925,7 @@ export async function reconcile(now = Date.now()) {
     try { status = (await confirmPayin(row)).status; } catch (err) {
       if (err.code === 'GATEWAY_UNREACHABLE') break;
     }
-    if (status !== 'completed' && now - row.created_at > env.ttlMs) {
+    if (status !== 'completed' && now > (row.expires_at || row.created_at + env.ttlMs)) {
       // Не оплачен за отведённое время - отзываем, если окно его завело.
       try { await unclaimPayin(row, env); } catch { /* ордера могло и не быть: окно не открывали */ }
       db.prepare("UPDATE sicilia_orders SET status = 'expired', updated_at = ? WHERE id = ? AND paid_at IS NULL")

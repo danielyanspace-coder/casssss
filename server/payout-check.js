@@ -307,7 +307,7 @@ function seriesTotal(caseData, seed, clientSeed, startNonce, count) {
   let spins = 0;
   while (remaining > 0 && spins < MAX_FREE_SPINS) {
     remaining--;
-    const it = pickItem(caseData, computeRoll(seed, clientSeed, nonce));
+    const it = pickItem(caseData, computeRoll(seed, clientSeed, nonce), true);
     if (it.perk?.type === 'freespins') remaining += it.perk.count;
     total += it.value;
     nonce++;

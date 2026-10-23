@@ -222,8 +222,11 @@ if (cid) {
   check('выпал кейс', prize.kind === 'case', prize.kind);
   check('кейс не дороже потолка', prize.amount <= GIFT_CASE_MAX_PRICE, String(prize.amount));
   const v = getVouchers(cid);
+  // Кроме приза у игрока лежит «Начало» за первое пополнение от 100 ₽:
+  // проверяется именно ваучер колеса.
   check('ваучер на этот кейс выдан',
-    v.length === 1 && v[0].case_id === prize.caseId, JSON.stringify(v));
+    v.filter((x) => x.case_id !== 'start_free').length === 1
+      && v.some((x) => x.case_id === prize.caseId && x.count === 1), JSON.stringify(v));
   check('кейс баланс не трогает', getUserById(cid).balance === 0);
 }
 

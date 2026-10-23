@@ -706,8 +706,8 @@ function showMedal(m) {
   setTimeout(() => {
     if (!scene.isConnected) return;
     const fly = scene.querySelector('.medal-fly');
-    const to = document.querySelector('#sideNav .side-item[data-view="bonuses"]')?.offsetParent
-      ? document.querySelector('#sideNav .side-item[data-view="bonuses"]')
+    const to = document.querySelector('#sideNav .side-item[data-view="freemoney"]')?.offsetParent
+      ? document.querySelector('#sideNav .side-item[data-view="freemoney"]')
       : document.getElementById('menuBtn');
     const a = fly.getBoundingClientRect();
     const b = to?.getBoundingClientRect();
@@ -739,6 +739,8 @@ function applyUser(user) {
   renderCases();
   renderMenu();
   renderSideNav();
+  // Шкалы Free Money двигаются вместе с оборотом, пока раздел открыт.
+  if (state.view === 'freemoney') { renderFreeMoney(); renderBonuses(); }
 }
 
 /* ============================================================
@@ -797,7 +799,8 @@ function caseCardHtml(c, vouchers, artAspect = null) {
   const x2 = (state.user.x2Perks || []).some((p) => p.case_id === c.id);
   const locked = lockedUntil(c);
   let badge = '';
-  if (locked) badge = `<span class="cover-badge soon">С ${locked.toUpperCase()}</span>`;
+  if (c.free) badge = '<span class="cover-badge perk">FREE</span>';
+  else if (locked) badge = `<span class="cover-badge soon">С ${locked.toUpperCase()}</span>`;
   else if (freeCount) badge = `<span class="cover-badge perk">БЕСПЛАТНО ×${freeCount}</span>`;
   else if (x2) badge = '<span class="cover-badge perk">×2</span>';
 
@@ -831,9 +834,12 @@ function caseCardHtml(c, vouchers, artAspect = null) {
   let h = 0;
   for (let i = 0; i < c.id.length; i++) h = (h * 31 + c.id.charCodeAt(i)) >>> 0;
   const breath = `;--breath:${-((h % 5500) / 1000).toFixed(2)}s;--glint:${-((h % 9000) / 1000).toFixed(2)}s`;
-  const afford = !locked && (freeCount > 0 || c.price <= (state.user?.balance || 0));
+  const afford = !locked && (freeCount > 0 || (!c.free && c.price <= (state.user?.balance || 0)));
+  // Бесплатный кейс: вместо цены - «Бесплатно», а готовый подарок светится.
+  const priceLabel = c.free ? (freeCount ? `Бесплатно ×${freeCount}` : 'Бесплатно')
+    : freeCount && !locked ? 'ПОДАРОК' : money(c.price);
 
-  return `<div class="case-card ${hasArt ? 'has-art' : ''} ${freeCount ? 'free-ready' : ''} ${locked ? 'locked' : ''} ${afford ? 'can-afford' : ''}"
+  return `<div class="case-card ${hasArt ? 'has-art' : ''} ${freeCount ? 'free-ready' : ''} ${c.free ? 'is-gift' : ''} ${locked ? 'locked' : ''} ${afford ? 'can-afford' : ''}"
       data-case="${c.id}" style="--cat-color:${color}${
         artAspect ? `;--art-ar:${artAspect}` : ''}${glow}${breath}">
     <div class="case-cover">
@@ -843,7 +849,7 @@ function caseCardHtml(c, vouchers, artAspect = null) {
     </div>
     <div class="case-name">${esc(c.name)}</div>
     <div class="case-foot">
-      <span class="case-price">${freeCount && !locked ? 'ПОДАРОК' : money(c.price)}</span>
+      <span class="case-price">${priceLabel}</span>
       ${hasArt ? '' : `<span class="case-max">${c.maxMultiplier}x</span>`}
     </div>
   </div>`;
@@ -912,7 +918,10 @@ function renderCases() {
   }));
   const themedIds = new Set(themed.flatMap((t) => t.cases.map((c) => c.id)));
 
-  const sorted = all.filter((c) => c !== featured && !themedIds.has(c.id));
+  // Бесплатный «Начало» стоит первым на первой полке (решение заказчика):
+  // его номинал - для решателя, по цене он не сортируется.
+  const gifts = all.filter((c) => c.free);
+  const sorted = all.filter((c) => c !== featured && !themedIds.has(c.id) && !c.free);
 
   /*
    * Высота слота под арт задаётся пропорцией, а не пикселями.
@@ -935,20 +944,23 @@ function renderCases() {
     return arts.length ? Math.min(...arts) : null;
   };
 
-  const shelfHtml = (cls, title, hint, items) => `<section class="shelf ${cls}">
+  const shelfHtml = (cls, title, hint, items) => {
+    const paid = items.filter((c) => !c.free);
+    return `<section class="shelf ${cls}">
       <div class="shelf-head">
         <div>
           <h2 class="shelf-title">${title}</h2>
           <div class="shelf-hint">${hint}</div>
         </div>
-        <div class="shelf-range">${fmt(items[0].price)}${
-          items[items.length - 1].price !== items[0].price
-            ? ` - ${fmt(items[items.length - 1].price)}` : ''} ₽</div>
+        <div class="shelf-range">${fmt(paid[0].price)}${
+          paid[paid.length - 1].price !== paid[0].price
+            ? ` - ${fmt(paid[paid.length - 1].price)}` : ''} ₽</div>
       </div>
       <div class="shelf-row">
         ${items.map((c, i) => caseCardHtml(c, vouchers, pairAspect(items, i))).join('')}
       </div>
     </section>`;
+  };
 
   let from = 0;
   const blocks = [];
@@ -971,6 +983,7 @@ function renderCases() {
 
   for (const shelf of SHELVES) {
     const items = sorted.filter((c) => c.price > from && c.price <= shelf.max);
+    if (from === 0) items.unshift(...gifts);
     from = shelf.max;
     if (items.length) blocks.push(shelfHtml('', shelf.title, shelf.hint, items));
 
@@ -1029,9 +1042,12 @@ function renderBonuses() {
       return c && v.count > 0 ? Array.from({ length: v.count }, () => c) : [];
     });
 
+  // Блок «Ваши подарки» во Free Money виден, только когда есть что открыть:
+  // пустая полка с извинением сверху раздела - худшее начало витрины.
+  const gifts = document.getElementById('fmGifts');
+  if (gifts) gifts.hidden = !cards.length && !(state.user.x2Perks || []).length;
   if (!cards.length) {
-    list.innerHTML = '<div class="empty" style="grid-column:1/-1">Пока нет выигранных кейсов - '
-      + 'они появятся здесь, когда выпадут в подарок из других кейсов.</div>';
+    list.innerHTML = '';
     return;
   }
 
@@ -1106,7 +1122,7 @@ function openCase(caseId) {
   const locked = lockedUntil(c);
 
   document.getElementById('openerCaseName').innerHTML =
-    `${esc(c.name)} · <span>${money(c.price)}</span>`;
+    `${esc(c.name)} · <span>${c.free ? 'бесплатно' : money(c.price)}</span>`;
   document.getElementById('openerViewers').textContent =
     `этот кейс крутят ${viewersFor(c.id)} игроков`;
 
@@ -1185,6 +1201,11 @@ function openCase(caseId) {
     AUTO_COUNTS.map((k) => `<button class="auto-btn" data-auto="${k}" aria-pressed="false">${k}</button>`).join('');
 
   renderFreeSpinBuy(c, locked);
+  // Бесплатный кейс открывается по одному и только подарком: ни икса, ни
+  // авто, ни пачек фриспинов у него нет.
+  document.getElementById('countRow').hidden = !!c.free;
+  document.getElementById('autoToggle').hidden = !!c.free;
+  document.getElementById('autoRow').hidden = !!c.free;
 
   const openBtn = document.getElementById('doOpenBtn');
   let count = 1;
@@ -1214,6 +1235,15 @@ function openCase(caseId) {
       return;
     }
     openPrice.hidden = false;
+
+    if (c.free) {
+      openAct.textContent = 'Открыть';
+      openSub.textContent = freeCount ? `подарков: ${freeCount}` : 'подарок за пополнение';
+      openPrice.textContent = 'Бесплатно';
+      openBtn.classList.remove('is-short');
+      fitOpenBtn();
+      return;
+    }
 
     // Автооткрытие крутит кейс по одному. На кнопке полная сумма серии, а
     // не «10 раз подряд»: игрок видит, на сколько он соглашается.
@@ -1270,7 +1300,8 @@ function openCase(caseId) {
   });
   autoToggle.onclick = () => setAuto(auto ? 0 : autoLast);
 
-  openBtn.onclick = () => (auto ? runAutoOpen(c.id, auto) : startOpening(c.id, count));
+  openBtn.onclick = () => (c.free ? startOpening(c.id, 1)
+    : auto ? runAutoOpen(c.id, auto) : startOpening(c.id, count));
 
   document.getElementById('result').hidden = true;
   document.getElementById('gamble').hidden = true;
@@ -1520,11 +1551,12 @@ function measureReel(reel) {
   return { tileW: first.width, step };
 }
 
-function weightedSample(items) {
+/** key = 'fsProbability' для ленты серии фриспинов: у неё своя таблица. */
+function weightedSample(items, key = 'probability') {
   const r = Math.random();
   let acc = 0;
   for (const it of items) {
-    acc += it.probability;
+    acc += it[key] ?? it.probability;
     if (r < acc) return it;
   }
   return items[0];
@@ -1649,6 +1681,8 @@ async function startOpening(caseId, count = 1, { again = false } = {}) {
   if (!c) return;
 
   const freeCount = (state.user.vouchers || []).find((v) => v.case_id === c.id)?.count || 0;
+  // Бесплатный кейс без подарка не открывается: вместо кассы - приглашение.
+  if (c.free && !freeCount) { showStartGate(c); return; }
   const need = Math.max(0, count - freeCount) * c.price;
   if (need > spendableMoney()) {
     needMoney(need - spendableMoney());
@@ -1918,7 +1952,7 @@ function renderFreeSpinBuy(c, locked) {
   const row = document.getElementById('fsBuyRow');
   const packs = state.config.freeSpinPacks || [];
 
-  if (!packs.length || locked) {
+  if (!packs.length || locked || c.free) {
     box.hidden = true;
     return;
   }
@@ -2004,8 +2038,9 @@ function confirmBuyFreeSpins(c, count, fromEl = null) {
   document.getElementById('buyRows').innerHTML = `
     <span>по ${money(perSpin)} за прокрут</span>
     <span>останется ${money(Math.max(0, spendableMoney() - price))}</span>`;
+  // Таблица серии своя, и это говорится прямо: крупное в ней чаще.
   document.getElementById('buyNote').textContent =
-    'Прокруты начнутся сразу. Внутри серии может выпасть что угодно из этого кейса, включая новые фриспины.';
+    `Прокруты начнутся сразу. В серии крупные выигрыши выпадают в ${String(c.fsBoost || 1.5).replace('.', ',')} раза чаще, чем при обычном открытии.`;
 
   // Жетоны вокруг: по одному на прокрут, каждый со своей задержкой появления.
   const n = Math.min(count, BUY_ORBIT_MAX);
@@ -2492,10 +2527,11 @@ async function runFreeSpins(grant, caseData, { auto = false, replay = false, cos
      же: к предмету лента подходит ползком, а не гаснет на полном ходу. */
   const SPIN_MS = 2300;
 
-  // Лента серии - по настоящим вероятностям кейса, как и основная. Раньше
-  // плитки брались равномерно, и предмет за 184 000 мелькал в ней так же
-  // часто, как филлер: игрок читает по ленте свои шансы, и это была ложь.
-  const pickFiller = () => weightedSample(caseData.items);
+  // Лента серии - по настоящим вероятностям серии (своя таблица фриспинов,
+  // в ней крупное чаще), как и основная. Раньше плитки брались равномерно, и
+  // предмет за 184 000 мелькал так же часто, как филлер: игрок читает по
+  // ленте свои шансы, и это была ложь.
+  const pickFiller = () => weightedSample(caseData.items, 'fsProbability');
 
   let acc = 0;
 
@@ -2803,6 +2839,15 @@ function showCaseResult(data, caseData) {
  */
 function setAgainButton(btn, caseData, count) {
   const freeLeft = (state.user.vouchers || []).find((v) => v.case_id === caseData.id)?.count || 0;
+  if (caseData.free) {
+    // Подарков больше нет - кнопка ведёт к условию, а не в кассу.
+    btn.disabled = false;
+    btn.querySelector('.open-act > span').textContent = freeLeft ? 'Ещё раз' : 'Как получить ещё';
+    btn.querySelector('.open-act small').textContent = freeLeft ? `подарков: ${freeLeft}` : 'за каждые 1 000 ₽ ставок';
+    btn.querySelector('.open-price').textContent = 'Бесплатно';
+    requestAnimationFrame(() => fitOpenBtn(btn));
+    return;
+  }
   const paid = Math.max(0, count - freeLeft);
   btn.disabled = paid * caseData.price > spendableMoney();
   btn.querySelector('.open-act > span').textContent = btn.disabled ? 'Не хватает' : 'Ещё раз';
@@ -2810,6 +2855,91 @@ function setAgainButton(btn, caseData, count) {
     count > 1 ? `${count} ${plural(count, 'кейс', 'кейса', 'кейсов')} сразу` : 'тот же кейс';
   btn.querySelector('.open-price').textContent = paid === 0 ? 'бесплатно' : money(paid * caseData.price);
   requestAnimationFrame(() => fitOpenBtn(btn));
+}
+
+/* ---------- Бесплатный кейс «Начало»: приглашение ---------- */
+
+/** Сколько сцена-приглашение ждёт, прежде чем закрыться сама. */
+const START_GATE_MS = 16000;
+
+/**
+ * Сцена вместо кассы, когда «Начало» нечем открыть.
+ *
+ * Не тост и не окно подтверждения: это предложение, и оно должно выглядеть
+ * подарком. Кейс поднимается из света, за ним медленно вращаются лучи, на
+ * нём бирка FREE. Новичку - «пополните от 100 ₽», тому, кто кейс уже
+ * открывал, - шкала до следующего (тот же оборот, что в Free Money).
+ * Закрывается кнопкой, нажатием мимо, Esc и сама: ничто не ждёт вечно.
+ */
+function showStartGate(c) {
+  document.getElementById('startGate')?.remove();
+  const st = state.user?.startCase || { needDeposit: true, minDeposit: 100, step: 1000, progress: 0 };
+  const guest = !!state.guest;
+  const deposit = guest || st.needDeposit;
+  const left = Math.max(0, st.step - st.progress);
+  const pct = Math.round((st.progress / st.step) * 100);
+  const cover = caseStageSrc(c) || caseArtSrc(c);
+  const top = Math.max(...c.items.map((i) => i.value));
+
+  const scene = document.createElement('div');
+  scene.id = 'startGate';
+  scene.className = 'sg-scene';
+  scene.innerHTML = `
+    <div class="sg-glow"></div>
+    <div class="sg-card" role="dialog" aria-label="Как получить кейс «${esc(c.name)}»">
+      <button class="sg-close" aria-label="Закрыть">×</button>
+      <div class="sg-hero">
+        <div class="sg-rays"></div>
+        ${cover ? `<img class="sg-cover" src="${cover}" alt="">` : ''}
+      </div>
+      <div class="sg-kicker">${deposit ? 'Подарок новичку' : 'Кейс снова ждёт'}</div>
+      <h3 class="sg-title">${deposit
+        ? `Пополните от <b>${money(st.minDeposit)}</b><br>и кейс ваш бесплатно`
+        : `Ещё <b>${money(left)}</b> ставок<br>и кейс снова ваш`}</h3>
+      <p class="sg-sub">В кейсе до ${money(top)}. Выигрыш приходит на бонусный счёт.</p>
+      ${deposit ? `<ol class="sg-steps">
+        <li><i>1</i><span>Пополнение<br>от ${money(st.minDeposit)}</span></li>
+        <li><i>2</i><span>Кейс<br>в подарок</span></li>
+        <li><i>3</i><span>Ещё один за каждые ${fmt(st.step)} ₽ ставок</span></li>
+      </ol>` : `<div class="sg-meter" style="--p:${pct}%">
+        <div class="sg-meter-bar"><i></i></div>
+        <div class="sg-meter-row"><span>${money(st.progress)}</span><span>из ${money(st.step)}</span></div>
+      </div>`}
+      <button class="sg-cta">${guest ? 'Зарегистрироваться' : deposit ? `Пополнить от ${money(st.minDeposit)}` : 'Играть дальше'}</button>
+      <button class="sg-later">${deposit ? 'Позже' : 'Понятно'}</button>
+    </div>`;
+  document.body.appendChild(scene);
+  void scene.offsetWidth;
+  scene.classList.add('is-in');
+  sndWhoosh(true);
+  haptic('light');
+  setTimeout(() => {
+    if (!scene.isConnected || scene.classList.contains('is-out')) return;
+    const r = scene.querySelector('.sg-cover, .sg-hero')?.getBoundingClientRect();
+    if (r) sparkBurst(scene, r.left + r.width / 2, r.top + r.height * 0.55,
+      { n: 20, colors: ['#ffe58a', '#ffffff', '#ffb648'], dist: [60, 140], size: 5 });
+    sndChime();
+  }, 520);
+
+  let timer = 0;
+  const close = () => {
+    if (scene.classList.contains('is-out')) return;
+    clearTimeout(timer);
+    document.removeEventListener('keydown', onKey);
+    scene.classList.add('is-out');
+    setTimeout(() => scene.remove(), 320);
+  };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKey);
+  timer = setTimeout(close, START_GATE_MS);
+  scene.querySelector('.sg-close').onclick = close;
+  scene.querySelector('.sg-later').onclick = close;
+  scene.onclick = (e) => { if (!e.target.closest('.sg-card')) close(); };
+  scene.querySelector('.sg-cta').onclick = () => {
+    close();
+    if (guest) return openAuth(authDefaultPane());
+    if (deposit) { closeOpener(); openCashier(); }
+  };
 }
 
 /**
@@ -6111,6 +6241,9 @@ document.getElementById('adminSearchBtn').addEventListener('click', () => {
 const casino = createCasino({
   api, esc, money, toast, haptic, state, plural,
   onUser: (user) => applyUser(user),
+  // Наши Краш и Апгрейд в сетке быстрых игр открываются своими разделами.
+  openOwn: (view) => switchView(view),
+  ownOpen: (view) => viewOpen(view),
 });
 
 /*
@@ -6134,6 +6267,9 @@ const slot = createSlot({
    ============================================================ */
 
 function switchView(name) {
+  // Раздела «Бонусы» больше нет: всё бесплатное живёт во Free Money, и
+  // старые входы (меню, ссылки, медаль, улетающая «в бонусы») ведут туда.
+  if (name === 'bonuses') name = 'freemoney';
   // Выключенную игру не открываем даже по прямой ссылке или из старого меню:
   // сервер всё равно откажет, и игрок увидит ошибку вместо объяснения.
   if (!viewOpen(name)) {
@@ -6164,7 +6300,6 @@ function switchView(name) {
   else casino.close();
   if (name === 'admin') initAdminPanel();
   if (name === 'cases') loadFreeCase();
-  if (name === 'bonuses') { renderBonuses(); renderMedals(); loadPromoState(); }
   if (name === 'freemoney') openFreeMoney();
   if (name === 'partner') loadPartner();
   if (name === 'upgrade') {
@@ -6203,7 +6338,8 @@ const MENU_HITS = [
   // Второй ряд: рулетка, касса, бонусы.
   { view: 'roulette', left: 4.82,  top: 46.59, width: 28.77, height: 29.76 },
   { view: 'wallet',   left: 35.62, top: 46.59, width: 28.77, height: 29.76 },
-  { view: 'bonuses',  left: 66.42, top: 46.59, width: 28.77, height: 29.76 },
+  // На картинке «Бонусы»: ведут во Free Money, отдельного раздела больше нет.
+  { view: 'freemoney', left: 66.42, top: 46.59, width: 28.77, height: 29.76 },
 ];
 
 /** Кнопка возврата, нарисованная в правом верхнем углу картинки. */
@@ -6371,7 +6507,7 @@ const SIDE_NAV = [
   { view: 'wallet', art: '/assets/ui/nav-wallet.webp', title: 'Касса', sub: 'Пополнение и вывод' },
   { view: 'casino', ico: 'slot', title: 'Казино', sub: 'Слоты провайдеров' },
   { view: 'slots', ico: 'slot', title: 'Слоты', sub: 'TREASURE ISLAND' },
-  { view: 'bonuses', art: '/assets/ui/nav-bonuses.webp', title: 'Бонусы', sub: 'Ежедневные награды' },
+  { view: 'freemoney', art: '/assets/ui/nav-bonuses.webp', title: 'Бонусы', sub: 'Free Money и подарки' },
   { view: 'partner', ico: 'people', title: 'Партнёру', sub: 'Статистика и выплаты',
     partnerOnly: true },
 ];
@@ -6401,15 +6537,25 @@ function renderSideNav() {
       <span class="side-go" aria-hidden="true"></span>
     </button>`;
 
+  /*
+   * Разделы - квадратными плитками в сетке, касса и поддержка - особняком
+   * внизу прямоугольниками (решение заказчика): касса вытянутой строкой,
+   * поддержка повыше. Это два действия «вне игры», и отделены они так же.
+   */
+  const wallet = items.find((m) => m.view === 'wallet');
+  const grid = items.filter((m) => m !== wallet);
   nav.innerHTML = `
     <button class="side-brand" data-view="cases" aria-label="На главную">
       <img src="/assets/ui/logo.webp" alt="LUCKYBOX" class="side-brand-logo">
     </button>
     <nav class="side-list">
-      ${items.map((m) => tile(m)).join('')}
-      ${tile({ id: 'sideSupport', art: '/assets/ui/nav-support.webp', title: 'Поддержка',
-               sub: 'Мы всегда на связи' })}
+      ${grid.map((m) => tile(m, ' is-sq')).join('')}
     </nav>
+    <div class="side-bottom">
+      ${wallet ? tile(wallet, ' is-wide') : ''}
+      ${tile({ id: 'sideSupport', art: '/assets/ui/nav-support.webp', title: 'Поддержка',
+               sub: 'Мы всегда на связи' }, ' is-tall')}
+    </div>
   `;
   mountIcons(nav);
 
@@ -6495,6 +6641,7 @@ const CASH_ICONS = {
   in: '<path d="M12 4v11"/><path d="m7.5 10.5 4.5 4.5 4.5-4.5"/><path d="M5 19.5h14"/>',
   out: '<path d="M12 20V9"/><path d="m7.5 13.5 4.5-4.5 4.5 4.5"/><path d="M5 4.5h14"/>',
   card: '<rect x="3" y="5.5" width="18" height="13" rx="2.6"/><path d="M3 10h18"/><path d="M7 14.6h3.2"/>',
+  phone: '<rect x="7" y="3" width="10" height="18" rx="2.6"/><path d="M11 17.6h2"/>',
   crypto: '<path d="M12 2.8 20 7.4v9.2l-8 4.6-8-4.6V7.4l8-4.6Z"/><path d="M9.6 8.6h3.6a1.7 1.7 0 0 1 0 3.4H9.6m0 0h4.1a1.7 1.7 0 0 1 0 3.4H9.6V8.6Z"/>',
   arrow: '<path d="M5 12h13"/><path d="m13 6.5 5.5 5.5-5.5 5.5"/>',
   copy: '<rect x="8.5" y="8.5" width="11" height="11" rx="2.4"/><path d="M15.5 8.5V6.9a2.4 2.4 0 0 0-2.4-2.4H6.9a2.4 2.4 0 0 0-2.4 2.4v6.2a2.4 2.4 0 0 0 2.4 2.4h1.6"/>',
@@ -6640,12 +6787,25 @@ function renderDepositOffer() {
   el.hidden = !shown;
   if (!shown) return;
 
-  const cap = rules.max > 0 ? ` (не больше ${money(rules.max)})` : '';
-  el.innerHTML = `<b>Первое пополнение +${rules.pct}%${cap}.</b>
-    Бонус придёт на бонусный счёт вместе с пополнением от ${money(rules.min)}.
-    Им играют, когда своих не хватает на ставку, а после ставок бонусом на ×${rules.wager} от
-    его суммы он переходит в деньги${rules.cashoutPct ? `, но не больше ${rules.cashoutPct}% от ваших пополнений` : ''}.
-    Свои деньги выводятся в любой момент.`;
+  /*
+   * Купон, а не абзац. Раньше здесь стоял сплошной текст на полэкрана, и
+   * заказчик назвал его «иишным». Главное - число и два условия - видно
+   * сразу; как бонус переходит в деньги, раскрывается по нажатию.
+   */
+  el.innerHTML = `
+    <div class="do-main">
+      <div class="do-pct"><b>+${rules.pct}%</b><span>к первому<br>пополнению</span></div>
+      <div class="do-terms">
+        ${rules.max > 0 ? `<span>бонус до <b>${money(rules.max)}</b></span>` : ''}
+        <span>пополнение от <b>${money(rules.min)}</b></span>
+      </div>
+    </div>
+    <details class="do-more">
+      <summary>Как работает бонус</summary>
+      <p>Бонус приходит на бонусный счёт вместе с пополнением. Им играют, когда своих денег не хватает на ставку.
+      После ставок бонусом на ×${rules.wager} от его суммы он переходит в деньги${rules.cashoutPct ? `, но не больше ${rules.cashoutPct}% от ваших пополнений` : ''}.
+      Свои деньги выводятся в любой момент.</p>
+    </details>`;
 }
 
 async function loadWallet() {
@@ -7203,7 +7363,7 @@ function markDepositMethod(method) {
 
 document.querySelector('[data-payment-method="crypto"]')?.addEventListener('click', () => {
   markDepositMethod('crypto');
-  clearInterval(siciliaState.poll);
+  stopSiciliaTimers();
   openCryptoDeposit();
 });
 
@@ -7221,24 +7381,49 @@ async function openDefaultDeposit() {
 /* ---------- СБП и карта: шлюз Sicilia ---------- */
 
 /*
- * Оплата в окне шлюза, открытом отдельно (решение заказчика). Ссылку
- * подписывает сервер; здесь только сумма, открытие окна и ожидание.
+ * Два способа, их выбирает сервер (mode в /api/sicilia/options):
+ * 'h2h' - ордер заводит сервер, реквизит, сумму и таймер показываем здесь;
+ * 'window' - оплата в окне шлюза, открытом отдельной вкладкой.
  */
-const siciliaState = { loaded: false, enabled: false, min: 100, max: 300000, poll: 0, current: null };
+const siciliaState = {
+  loaded: false, enabled: false, mode: 'h2h', min: 100, max: 300000,
+  method: 'sbp', bank: '', poll: 0, tick: 0, current: null,
+};
 // Пока карточка ожидания на экране, раз в столько спрашиваем, не пришли ли
 // деньги. Колбэк шлюза приходит на сервер раньше, и поток событий сообщит
 // сам; опрос - запас на случай, когда поток оборвался.
 const SICILIA_POLL_MS = 15000;
 const SICILIA_QUICK = [100, 500, 1000, 5000, 10000];
+// Меньше стольких секунд до конца - таймер жёлтый: пора заканчивать перевод.
+const SICILIA_HURRY_S = 180;
+// Сколько ждём второго нажатия «Отменить»: отмена после перевода стоит денег.
+const SICILIA_CANCEL_CONFIRM_MS = 4000;
+const SICILIA_BANK_KEY = 'lb.sicilia.bank';
+
+/*
+ * Банк игрока: для этих четырёх шлюз отдаёт ссылку, открывающую перевод в
+ * приложении банка с уже заполненными полями. Коды - те же, что у шлюза.
+ */
+const SICILIA_BANKS = [
+  { code: 'sberbank', name: 'Сбер' },
+  { code: 'tinkoff', name: 'Т-Банк' },
+  { code: 'vtb', name: 'ВТБ' },
+  { code: 'alfa-bank', name: 'Альфа' },
+  { code: '', name: 'Другой' },
+];
 
 async function loadSiciliaOptions() {
   if (siciliaState.loaded) return siciliaState;
   try {
     const d = await api('/api/sicilia/options');
-    Object.assign(siciliaState, { loaded: true, enabled: !!d.enabled, min: d.min ?? 100, max: d.max ?? 300000 });
+    Object.assign(siciliaState, {
+      loaded: true, enabled: !!d.enabled, mode: d.mode === 'window' ? 'window' : 'h2h',
+      min: d.min ?? 100, max: d.max ?? 300000,
+    });
   } catch {
     siciliaState.loaded = true;
   }
+  try { siciliaState.bank = localStorage.getItem(SICILIA_BANK_KEY) || ''; } catch { /* нет хранилища */ }
   const tab = document.querySelector('[data-payment-method="sicilia"]');
   if (tab) tab.hidden = !siciliaState.enabled;
   return siciliaState;
@@ -7265,9 +7450,16 @@ function openPaymentWindow(url, pending) {
   return !!window.open(url, '_blank', 'noopener');
 }
 
-function openSiciliaDeposit() {
+function stopSiciliaTimers() {
+  clearInterval(siciliaState.poll);
+  clearInterval(siciliaState.tick);
+}
+
+function openSiciliaDeposit({ resume = true } = {}) {
+  stopSiciliaTimers();
   markDepositMethod('sicilia');
   showDepositPane('siciliaCreate');
+  const h2h = siciliaState.mode === 'h2h';
   const input = document.getElementById('siciliaAmount');
   input.placeholder = `от ${fmtMoney(siciliaState.min)}`;
   document.getElementById('siciliaQuick').innerHTML = SICILIA_QUICK
@@ -7278,31 +7470,95 @@ function openSiciliaDeposit() {
     syncSiciliaAmount();
     haptic('light');
   }));
+
+  document.querySelectorAll('[data-sic-h2h]').forEach((el) => { el.hidden = !h2h; });
+  document.getElementById('siciliaFine').textContent = h2h
+    ? 'Реквизиты для перевода появятся здесь. Переведите точную сумму: деньги зачислятся сами, как только банк подтвердит перевод.'
+    : 'Окно оплаты откроется отдельно. Оплатите точную сумму и вернитесь сюда: деньги зачислятся сами, как только банк подтвердит перевод.';
+  if (h2h) {
+    markSiciliaMethod(siciliaState.method);
+    renderSiciliaBanks();
+  }
   syncSiciliaAmount();
+
+  // Неоплаченный перевод живёт дольше кассы: вернувшийся игрок видит его, а
+  // не форму, иначе он заведёт второй и переведёт не на тот реквизит.
+  if (h2h && resume) {
+    api('/api/sicilia/list', {}, { quiet: true }).then((d) => {
+      const open = (d.rows || []).find((r) => r.requisite);
+      const pane = document.getElementById('siciliaCreate');
+      if (open && !pane.hidden) showSiciliaRequisite(open);
+    }).catch(() => {});
+  }
+}
+
+function markSiciliaMethod(method) {
+  siciliaState.method = method === 'card' ? 'card' : 'sbp';
+  const seg = document.getElementById('siciliaMethod');
+  if (!seg) return;
+  seg.dataset.active = siciliaState.method;
+  seg.querySelectorAll('[data-sic-method]').forEach((b) =>
+    b.classList.toggle('active', b.dataset.sicMethod === siciliaState.method));
+}
+document.querySelectorAll('[data-sic-method]').forEach((b) => b.addEventListener('click', () => {
+  markSiciliaMethod(b.dataset.sicMethod);
+  haptic('light');
+}));
+
+function renderSiciliaBanks() {
+  const row = document.getElementById('siciliaBank');
+  if (!row) return;
+  row.innerHTML = SICILIA_BANKS.map((b) => `<button type="button" class="quick-btn${
+    b.code === siciliaState.bank ? ' active' : ''}" data-bank="${b.code}">${b.name}</button>`).join('');
+  row.querySelectorAll('[data-bank]').forEach((btn) => btn.addEventListener('click', () => {
+    siciliaState.bank = btn.dataset.bank;
+    try { localStorage.setItem(SICILIA_BANK_KEY, siciliaState.bank); } catch { /* нет хранилища */ }
+    row.querySelectorAll('[data-bank]').forEach((x) => x.classList.toggle('active', x === btn));
+    haptic('light');
+  }));
 }
 
 /*
- * Кнопка называет сумму: «Оплатить 3 000 ₽» перед уходом в чужое окно
- * успокаивает лучше безликого «Перейти к оплате».
+ * Кнопка называет сумму: «Пополнить 3 000 ₽» успокаивает лучше безликого
+ * «Продолжить».
  */
 function syncSiciliaAmount() {
   const input = document.getElementById('siciliaAmount');
   const n = amountOf(input);
   markQuick(document.getElementById('siciliaQuick'), input);
-  document.getElementById('siciliaCreateLabel').textContent = n > 0 ? `Оплатить ${money(n)}` : 'Перейти к оплате';
+  const verb = siciliaState.mode === 'h2h' ? 'Пополнить' : 'Оплатить';
+  document.getElementById('siciliaCreateLabel').textContent = n > 0 ? `${verb} ${money(n)}`
+    : siciliaState.mode === 'h2h' ? 'Получить реквизиты' : 'Перейти к оплате';
 }
 document.getElementById('siciliaAmount')?.addEventListener('input', syncSiciliaAmount);
 
-document.querySelector('[data-payment-method="sicilia"]')?.addEventListener('click', () => {
-  clearInterval(siciliaState.poll);
-  openSiciliaDeposit();
-});
+document.querySelector('[data-payment-method="sicilia"]')?.addEventListener('click', () => openSiciliaDeposit());
 
 document.getElementById('siciliaCreateBtn')?.addEventListener('click', async () => {
   const amount = amountOf(document.getElementById('siciliaAmount'));
   if (!amount || amount < siciliaState.min) return toast(`Минимум ${money(siciliaState.min)}`);
   if (amount > siciliaState.max) return toast(`Максимум ${money(siciliaState.max)}`);
   const btn = document.getElementById('siciliaCreateBtn');
+
+  if (siciliaState.mode === 'h2h') {
+    await withCashBusy(btn, async () => {
+      try {
+        const order = await api('/api/sicilia/create', { amount, method: siciliaState.method, senderBank: siciliaState.bank });
+        showSiciliaRequisite(order);
+        haptic('success');
+      } catch (err) {
+        if (err.code === 'OPEN_ORDER' && err.data?.order) {
+          showSiciliaRequisite(err.data.order);
+          toast('Сначала завершите этот перевод или отмените его');
+        } else {
+          toast(err.message);
+        }
+        haptic('error');
+      }
+    });
+    return;
+  }
+
   btn.disabled = true;
   btn.classList.add('is-busy');
   const pending = openBlankTab();
@@ -7321,7 +7577,275 @@ document.getElementById('siciliaCreateBtn')?.addEventListener('click', async () 
   }
 });
 
-/** Карточка ожидания: сумма, «открыть окно снова», «я оплатил». */
+/* ---------- Перевод по реквизиту ---------- */
+
+/** «79991234567» -> «+7 999 123-45-67»: так номер сверяют глазами. */
+function fmtPhone(d) {
+  const m = String(d || '').match(/^7?(\d{3})(\d{3})(\d{2})(\d{2})$/);
+  return m ? `+7 ${m[1]} ${m[2]}-${m[3]}-${m[4]}` : String(d || '');
+}
+/** Номер карты четвёрками, как он напечатан на карте. */
+const fmtCard = (d) => String(d || '').replace(/(\d{4})(?=\d)/g, '$1 ');
+const fmtLeft = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+
+/*
+ * Что показать на карточке: телефон для СБП, карта для перевода на карту,
+ * счёт для перевода по счёту. Шлюз решает сам и может выдать на СБП карту -
+ * тогда показываем карту, а не пустое поле телефона.
+ */
+function siciliaTarget(r) {
+  if (r.account) return { kind: 'account', tag: 'Счёт', label: 'Номер счёта', text: r.account, copy: r.account };
+  const phone = r.phone && { kind: 'sbp', tag: 'СБП', label: 'Номер телефона', text: fmtPhone(r.phone), copy: `+${r.phone.replace(/^8/, '7')}` };
+  const card = r.card && { kind: 'card', tag: 'Карта', label: 'Номер карты', text: fmtCard(r.card), copy: r.card };
+  return r.method === 'card' ? card || phone : phone || card;
+}
+
+/* Маска вместо номера после срока: той же длины, чтобы карточка не прыгала. */
+const maskRequisite = (text) => String(text).replace(/\d/g, '•');
+
+/*
+ * Чип и знак бесконтакта нарисованы, а не взяты картинкой: это рисунок
+ * «карты вообще», без логотипа и цвета какого-либо банка. Карточка
+ * показывает, куда переводить, и не должна выдавать себя за карту
+ * конкретного банка.
+ */
+const SIC_CHIP = `<svg class="sic-chip" viewBox="0 0 40 30" aria-hidden="true">
+  <rect x="0.5" y="0.5" width="39" height="29" rx="6"/>
+  <path d="M0.5 10.5h11a3 3 0 0 1 3 3v3a3 3 0 0 1-3 3h-11M39.5 10.5h-11a3 3 0 0 0-3 3v3a3 3 0 0 0 3 3h11M14.5 0.5v10M25.5 0.5v10M14.5 19.5v10M25.5 19.5v10"/>
+</svg>`;
+const SIC_WAVES = `<svg class="sic-waves" viewBox="0 0 24 24" aria-hidden="true">
+  <path d="M8.5 8.2a5.6 5.6 0 0 1 0 7.6M12 5.6a9.4 9.4 0 0 1 0 12.8M15.5 3a13.2 13.2 0 0 1 0 18"/></svg>`;
+
+/**
+ * Экран перевода: сумма с таймером, реквизит на карточке, три шага, одна
+ * главная кнопка.
+ *
+ * Сумма и номер копируются нажатием: переписывать номер с экрана телефона -
+ * верный способ ошибиться цифрой и отправить деньги мимо. Отмена - тихая
+ * ссылка внизу, а не кнопка рядом с главной: её нажимают по ошибке.
+ */
+function showSiciliaRequisite(order) {
+  const r = order.requisite;
+  if (!r) { openSiciliaDeposit({ resume: false }); return; }
+  stopSiciliaTimers();
+  siciliaState.current = order;
+  showDepositPane('siciliaCheckout');
+  const box = document.getElementById('siciliaCheckout');
+  const target = siciliaTarget(r);
+  const sum = Number(order.paySum || order.amount);
+  const sumCopy = Number.isInteger(sum) ? String(sum) : sum.toFixed(2).replace('.', ',');
+  const where = target?.kind === 'sbp'
+    ? `по СБП по номеру телефона${r.bank ? `, банк <b>${esc(r.bank)}</b>` : ''}`
+    : target?.kind === 'account' ? 'по реквизитам счёта' : 'на карту по номеру';
+  const lead = r.deeplink || r.payLink;
+
+  box.innerHTML = `
+    <div class="sic-pay">
+      <div class="sic-top">
+        <div class="sic-amount">
+          <div class="invoice-label">К переводу</div>
+          <div class="sic-amount-row">
+            <span class="sic-amount-num">${money(sum)}</span>
+            <button class="sic-icon-btn" id="sicCopySum" type="button" aria-label="Скопировать сумму">
+              <span class="cash-copy">${cashIcon('copy')}${cashIcon('check')}</span>
+            </button>
+          </div>
+        </div>
+        <div class="sic-clock" id="sicTimer" role="timer" aria-label="Время на перевод">
+          <svg viewBox="0 0 44 44" aria-hidden="true"><circle class="sic-clock-bg" cx="22" cy="22" r="19"/>
+            <circle class="sic-clock-fg" id="sicTimerArc" cx="22" cy="22" r="19" pathLength="100"/></svg>
+          <span class="sic-clock-text"><b id="sicTimerText">--:--</b></span>
+        </div>
+      </div>
+
+      ${target ? `
+      <div class="sic-card-stage">
+        <button class="sic-card" id="sicCopyTarget" type="button" data-kind="${target.kind}"
+                aria-label="${esc(target.label)} получателя, скопировать">
+          <span class="sic-card-fx" aria-hidden="true"><span class="sic-card-glow"></span><span class="sic-card-sheen"></span></span>
+          <span class="sic-card-head">
+            <span class="sic-card-bank">${esc(r.bank || 'Банк получателя')}</span>
+            <span class="cash-copy">${cashIcon('copy')}${cashIcon('check')}<span class="cash-copy-label">Скопировать</span></span>
+          </span>
+          <span class="sic-card-mid">${SIC_CHIP}${target.kind === 'card' ? SIC_WAVES : ''}<span class="sic-card-tag">${target.tag}</span></span>
+          <span class="sic-card-label">${esc(target.label)}</span>
+          <span class="sic-card-num" id="sicNum">${esc(target.text)}</span>
+          ${r.holder ? `<span class="sic-card-holder"><small>Получатель</small>${esc(r.holder)}</span>` : ''}
+          <span class="sic-card-stamp" aria-hidden="true">Срок истёк</span>
+        </button>
+      </div>` : ''}
+      ${r.bik ? `
+      <button class="sic-line" id="sicCopyBik" type="button">
+        <span><small>БИК банка</small>${esc(r.bik)}</span>
+        <span class="cash-copy">${cashIcon('copy')}${cashIcon('check')}<span class="cash-copy-label">Скопировать</span></span>
+      </button>` : ''}
+      ${r.abroad ? `<div class="sic-abroad">${cashIcon('info')}<span>Перевод за рубеж: ${esc(r.abroad)}</span></div>` : ''}
+
+      <ol class="sic-steps">
+        <li><i>1</i><span>Скопируйте номер и сумму</span></li>
+        <li><i>2</i><span>Переведите ${where}</span></li>
+        <li><i>3</i><span>Вернитесь сюда: деньги зачислятся сами</span></li>
+      </ol>
+
+      <div class="sic-actions">
+        ${r.deeplink ? `<a class="cash-cta" id="sicOpenBank" href="${esc(r.deeplink)}" target="_blank" rel="noopener"><span>Открыть в банке</span>${cashIcon('open')}</a>` : ''}
+        ${r.payLink ? `<a class="cash-cta" id="sicOpenBank" href="${esc(r.payLink)}" target="_blank" rel="noopener"><span>Перейти к оплате</span>${cashIcon('open')}</a>` : ''}
+        <button class="${lead ? 'cash-ghost' : 'cash-cta'} sic-paid" id="siciliaCheck">${lead ? cashIcon('check') : ''}<span>Я перевёл</span>${lead ? '' : cashIcon('check')}</button>
+      </div>
+      <div class="invoice-status" id="siciliaStatus" aria-live="polite"></div>
+
+      <p class="sic-note">${cashIcon('warn')}<span>Ровно ${money(sum)} одним переводом. Другая сумма задержит
+        зачисление. Реквизит одноразовый: в следующий раз получите новый.</span></p>
+      <button class="sic-cancel" id="siciliaCancel" type="button">Отменить перевод</button>
+    </div>`;
+
+  bindCashCopy(document.getElementById('sicCopySum'), sumCopy);
+  const card = document.getElementById('sicCopyTarget');
+  if (target) bindCashCopy(card, target.copy);
+  if (r.bik) bindCashCopy(document.getElementById('sicCopyBik'), r.bik);
+  tiltSiciliaCard(card);
+  document.getElementById('siciliaCheck').addEventListener('click', () => checkSicilia(order, true));
+
+  const cancel = document.getElementById('siciliaCancel');
+  let armed = 0;
+  cancel.addEventListener('click', async () => {
+    if (cancel.dataset.expired) { openSiciliaDeposit({ resume: false }); return; }
+    if (!armed) {
+      armed = setTimeout(() => { armed = 0; cancel.textContent = 'Отменить перевод'; cancel.classList.remove('is-armed'); }, SICILIA_CANCEL_CONFIRM_MS);
+      cancel.textContent = 'Точно? Нажмите ещё раз, если не переводили';
+      cancel.classList.add('is-armed');
+      haptic('light');
+      return;
+    }
+    clearTimeout(armed);
+    await withCashBusy(cancel, async () => {
+      try {
+        const res = await api('/api/sicilia/cancel', { id: order.id });
+        if (res.user) applyUser(res.user);
+        if (res.credited || res.payment?.paidAt) {
+          toast('Перевод уже пришёл и зачислен');
+          sndCollect(); haptic('success');
+          showSiciliaDone(res.payment?.credited);
+          loadWallet();
+          return;
+        }
+        toast('Перевод отменён');
+        loadWallet();
+        openSiciliaDeposit({ resume: false });
+      } catch (err) {
+        armed = 0;
+        cancel.textContent = 'Отменить перевод';
+        cancel.classList.remove('is-armed');
+        toast(err.message);
+      }
+    });
+  });
+
+  const pay = box.querySelector('.sic-pay');
+  const arc = document.getElementById('sicTimerArc');
+  const total = Math.max(1, (order.expiresAt || 0) - (order.createdAt || 0));
+  const tick = () => {
+    if (!order.expiresAt) { document.getElementById('sicTimer').hidden = true; return; }
+    const left = Math.max(0, Math.round((order.expiresAt - Date.now()) / 1000));
+    document.getElementById('sicTimerText').textContent = fmtLeft(left);
+    arc.style.strokeDashoffset = String(100 - Math.min(100, (left * 1000 / total) * 100));
+    pay.dataset.hurry = left <= SICILIA_HURRY_S ? '1' : '0';
+    if (left === 0) siciliaExpired(pay, cancel, target);
+  };
+  tick();
+  siciliaState.tick = setInterval(tick, 1000);
+  siciliaState.poll = setInterval(() => {
+    if (document.hidden || box.hidden) return;
+    checkSicilia(order, false);
+  }, SICILIA_POLL_MS);
+}
+
+/*
+ * Карточка чуть поворачивается за пальцем или мышью: так она читается
+ * предметом, а не плашкой. Только при точном указателе и без просьбы
+ * системы убрать движение; на телефоне поворот не нужен, там карточку
+ * нажимают, а не разглядывают.
+ */
+const SIC_TILT_DEG = 6;
+function tiltSiciliaCard(card) {
+  if (!card || !matchMedia('(hover: hover) and (pointer: fine)').matches) return;
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  card.addEventListener('pointermove', (e) => {
+    const b = card.getBoundingClientRect();
+    const x = (e.clientX - b.left) / b.width - 0.5;
+    const y = (e.clientY - b.top) / b.height - 0.5;
+    card.style.setProperty('--rx', `${(-y * SIC_TILT_DEG).toFixed(2)}deg`);
+    card.style.setProperty('--ry', `${(x * SIC_TILT_DEG).toFixed(2)}deg`);
+    card.style.setProperty('--gx', `${((x + 0.5) * 100).toFixed(1)}%`);
+  });
+  card.addEventListener('pointerleave', () => {
+    card.style.setProperty('--rx', '0deg');
+    card.style.setProperty('--ry', '0deg');
+  });
+}
+
+/*
+ * Время вышло: номер на карточке сразу заменяется маской. Сервер реквизит
+ * уже не отдаст, а перевод на него после срока шлюз не сопоставит с ордером.
+ * «Я перевёл» остаётся: перевод, ушедший в последние секунды, ещё найдётся.
+ */
+function siciliaExpired(pay, cancel, target) {
+  clearInterval(siciliaState.tick);
+  if (pay.dataset.expired) return;
+  pay.dataset.expired = '1';
+  const card = document.getElementById('sicCopyTarget');
+  if (card) {
+    card.disabled = true;
+    const num = document.getElementById('sicNum');
+    if (num && target) num.textContent = maskRequisite(target.text);
+  }
+  pay.querySelectorAll('#sicCopyBik, #sicOpenBank, .sic-steps').forEach((el) => el.remove());
+  const note = pay.querySelector('.sic-note span');
+  if (note) note.textContent = 'Время на перевод вышло, реквизит больше не действует. Если вы успели перевести, нажмите «Я перевёл». Если нет, создайте новый перевод.';
+  // Скорее всего игрок не успел: главным становится новый перевод, а
+  // «Я перевёл» уступает место, но остаётся.
+  cancel.textContent = 'Новый перевод';
+  cancel.dataset.expired = '1';
+  cancel.className = 'cash-cta sic-new';
+  const check = document.getElementById('siciliaCheck');
+  if (check) {
+    check.className = 'cash-ghost sic-paid';
+    check.innerHTML = `${cashIcon('check')}<span>Я перевёл</span>`;
+  }
+  pay.querySelector('.sic-actions')?.prepend(cancel);
+}
+
+/*
+ * Деньги пришли: реквизит убирается, на его месте - итог. Оставленный на
+ * экране реквизит выглядел бы приглашением перевести ещё раз.
+ */
+function showSiciliaDone(amount) {
+  stopSiciliaTimers();
+  const box = document.getElementById('siciliaCheckout');
+  if (!box || box.hidden) return;
+  // Поток событий обычно опережает ответ проверки и суммы не знает: итог
+  // рисуется сразу, а сумма дописывается, когда её пришлёт проверка.
+  const done = box.querySelector('.sic-done');
+  if (done) {
+    const sumEl = done.querySelector('.sic-done-sum');
+    if (amount && sumEl && !sumEl.textContent) sumEl.textContent = `+${money(amount)}`;
+    return;
+  }
+  if (!box.querySelector('.sic-pay')) return;
+  box.innerHTML = `
+    <div class="sic-done">
+      <svg class="sic-done-mark" viewBox="0 0 64 64" aria-hidden="true">
+        <circle class="sic-done-ring" cx="32" cy="32" r="28" pathLength="100"/>
+        <path class="sic-done-tick" d="M20 33.5 28.5 42 45 24" pathLength="100"/>
+      </svg>
+      <div class="sic-done-title">Деньги на балансе</div>
+      <div class="sic-done-sum">${amount ? `+${money(amount)}` : ''}</div>
+      <button class="cash-ghost" id="siciliaMore">${cashIcon('plus')}Пополнить ещё</button>
+    </div>`;
+  document.getElementById('siciliaMore').addEventListener('click', () => openSiciliaDeposit({ resume: false }));
+}
+
+/** Карточка ожидания для окна шлюза: сумма, «открыть окно снова», «я оплатил». */
 function showSiciliaCheckout(order, opened = true) {
   siciliaState.current = order;
   showDepositPane('siciliaCheckout');
@@ -7355,12 +7879,9 @@ function showSiciliaCheckout(order, opened = true) {
       toast(err.message);
     }
   });
-  document.getElementById('siciliaBack').addEventListener('click', () => {
-    clearInterval(siciliaState.poll);
-    openSiciliaDeposit();
-  });
+  document.getElementById('siciliaBack').addEventListener('click', () => openSiciliaDeposit({ resume: false }));
   document.getElementById('siciliaCheck').addEventListener('click', () => checkSicilia(order, true));
-  clearInterval(siciliaState.poll);
+  stopSiciliaTimers();
   siciliaState.poll = setInterval(() => {
     if (document.hidden || box.hidden) return;
     checkSicilia(order, false);
@@ -7369,26 +7890,28 @@ function showSiciliaCheckout(order, opened = true) {
 
 async function checkSicilia(order, byHand) {
   const status = document.getElementById('siciliaStatus');
-  if (byHand && status) status.textContent = 'Проверяем платёж…';
+  // Пульс у строки - знак, что ждём банк, а не что ничего не происходит.
+  const say = (text, wait) => { if (!status) return; status.textContent = text; status.classList.toggle('is-wait', !!wait); };
+  if (byHand) say('Проверяем платёж…', true);
   try {
     const r = await api('/api/sicilia/refresh', { id: order.id });
     if (r.credited || r.payment?.paidAt) {
-      clearInterval(siciliaState.poll);
+      stopSiciliaTimers();
       if (r.user) applyUser(r.user);
-      if (status) status.textContent = 'Платёж зачислен.';
+      say('Платёж зачислен.');
       if (r.credited) { toast('Платёж зачислен'); sndCollect(); haptic('success'); }
+      showSiciliaDone(r.payment?.credited);
       loadWallet();
       return;
     }
     const closed = ['cancelled', 'error', 'unclaimed', 'expired'].includes(r.payment?.status);
-    if (closed) { clearInterval(siciliaState.poll); loadSiciliaIssues(); }
-    if (status && (byHand || closed)) {
-      status.textContent = closed
-        ? 'Оплата не поступила и закрыта. Если вы перевели деньги, нажмите «Деньги не пришли» в списке ниже и приложите чек.'
-        : 'Перевод ещё не подтверждён. Обычно это занимает несколько минут.';
+    if (closed) { stopSiciliaTimers(); loadSiciliaIssues(); }
+    if (byHand || closed) {
+      if (closed) say('Оплата не поступила и закрыта. Если вы перевели деньги, нажмите «Деньги не пришли» в списке ниже и приложите чек.');
+      else say('Ждём подтверждение банка. Обычно это 2-4 минуты, страницу можно не обновлять.', true);
     }
   } catch (err) {
-    if (byHand && status) status.textContent = err.message;
+    if (byHand) say(err.message);
   }
 }
 
@@ -7483,7 +8006,7 @@ function startPaymentEvents(){
   if (state.guest) return;
   const es=new EventSource('/api/payments/events');
   es.addEventListener('payment.completed', async () => {
-    clearInterval(siciliaState.poll);
+    showSiciliaDone();
     toast('Платёж успешно поступил. Средства зачислены на счёт.');
     sndCollect();
     haptic('success');
@@ -8542,11 +9065,11 @@ function renderOnboarding() {
       text = `Бонус приходит сразу вместе с пополнением от ${money(rules.min)}. ` +
         `Им играют, когда своих не хватает на ставку; после ставок бонусом на ×${rules.wager} от его суммы он переходит в деньги` +
         (rules.cashoutPct ? `, но не больше ${rules.cashoutPct}% от ваших пополнений. ` : '. ') +
-        'Если у вас есть промокод, введите его в разделе «Бонусы».';
+        'Если у вас есть промокод, введите его во Free Money.';
     } else {
       title = 'Готово';
       text = 'Пополните счёт в кассе и открывайте кейсы. ' +
-        'Промокод, если он есть, вводится в разделе «Бонусы».';
+        'Промокод, если он есть, вводится во Free Money.';
     }
   }
 
@@ -9237,30 +9760,44 @@ function fortuneHighlight(wheel, spinMs, winner) {
 }
 
 /** Окно выигрыша: крупно что выпало и одна строка о том, что с этим делать. */
+/** Через сколько окно выигрыша Lucky Fortune закрывается само. */
+const FORTUNE_WIN_MS = 12000;
+
+/**
+ * Окно выигрыша Lucky Fortune.
+ *
+ * Раньше все призы показывались одинаково: значок в квадрате и строка.
+ * Заказчик назвал это ужасным, и он прав: «+15%» и кейс выглядели одной
+ * карточкой. Теперь у каждого вида своя композиция и своё движение -
+ * медальон процента, переворачивающаяся монета ×2, обложка кейса, золотой
+ * билет ваучера, стопка монет денег, - а сумма досчитывается.
+ */
 function showFortuneWin(prize) {
   const wager = state.config?.firstDeposit?.wager ?? 3;
+  const giftCase = prize.caseId ? state.config.cases.find((c) => c.id === prize.caseId) : null;
+  const cover = giftCase ? (caseStageSrc(giftCase) || caseArtSrc(giftCase)) : null;
   const art = {
-    percent: '<span class="fortune-win-sign">%</span>',
-    x2: '<span class="fortune-win-sign">×2</span>',
-    case: '<span class="fortune-win-ico" data-ico="gift"></span>',
-    voucher: '<span class="fortune-win-ico" data-ico="gift"></span>',
-    cash: '<span class="fortune-win-ico" data-ico="coin"></span>',
+    percent: `<div class="fw-medal"><b>%</b>${'<i></i>'.repeat(6)}</div>`,
+    x2: '<div class="fw-coin"><b>×2</b></div>',
+    case: cover ? `<img class="fw-case" src="${cover}" alt="">` : '<div class="fw-coin"><b>★</b></div>',
+    voucher: `<div class="fw-ticket"><span>LUCKY</span><b>${fmt(prize.amount)} ₽</b></div>`,
+    cash: '<div class="fw-stack"><i></i><i></i><i></i><i></i></div>',
   }[prize.kind] || '';
 
   const value = {
-    percent: `+${prize.amount}%`,
+    percent: `+<span class="fw-num" data-to="${prize.amount}">0</span>%`,
     x2: '×2',
     case: prize.caseName ? `«${esc(prize.caseName)}»` : 'Кейс',
-    voucher: money(prize.amount),
-    cash: money(prize.amount),
+    voucher: `<span class="fw-num" data-to="${prize.amount}">0</span> ₽`,
+    cash: `<span class="fw-num" data-to="${prize.amount}">0</span> ₽`,
   }[prize.kind] || '';
 
   const note = {
     percent: `Придёт вместе со следующим пополнением от ${money(state.fortune.data.minDeposit)}.`,
     x2: 'Следующий денежный выигрыш в любом кейсе удвоится.',
-    case: 'Лежит в разделе «Бонусы», открывается бесплатно.',
-    voucher: `Уже на балансе. Отыграть: ${money(prize.amount * wager)} ставками.`,
-    cash: `Уже на балансе. Отыграть: ${money(prize.amount * wager)} ставками.`,
+    case: 'Лежит в ваших подарках во Free Money, открывается бесплатно.',
+    voucher: `На бонусном счёте. Отыграть: ${money(prize.amount * wager)} ставками.`,
+    cash: `На бонусном счёте. Отыграть: ${money(prize.amount * wager)} ставками.`,
   }[prize.kind] || '';
 
   const kind = {
@@ -9277,14 +9814,37 @@ function showFortuneWin(prize) {
   document.getElementById('fortuneWinValue').innerHTML = value;
   document.getElementById('fortuneWinNote').textContent = note;
   box.dataset.kind = prize.kind;
-  mountIcons(box);
+  box.classList.remove('is-in');
   box.hidden = false;
+  void box.offsetWidth;
+  box.classList.add('is-in');
+
+  // Сумма досчитывается к моменту, когда приз сел на место.
+  box.querySelectorAll('.fw-num').forEach((el) => {
+    const to = Number(el.dataset.to) || 0;
+    const t0 = performance.now() + 380;
+    const step = (t) => {
+      const k = Math.min(1, Math.max(0, (t - t0) / 900));
+      el.textContent = fmt(Math.round(to * (1 - Math.pow(1 - k, 3))));
+      if (k < 1 && box.isConnected && !box.hidden) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  });
 
   // Деньги и кейс празднуем громче процента: иначе каждый прокрут выглядит
   // одинаково, и редкий приз теряется среди частых.
   if (prize.kind === 'cash' || prize.kind === 'voucher') { sndBigWin(); celebrate('bigwin'); }
   else sndReveal('rare');
   haptic('medium');
+  setTimeout(() => {
+    if (box.hidden) return;
+    const r = box.querySelector('.fw-stage').getBoundingClientRect();
+    sparkBurst(box, r.left + r.width / 2, r.top + r.height / 2,
+      { n: 26, colors: ['#ffe58a', '#ffffff', '#d38bff'], dist: [70, 160], size: 6 });
+  }, 420);
+  clearTimeout(box._auto);
+  box._auto = setTimeout(() => { if (!box.hidden) document.getElementById('fortuneWinClose').click(); }, FORTUNE_WIN_MS);
+  box.onclick = (e) => { if (!e.target.closest('.fortune-win')) document.getElementById('fortuneWinClose').click(); };
 }
 
 /**
@@ -9298,7 +9858,411 @@ function showFortuneWin(prize) {
 function openFreeMoney() {
   document.getElementById('fortuneIntro').hidden = false;
   document.getElementById('fortuneStage').hidden = true;
+  renderFreeMoney();
+  renderBonuses();
+  renderMedals();
+  if (!state.guest) loadPromoState();
   loadFortune();
+}
+
+/* ============================================================
+   FREE MONEY: ИВЕНТЫ
+   ============================================================ */
+
+/*
+ * Ивенты рисуются из state.user (startCase, raffle, vouchers) и config
+ * (promoWheel, raffle, projectBot). Перерисовка дешёвая и идёт при каждом
+ * applyUser, пока раздел открыт: поставил в соседней вкладке - шкалы
+ * сдвинулись сами.
+ */
+function renderFreeMoney() {
+  if (!document.getElementById('view-freemoney')) return;
+  renderDriveEvent();
+  renderStartEvent();
+  renderPromoWheel();
+  renderBotEvent();
+  // Номера ивентов - по порядку на странице, а не зашитые: подарков нет -
+  // нумерация не прыгает через пустое место.
+  const evs = [...document.querySelectorAll('#view-freemoney .fm-ev')].filter((e) => !e.hidden);
+  let n = 0;
+  evs.forEach((e) => {
+    const no = e.querySelector('.fm-ev-no');
+    if (no && !e.classList.contains('fm-gifts')) no.textContent = String(++n).padStart(2, '0');
+  });
+  const tabs = document.getElementById('fmTabs');
+  tabs.innerHTML = evs.map((e) => `<button class="fm-tab${e.classList.contains('fm-drive') ? ' is-hot' : ''}"
+    data-go="${e.id}">${esc(e.dataset.tab || '')}</button>`).join('');
+  tabs.querySelectorAll('[data-go]').forEach((b) => {
+    b.onclick = () => {
+      haptic('light');
+      const el = document.getElementById(b.dataset.go);
+      const top = el.getBoundingClientRect().top + window.scrollY - (document.querySelector('.topbar')?.offsetHeight || 64) - 12;
+      window.scrollTo({ top, behavior: 'smooth' });
+    };
+  });
+}
+
+/* ---------- Lucky Drive: розыгрыш автомобиля ---------- */
+
+/** Сколько билетов в ряду сетки: десять рядов по десять - «карта» из ста. */
+const DRIVE_TICKET_COLS = 10;
+
+function renderDriveEvent() {
+  const box = document.getElementById('fmDrive');
+  if (!box) return;
+  const cfg = state.config.raffle || { prize: 'Rolls-Royce Wraith', step: 1000, max: 100 };
+  const r = state.user?.raffle || { tickets: 0, max: cfg.max, step: cfg.step, progress: 0 };
+  const left = Math.max(0, r.step - r.progress);
+  const full = r.tickets >= r.max;
+  const tickets = Array.from({ length: r.max }, (_, i) => {
+    const got = i < r.tickets;
+    // Свежий билет - последний полученный: он один раз «пробивается».
+    return `<i class="dv-t${got ? ' got' : ''}${got && i === r.tickets - 1 ? ' fresh' : ''}" style="--i:${i}">${i + 1}</i>`;
+  }).join('');
+
+  box.innerHTML = `
+    <div class="fm-ev-head"><span class="fm-ev-no"></span><h2 class="fm-ev-title">Lucky Drive</h2>
+      <span class="fm-live"><i></i>идёт розыгрыш</span></div>
+    <div class="dv-card">
+      <div class="dv-sky"><i></i><i></i><i></i></div>
+      <div class="dv-head">
+        <div class="dv-kicker">Разыгрываем</div>
+        <div class="dv-brand">ROLLS-ROYCE</div>
+        <div class="dv-model">Wraith</div>
+      </div>
+      <div class="dv-stage">
+        <div class="dv-spot"></div>
+        <img class="dv-car" src="/assets/ui/raffle-wraith.webp" alt="Rolls-Royce Wraith">
+        <div class="dv-floor"></div>
+        <div class="dv-sweep"></div>
+      </div>
+      <div class="dv-rules">
+        <div class="dv-rule"><b>1 билет</b><span>за каждые ${fmt(r.step)} ₽ ставок</span></div>
+        <div class="dv-rule"><b>до ${r.max}</b><span>билетов на игрока</span></div>
+        <div class="dv-rule"><b>больше билетов</b><span>выше шанс</span></div>
+      </div>
+      <div class="dv-mine">
+        <div class="dv-count"><span>Ваши билеты</span><b>${r.tickets}<small> из ${r.max}</small></b></div>
+        <div class="dv-next">${full ? 'Все билеты собраны' : state.guest ? 'Войдите, чтобы копить билеты'
+          : `До следующего билета <b>${money(left)}</b> ставок`}</div>
+        <div class="dv-bar" style="--p:${full ? 100 : Math.round((r.progress / r.step) * 100)}%"><i></i></div>
+      </div>
+      <div class="dv-tickets" style="--cols:${DRIVE_TICKET_COLS}" aria-label="Билеты: ${r.tickets} из ${r.max}">${tickets}</div>
+      <button class="dv-cta" id="dvGo">${state.guest ? 'Участвовать' : full ? 'Играть' : 'Получить билеты'}</button>
+      <p class="dv-fine">Дату розыгрыша и правила опубликуем в боте @${esc(state.config.projectBot || 'luckybox_bot')}. Билеты копятся автоматически: отдельно записываться не нужно.</p>
+    </div>`;
+  box.querySelector('#dvGo').onclick = () => {
+    haptic('light');
+    if (state.guest) return openAuth(authDefaultPane());
+    switchView('cases');
+  };
+}
+
+/* ---------- Кейс «Начало» ---------- */
+
+/** На сколько делений режется шкала оборота: по сотне на деление. */
+const START_SEGMENTS = 10;
+
+function renderStartEvent() {
+  const box = document.getElementById('fmStart');
+  if (!box) return;
+  const c = state.config.cases.find((x) => x.free);
+  if (!c) { box.hidden = true; return; }
+  const st = state.user?.startCase || { ready: 0, needDeposit: true, minDeposit: 100, step: 1000, progress: 0 };
+  const guest = !!state.guest;
+  const pct = st.needDeposit ? 0 : Math.round((st.progress / st.step) * 100);
+  const cover = caseArtSrc(c);
+  const top = Math.max(...c.items.map((i) => i.value));
+  const status = st.ready > 0
+    ? { cls: 'is-ready', title: st.ready > 1 ? `Готово к открытию: ${st.ready}` : 'Кейс готов к открытию', cta: 'Открыть бесплатно' }
+    : guest || st.needDeposit
+      ? { cls: 'is-locked', title: `Пополните от ${money(st.minDeposit)} - первый кейс в подарок`, cta: guest ? 'Зарегистрироваться' : 'Пополнить' }
+      : { cls: 'is-progress', title: `Ещё ${money(st.step - st.progress)} ставок до следующего`, cta: 'Играть' };
+
+  box.innerHTML = `
+    <div class="fm-ev-head"><span class="fm-ev-no"></span><h2 class="fm-ev-title">Бесплатный кейс</h2>
+      <span class="fm-ev-note">до ${money(top)}</span></div>
+    <div class="st-card ${status.cls}">
+      <button class="st-cover" data-case="${c.id}" aria-label="Открыть кейс «${esc(c.name)}»">
+        ${cover ? `<img src="${cover}" alt="">` : ''}
+        ${st.ready > 0 ? `<span class="st-badge">×${st.ready}</span>` : ''}
+      </button>
+      <div class="st-body">
+        <div class="st-name">«${esc(c.name)}»</div>
+        <div class="st-title">${status.title}</div>
+        <div class="st-meter" style="--p:${st.ready > 0 ? 100 : pct}%">
+          <div class="st-segs">${Array.from({ length: START_SEGMENTS }, (_, i) =>
+            `<i class="${(i + 1) * (100 / START_SEGMENTS) <= (st.ready > 0 ? 100 : pct) ? 'on' : ''}"></i>`).join('')}</div>
+          <div class="st-row"><span>${st.ready > 0 ? 'готов' : st.needDeposit ? 'после пополнения' : money(st.progress)}</span>
+            <span>${money(st.step)}</span></div>
+        </div>
+        <button class="st-cta">${status.cta}</button>
+      </div>
+    </div>
+    <div class="st-how">
+      <div><b>1</b><span>Первый кейс - за пополнение от ${money(st.minDeposit)}, один раз</span></div>
+      <div><b>2</b><span>Каждые ${fmt(st.step)} ₽ ставок - ещё один</span></div>
+      <div><b>3</b><span>Выигрыш - на бонусный счёт</span></div>
+    </div>`;
+  const go = () => {
+    haptic('light');
+    if (st.ready > 0) return openCase(c.id);
+    if (guest) return openAuth(authDefaultPane());
+    if (st.needDeposit) return openCashier();
+    return showStartGate(c);
+  };
+  box.querySelector('.st-cta').onclick = go;
+  box.querySelector('.st-cover').onclick = () => { haptic('light'); openCase(c.id); };
+}
+
+/* ---------- Колесо удачи: прокрут промокодом ---------- */
+
+const WHEEL_R = 150;          // радиус секторов в координатах SVG
+const WHEEL_HUB_R = 74;       // радиус ступицы с промокодом (41% колеса, см. .pw-hub)
+const WHEEL_BULBS = 24;       // лампочек по ободу
+const WHEEL_SPIN_MS = 5600;   // длительность прокрута
+const WHEEL_TURNS = 6;        // полных оборотов до остановки
+
+const wheelState = { rotation: 0, busy: false };
+
+/** Точка на окружности: угол от верхней точки по часовой стрелке. */
+function wheelPoint(r, turn) {
+  const a = turn * Math.PI * 2 - Math.PI / 2;
+  return [r * Math.cos(a), r * Math.sin(a)];
+}
+
+function wheelSvg(sectors) {
+  const paths = sectors.map((s, i) => {
+    const [x0, y0] = wheelPoint(WHEEL_R, s.from);
+    const [x1, y1] = wheelPoint(WHEEL_R, s.from + s.share);
+    const large = s.share > 0.5 ? 1 : 0;
+    const deg = (s.from + s.share / 2) * 360;
+    // Подпись идёт вдоль радиуса от обода к центру, как на настоящих колёсах:
+    // так в узкий сектор помещается и «Подворотня», а не только «+30%».
+    // Длина подписи ограничена ступицей: слово сжимается, а не уходит под
+    // поле промокода. На правой половине текст разворачивается, чтобы ни
+    // одна подпись не читалась вверх ногами.
+    const room = WHEEL_R - 12 - WHEEL_HUB_R;
+    const size = Math.min(s.type === 'pct' ? 17 : 12.5, room / (s.label.length * 0.62));
+    const right = deg < 180;
+    return `<g class="pw-sec" data-sec="${s.id}">
+      <path d="M0 0 L${x0.toFixed(2)} ${y0.toFixed(2)} A${WHEEL_R} ${WHEEL_R} 0 ${large} 1 ${x1.toFixed(2)} ${y1.toFixed(2)} Z"
+        fill="url(#pwg${i})" stroke="rgba(255,226,150,0.55)" stroke-width="1.4"/>
+      <g transform="rotate(${deg.toFixed(2)})">
+        <text class="pw-lbl${s.type === 'pct' ? ' is-pct' : ''}" transform="translate(0 ${-WHEEL_R + 10}) rotate(${right ? -90 : 90})"
+          text-anchor="${right ? 'end' : 'start'}" dominant-baseline="central" style="font-size:${size.toFixed(1)}px">${esc(s.label)}</text>
+      </g>
+    </g>`;
+  }).join('');
+  const grads = sectors.map((s, i) => `<radialGradient id="pwg${i}" cx="0" cy="0" r="${WHEEL_R}" gradientUnits="userSpaceOnUse">
+      <stop offset="0.25" stop-color="${s.color}" stop-opacity="0.55"/>
+      <stop offset="0.85" stop-color="${s.color}"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.25"/></radialGradient>`).join('');
+  const bulbs = Array.from({ length: WHEEL_BULBS }, (_, i) => {
+    const [x, y] = wheelPoint(WHEEL_R + 13, i / WHEEL_BULBS);
+    return `<circle class="pw-bulb${i % 2 ? ' odd' : ''}" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3.6"/>`;
+  }).join('');
+  return `<svg class="pw-svg" viewBox="-180 -180 360 360" aria-hidden="true">
+    <defs>${grads}
+      <linearGradient id="pwRim" x1="0" y1="-1" x2="0" y2="1" gradientUnits="objectBoundingBox">
+        <stop offset="0" stop-color="#fff2c2"/><stop offset="0.45" stop-color="#d9a031"/>
+        <stop offset="0.55" stop-color="#8a5a12"/><stop offset="1" stop-color="#ffd46a"/></linearGradient>
+    </defs>
+    <circle r="${WHEEL_R + 22}" fill="#170d22"/>
+    <circle r="${WHEEL_R + 13}" fill="none" stroke="url(#pwRim)" stroke-width="16"/>
+    <g class="pw-bulbs">${bulbs}</g>
+    <g class="pw-rotor" id="pwRotor" style="transform:rotate(${wheelState.rotation}deg)">${paths}
+      <circle r="${WHEEL_R}" fill="none" stroke="rgba(255,226,150,0.6)" stroke-width="2"/></g>
+  </svg>`;
+}
+
+function renderPromoWheel() {
+  const box = document.getElementById('fmWheel');
+  const cfg = state.config.promoWheel;
+  if (!box || !cfg) return;
+  // Колесо не пересобираем посреди прокрута: перерисовка сбросила бы угол.
+  if (wheelState.busy && box.querySelector('.pw-svg')) return;
+  const bot = state.config.projectBot || 'luckybox_bot';
+  box.innerHTML = `
+    <div class="fm-ev-head"><span class="fm-ev-no"></span><h2 class="fm-ev-title">Колесо удачи</h2>
+      <span class="fm-ev-note">кейсы до 150 ₽ и до +30% к пополнению</span></div>
+    <div class="pw-card">
+      <div class="pw-wheel">
+        <span class="pw-pin" aria-hidden="true"></span>
+        ${wheelSvg(cfg.sectors)}
+        <form class="pw-hub" id="pwForm" autocomplete="off">
+          <label class="pw-hub-lbl" for="pwCode">промокод</label>
+          <input class="pw-code" id="pwCode" maxlength="32" placeholder="ВВЕДИТЕ КОД"
+            autocapitalize="characters" spellcheck="false">
+          <button class="pw-spin" id="pwSpin" type="submit">Крутить</button>
+        </form>
+      </div>
+      <div class="pw-legend">${cfg.sectors.map((x) => {
+        const c = x.caseId ? state.config.cases.find((k) => k.id === x.caseId) : null;
+        const art = c ? caseArtSrc(c) : null;
+        return `<div class="pw-leg${x.type === 'pct' ? ' is-pct' : ''}" style="--c:${x.color}">
+          ${art ? `<img src="${art}" alt="">` : `<b>${esc(x.label)}</b>`}
+          <span>${c ? `${esc(c.name)} · ${money(c.price)}` : `${esc(x.label)} к пополнению`}</span>
+          <em>${(x.share * 100).toFixed(0)}%</em></div>`;
+      }).join('')}</div>
+      <div class="pw-where">
+        <span class="pw-tg" aria-hidden="true"></span>
+        <div>Промокоды для колеса - в нашем Telegram-боте <b>@${esc(bot)}</b></div>
+      </div>
+      <div class="pw-err" id="pwErr" hidden></div>
+      <p class="pw-fine">Каждый сектор занимает на колесе ровно свою долю шанса. Кейс приходит подарком, процент срабатывает на следующем пополнении от ${money(cfg.pctMinDeposit)} (бонус до ${money(cfg.pctCap)}).</p>
+    </div>`;
+  const input = box.querySelector('#pwCode');
+  input.addEventListener('input', () => { input.value = input.value.toUpperCase(); box.querySelector('#pwErr').hidden = true; });
+  box.querySelector('#pwForm').onsubmit = (e) => { e.preventDefault(); spinPromoWheel(); };
+}
+
+async function spinPromoWheel() {
+  if (wheelState.busy) return;
+  if (state.guest) return openAuth(authDefaultPane());
+  const input = document.getElementById('pwCode');
+  const err = document.getElementById('pwErr');
+  const code = input.value.trim();
+  if (!code) {
+    err.textContent = 'Введите промокод из бота';
+    err.hidden = false;
+    input.focus();
+    haptic('error');
+    return;
+  }
+  wheelState.busy = true;
+  const btn = document.getElementById('pwSpin');
+  btn.disabled = true;
+  let data;
+  try {
+    data = await api('/api/wheel/spin', { code }, { quiet: true });
+  } catch (e) {
+    wheelState.busy = false;
+    btn.disabled = false;
+    err.textContent = e.message;
+    err.hidden = false;
+    haptic('error');
+    return;
+  }
+
+  const cfg = state.config.promoWheel;
+  const sec = cfg.sectors.find((x) => x.id === data.result.sector);
+  // Точка остановки - внутри сектора, но не на самой границе: стрелка,
+  // вставшая на шов, читается как спорная.
+  const jitter = (Math.random() - 0.5) * sec.share * 0.6;
+  const target = (sec.from + sec.share / 2 + jitter) * 360;
+  const base = Math.ceil(wheelState.rotation / 360) * 360;
+  const finalRot = base + WHEEL_TURNS * 360 - target;
+  const rotor = document.getElementById('pwRotor');
+  const card = document.querySelector('.pw-card');
+  card.classList.add('is-spinning');
+  sndSpinStart();
+  rotor.style.transition = `transform ${WHEEL_SPIN_MS}ms cubic-bezier(0.12, 0.62, 0.08, 1)`;
+  requestAnimationFrame(() => { rotor.style.transform = `rotate(${finalRot}deg)`; });
+
+  // Щелчки на каждом шве: угол снимается с настоящего поворота, а не
+  // из расписания, поэтому звук совпадает с тем, что видно.
+  const seams = cfg.sectors.map((x) => x.from * 360);
+  let lastSeam = -1;
+  const t0 = performance.now();
+  const tick = () => {
+    const m = getComputedStyle(rotor).transform;
+    if (m && m !== 'none') {
+      const [a, b] = m.slice(7, -1).split(',').map(Number);
+      const rot = ((Math.atan2(b, a) * 180) / Math.PI + 360) % 360;
+      const under = (360 - rot) % 360;
+      const idx = seams.filter((d) => d <= under).length - 1;
+      if (idx !== lastSeam) { if (lastSeam !== -1) sndTick(1.1); lastSeam = idx; }
+    }
+    if (performance.now() - t0 < WHEEL_SPIN_MS) requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+
+  await new Promise((r) => setTimeout(r, WHEEL_SPIN_MS + 120));
+  wheelState.rotation = finalRot;
+  card.classList.remove('is-spinning');
+  document.querySelector(`.pw-sec[data-sec="${sec.id}"]`)?.classList.add('is-win');
+  sndLand();
+  input.value = '';
+  btn.disabled = false;
+  wheelState.busy = false;
+  if (data.user) applyUser(data.user);
+  showWheelWin(data.result, sec);
+}
+
+/** Окно приза колеса: кейс с обложкой или процент крупной цифрой. */
+function showWheelWin(result, sec) {
+  document.getElementById('wheelWin')?.remove();
+  const c = result.caseId ? state.config.cases.find((x) => x.id === result.caseId) : null;
+  const cover = c ? (caseStageSrc(c) || caseArtSrc(c)) : null;
+  const scene = document.createElement('div');
+  scene.id = 'wheelWin';
+  scene.className = 'sg-scene pw-win';
+  scene.innerHTML = `<div class="sg-glow"></div>
+    <div class="sg-card" role="dialog" aria-label="Приз колеса">
+      <button class="sg-close" aria-label="Закрыть">×</button>
+      <div class="sg-hero"><div class="sg-rays"></div>
+        ${cover ? `<img class="sg-cover" src="${cover}" alt="">` : `<div class="pw-win-pct">+${result.pct}%</div>`}</div>
+      <div class="sg-kicker">Колесо удачи</div>
+      <h3 class="sg-title">${c ? `Кейс <b>«${esc(c.name)}»</b><br>в подарок` : `<b>+${result.pct}%</b> к пополнению`}</h3>
+      <p class="sg-sub">${c ? 'Он уже лежит в ваших подарках: откройте его, когда захотите.'
+        : `Сработает на следующем пополнении от ${money(result.minDeposit)}, бонус до ${money(result.maxBonus)}.`}</p>
+      <button class="sg-cta">${c ? 'Открыть сейчас' : 'Пополнить'}</button>
+      <button class="sg-later">Позже</button>
+    </div>`;
+  document.body.appendChild(scene);
+  void scene.offsetWidth;
+  scene.classList.add('is-in');
+  sndFanfare();
+  haptic('success');
+  setTimeout(() => {
+    if (!scene.isConnected) return;
+    const r = scene.querySelector('.sg-hero').getBoundingClientRect();
+    sparkBurst(scene, r.left + r.width / 2, r.top + r.height * 0.55,
+      { n: 30, colors: ['#ffe58a', '#ffffff', '#8cf5b4'], dist: [70, 170], size: 6 });
+  }, 420);
+  let timer = 0;
+  const close = () => {
+    if (scene.classList.contains('is-out')) return;
+    clearTimeout(timer);
+    scene.classList.add('is-out');
+    setTimeout(() => scene.remove(), 320);
+  };
+  timer = setTimeout(close, START_GATE_MS);
+  scene.querySelector('.sg-close').onclick = close;
+  scene.querySelector('.sg-later').onclick = close;
+  scene.onclick = (e) => { if (!e.target.closest('.sg-card')) close(); };
+  scene.querySelector('.sg-cta').onclick = () => { close(); if (c) openCase(c.id); else openCashier(); };
+}
+
+/* ---------- Telegram-бот ---------- */
+
+function renderBotEvent() {
+  const box = document.getElementById('fmBot');
+  if (!box) return;
+  const bot = state.config.projectBot || 'luckybox_bot';
+  box.innerHTML = `
+    <div class="fm-ev-head"><span class="fm-ev-no"></span><h2 class="fm-ev-title">Наш бот</h2></div>
+    <div class="bt-card">
+      <div class="bt-plane" aria-hidden="true"><svg viewBox="0 0 48 48"><path fill="#fff"
+        d="M40.6 9.4 6.9 22.4c-2.3.9-2.3 2.2-.4 2.8l8.6 2.7 3.3 10.2c.4 1.1.2 1.6 1.4 1.6.9 0 1.3-.4 1.8-.9l4.3-4.2 8.9 6.6c1.6.9 2.8.4 3.2-1.5l5.8-27.4c.6-2.4-.9-3.5-2.5-2.8zM17.2 27.6l19.4-12.2c.9-.6 1.8-.3 1.1.4L21.1 30.8l-.6 6.9z"/></svg></div>
+      <div class="bt-body">
+        <div class="bt-name" role="button" tabindex="0" title="Скопировать">@${esc(bot)}</div>
+        <ul class="bt-list">
+          <li>Промокоды для Колеса удачи</li>
+          <li>Напоминание, когда кейс «Начало» готов</li>
+          <li>Новости розыгрыша Rolls-Royce</li>
+        </ul>
+        <a class="bt-open" href="tg://resolve?domain=${encodeURIComponent(bot)}">Открыть в Telegram</a>
+      </div>
+    </div>`;
+  // Ник копируется нажатием: на компьютере кнопки «Открыть» нет, а
+  // перепечатывать ник руками - лишний повод ошибиться.
+  const name = box.querySelector('.bt-name');
+  name.onclick = async () => {
+    try { await navigator.clipboard.writeText(`@${bot}`); toast('Ник бота скопирован'); } catch { /* буфер недоступен */ }
+    haptic('light');
+  };
 }
 
 function wireFortune() {

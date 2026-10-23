@@ -55,7 +55,8 @@ function gatewayDeposit(userId, amount) {
 const CASE = getCase('warmup_100') || getCase('dust_25');
 const openCase = (userId) => playCaseRound(userId, CASE,
   (s, c, n) => { const roll = computeRoll(s, c, n); return { item: pickItem(CASE, roll), roll }; },
-  (s, c, n) => { const roll = computeRoll(s, c, n); return { item: pickItem(CASE, roll), roll }; });
+  // Серия фриспинов крутит свою таблицу, как на сервере (pickItem(..., true)).
+  (s, c, n) => { const roll = computeRoll(s, c, n); return { item: pickItem(CASE, roll, true), roll }; });
 
 const sbp = (phone = '79001234567') => ({ method: 'sbp', phone, bank: 'Сбербанк' });
 const verdictOf = (res) => `${res.verdict}: ${res.reasons.join(', ')}`;
@@ -123,7 +124,8 @@ for (let i = 0; i < 40 && getUserById(cheat.id).deposit_debt > 0; i++) openCase(
   db.prepare('UPDATE rounds SET payout = payout + 900 WHERE id = ?').run(last.id);
   const amount = Math.max(1000, getUserById(cheat.id).balance - 1);
   if (getUserById(cheat.id).balance >= 1000) {
-    const p = createPayout(cheat.id, Math.min(amount, getUserById(cheat.id).balance), sbp('79005550002'));
+    // На карту и по СБП выводится сумма, кратная 100 ₽ (PAYOUT_STEP).
+    const p = createPayout(cheat.id, Math.floor(Math.min(amount, getUserById(cheat.id).balance) / 100) * 100, sbp('79005550002'));
     const res = checkPayout(p.id);
     check('подправленная выплата раунда - красный', res.verdict === 'red', verdictOf(res));
     check('причина: раунд не пересчитывается', !!failed(res, 'fair'), verdictOf(res));
@@ -205,7 +207,7 @@ for (let i = 0; i < 30; i++) {
 }
 if (stakeRound) {
   // Выигрыш ушёл в заявку - рисковать им больше нельзя.
-  createPayout(g.id, Math.min(getUserById(g.id).balance, Math.max(1000, getUserById(g.id).balance)), sbp('79005550004'));
+  createPayout(g.id, Math.floor(getUserById(g.id).balance / 100) * 100, sbp('79005550004'));
   let code = null;
   try {
     playGamble(g.id, 0, GAMBLE_CONFIG, (s, c, n) => { const roll = computeRoll(s, c, n); return { acePosition: gambleAceFromRoll(roll), roll }; });

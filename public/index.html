@@ -563,17 +563,25 @@
           </div>
           <div class="payment-checkout" id="cryptoCheckout" hidden></div>
 
-          <!-- СБП и карта через Sicilia. Оплата идёт в окне шлюза, открытом
-               отдельной вкладкой; здесь только сумма и ожидание. -->
+          <!-- СБП и карта через Sicilia. Через API шлюза реквизит, сумма и
+               таймер показываются здесь же (siciliaCheckout); через окно шлюза
+               здесь только сумма и ожидание, способ и банк скрыты. -->
           <div class="sicilia-create" id="siciliaCreate" hidden>
+            <div class="cash-step" data-sic-h2h>Как переводите</div>
+            <div class="cash-seg is-2" id="siciliaMethod" data-active="sbp" role="group" aria-label="Способ перевода" data-sic-h2h>
+              <button class="cash-seg-btn active" type="button" data-sic-method="sbp"><span data-cash-ico="phone"></span>СБП</button>
+              <button class="cash-seg-btn" type="button" data-sic-method="card"><span data-cash-ico="card"></span>На карту</button>
+            </div>
             <div class="cash-step">Сумма</div>
             <label class="cash-amount">
               <input id="siciliaAmount" type="text" inputmode="numeric" autocomplete="off" placeholder="0" aria-label="Сумма пополнения в рублях">
               <span class="cash-amount-cur">₽</span>
             </label>
             <div class="quick-row" id="siciliaQuick"></div>
-            <button class="cash-cta" id="siciliaCreateBtn"><span id="siciliaCreateLabel">Перейти к оплате</span><span data-cash-ico="arrow"></span></button>
-            <p class="cash-fine">Окно оплаты откроется отдельно. Оплатите точную сумму и вернитесь сюда:
+            <div class="cash-step" data-sic-h2h>Ваш банк <small>откроем перевод в приложении</small></div>
+            <div class="quick-row sic-banks" id="siciliaBank" data-sic-h2h></div>
+            <button class="cash-cta" id="siciliaCreateBtn"><span id="siciliaCreateLabel">Получить реквизиты</span><span data-cash-ico="arrow"></span></button>
+            <p class="cash-fine" id="siciliaFine">Реквизиты для перевода появятся здесь. Переведите точную сумму:
               деньги зачислятся сами, как только банк подтвердит перевод.</p>
           </div>
           <div class="payment-checkout" id="siciliaCheckout" hidden></div>
@@ -651,23 +659,47 @@
     <!-- ══════════ БОНУСЫ ══════════ -->
     <!-- ══════════ FREE MONEY ══════════
 
-         Раздел за широким баннером на первом экране. Сейчас в нём один
-         розыгрыш - колесо фортуны, и его карточка занимает раздел целиком:
-         это присланная обложка, её вписывают во всю ширину, а не режут в
-         значок.
+         Всё бесплатное в одном месте: розыгрыш, бесплатный кейс, два колеса,
+         бот, промокод, подарки и медали. Раздела «Бонусы» больше нет - он
+         целиком здесь, и пункт «Бонусы» в меню ведёт сюда (решение
+         заказчика).
 
-         Заход в раздел ВСЕГДА возвращает к обложке, даже если в прошлый раз
-         игрок ушёл с середины колеса: раздел - это витрина, а не сохранённая
-         игра. Делает это switchView -> openFreeMoney(). -->
+         ПОРЯДОК. Сверху то, что можно сделать прямо сейчас: «Ваши подарки»
+         (появляются, только если есть что открыть). Дальше главный приз -
+         розыгрыш автомобиля, затем то, что даётся за игру (кейс «Начало»),
+         затем колёса, бот как источник кодов, поле промокода и медали.
+         Ивенты собирает renderFreeMoney() в app.js, разделитель - заголовок
+         с номером, а не линия: каждый блок читается как отдельное событие.
+
+         Lucky Fortune при заходе ВСЕГДА возвращается к обложке: раздел - это
+         витрина, а не сохранённая игра (openFreeMoney). -->
     <section class="view" id="view-freemoney">
 
-      <div class="game-head">
-        <h1 class="game-title">FREE MONEY</h1>
-        <p class="game-sub">Розыгрыши и подарки. Прокруты колеса за пополнение от 500 ₽.</p>
-      </div>
+      <header class="fm-hero">
+        <div class="fm-hero-kicker">Подарки · розыгрыши · бесплатные кейсы</div>
+        <h1 class="fm-hero-title">FREE <span>MONEY</span></h1>
+      </header>
+
+      <!-- Чипы-якоря: быстрый переход к ивенту. Список собирается кодом из
+           тех ивентов, что сейчас на странице. -->
+      <nav class="fm-tabs" id="fmTabs" aria-label="Ивенты"></nav>
+
+      <section class="fm-ev fm-gifts" id="fmGifts" data-tab="Подарки" hidden>
+        <div class="fm-ev-head"><span class="fm-ev-no">★</span><h2 class="fm-ev-title">Ваши подарки</h2></div>
+        <div class="perk-bar" id="bonusPerks" hidden></div>
+        <div class="shelf-row" id="bonusList"></div>
+      </section>
+
+      <section class="fm-ev fm-drive" id="fmDrive" data-tab="Lucky Drive"></section>
+
+      <section class="fm-ev fm-start" id="fmStart" data-tab="Начало"></section>
+
+      <section class="fm-ev fm-wheel" id="fmWheel" data-tab="Колесо удачи"></section>
 
       <!-- ---------- Ивент: Lucky Fortune ---------- -->
-      <div class="fm-event" id="fmFortune">
+      <section class="fm-ev fm-fortune" id="fmFortune" data-tab="Lucky Fortune">
+        <div class="fm-ev-head"><span class="fm-ev-no"></span><h2 class="fm-ev-title">Lucky Fortune</h2>
+          <span class="fm-ev-note">5 прокрутов за пополнение от 500 ₽</span></div>
         <div class="fortune-page">
 
           <!-- Витрина -->
@@ -699,7 +731,36 @@
             <div class="fortune-log" id="fortuneLog"></div>
           </div>
         </div>
+      </section>
+
+      <section class="fm-ev fm-bot" id="fmBot" data-tab="Бот"></section>
+
+      <section class="fm-ev fm-promo" id="fmPromo" data-tab="Промокод">
+        <div class="fm-ev-head"><span class="fm-ev-no"></span><h2 class="fm-ev-title">Промокод</h2></div>
+        <div class="promo-card">
+        <div class="promo-form">
+          <!-- Под полем ввода - механические плашки: каждая буква
+               переворачивается, как на табло вокзала. Само поле прозрачное
+               поверх них, поэтому ввод, вставка и курсор работают как обычно. -->
+          <div class="promo-field">
+            <div class="promo-flaps" id="promoFlaps" aria-hidden="true"></div>
+            <input class="promo-input" id="promoInput" maxlength="32" placeholder="ВВЕДИТЕ КОД"
+                   autocapitalize="characters" autocomplete="off" spellcheck="false">
+          </div>
+          <button class="promo-btn" id="promoBtn">Применить</button>
+        </div>
+        <div class="promo-result" id="promoResult" hidden></div>
       </div>
+
+        <div class="wager-note" id="wagerNote" hidden></div>
+        <div id="promoHistory"></div>
+      </section>
+
+      <section class="fm-ev fm-medals" id="fmMedals" data-tab="Медали">
+        <div class="fm-ev-head"><span class="fm-ev-no"></span><h2 class="fm-ev-title">Ваши медали</h2>
+          <span class="sec-chip" id="medalCount"></span></div>
+        <div class="medal-grid" id="medalGrid"></div>
+      </section>
     </section>
 
     <!-- ══════════ СЛОТЫ ══════════ -->
@@ -746,40 +807,6 @@
     <section class="view" id="view-slots">
       <div id="slotShelf"></div>
       <div id="slotRoot" hidden></div>
-    </section>
-
-    <section class="view" id="view-bonuses">
-      <div class="game-head">
-        <h1 class="game-title">БОНУСЫ</h1>
-        <p class="game-sub">Кейсы и плюшки, которые выпали в подарок, - открывайте бесплатно.</p>
-      </div>
-      <div class="promo-card">
-        <span class="promo-title">ПРОМОКОД</span>
-        <div class="promo-form">
-          <!-- Под полем ввода - механические плашки: каждая буква
-               переворачивается, как на табло вокзала. Само поле прозрачное
-               поверх них, поэтому ввод, вставка и курсор работают как обычно. -->
-          <div class="promo-field">
-            <div class="promo-flaps" id="promoFlaps" aria-hidden="true"></div>
-            <input class="promo-input" id="promoInput" maxlength="32" placeholder="ВВЕДИТЕ КОД"
-                   autocapitalize="characters" autocomplete="off" spellcheck="false">
-          </div>
-          <button class="promo-btn" id="promoBtn">Применить</button>
-        </div>
-        <div class="promo-result" id="promoResult" hidden></div>
-      </div>
-
-      <div class="wager-note" id="wagerNote" hidden></div>
-
-      <div class="perk-bar" id="bonusPerks" hidden></div>
-
-      <div class="sec-head"><span class="sec-title">Ваши медали</span><span class="sec-chip" id="medalCount"></span></div>
-      <div class="medal-grid" id="medalGrid"></div>
-
-      <h2 class="section-title" id="bonusCasesTitle">Выигранные кейсы</h2>
-      <div class="shelf-row" id="bonusList"></div>
-
-      <div id="promoHistory"></div>
     </section>
 
     <!-- ══════════ ПАРТНЁРУ ══════════ -->
@@ -1199,16 +1226,20 @@
     </div>
   </div>
 
-  <!-- Окно выигрыша на колесе. -->
+  <!-- Окно выигрыша Lucky Fortune: сцена, у каждого вида приза своя
+       композиция (showFortuneWin). Закрывается кнопкой, нажатием мимо и сама
+       через FORTUNE_WIN_MS: ничто не ждёт нажатия вечно. -->
   <div class="confirm-backdrop fortune-win-backdrop" id="fortuneWinBackdrop" hidden>
-    <div class="confirm-sheet fortune-win">
-      <div class="fortune-win-art" id="fortuneWinArt"></div>
+    <div class="fortune-win">
+      <div class="fw-stage">
+        <div class="fw-rays"></div>
+        <div class="fw-ring"></div>
+        <div class="fortune-win-art" id="fortuneWinArt"></div>
+      </div>
       <div class="fortune-win-kind" id="fortuneWinKind"></div>
       <div class="fortune-win-value" id="fortuneWinValue"></div>
       <div class="fortune-win-note" id="fortuneWinNote"></div>
-      <div class="confirm-actions">
-        <button class="btn btn-primary" id="fortuneWinClose">Забрать</button>
-      </div>
+      <button class="fw-take" id="fortuneWinClose">Забрать</button>
     </div>
   </div>
 

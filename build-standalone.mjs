@@ -17,6 +17,7 @@
 import { chromium } from 'playwright';
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 'node:fs';
 import { CASES, CATEGORIES, TIERS, publicCase, FREESPIN_PACKS } from './server/cases.js';
+import { wheelConfig, WHEEL_SECTORS } from './server/promo-wheel.js';
 import {
   CRASH_CONFIG, ROULETTE_CONFIG, ROULETTE_WHEEL, GAMBLE_CONFIG, UPGRADE_CONFIG,
 } from './server/games.js';
@@ -119,9 +120,14 @@ const config = {
     multipliers: UPGRADE_CONFIG.multipliers,
     rtp: UPGRADE_CONFIG.rtp,
   },
-  feed: { minMultiplier: FEED_MIN_MULTIPLIER, minValue: FEED_MIN_VALUE },
+  feed: { minMultiplier: FEED_MIN_MULTIPLIER, minValue: FEED_MIN_VALUE, synthetic: true },
   // Бесплатный кейс проверяет подписку ботом Telegram - в автономной сборке его нет.
   freeCase: { enabled: false },
+  // Free Money: те же описания, что отдаёт сервер.
+  promoWheel: wheelConfig(),
+  projectBot: 'luckybox_bot',
+  raffle: { prize: 'Rolls-Royce Wraith', step: 1000, max: 100 },
+  startCase: { minDeposit: 100, turnover: 1000 },
   bonus: { enabled: false },
   maxBatch: 2,
   freeSpinPacks: FREESPIN_PACKS,
@@ -168,6 +174,7 @@ const drawTables = CASES.map((c) => ({
   // Дата старта нужна и офлайн: иначе сезонный кейс, закрытый на сервере,
   // в автономной сборке открывался бы свободно.
   availableFrom: c.availableFrom,
+  free: c.free,
   items: c.items.map((it) => ({
     id: it.id,
     name: it.name,
@@ -181,6 +188,7 @@ const drawTables = CASES.map((c) => ({
     perk: it.perk || null,
     perkLabel: it.perkLabel || null,
     cumulative: it.cumulative,
+    fsCumulative: it.fsCumulative,
   })),
 }));
 
@@ -396,6 +404,7 @@ const CONFIG = ${JSON.stringify(config)};
 const CASINO_CATALOG = ${JSON.stringify(casinoCatalog)};
 const CASINO_RULES = ${JSON.stringify(casinoRules)};
 const DRAW_BY_ID = new Map(DRAW.map((c) => [c.id, c]));
+const WHEEL = ${JSON.stringify(WHEEL_SECTORS)};
 
 /*
  * Слоты в автономной сборке считаются ТЕМ ЖЕ кодом, что и на сервере:
@@ -590,7 +599,9 @@ function freshUser() {
     serverSeed, serverSeedHash: sha256Hex(serverSeed),
     clientSeed: randHex(8), nonce: 0,
     prevServerSeed: null, prevServerHash: null,
-    x2Perks: {}, vouchers: {}, gambleStake: 0,
+    x2Perks: {}, gambleStake: 0,
+    // «Начало» в демо выдано сразу: заказчик смотрит файл, а не пополняет.
+    vouchers: { start_free: 1 }, startMark: 0,
     // Прокруты колеса в демо выдаются сразу: ждать пополнения заказчику,
     // который открыл файл посмотреть, нечего.
     fortune: { spins: FORTUNE.spinsPerCycle, cycles: 1, lastSpin: 0, history: [] },
@@ -695,9 +706,32 @@ function save() {
 
 /* ---------- Публичный вид игрока ---------- */
 
+/*
+ * «Начало» и билеты - как startCaseState в server/db.js: кейс за каждую
+ * тысячу оборота, билет за каждую тысячу, не больше ста.
+ */
+function startCaseDemo(u) {
+  const turnover = u.wagerProgress || 0;
+  const blocks = Math.floor(turnover / 1000);
+  if (blocks > (u.startMark || 0)) {
+    u.vouchers.start_free = (u.vouchers.start_free || 0) + blocks - (u.startMark || 0);
+    u.startMark = blocks;
+  }
+  const tickets = Math.min(100, blocks);
+  return {
+    startCase: {
+      caseId: 'start_free', ready: u.vouchers.start_free || 0, needDeposit: false,
+      minDeposit: 100, step: 1000, progress: turnover - (u.startMark || 0) * 1000,
+    },
+    raffle: { tickets, max: 100, step: 1000, progress: tickets >= 100 ? 1000 : turnover % 1000 },
+  };
+}
+
 function publicUser() {
   const u = store.user;
+  const start = startCaseDemo(u);
   return {
+    ...start,
     id: u.id, username: u.username, firstName: u.firstName,
     balance: u.balance,
     // Кнопка «Админ» скрыта: в рабочей версии её видят только владельцы из
@@ -733,8 +767,10 @@ function publicUser() {
   };
 }
 
-function pickItem(table, roll) {
-  for (const it of table.items) if (roll < it.cumulative) return it;
+// free - прокрут серии фриспинов: своя таблица, как в server/cases.js.
+function pickItem(table, roll, free = false) {
+  const key = free ? 'fsCumulative' : 'cumulative';
+  for (const it of table.items) if (roll < it[key]) return it;
   return table.items[table.items.length - 1];
 }
 
@@ -766,7 +802,7 @@ function runFreeSpinSeries(table, startCount) {
     remaining--;
     u.nonce++;
     const fRoll = computeRoll(u.serverSeed, u.clientSeed, u.nonce);
-    const fItem = pickItem(table, fRoll);
+    const fItem = pickItem(table, fRoll, true);
 
     let added = 0;
     if (fItem.perk) {
@@ -1131,8 +1167,17 @@ const routes = {
     }
 
     const u = store.user;
-    const count = Math.min(CONFIG.maxBatch, Math.max(1, Math.trunc(Number(body.count) || 1)));
+    let count = Math.min(CONFIG.maxBatch, Math.max(1, Math.trunc(Number(body.count) || 1)));
     const vouchers = u.vouchers[table.id] || 0;
+    // Бесплатный кейс - только подарком и по одному, как на сервере.
+    if (table.free) {
+      if (vouchers <= 0) {
+        const st = startCaseDemo(u).startCase;
+        return { status: 403, body: { error: 'Поставьте ещё ' + (st.step - st.progress) + ' ₽, и кейс снова ваш',
+          code: 'START_LOCKED', startCase: st } };
+      }
+      count = 1;
+    }
     // Ваучеры покрывают первые открытия пачки, остальное платное.
     const need = Math.max(0, count - vouchers) * table.price;
 
@@ -1226,6 +1271,29 @@ const routes = {
   },
 
   /* ---------- Промокоды ---------- */
+
+  /*
+   * Колесо удачи. Бота в файле нет, поэтому код подходит любой: показать
+   * прокрут важнее, чем проверить код. Сектор - по тем же весам.
+   */
+  'POST /api/wheel/spin': (body) => {
+    const code = String(body.code || '').trim();
+    if (!code) return { status: 400, body: { error: 'Введите промокод' } };
+    const u = store.user;
+    const total = WHEEL.reduce((a, x) => a + x.weight, 0);
+    let r = Math.random() * total;
+    const sec = WHEEL.find((x) => (r -= x.weight) < 0) || WHEEL[WHEEL.length - 1];
+    let result;
+    if (sec.type === 'case') {
+      u.vouchers[sec.caseId] = (u.vouchers[sec.caseId] || 0) + 1;
+      const t = DRAW_BY_ID.get(sec.caseId);
+      result = { type: 'wheel', sector: sec.id, prize: 'case', caseId: sec.caseId, caseName: t ? t.name : '' };
+    } else {
+      u.pendingDeposit = { pct: sec.pct, max_bonus: 5000, min_deposit: 100, wager_multiplier: 3 };
+      result = { type: 'wheel', sector: sec.id, prize: 'pct', pct: sec.pct, maxBonus: 5000, minDeposit: 100 };
+    }
+    return { result, user: publicUser() };
+  },
 
   'POST /api/promo/redeem': (body) => {
     const u = store.user;

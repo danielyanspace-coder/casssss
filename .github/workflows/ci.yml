@@ -64,6 +64,9 @@ jobs:
       - name: Отыгрыш и бонусный счёт
         run: npm run test:wager
 
+      - name: Бесплатный кейс «Начало»
+        run: npm run test:start-case
+
       - name: Проверка заявок на вывод
         run: npm run test:payout-check
 

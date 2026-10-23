@@ -22,6 +22,7 @@
     "test:auth": "node test/auth.mjs",
     "test:ops": "node test/ops.mjs",
     "test:wager": "node test/wager.mjs",
+    "test:start-case": "node test/start-case.mjs",
     "test:payout-check": "node test/payout-check.mjs",
     "test:analytics": "node test/analytics.mjs",
     "test:fortune": "node test/fortune.mjs",

@@ -129,6 +129,7 @@ const MAP = {
   'Легенда.png': 'legend',
   'Три желания.png': 'sultan',
   'Самородок.png': 'nugget',
+  'Начало.png': 'nachalo',
 };
 
 /**
