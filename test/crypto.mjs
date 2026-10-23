@@ -201,6 +201,64 @@ const check = (name, ok, detail = '') => {
   check('неизвестный способ отвергается', bad({ method: 'голубь' }) === 'BAD_METHOD');
 }
 
+/* ---------- Курс USDT по Rapira ---------- */
+{
+  // Сеть подменена: биржа отдаёт 84.22, шлюз запоминает тело счёта.
+  const realFetch = globalThis.fetch;
+  let invoiceBody = null;
+  globalThis.fetch = async (url, opts = {}) => {
+    const u = String(url);
+    const reply = (obj) => new Response(JSON.stringify(obj), { status: 200 });
+    if (u.includes('rapira')) {
+      return reply({ data: [{ symbol: 'BTC/USDT', close: 81450 }, { symbol: 'USDT/RUB', close: 84.22 }] });
+    }
+    if (u.includes('coingecko')) return reply({ tether: { rub: 90 } });
+    if (u.endsWith('/payment/services')) {
+      return reply({ state: 0, result: [{ currency: 'USDT', network: 'TRON', is_available: true,
+                                          limit: { min_amount: '1' } }] });
+    }
+    if (u.endsWith('/payment')) {
+      invoiceBody = JSON.parse(opts.body);
+      return reply({ state: 0, result: { uuid: 'u-1', payer_currency: 'USDT', network: 'tron',
+                                         payer_amount: invoiceBody.amount, address: 'TADDR' } });
+    }
+    return new Response('{}', { status: 404 });
+  };
+  try {
+    check('курс Rapira берётся из пары USDT/RUB', await crypto.rapiraRate({ force: true }) === 84.22);
+    check('курс вывода USDT - Rapira плюс 5%', await crypto.payoutRate('USDT') === 88.43);
+    const cr = await crypto.cashierRates();
+    check('касса видит курс пополнения по Rapira', cr.deposit.USDT === 84.22);
+    check('касса видит курс вывода с наценкой', cr.payout.USDT === 88.43);
+
+    // Заявка на вывод USDT: курс и сумму считает сервер, присланные не берутся.
+    const q = await crypto.payoutQuote('usdt', 5000, '999.00', 1);
+    check('вывод USDT: курс сервера, а не браузера', q.cryptoRate === 88.43, String(q.cryptoRate));
+    // 5000 / 88.43 = 56.541... -> вниз до цента.
+    check('вывод USDT: сумма вниз до цента', q.cryptoAmount === '56.54', q.cryptoAmount);
+    const other = await crypto.payoutQuote('BTC', 5000, '0.0007', 6850000);
+    check('вывод другой монетой: курс игрока', other.cryptoRate === 6850000 && other.cryptoAmount === '0.0007');
+
+    const user = getOrCreateUser({ id: 'crypto-r', username: 'r' });
+    const pay = await crypto.createDeposit(user.id, 1000, 'USDT', 'TRON');
+    check('счёт USDT выставлен в монете, а не в рублях',
+          invoiceBody?.currency === 'USDT' && !invoiceBody?.to_currency, JSON.stringify(invoiceBody));
+    // 1000 / 84.22 = 11.873... -> вверх до цента.
+    check('сумма в USDT по курсу Rapira, вверх до цента', invoiceBody?.amount === '11.88', invoiceBody?.amount);
+    const row = db.prepare('SELECT * FROM crypto_payments WHERE id=?').get(pay.id);
+    check('курс счёта записан в платёж', row.rub_rate === 84.22);
+
+    // Вебхук счёта в монете: amount там в USDT, зачисляется сумма в рублях.
+    const r = crypto.applyWebhook({
+      order_id: row.order_id, status: 'paid',
+      amount: '11.88', payer_amount: '11.88', payment_amount: '11.88', payer_currency: 'USDT',
+    });
+    check('оплата счёта в USDT зачисляет рубли счёта', r.credited && r.amount === 1000, String(r.amount));
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+}
+
 /* ---------- Настроенность ---------- */
 {
   check('шлюз считается настроенным при заданных ключах', crypto.isConfigured() === true);

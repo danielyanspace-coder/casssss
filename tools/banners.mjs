@@ -179,6 +179,13 @@ const JOBS = [
     side: 1100, crop: 'padding' },
 
   ...MENU_ICONS,
+
+  // «Казино» в боковом меню. В присланном макете меню такой плитки не было,
+  // и она стояла значком-контуром среди объёмных рисунков. Рисунок взят из
+  // присланной заказчиком обложки казино (фишки с короной), рамка 5:3 как у
+  // остальных плиток, фон снимается по яркости тем же способом.
+  { src: 'promo-casino-src.png', out: 'nav-casino.webp', side: 320,
+    crop: { x: 160, y: 400, w: 520, h: 312 }, keyDark: true, vignette: true },
 ];
 
 mkdirSync(OUT, { recursive: true });
@@ -197,7 +204,7 @@ for (const job of JOBS) {
   const src = 'data:image/png;base64,'
     + readFileSync(new URL(job.src, ROOT)).toString('base64');
 
-  const res = await page.evaluate(async ({ src, side, quality, crop, erase, eraseBox, keyDark }) => {
+  const res = await page.evaluate(async ({ src, side, quality, crop, erase, eraseBox, keyDark, vignette }) => {
     const img = new Image();
     img.src = src;
     await img.decode();
@@ -290,6 +297,21 @@ for (const job of JOBS) {
       ctx.putImageData(im, 0, 0);
     }
 
+    if (vignette) {
+      // Края рисунка гаснут эллипсом: у вырезки из сцены (а не из макета
+      // меню) фон не чёрный, и без этого на плитке виден прямоугольник.
+      ctx.globalCompositeOperation = 'destination-in';
+      ctx.save();
+      ctx.translate(c.width / 2, c.height / 2);
+      ctx.scale(c.width / 2, c.height / 2);
+      const g = ctx.createRadialGradient(0, 0, 0.55, 0, 0, 1);
+      g.addColorStop(0, '#000'); g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(-1, -1, 2, 2);
+      ctx.restore();
+      ctx.globalCompositeOperation = 'source-over';
+    }
+
     if (erase) {
       ctx.globalCompositeOperation = 'destination-out';
       ctx.beginPath();
@@ -308,7 +330,7 @@ for (const job of JOBS) {
       base64: c.toDataURL('image/webp', quality).split(',')[1],
     };
   }, { src, side: job.side, quality: QUALITY, crop: job.crop || null,
-       erase: job.erase || null, eraseBox: job.eraseBox || null, keyDark: !!job.keyDark });
+       erase: job.erase || null, eraseBox: job.eraseBox || null, keyDark: !!job.keyDark, vignette: !!job.vignette });
 
   const buf = Buffer.from(res.base64, 'base64');
   writeFileSync(new URL(job.out, OUT), buf);

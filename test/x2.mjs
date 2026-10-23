@@ -135,5 +135,32 @@ check('баланс после удвоенного выигрыша', getUserBy
   check('×10 снят: выданная раньше награда не применяется', [rr.payout, 'x10Applied' in rr], [cash.value, false]);
 }
 
+/*
+ * 12. Удвоитель удваивает кейс-подарок: следующий платный прокрут, выдавший
+ * подарок, приносит два таких кейса и тратит один удвоитель. Фриспины
+ * удвоитель по-прежнему не трогают.
+ */
+{
+  const chain = getCase('chain_2000');
+  const cx2 = chain.items.find((i) => i.perk?.type === 'x2');
+  const gift = chain.items.find((i) => i.perk?.type === 'voucher');
+  const czero = chain.items.find((i) => i.kind === 'item' && i.value > 0);
+  const u = getOrCreateUser({ id: 7_800_000 + (Date.now() % 1_000_000), username: 'x2gift', first_name: 'Аудит' });
+  adminAdjustBalance(u.id, u.id, 5_000_000, 'аудит');
+  const giftCount = () => db.prepare('SELECT count FROM vouchers WHERE user_id = ? AND case_id = ?')
+    .get(u.id, gift.perk.caseId)?.count || 0;
+  const own = () => getX2Perks(u.id).find((p) => p.case_id === chain.id)?.count || 0;
+
+  playCaseRound(u.id, chain, scripted([gift]), scripted([czero]));
+  check('подарок без удвоителя - один кейс', giftCount(), 1);
+
+  playCaseRound(u.id, chain, scripted([cx2]), scripted([czero]));
+  const gr = playCaseRound(u.id, chain, scripted([gift]), scripted([czero]));
+  check('подарок с удвоителем - два кейса', giftCount(), 3);
+  check('удвоитель на подарок потрачен', own(), 0);
+  check('ответ говорит, что удвоитель сработал', [gr.x2Applied, gr.granted.filter((g) => g.type === 'voucher').length], [true, 2]);
+  check('подарок с удвоителем денег не приносит', gr.payout, 0);
+}
+
 console.log(failed ? `\nПРОВАЛЕНО: ${failed}` : '\nВсе комбинации сходятся.');
 process.exit(failed ? 1 : 0);

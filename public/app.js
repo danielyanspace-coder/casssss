@@ -714,8 +714,8 @@ function caseCardHtml(c, vouchers, artAspect = null) {
   for (let i = 0; i < c.id.length; i++) h = (h * 31 + c.id.charCodeAt(i)) >>> 0;
   const breath = `;--breath:${-((h % 5500) / 1000).toFixed(2)}s;--glint:${-((h % 9000) / 1000).toFixed(2)}s`;
   const afford = !locked && (freeCount > 0 || (!c.free && c.price <= (state.user?.balance || 0)));
-  // Бесплатный кейс: вместо цены - «Бесплатно», а готовый подарок светится.
-  const priceLabel = c.free ? (freeCount ? `Бесплатно ×${freeCount}` : 'Бесплатно')
+  // Бесплатный кейс: вместо цены - «FREE», а готовый подарок светится.
+  const priceLabel = c.free ? (freeCount ? `FREE ×${freeCount}` : 'FREE')
     : freeCount && !locked ? 'ПОДАРОК' : money(c.price);
 
   return `<div class="case-card ${hasArt ? 'has-art' : ''} ${freeCount ? 'free-ready' : ''} ${c.free ? 'is-gift' : ''} ${locked ? 'locked' : ''} ${afford ? 'can-afford' : ''}"
@@ -1700,7 +1700,10 @@ async function playDoublers(opened) {
         from: o.item.baseValue, to: o.item.value,
         label: '×2', sub: 'удвоитель',
       })
-      : null))
+      // Кейс-подарок удвоитель удваивает штуками: второй такой же кейс.
+      : o.x2Applied && (o.granted || []).some((g) => g.type === 'voucher' && g.doubled)
+        ? motion().doubler(winnerTile(i), { label: '×2', sub: 'удвоитель', note: '+1 кейс' })
+        : null))
     .filter(Boolean);
   if (jobs.length) await Promise.all(jobs);
 }
@@ -2519,14 +2522,14 @@ async function runFreeSpins(grant, caseData, { auto = false, replay = false, cos
   for (let i = 0; i < grant.spins.length; i++) await runOne(i);
   [...pipsEl.children].forEach((pip) => { pip.classList.remove('is-current'); pip.classList.add('spent'); });
 
-  // Итог серии честный: празднуется только окупившаяся. Доигрывание итог не
+  // Итог серии честный: празднуется только окупившаяся. Неокупившаяся
+  // молчит: строка «серия вернула 85% цены» игроку ничего не даёт (решение
+  // заказчика), сумма и так стоит на счётчике. Доигрывание итог не
   // сравнивает - цена той покупки здесь неизвестна.
   const ratio = cost > 0 ? grant.total / cost : 0;
   if (cost > 0 && !replay) {
-    verdictEl.className = `fs-verdict${ratio >= 1 ? '' : ' is-quiet'}`;
-    verdictEl.innerHTML = ratio >= 1
-      ? `<em>${seriesRatio(ratio)}</em> к цене ${esc(money(cost))}`
-      : `Серия вернула <em>${Math.round(ratio * 100)}%</em> цены ${esc(money(cost))}`;
+    verdictEl.className = 'fs-verdict';
+    verdictEl.innerHTML = ratio >= 1 ? `<em>${seriesRatio(ratio)}</em> к цене ${esc(money(cost))}` : '';
     if (!auto) motion().seriesEnd(totalEl, ratio);
   } else {
     sndCollect();
@@ -2652,7 +2655,9 @@ function showCaseResult(data, caseData) {
   const parts = [];
   if (data.x2Applied) {
     const extra = item.baseValue != null ? item.value - item.baseValue : 0;
-    parts.push(extra > 0 ? `удвоитель ×2: +${fmt(extra)}` : 'удвоитель применён');
+    const doubledGift = (data.granted || []).some((g) => g.type === 'voucher' && g.doubled);
+    parts.push(extra > 0 ? `удвоитель ×2: +${fmt(extra)}`
+      : doubledGift ? 'удвоитель ×2: два кейса' : 'удвоитель применён');
   }
 
   // Удвоителей за один прокрут может прийти несколько: сам предмет плюс те,
@@ -2662,7 +2667,11 @@ function showCaseResult(data, caseData) {
   else if (x2Won > 1) parts.push(`получено удвоителей: ${x2Won}`);
 
   for (const g of data.granted || []) {
-    if (g.type === 'voucher') parts.push(`подарок: кейс «${g.caseName}»`);
+    // Второй ваучер от удвоителя - тот же кейс: одна строка с «×2», а не две.
+    if (g.type === 'voucher' && !g.doubled) {
+      const twice = (data.granted || []).some((d) => d.type === 'voucher' && d.doubled && d.caseId === g.caseId);
+      parts.push(`подарок: кейс «${g.caseName}»${twice ? ' ×2' : ''}`);
+    }
     // Крупное число над строкой - это только сам предмет. То, что пришло
     // деньгами сверх него, иначе нигде не видно.
     if (g.type === 'credits') parts.push(`бонус +${fmt(g.amount)}`);
@@ -6386,7 +6395,7 @@ const SIDE_NAV = [
   { view: 'crash', art: '/assets/ui/nav-crash.webp', title: 'Краш', sub: 'Лови коэффициент' },
   { view: 'roulette', art: '/assets/ui/nav-roulette.webp', title: 'Рулетка', sub: 'Испытай удачу' },
   { view: 'wallet', art: '/assets/ui/nav-wallet.webp', title: 'Касса', sub: 'Пополнение и вывод' },
-  { view: 'casino', ico: 'slot', title: 'Казино', sub: 'Слоты провайдеров' },
+  { view: 'casino', art: '/assets/ui/nav-casino.webp', title: 'Казино', sub: 'Слоты провайдеров' },
   { view: 'slots', ico: 'slot', title: 'Слоты', sub: 'TREASURE ISLAND' },
   { view: 'freemoney', art: '/assets/ui/nav-bonuses.webp', title: 'Бонусы', sub: 'Free Money и подарки' },
   { view: 'partner', ico: 'people', title: 'Партнёру', sub: 'Статистика и выплаты',
@@ -6903,7 +6912,7 @@ document.getElementById('walletDeposit').addEventListener('click', () => { setCa
  * что-то поменялось в кабинете.
  */
 const cryptoState = {
-  loaded: false, enabled: false, coins: [], rates: {}, min: 100, max: 500000,
+  loaded: false, enabled: false, coins: [], rates: {}, payoutRates: {}, min: 100, max: 500000,
   deposit: { currency: null, network: null },
   withdraw: { currency: null, network: null },
 };
@@ -6924,16 +6933,24 @@ function coinDecimals(rate) {
   return 0;
 }
 
-function coinAmount(rub, currency) {
-  const rate = cryptoState.rates[currency];
+/**
+ * Курс пополнения и курс вывода у USDT разные: вывод считается по Rapira с
+ * наценкой. Поэтому каждая сторона кассы берёт свою таблицу.
+ */
+function sideRates(side) {
+  return side === 'withdraw' ? { ...cryptoState.rates, ...cryptoState.payoutRates } : cryptoState.rates;
+}
+
+function coinAmount(rub, currency, side = 'deposit') {
+  const rate = sideRates(side)[currency];
   if (!rate || !rub) return null;
   const value = rub / rate;
   return value.toFixed(coinDecimals(rate));
 }
 
 /** Курс монеты словами: «1 USDT = 86,15 ₽». */
-function rateLine(currency) {
-  const rate = cryptoState.rates[currency];
+function rateLine(currency, side = 'deposit') {
+  const rate = sideRates(side)[currency];
   if (!rate) return '';
   const digits = rate >= 100 ? 0 : rate >= 1 ? 2 : 6;
   return `1 ${currency} = ${rate.toLocaleString('ru-RU', {
@@ -6949,6 +6966,7 @@ async function loadCryptoOptions() {
       enabled: !!data.enabled,
       coins: data.coins || [],
       rates: data.rates || {},
+      payoutRates: data.payoutRates || {},
       min: data.min ?? 100,
       max: data.max ?? 500000,
     });
@@ -7066,8 +7084,8 @@ function refreshCryptoRate(side) {
   if (!currency) { box.innerHTML = ''; return; }
 
   const rub = amountOf(document.getElementById(isDeposit ? 'cryptoAmount' : 'withdrawAmount'));
-  const amount = coinAmount(rub, currency);
-  const course = rateLine(currency);
+  const amount = coinAmount(rub, currency, side);
+  const course = rateLine(currency, side);
 
   if (!amount) {
     box.innerHTML = course ? `<span class="rate-course">${course}</span>` : '';
@@ -7968,8 +7986,8 @@ document.getElementById('withdrawSubmit').addEventListener('click', (e) => withC
       payload.cryptoCurrency = currency;
       payload.cryptoNetwork = network;
       payload.cryptoAddress = document.getElementById('withdrawAddress').value.trim();
-      payload.cryptoAmount = coinAmount(amount, currency) || '';
-      payload.cryptoRate = cryptoState.rates[currency] || 0;
+      payload.cryptoAmount = coinAmount(amount, currency, 'withdraw') || '';
+      payload.cryptoRate = sideRates('withdraw')[currency] || 0;
     } else payload.cardNumber = document.getElementById('withdrawCard').value;
     const r = await api('/api/payout/create', payload);
     applyUser(r.user);
@@ -9270,6 +9288,185 @@ function fortuneSegmentCenter(index) {
   return startDeg + segmentDeg * index + segmentDeg / 2;
 }
 
+/* ---------- Рисунок колеса ----------
+ *
+ * Колесо нарисовано разметкой, а не присланной картинкой (заказчик:
+ * «задумка классная, исполнено ужасно»). Геометрия секторов приходит с
+ * сервера (state.fortune.data.wheel), поэтому стрелка по-прежнему
+ * останавливается ровно на том, что показало окно выигрыша: рисунок и
+ * розыгрыш читают одно и то же описание. FORTUNE_WHEEL_FALLBACK - только для
+ * первой отрисовки, пока описание не приехало (и для гостя, которому сервер
+ * его не отдаёт); порядок тот же, что в server/fortune.js.
+ *
+ * Свет сверху слева, как у остальных рисунков проекта: блик-купол поверх
+ * колеса НЕ вращается вместе с ним (.fortune-gloss), иначе стекло крутилось
+ * бы вместе с секторами. Вечных анимаций нет: лампы бегут только во время
+ * прокрута (класс is-spinning), раздел Free Money уже падал на iPhone.
+ */
+const FORTUNE_WHEEL_FALLBACK = {
+  startDeg: -7,
+  segmentDeg: 40,
+  segments: ['case', 'case', 'case', 'case', 'x2', 'percent', 'cash', 'voucher', 'voucher']
+    .map((type, index) => ({ index, type })),
+};
+
+/** Радиус секторов в координатах рисунка (-50..50). Обод снаружи. */
+const LF_SECTOR_R = 40;
+
+/** Ламп на ободе: по две на сектор - на границе и посередине. */
+const LF_LAMPS_PER_SECTOR = 2;
+
+/*
+ * Цвета секторов: светлый у обода, насыщенный посередине, тёмный у центра.
+ * Сектора одного вида различаются цветом (четыре кейса - четыре камня), а
+ * соседи никогда не совпадают по тону. Самый редкий приз (деньги) - золото.
+ */
+const LF_TONES = {
+  case: [['#ff8aa6', '#e0285a', '#5c0624'], ['#7ff5c4', '#15b07a', '#05432e'],
+    ['#8fd0ff', '#2a6fe0', '#0b2466'], ['#ffd27a', '#e5801a', '#6b2c04']],
+  x2: [['#bdb8ff', '#5d4ff2', '#1d137a']],
+  percent: [['#ffa6e8', '#d8309f', '#5e0a4c']],
+  cash: [['#fff3b8', '#f2b52c', '#6e3f04']],
+  voucher: [['#8ef5ea', '#16a5a8', '#06474f'], ['#e2b2ff', '#9142e6', '#34106b']],
+};
+
+let lfSeq = 0;
+
+function fortuneWheelSpec() {
+  const w = state.fortune.data?.wheel;
+  return w?.segments?.length ? w : FORTUNE_WHEEL_FALLBACK;
+}
+
+/** Рисунок приза в секторе. Верх рисунка смотрит на обод. */
+function lfPrizeArt(type, tone, id, prizes) {
+  const [light, mid, dark] = tone;
+  if (type === 'case') {
+    return `<g>
+      <ellipse cx="0" cy="8.6" rx="8.5" ry="1.6" fill="#000" opacity="0.35"/>
+      <rect x="-8.2" y="-1.8" width="16.4" height="9.6" rx="1.6" fill="${dark}" stroke="#2a1000" stroke-width="0.5"/>
+      <rect x="-8.2" y="-1.8" width="16.4" height="4.2" rx="1.6" fill="${mid}" opacity="0.55"/>
+      <path d="M-8.2 -1.4 V-4.6 Q-8.2 -9.6 0 -9.6 Q8.2 -9.6 8.2 -4.6 V-1.4 Z" fill="${mid}" stroke="#2a1000" stroke-width="0.5"/>
+      <path d="M-6.6 -5 Q-6 -8.4 0 -8.5 Q3 -8.5 4.6 -7.6" fill="none" stroke="${light}" stroke-width="1" stroke-linecap="round" opacity="0.9"/>
+      <rect x="-6.3" y="-9.2" width="1.7" height="17" fill="url(#${id}g)"/>
+      <rect x="4.6" y="-9.2" width="1.7" height="17" fill="url(#${id}g)"/>
+      <rect x="-8.6" y="-2.4" width="17.2" height="1.5" rx="0.6" fill="url(#${id}g)"/>
+      <rect x="-1.8" y="-3.6" width="3.6" height="4.4" rx="0.8" fill="url(#${id}g)" stroke="#5a2a00" stroke-width="0.35"/>
+      <circle cx="0" cy="-1.9" r="0.55" fill="#3a1500"/>
+    </g>`;
+  }
+  if (type === 'x2' || type === 'percent') {
+    const text = type === 'x2' ? '×2' : '+%';
+    return `<text x="0" y="1" text-anchor="middle" dominant-baseline="middle"
+      font-family="Unbounded, Manrope, sans-serif" font-weight="900" font-size="${type === 'x2' ? 11.5 : 10.5}"
+      fill="url(#${id}g)" stroke="#2b0d00" stroke-width="1.1" paint-order="stroke"
+      letter-spacing="-0.4">${text}</text>
+      <text x="-0.6" y="0.2" text-anchor="middle" dominant-baseline="middle"
+      font-family="Unbounded, Manrope, sans-serif" font-weight="900" font-size="${type === 'x2' ? 11.5 : 10.5}"
+      fill="none" stroke="#fff" stroke-width="0.25" opacity="0.6" letter-spacing="-0.4">${text}</text>`;
+  }
+  if (type === 'cash') {
+    const coin = (y) => `<ellipse cx="0" cy="${y + 1}" rx="6.4" ry="2.4" fill="#8a4a05"/>
+      <ellipse cx="0" cy="${y}" rx="6.4" ry="2.4" fill="url(#${id}g)" stroke="#6b3a02" stroke-width="0.35"/>`;
+    return `<g>
+      <ellipse cx="0" cy="8.4" rx="7.5" ry="1.5" fill="#000" opacity="0.35"/>
+      ${coin(5)}${coin(2.2)}${coin(-0.6)}
+      <text x="0" y="-0.5" text-anchor="middle" dominant-baseline="middle" font-family="Manrope, sans-serif"
+        font-weight="900" font-size="3.4" fill="#7a3f00">₽</text>
+      <text x="0" y="-6.4" text-anchor="middle" dominant-baseline="middle"
+        font-family="Unbounded, Manrope, sans-serif" font-weight="900" font-size="4.6"
+        fill="#fff" stroke="#3a1800" stroke-width="0.7" paint-order="stroke">${fmt(prizes?.cash || 2000)}</text>
+    </g>`;
+  }
+  // Ваучер: золотой билет с выемками по бокам.
+  return `<g transform="rotate(-8)">
+    <ellipse cx="0" cy="7.4" rx="8" ry="1.4" fill="#000" opacity="0.3"/>
+    <path d="M-9 -5 H9 V-1.6 A1.6 1.6 0 0 0 9 1.6 V5 H-9 V1.6 A1.6 1.6 0 0 0 -9 -1.6 Z"
+      fill="url(#${id}g)" stroke="#5a2a00" stroke-width="0.45"/>
+    <rect x="-7.4" y="-3.5" width="14.8" height="7" rx="0.8" fill="none" stroke="#8a4a05" stroke-width="0.35" stroke-dasharray="0.9 0.6"/>
+    <text x="0" y="0.3" text-anchor="middle" dominant-baseline="middle" font-family="Unbounded, Manrope, sans-serif"
+      font-weight="900" font-size="3.5" fill="#5a2600" letter-spacing="0.2">LUCKY</text>
+    <path d="M-8 -4.2 H8" stroke="#fff" stroke-width="0.5" opacity="0.55"/>
+  </g>`;
+}
+
+/** Колесо целиком: сектора, разделители, призы, обод с лампами. */
+function fortuneWheelMarkup() {
+  const { startDeg, segmentDeg, segments } = fortuneWheelSpec();
+  const prizes = state.fortune.data?.prizes;
+  const id = `lf${++lfSeq}`;
+  const rad = (d) => (d * Math.PI) / 180;
+  const pt = (d, r) => `${(Math.cos(rad(d)) * r).toFixed(2)} ${(Math.sin(rad(d)) * r).toFixed(2)}`;
+  const seen = {};
+  const defs = [];
+  const parts = [];
+
+  segments.forEach((seg, i) => {
+    const tones = LF_TONES[seg.type] || LF_TONES.percent;
+    const tone = tones[(seen[seg.type] = (seen[seg.type] ?? -1) + 1) % tones.length];
+    const a0 = startDeg + segmentDeg * i;
+    const a1 = a0 + segmentDeg;
+    const mid = a0 + segmentDeg / 2;
+    defs.push(`<radialGradient id="${id}s${i}" cx="0" cy="0" r="${LF_SECTOR_R}" gradientUnits="userSpaceOnUse">
+      <stop offset="0.15" stop-color="${tone[2]}"/><stop offset="0.72" stop-color="${tone[1]}"/>
+      <stop offset="1" stop-color="${tone[0]}"/></radialGradient>`);
+    parts.push(`<path class="lf-sec" d="M0 0 L${pt(a0, LF_SECTOR_R)} A${LF_SECTOR_R} ${LF_SECTOR_R} 0 0 1 ${pt(a1, LF_SECTOR_R)} Z" fill="url(#${id}s${i})"/>`);
+    // Светлая кромка у обода: сектор читается выпуклым, а не плоской долькой.
+    parts.push(`<path d="M${pt(a0 + 1.5, LF_SECTOR_R - 1.4)} A${LF_SECTOR_R - 1.4} ${LF_SECTOR_R - 1.4} 0 0 1 ${pt(a1 - 1.5, LF_SECTOR_R - 1.4)}"
+      fill="none" stroke="${tone[0]}" stroke-width="1.1" opacity="0.7"/>`);
+    const [x, y] = pt(mid, 26.5).split(' ');
+    parts.push(`<g transform="translate(${x} ${y}) rotate(${mid + 90})">${lfPrizeArt(seg.type, tone, id, prizes)}</g>`);
+  });
+
+  // Разделители: золотые спицы с заклёпкой у обода.
+  const spokes = segments.map((_, i) => {
+    const a = startDeg + segmentDeg * i;
+    return `<path d="M${pt(a, 11)} L${pt(a, LF_SECTOR_R)}" stroke="url(#${id}g)" stroke-width="1"/>
+      <circle cx="${pt(a, LF_SECTOR_R - 2.6).split(' ')[0]}" cy="${pt(a, LF_SECTOR_R - 2.6).split(' ')[1]}" r="0.95" fill="url(#${id}g)" stroke="#5a2a00" stroke-width="0.25"/>`;
+  }).join('');
+
+  const lampCount = segments.length * LF_LAMPS_PER_SECTOR;
+  const lamps = Array.from({ length: lampCount }, (_, i) => {
+    const [x, y] = pt(startDeg + (segmentDeg / LF_LAMPS_PER_SECTOR) * i, 44.4).split(' ');
+    return `<g class="lf-lamp lf-lamp-${i % 2}"><circle cx="${x}" cy="${y}" r="2.5" fill="#ffd34d" opacity="0.22"/>
+      <circle cx="${x}" cy="${y}" r="1.45" fill="url(#${id}l)"/></g>`;
+  }).join('');
+
+  return `<defs>
+      <linearGradient id="${id}g" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#fff6c4"/><stop offset="0.45" stop-color="#ffcf45"/><stop offset="1" stop-color="#b8700c"/></linearGradient>
+      <linearGradient id="${id}r" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="#fff2b8"/><stop offset="0.25" stop-color="#f2b53a"/><stop offset="0.5" stop-color="#8a4d0a"/>
+        <stop offset="0.72" stop-color="#ffd76a"/><stop offset="1" stop-color="#7a3f06"/></linearGradient>
+      <radialGradient id="${id}l" cx="0.4" cy="0.35" r="0.7">
+        <stop offset="0" stop-color="#ffffff"/><stop offset="0.45" stop-color="#fff0a0"/><stop offset="1" stop-color="#ff9d00"/></radialGradient>
+      ${defs.join('')}
+    </defs>
+    <circle r="49.4" fill="#1a0726"/>
+    ${parts.join('')}
+    <circle r="${LF_SECTOR_R}" fill="none" stroke="#2a0d00" stroke-width="0.9"/>
+    ${spokes}
+    <circle r="44.5" fill="none" stroke="url(#${id}r)" stroke-width="8.6"/>
+    <circle r="48.7" fill="none" stroke="#3d1d00" stroke-width="0.6"/>
+    <circle r="47.9" fill="none" stroke="#fff" stroke-width="0.35" opacity="0.4"/>
+    <circle r="40.9" fill="none" stroke="#fff4c2" stroke-width="0.3" opacity="0.5"/>
+    ${lamps}`;
+}
+
+/** Колесо на сцене и его уменьшенная копия на витрине. */
+function renderFortuneArt() {
+  const wheel = document.getElementById('fortuneWheel');
+  if (wheel && !state.fortune.busy) wheel.innerHTML = fortuneWheelMarkup();
+  for (const id of ['fortuneMini', 'fortuneStepsWheel']) {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = fortuneWheelMarkup();
+  }
+  const p = state.fortune.data?.prizes;
+  const cash = document.getElementById('fortuneCashChip');
+  if (cash) cash.textContent = money(p?.cash || 2000);
+  const voucher = document.getElementById('fortuneVoucherChip');
+  if (voucher) voucher.textContent = `Ваучер до ${money(p?.voucherMax || 1500)}`;
+}
+
 async function loadFortune() {
   try {
     state.fortune.data = await api('/api/fortune/state', null, { quiet: true });
@@ -9277,6 +9474,7 @@ async function loadFortune() {
     // Колесо необязательно: ивент просто останется на витрине.
     return;
   }
+  renderFortuneArt();
   renderFortuneStatus();
   renderFortuneLog();
 }
@@ -9386,6 +9584,7 @@ function showFortuneSteps() {
   document.getElementById('fortuneStepsGo').textContent =
     d.spinsLeft > 0 ? 'К колесу' : 'Пополнить счёт';
 
+  renderFortuneArt();
   document.getElementById('fortuneStepsBackdrop').hidden = false;
 }
 
@@ -9445,10 +9644,14 @@ async function spinFortune() {
 
   wheel.style.transition = `transform ${SPIN_MS}ms cubic-bezier(0.16, 0.84, 0.24, 1)`;
   wheel.style.transform = `rotate(${state.fortune.angle}deg)`;
+  // Лампы обода бегут, пока колесо крутится, и гаснут в бег вместе с ним.
+  const box = wheel.parentElement;
+  box.classList.add('is-spinning');
   sndSpinStart();
   fortuneHighlight(wheel, SPIN_MS, res.prize.segment);
 
   await sleep(SPIN_MS + 120);
+  box.classList.remove('is-spinning');
 
   applyUser(res.user);
   state.fortune.data = { ...state.fortune.data, ...res.state };
@@ -9462,8 +9665,8 @@ async function spinFortune() {
 /** С какого момента прокрута сектора под указателем начинают подсвечиваться. */
 const FORTUNE_HL_FROM = 0.55;
 
-/** Радиус секторов колеса, доля стороны картинки (по золотому ободу). */
-const FORTUNE_HL_R = 0.46;
+/** Радиус секторов колеса, доля стороны рисунка (LF_SECTOR_R из 100). */
+const FORTUNE_HL_R = 0.4;
 
 /**
  * Подсветка секторов на торможении.
@@ -9629,6 +9832,7 @@ function openFreeMoney() {
   setGiftsOpen(false);
   renderBonuses();
   renderFreeMoney();
+  renderFortuneArt();
   loadFortune();
 }
 
@@ -9668,6 +9872,16 @@ function renderFmTabs() {
       const el = document.getElementById(b.dataset.go);
       const top = el.getBoundingClientRect().top + window.scrollY - fmStickyBottom() - FM_TAB_GAP;
       window.scrollTo({ top, behavior: 'smooth' });
+      // На компьютере плитка коротко приподнимается, когда до неё доехали:
+      // видно, какой блок отвечает на нажатие. Стиль только в десктопном
+      // блоке styles.css, на телефоне класс ничего не делает.
+      el.classList.remove('fm-hello');
+      clearTimeout(el.fmHelloT);
+      el.fmHelloT = setTimeout(() => {
+        void el.offsetWidth;
+        el.classList.add('fm-hello');
+        el.addEventListener('animationend', () => el.classList.remove('fm-hello'), { once: true });
+      }, FM_HELLO_DELAY_MS);
     };
   });
   markFmTab();
@@ -9675,6 +9889,9 @@ function renderFmTabs() {
 
 /** Отступ от шапки до ивента, к которому прокрутили. */
 const FM_TAB_GAP = 12;
+
+/** Пауза перед «это я»: плитка должна сначала доехать до экрана. */
+const FM_HELLO_DELAY_MS = 380;
 
 /*
  * Нижний край шапки - по разметке, а не числом. Вкладки к ней не липнут
