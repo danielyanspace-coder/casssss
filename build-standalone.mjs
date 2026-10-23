@@ -120,7 +120,7 @@ const config = {
     multipliers: UPGRADE_CONFIG.multipliers,
     rtp: UPGRADE_CONFIG.rtp,
   },
-  feed: { minMultiplier: FEED_MIN_MULTIPLIER, minValue: FEED_MIN_VALUE },
+  feed: { minMultiplier: FEED_MIN_MULTIPLIER, minValue: FEED_MIN_VALUE, synthetic: true },
   // Бесплатный кейс проверяет подписку ботом Telegram - в автономной сборке его нет.
   freeCase: { enabled: false },
   // Free Money: те же описания, что отдаёт сервер.

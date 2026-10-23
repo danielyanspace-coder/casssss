@@ -6372,23 +6372,49 @@ div.mini-row { cursor: default; }
 .cash-panel > .cash-step:first-child,
 .cash-panel > .deposit-offer[hidden] + .cash-step { margin-top: 2px; }
 
-/* Бонус первого пополнения: подарок вместо пунктирной рамки. */
+/* Бонус первого пополнения: купон. Слева крупный процент, справа два
+   условия, ниже - раскрывашка с правилами. Блик проходит раз в несколько
+   секунд: предложение живое, но не мигает. */
 #view-wallet .deposit-offer {
-  position: relative;
-  margin: 0 0 14px;
-  padding: 12px 14px 12px 50px;
-  border: 1px solid rgba(224, 81, 140, 0.28);
-  border-radius: 16px;
-  background: linear-gradient(100deg, rgba(224, 81, 140, 0.14), rgba(147, 102, 208, 0.06));
-  font-size: 12.5px; line-height: 1.5; color: var(--c-text-2);
+  position: relative; overflow: hidden;
+  margin: 0 0 14px; padding: 0;
+  border-radius: 18px;
+  background:
+    radial-gradient(120% 140% at 0% 50%, rgba(255, 200, 80, 0.22), transparent 55%),
+    linear-gradient(110deg, #2b1830, #1d1328 60%);
+  border: 1px solid rgba(255, 205, 110, 0.32);
+  box-shadow: inset 0 1px 0 rgba(255, 240, 200, 0.12), 0 12px 30px -18px rgba(255, 180, 60, 0.6);
 }
-#view-wallet .deposit-offer::before {
-  content: '';
-  position: absolute; left: 13px; top: 13px;
-  width: 26px; height: 26px; border-radius: 9px;
-  background: rgba(224, 81, 140, 0.2) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23e0518c' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='4' y='9' width='16' height='11' rx='2'/%3E%3Cpath d='M3 9h18M12 9v11'/%3E%3Cpath d='M12 9c-2.5 0-4.5-1-4.5-2.8S10 4 12 9Zm0 0c2.5 0 4.5-1 4.5-2.8S14 4 12 9Z'/%3E%3C/svg%3E") center / 16px no-repeat;
+#view-wallet .deposit-offer::after {
+  content: ''; position: absolute; inset: 0; translate: -130% 0; pointer-events: none;
+  background: linear-gradient(105deg, transparent 40%, rgba(255, 236, 190, 0.16) 50%, transparent 60%);
+  animation: openSheen 5s cubic-bezier(0.65, 0, 0.35, 1) infinite 1s;
 }
-#view-wallet .deposit-offer b { display: block; margin-bottom: 2px; font-size: 13.5px; color: #fff; }
+.do-main { display: flex; align-items: center; gap: 14px; padding: 14px 14px 12px; }
+.do-pct {
+  flex: none; display: flex; align-items: center; gap: 10px;
+  padding-right: 14px; border-right: 2px dashed rgba(255, 205, 110, 0.3);
+}
+.do-pct b {
+  font: 900 32px/1 'Unbounded', 'Manrope', system-ui, sans-serif; letter-spacing: -0.02em;
+  background: linear-gradient(180deg, #fff3c4, #ffc93f 55%, #f08a1c);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  filter: drop-shadow(0 2px 10px rgba(255, 180, 60, 0.35));
+}
+.do-pct span { color: #f3dfb7; font: 700 10px/1.25 'Manrope', system-ui, sans-serif; text-transform: uppercase; letter-spacing: 0.06em; }
+.do-terms { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.do-terms span { color: #cdbad6; font: 600 12.5px/1.2 'Manrope', system-ui, sans-serif; }
+.do-terms b { color: #fff; font-weight: 800; }
+.do-more { border-top: 1px solid rgba(255, 255, 255, 0.06); }
+.do-more summary {
+  list-style: none; cursor: pointer; padding: 9px 14px;
+  color: #e8c27a; font: 700 12px/1 'Manrope', system-ui, sans-serif;
+}
+.do-more summary::-webkit-details-marker { display: none; }
+.do-more summary::after { content: ' ›'; display: inline-block; transition: transform 0.2s; }
+.do-more[open] summary::after { transform: rotate(90deg); }
+.do-more p { margin: 0; padding: 0 14px 12px; color: #b9a8c6; font: 500 12px/1.5 'Manrope', system-ui, sans-serif; }
+@media (prefers-reduced-motion: reduce) { #view-wallet .deposit-offer::after { animation: none; } }
 
 /* Способ пополнения */
 #view-wallet .deposit-methods { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 0; }
@@ -10270,10 +10296,24 @@ body.mo-receded .opener-scroll { filter: blur(4px) saturate(.55); transform: sca
   background: var(--bg-soft); border: 1px solid rgba(255, 255, 255, 0.07);
   color: var(--muted); font: 600 13px/1 'Inter', 'Manrope', system-ui, sans-serif;
 }
-.cz-chip .cz-ico { width: 16px; height: 16px; }
-.cz-chip[aria-pressed="true"] { color: #fff; border-color: rgba(224, 81, 140, 0.6); background: rgba(224, 81, 140, 0.16); }
-.cz-chip[aria-pressed="true"] .cz-ico { color: var(--pink); }
+.cz-chip { padding-left: 6px; }
+.cz-chip[aria-pressed="true"] {
+  color: #fff; border-color: rgba(255, 255, 255, 0.22);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.04));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
 .cz-ico { flex: 0 0 auto; width: 20px; height: 20px; }
+/* Плашка значка: свой градиент у категории, белый контур, глянец сверху. */
+.cz-ib {
+  flex: 0 0 auto; display: grid; place-items: center; width: 26px; height: 26px; border-radius: 8px;
+  color: #fff; background: linear-gradient(145deg, var(--a), var(--b));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45), inset 0 -2px 4px rgba(0, 0, 0, 0.18), 0 4px 10px -4px var(--b);
+}
+.cz-ib .cz-ico { width: 16px; height: 16px; filter: drop-shadow(0 1px 0 rgba(0, 0, 0, 0.25)); }
+.cz-chip .cz-ib { width: 24px; height: 24px; border-radius: 7px; }
+.cz-chip .cz-ib .cz-ico { width: 14px; height: 14px; }
+.cz-btitle .cz-ib { width: 30px; height: 30px; border-radius: 9px; }
+.cz-btitle .cz-ib .cz-ico { width: 18px; height: 18px; }
 
 /* ---------- Блоки лобби ---------- */
 .cz-body { margin-top: 6px; }
@@ -10285,7 +10325,6 @@ body.mo-receded .opener-scroll { filter: blur(4px) saturate(.55); transform: sca
   font: 700 17px/1.1 'Inter', 'Manrope', system-ui, sans-serif; letter-spacing: -0.2px;
 }
 .cz-btitle > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.cz-btitle .cz-ico { color: var(--pink); }
 .cz-btitle > svg:last-child { flex: 0 0 auto; color: var(--muted); }
 .cz-arrows { display: flex; gap: 6px; flex: 0 0 auto; }
 .cz-arrow {
@@ -10322,6 +10361,7 @@ body.mo-receded .opener-scroll { filter: blur(4px) saturate(.55); transform: sca
 .cz-track.is-two > .cz-all .cz-art { height: 100%; aspect-ratio: auto; }
 .cz-all-in { display: grid; justify-items: center; gap: 4px; color: var(--text); font: 600 14px/1 'Inter', 'Manrope', system-ui, sans-serif; }
 .cz-all-in b { font-size: 20px; font-weight: 800; color: #fff; }
+.cz-all-in small { font-size: 13px; font-weight: 600; color: var(--muted); }
 
 /* Множитель настоящего раунда на плитке «Лучших выигрышей». */
 .cz-mult {
@@ -10362,7 +10402,7 @@ body.mo-receded .opener-scroll { filter: blur(4px) saturate(.55); transform: sca
   font: 700 17px/1.1 'Inter', 'Manrope', system-ui, sans-serif; color: var(--text);
 }
 .cz-listtitle > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.cz-listtitle .cz-ico { color: var(--pink); }
+.cz-listtitle .cz-ib { width: 30px; height: 30px; border-radius: 9px; }
 .cz-count { flex: 0 0 auto; color: var(--muted); font-size: 12px; font-weight: 700; }
 
 /* ---------- Провайдеры ----------
@@ -10430,6 +10470,17 @@ body.mo-receded .opener-scroll { filter: blur(4px) saturate(.55); transform: sca
 .cz-tile:active .cz-art { transform: scale(.97); }
 .cz-name { display: block; margin-top: 7px; font-size: 12.5px; font-weight: 700; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cz-prov { display: block; margin-top: 1px; color: var(--muted); font-size: 11px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* «N играют»: зелёная точка дышит, число белое, как у образца. Провайдер
+   при этом уходит: под обложкой одна строка, а не две. */
+.cz-live {
+  display: flex; align-items: center; gap: 5px; margin-top: 3px;
+  color: var(--muted); font: 600 12px/1 'Inter', 'Manrope', system-ui, sans-serif; white-space: nowrap;
+}
+.cz-live b { color: #fff; font-weight: 700; }
+.cz-live i { width: 7px; height: 7px; border-radius: 50%; background: #3ee08a; animation: czLive 2.4s ease-in-out infinite; }
+@keyframes czLive { 0%, 100% { box-shadow: 0 0 0 0 rgba(62, 224, 138, 0.6); } 60% { box-shadow: 0 0 0 5px rgba(62, 224, 138, 0); } }
+.cz-tile:has(.cz-live) .cz-prov { display: none; }
+@media (prefers-reduced-motion: reduce) { .cz-live i { animation: none; } }
 .cz-skel { pointer-events: none; }
 .cz-skel .cz-name { height: 12px; width: 70%; border-radius: 6px; }
 

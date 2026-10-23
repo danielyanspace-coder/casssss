@@ -98,9 +98,25 @@ export function createCasino(deps) {
     roulette: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zm0 5a4 4 0 1 0 0 8 4 4 0 0 0 0-8z',
     cards: 'M7 3h10v14H7zM4 7v13h10',
   };
-  const icon = (name) => (ICONS[name]
-    ? `<svg class="cz-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${ICONS[name]}"/></svg>`
-    : '');
+  /*
+   * Значок на цветной плашке: тонкий серый контур рядом с яркими обложками
+   * терялся и выглядел чужим (заказчик). Теперь у каждой категории свой
+   * градиент, контур белый и потолще - значок читается как часть фирменного
+   * стиля, а не как системная иконка.
+   */
+  const ICON_TONES = {
+    fire: ['#ff9a3c', '#ff3d6e'], trophy: ['#ffe07a', '#e59a1a'], spark: ['#b98bff', '#6a4dff'],
+    coin: ['#ffd54a', '#f0861c'], grid: ['#4fd1ff', '#3a6bff'], bag: ['#ff7ab8', '#c13bff'],
+    book: ['#f2c879', '#a8651c'], cherry: ['#ff6b6b', '#c4124f'], pyramid: ['#ffd68a', '#d48a2a'],
+    gift: ['#7ef0a8', '#1fa86a'], rocket: ['#6fc8ff', '#5a5bff'], bomb: ['#c9c9d6', '#5d5d74'],
+    dice: ['#d58bff', '#7a3bff'], wheel: ['#5fe8d4', '#1b9e9e'], roulette: ['#ff6b6b', '#1fa86a'],
+    cards: ['#8fa3ff', '#4a3bd6'],
+  };
+  const icon = (name) => {
+    if (!ICONS[name]) return '';
+    const [a, b] = ICON_TONES[name] || ['#b98bff', '#6a4dff'];
+    return `<span class="cz-ib" style="--a:${a};--b:${b}"><svg class="cz-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${ICONS[name]}"/></svg></span>`;
+  };
   const chevron = (dir) => `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${dir === 'left' ? 'M15 5l-7 7 7 7' : 'M9 5l7 7-7 7'}"/></svg>`;
 
   /* ---------- Провайдер: знак или название ---------- */
@@ -170,6 +186,34 @@ export function createCasino(deps) {
 
   /* ---------- Плитка ---------- */
 
+  /*
+   * «N играют» под обложкой, как у 1Win (просьба заказчика). Числа
+   * выдуманные, поэтому живут под тем же выключателем, что и выдуманная
+   * лента выигрышей (FEED_SYNTHETIC): выключили оживление - пропали и они.
+   *
+   * Число держится от ранга игры в «Популярных»: первая около 110, к
+   * двадцатой - десяток, остальные 1-14. Дрейф раз в LIVE_DRIFT_MS от
+   * хеша игры и времени: число живое, но не скачет при каждой перерисовке.
+   */
+  const LIVE_MAX = 110;
+  const LIVE_DRIFT_MS = 90_000;
+  const popularRank = new Map();
+  function livePlayers(g) {
+    let h = 2166136261;
+    const key = `${g.id}:${Math.floor(Date.now() / LIVE_DRIFT_MS)}`;
+    for (let i = 0; i < key.length; i++) h = Math.imul(h ^ key.charCodeAt(i), 16777619) >>> 0;
+    const jitter = (h % 1000) / 1000;
+    const rank = popularRank.get(g.id);
+    if (rank == null) return 1 + Math.floor(jitter * jitter * 14);
+    const base = LIVE_MAX * Math.exp(-rank / 8);
+    return Math.max(2, Math.min(LIVE_MAX, Math.round(base * (0.82 + jitter * 0.3))));
+  }
+  const liveHtml = (g) => {
+    if (!deps.state?.config?.feed?.synthetic) return '';
+    const n = livePlayers(g);
+    return `<span class="cz-live"><i></i><b>${n}</b> ${plural(n, 'играет', 'играют', 'играют')}</span>`;
+  };
+
   function tileHtml(g, ref, { badge = true } = {}) {
     // Горизонтальная запасная обложка не обрезается под 3:4: она стоит
     // целиком поверх своей же размытой копии. Обрезка съела бы название.
@@ -187,6 +231,7 @@ export function createCasino(deps) {
       </span>
       <span class="cz-name">${esc(g.name)}</span>
       ${g.winAmount ? `<span class="cz-prov cz-win">${money(g.winAmount)}</span>` : `<span class="cz-prov">${esc(g.provider)}</span>`}
+      ${g.winAmount ? '' : liveHtml(g)}
     </button>`;
   }
 
@@ -230,7 +275,7 @@ export function createCasino(deps) {
       : `<button class="cz-btitle" data-chip="${esc(b.id)}">${icon(b.icon)}<span>${esc(b.title)}</span>${chevron('right')}</button>`;
     const more = b.total > b.games.length
       ? `<button class="cz-tile cz-all" ${b.type === 'provider' ? `data-provider="${esc(b.provider)}"` : `data-chip="${esc(b.id)}"`}>
-           <span class="cz-art"><span class="cz-all-in">Все<b>${fmtN(b.total)}</b></span></span>
+           <span class="cz-art"><span class="cz-all-in">Все<b>${fmtN(b.total)}</b><small>${gamesWord(b.total)}</small></span></span>
          </button>` : '';
     return `<section class="cz-block" data-block="${esc(b.id)}">
       <div class="cz-bhead">
@@ -314,6 +359,10 @@ export function createCasino(deps) {
     if (ui.home[kind]) return ui.home[kind];
     const { blocks } = await api('/api/casino/home', { kind });
     ui.home[kind] = blocks;
+    // Ранг в «Популярных» задаёт, сколько человек «играют» в игру (livePlayers).
+    for (const b of blocks) {
+      if (b.type === 'popular') b.games.forEach((g, i) => { if (!popularRank.has(g.id)) popularRank.set(g.id, i); });
+    }
     return blocks;
   }
 

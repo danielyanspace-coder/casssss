@@ -496,7 +496,9 @@ app.get('/api/config', (req, res) => {
       minStake: UPGRADE_CONFIG.minStake,
       multipliers: UPGRADE_CONFIG.multipliers,
     },
-    feed: { minMultiplier: FEED_CONFIG.minMultiplier, minValue: FEED_CONFIG.minValue },
+    // synthetic: выдуманные витрина и счётчики «N играют» в казино. Один
+    // выключатель FEED_SYNTHETIC на всё оживление, которого нет на самом деле.
+    feed: { minMultiplier: FEED_CONFIG.minMultiplier, minValue: FEED_CONFIG.minValue, synthetic: FEED_CONFIG.synthetic },
     freeCase: subscriptionConfig(),
     // Колесо удачи за промокод: сектора и их доли круга (угол = вероятность).
     promoWheel: wheelConfig(),
