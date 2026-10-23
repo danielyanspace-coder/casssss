@@ -2441,9 +2441,19 @@ slotChecks: {
     ['bet-pick', 'ВЫБЕРИТЕ СТАВКУ'],
     ['auto', 'ОСТАНОВИТЬ'],
   ]) {
-    await page.evaluate((a) => document.querySelector(`[data-act="${a}"]`)?.click(), act);
-    await page.waitForTimeout(280);
-    const text = await page.evaluate(() => document.getElementById('slotModalBody')?.textContent || '');
+    // Окно выигрыша от прошлого прокрута может всплыть с задержкой (счёт
+    // суммы идёт до него) и перекрыть проверяемое окно: тогда закрываем его
+    // и открываем нужное ещё раз.
+    let text = '';
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await settleSlot();
+      await page.evaluate((a) => document.querySelector(`[data-act="${a}"]`)?.click(), act);
+      await page.waitForTimeout(280);
+      text = await page.evaluate(() => document.getElementById('slotModalBody')?.textContent || '');
+      if (text.includes(needle) || !/WIN|БОНУС ЗАВЕРШ/.test(text)) break;
+      await page.evaluate(() => document.querySelector('[data-act="modal-close"]')?.click());
+      await page.waitForTimeout(200);
+    }
     check(`слоты: окно «${act}» открывается`, text.includes(needle), text.slice(0, 60));
     await page.evaluate(() => document.querySelector('[data-act="modal-close"]')?.click());
     await page.waitForTimeout(150);
