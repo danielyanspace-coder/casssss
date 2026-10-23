@@ -262,15 +262,18 @@ for (const f of coverFiles) {
 /*
  * Крупные обложки сцены кейса. В приложении они грузятся по одной, когда
  * кейс открыт; здесь лежат строками, но распаковываются тоже только при
- * открытии кейса - на полке их нет. Пережимаются до DEMO_STAGE_SIDE: этого
- * хватает на сцену телефона, а файл не раздувается вдвое.
+ * открытии кейса - на полке их нет. При 700 точках они занимали почти
+ * половину файла (11 МБ из 25), и на iPhone сборка качалась из чата
+ * полчаса, а недокачанный файл открывался без скрипта: картинки есть, кейсов
+ * нет. 480 точек на сцене телефона почти не отличить, а файл легче на треть.
  */
-const DEMO_STAGE_SIDE = 700;
+const DEMO_STAGE_SIDE = 480;
+const DEMO_STAGE_QUALITY = 0.6;
 const stageDir = new URL('./public/assets/covers/stage/', import.meta.url);
 const stageArt = {};
 for (const f of readdirSync(stageDir).filter((x) => x.endsWith('.webp'))) {
   const src = 'data:image/webp;base64,' + readFileSync(new URL(f, stageDir)).toString('base64');
-  stageArt[f.replace(/\.webp$/, '')] = await shrinkPage.evaluate(async ({ src, side }) => {
+  stageArt[f.replace(/\.webp$/, '')] = await shrinkPage.evaluate(async ({ src, side, quality }) => {
     const img = new Image();
     img.src = src;
     await img.decode();
@@ -281,8 +284,8 @@ for (const f of readdirSync(stageDir).filter((x) => x.endsWith('.webp'))) {
     const ctx = c.getContext('2d');
     ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(img, 0, 0, c.width, c.height);
-    return c.toDataURL('image/webp', 0.8);
-  }, { src, side: DEMO_STAGE_SIDE });
+    return c.toDataURL('image/webp', quality);
+  }, { src, side: DEMO_STAGE_SIDE, quality: DEMO_STAGE_QUALITY });
 }
 
 await shrinkBrowser.close();
