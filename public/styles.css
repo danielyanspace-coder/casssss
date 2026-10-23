@@ -4207,6 +4207,21 @@ div.mini-row { cursor: default; }
   box-shadow: 0 5px 16px rgba(47, 191, 116, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.55);
 }
 
+/* «FREE» и число подарков - одна склеенная плашка из двух частей: слева
+   яркое FREE, справа тёмный хвост с ×N. Хвост тише (тёмный фон, светлый
+   текст без насыщенности): число - справка, а не главное. */
+.case-price-pair { display: inline-flex; align-items: stretch; }
+.shelf-row .case-card.has-art.is-gift .case-price-pair .case-price { border-radius: 7px 0 0 7px; }
+.case-count {
+  display: inline-flex; align-items: center;
+  padding: 0 8px 0 7px;
+  border-radius: 0 7px 7px 0;
+  background: rgba(8, 36, 22, 0.85);
+  box-shadow: inset 0 0 0 1px rgba(127, 240, 168, 0.35);
+  color: #b9efcc;
+  font-size: 12px; font-weight: 800; font-variant-numeric: tabular-nums;
+}
+
 /* У этих двух полок арт вырезан по контуру и шире своей колонки, поэтому
    промежуток больше. Меняем ТОЛЬКО переменную: ширина ячейки пересчитается
    сама. */
@@ -4255,77 +4270,34 @@ div.mini-row { cursor: default; }
   overflow-y: auto;
 }
 
-/* Лист меню - это сама картинка, поэтому ни фона, ни рамки, ни отступов у
-   него нет: любая оправа спорила бы с оформлением, нарисованным на ней. */
+/* Лист меню телефона - те же плитки, что в боковой панели компьютера
+   (решение заказчика: «одинаково и пункты, и оформление»), в тёмной
+   панели того же тона. Разделы - три в ряд, касса и поддержка ниже. */
 .menu-sheet {
   width: 100%; max-width: 460px;
-  background: none;
-  border: 0;
-  padding: 0;
+  padding: 14px 14px 16px;
+  border: 1px solid rgba(120, 78, 190, 0.34);
+  border-radius: 24px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent 30%),
+    linear-gradient(180deg, #170932, #0d0420);
+  box-shadow: 0 24px 60px -20px rgba(0, 0, 0, 0.8);
 }
-
-/* Картинка задаёт размер, кликабельные области лежат поверх неё в процентах
-   от её же сторон - поэтому раскладка не разъезжается ни на каком экране. */
-.menu-photo { position: relative; width: 100%; line-height: 0; }
-.menu-photo-img {
-  width: 100%; height: auto; display: block;
-  border-radius: 22px;
+.menu-head { display: flex; align-items: center; justify-content: space-between; margin: 0 2px 12px; }
+.menu-head-title { margin: 0; font: 800 20px/1 'Unbounded', 'Manrope', system-ui, sans-serif; color: #fff; }
+.menu-close {
+  width: 36px; height: 36px; display: grid; place-items: center;
+  border: 1px solid rgba(160, 120, 255, 0.45); border-radius: 12px; cursor: pointer;
+  background: linear-gradient(180deg, #24104a, #170a31); color: #fff;
 }
-
-.menu-hit {
-  position: absolute;
-  border: 0; padding: 0; margin: 0;
-  background: transparent;
-  border-radius: 18px;
-  cursor: pointer;
-  /* Область прозрачная, но нажатие должно быть заметно: лёгкая подсветка
-     по форме плитки вместо привычного изменения цвета кнопки. */
-  transition: background 0.15s, transform 0.12s;
-  -webkit-tap-highlight-color: transparent;
+.menu-close::before {
+  content: ''; width: 9px; height: 9px; margin-left: 4px;
+  border-left: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(45deg);
 }
-.menu-hit:active {
-  background: rgba(255, 255, 255, 0.12);
-  transform: scale(0.97);
-}
-.menu-hit-back { border-radius: 14px; }
-
-/* Разделы, которых нет на картинке (партнёрский и админский), выводятся
-   обычными кнопками под ней - дорисовывать их в макет нельзя. */
-.menu-extra { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
-.menu-extra:empty { display: none; }
-
-/* Почти квадратные плитки: два в ряд на телефоне. */
-.menu-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
-
-/* Плитки были почти квадратные и занимали весь первый экран.
-   Фиксированная невысокая строка вместо пропорции - содержимого в плитке
-   на квадрат всё равно не набирается. */
-.menu-tile {
-  min-height: 74px;
-  display: flex; flex-direction: column; align-items: flex-start; justify-content: center;
-  gap: 1px;
-  padding: 10px 12px;
-  text-align: left;
-  border-radius: 18px;
-  background: linear-gradient(155deg, rgba(255, 46, 138, 0.16), rgba(10, 2, 18, 0.7));
-  border: 1.5px solid var(--line);
-  position: relative;
-  overflow: hidden;
-}
-.menu-tile:active { transform: scale(0.96); }
-.menu-tile::after {
-  content: ''; position: absolute; inset: -60% -30% auto auto;
-  width: 90px; height: 90px; border-radius: 50%;
-  background: radial-gradient(circle, rgba(0, 240, 255, 0.22), transparent 70%);
-}
-.menu-tile-ico { width: 22px; height: 22px; color: var(--cyan); margin-bottom: 5px; }
-.menu-tile-ico svg { width: 100%; height: 100%; }
-.menu-tile-title { font-size: 14px; font-weight: 900; line-height: 1.15; }
-.menu-tile-sub { font-size: 10.5px; color: var(--muted); line-height: 1.2; }
-
-@media (min-width: 560px) {
-  .menu-grid { grid-template-columns: repeat(3, 1fr); }
-}
+.menu-nav .side-list { grid-template-columns: repeat(3, 1fr); gap: 9px; }
+.menu-nav .side-item.is-sq .side-title { font-size: 12px; }
+.menu-nav .side-bottom { margin-top: 12px; padding-top: 12px; }
+.menu-nav .side-item.is-tall { min-height: 76px; padding: 12px 14px 12px 10px; }
 
 /* ============================================================
    ЭКРАН КЕЙСА: СОСТАВ ПОД КНОПКОЙ
@@ -7345,7 +7317,7 @@ div.mini-row { cursor: default; }
    боковая панель на нём съедает треть ширины.
 
    Что здесь происходит по сути:
-   1. Навигация переезжает из меню-картинки в постоянную боковую панель.
+   1. Меню переезжает из листа по кнопке в постоянную боковую панель.
    2. Контент получает предел ширины и центрируется - строка в 1800 пикселей
       нечитаема, а растянутые на весь монитор кейсы выглядят как ошибка.
    3. Полки из двух кейсов в ряд становятся сеткой по 5-6.
@@ -7368,9 +7340,8 @@ div.mini-row { cursor: default; }
   /* ---------- Боковая панель ---------- */
 
   /*
-   * Боковое меню собрано по мотивам мобильного: те же плитки с рисунком,
-   * названием и подписью, только выстроенные в колонку. Рисунок вырезается из
-   * той же картинки menu.webp - см. menuArtStyle() в app.js.
+   * Боковая панель: те же плитки, что в листе меню телефона (общие правила
+   * в блоке «ПЛИТКИ МЕНЮ»), здесь только сама панель и наведение.
    */
   .side-nav {
     position: fixed;
@@ -7444,81 +7415,6 @@ div.mini-row { cursor: default; }
   }
   .top-deposit:hover::after { left: 130%; transition: left 0.8s ease-out; }
 
-  .side-list { display: flex; flex-direction: column; gap: 9px; }
-
-  /*
-   * ПЛИТКА ПО ПРИСЛАННОМУ МАКЕТУ: рисунок слева, название и подпись, стрелка
-   * справа.
-   *
-   * Собрана разметкой, а не взята картинкой целиком, и это не упрямство. В
-   * макете подписи вшиты в рисунок, активная плитка подсвечена намертво, а
-   * блок «Админ» заказчик просил убрать - ни одного из трёх нельзя сделать с
-   * картинкой. Из макета взяты только рисунки (tools/banners.mjs), остальное
-   * повторено стилями.
-   */
-  .side-item {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
-    align-items: center;
-    gap: 12px;
-    width: 100%;
-    padding: 9px 14px 9px 9px;
-    border: 1px solid rgba(120, 78, 190, 0.34);
-    border-radius: 18px;
-    /* Подложка темнее фона панели и с бликом сверху слева - как в макете. */
-    background:
-      linear-gradient(145deg, rgba(150, 100, 235, 0.13), transparent 62%),
-      linear-gradient(180deg, #170a29, #10061d);
-    color: var(--text);
-    font: inherit;
-    text-align: left;
-    cursor: pointer;
-    transition: border-color 0.15s, background 0.15s, transform 0.12s;
-  }
-  .side-item:active { transform: scale(0.985); }
-
-  /*
-   * Рисунок вырезан из макета вместе с частью почти чёрного фона плитки, а фон
-   * снят по яркости - см. keyDark в tools/banners.mjs. Пропорция вырезки
-   * 250x150, поэтому слот такой же: при квадратном рисунок обрезало бы по
-   * бокам, при contain в квадрате он ужимался бы вдвое.
-   */
-  .side-art {
-    width: 62px; height: 37px; flex: 0 0 auto;
-    object-fit: contain;
-    display: block;
-  }
-  .side-ico[data-ico] {
-    width: 62px; height: 37px; padding: 6px; flex: 0 0 auto;
-    color: var(--violet);
-  }
-
-  .side-text { min-width: 0; }
-  /* Название белым в верхнем регистре, как в макете. Прежний синий остался от
-     мобильной картинки, где подписи такие; здесь они белые. */
-  .side-title {
-    display: block;
-    font-size: 15px; font-weight: 900; letter-spacing: 0.4px;
-    text-transform: uppercase;
-    color: var(--text);
-  }
-  .side-sub {
-    display: block; margin-top: 2px;
-    font-size: 11.5px; color: #9f8ec7;
-    overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
-  }
-
-  /* Стрелка справа. Рисуется бордюром, а не значком: один угол в две линии
-     дешевле любой картинки и не мылится ни на каком экране. */
-  .side-go {
-    width: 9px; height: 9px; flex: 0 0 auto;
-    margin-right: 2px;
-    border-right: 2px solid #8e7ac0;
-    border-top: 2px solid #8e7ac0;
-    transform: rotate(45deg);
-    transition: border-color 0.15s, transform 0.15s;
-  }
-
   .side-item:hover {
     border-color: rgba(168, 120, 255, 0.7);
     background:
@@ -7527,15 +7423,6 @@ div.mini-row { cursor: default; }
   }
   .side-item:hover .side-go { border-color: var(--text); transform: rotate(45deg) translate(2px, -2px); }
 
-  /* Активный раздел: рамка и свечение, как у подсвеченной плитки в макете. */
-  .side-item.active {
-    border-color: var(--violet);
-    background:
-      linear-gradient(145deg, rgba(160, 32, 255, 0.28), rgba(255, 46, 138, 0.1) 70%),
-      linear-gradient(180deg, #1d0d36, #140826);
-    box-shadow: 0 0 0 1px rgba(160, 32, 255, 0.35), 0 8px 26px -12px var(--violet);
-  }
-  .side-item.active .side-go { border-color: var(--text); }
 
   /* Поддержка стоит последней плиткой того же вида: в макете она такая же. */
   #sideSupport { margin-top: 4px; }
@@ -10156,6 +10043,144 @@ body.mo-receded .opener-scroll { filter: blur(4px) saturate(.55); transform: sca
   .case-stage-art { image-rendering: auto; }
 }
 
+
+/* ============================================================
+   ПЛИТКИ МЕНЮ: ОДНИ НА КОМПЬЮТЕР И ТЕЛЕФОН
+   ============================================================
+   Раньше эти правила жили только в блоке компьютера, а на телефоне меню
+   было присланной картинкой с прозрачными кнопками. Заказчик попросил
+   одинаковое меню на обеих версиях, поэтому плитки описаны здесь, вне
+   @media: боковая панель компьютера и лист меню телефона собирает одна
+   функция (navTilesHtml в app.js). Наведение и переливы рамки остались в
+   блоке компьютера: на телефоне наведения нет, а вечная анимация в
+   открытом листе ни к чему. */
+.side-list { display: flex; flex-direction: column; gap: 9px; }
+
+/*
+ * ПЛИТКА ПО ПРИСЛАННОМУ МАКЕТУ: рисунок слева, название и подпись, стрелка
+ * справа.
+ *
+ * Собрана разметкой, а не взята картинкой целиком, и это не упрямство. В
+ * макете подписи вшиты в рисунок, активная плитка подсвечена намертво, а
+ * блок «Админ» заказчик просил убрать - ни одного из трёх нельзя сделать с
+ * картинкой. Из макета взяты только рисунки (tools/banners.mjs), остальное
+ * повторено стилями.
+ */
+.side-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 9px 14px 9px 9px;
+  border: 1px solid rgba(120, 78, 190, 0.34);
+  border-radius: 18px;
+  /* Подложка темнее фона панели и с бликом сверху слева - как в макете. */
+  background:
+    linear-gradient(145deg, rgba(150, 100, 235, 0.13), transparent 62%),
+    linear-gradient(180deg, #170a29, #10061d);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, transform 0.12s;
+}
+.side-item:active { transform: scale(0.985); }
+
+/*
+ * Рисунок вырезан из макета вместе с частью почти чёрного фона плитки, а фон
+ * снят по яркости - см. keyDark в tools/banners.mjs. Пропорция вырезки
+ * 250x150, поэтому слот такой же: при квадратном рисунок обрезало бы по
+ * бокам, при contain в квадрате он ужимался бы вдвое.
+ */
+.side-art {
+  width: 62px; height: 37px; flex: 0 0 auto;
+  object-fit: contain;
+  display: block;
+}
+.side-ico[data-ico] {
+  width: 62px; height: 37px; padding: 6px; flex: 0 0 auto;
+  color: var(--violet);
+}
+
+.side-text { min-width: 0; }
+/* Название белым в верхнем регистре, как в макете. Прежний синий остался от
+   мобильной картинки, где подписи такие; здесь они белые. */
+.side-title {
+  display: block;
+  font-size: 15px; font-weight: 900; letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--text);
+}
+.side-sub {
+  display: block; margin-top: 2px;
+  font-size: 11.5px; color: #9f8ec7;
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+}
+
+/* Стрелка справа. Рисуется бордюром, а не значком: один угол в две линии
+   дешевле любой картинки и не мылится ни на каком экране. */
+.side-go {
+  width: 9px; height: 9px; flex: 0 0 auto;
+  margin-right: 2px;
+  border-right: 2px solid #8e7ac0;
+  border-top: 2px solid #8e7ac0;
+  transform: rotate(45deg);
+  transition: border-color 0.15s, transform 0.15s;
+}
+
+/* Активный раздел: рамка и свечение, как у подсвеченной плитки в макете. */
+.side-item.active {
+  border-color: var(--violet);
+  background:
+    linear-gradient(145deg, rgba(160, 32, 255, 0.28), rgba(255, 46, 138, 0.1) 70%),
+    linear-gradient(180deg, #1d0d36, #140826);
+  box-shadow: 0 0 0 1px rgba(160, 32, 255, 0.35), 0 8px 26px -12px var(--violet);
+}
+.side-item.active .side-go { border-color: var(--text); }
+.side-list { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.side-item { position: relative; overflow: hidden; isolation: isolate; }
+.side-item::before {
+  content: ''; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+  background:
+    radial-gradient(120% 70% at 20% 0%, rgba(255, 255, 255, 0.16), transparent 55%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 40%);
+}
+.side-item::after {
+  content: ''; position: absolute; left: 12%; right: 12%; top: 0; height: 1px; pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+}
+.side-item.is-sq {
+  aspect-ratio: 1; padding: 10px 8px 12px;
+  display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 6px;
+  text-align: center; border-radius: 20px;
+  transition: transform 0.18s cubic-bezier(0.2, 1.4, 0.4, 1), border-color 0.15s, box-shadow 0.2s;
+}
+.side-item.is-sq .side-art { width: 100%; height: auto; max-height: 62%; flex: 1 1 auto; min-height: 0; filter: drop-shadow(0 8px 12px rgba(0, 0, 0, 0.5)); transition: transform 0.25s; }
+.side-item.is-sq .side-ico[data-ico] { width: 58%; height: auto; flex: 1 1 auto; padding: 8% 0 0; color: #c9a8ff; filter: drop-shadow(0 6px 10px rgba(120, 60, 255, 0.5)); }
+.side-item.is-sq .side-title { font-size: 13px; letter-spacing: 0.6px; }
+.side-item.is-sq .side-sub, .side-item.is-sq .side-go { display: none; }
+.side-item.is-sq.active { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 0 0 1px rgba(200, 120, 255, 0.55), 0 12px 30px -12px var(--violet); }
+
+/* Касса и поддержка: внизу панели, отдельно от игр. */
+.side-bottom { margin-top: auto; padding-top: 14px; display: flex; flex-direction: column; gap: 10px; border-top: 1px solid var(--line); }
+.side-item.is-wide {
+  border-color: rgba(255, 200, 110, 0.35);
+  background:
+    linear-gradient(145deg, rgba(255, 190, 80, 0.16), transparent 62%),
+    linear-gradient(180deg, #1f0f22, #120818);
+}
+.side-item.is-wide .side-title { color: #ffe3a3; }
+.side-item.is-tall {
+  padding: 18px 16px 18px 12px; min-height: 92px; border-radius: 20px;
+  border-color: rgba(90, 190, 240, 0.32);
+  background:
+    linear-gradient(145deg, rgba(55, 174, 226, 0.2), transparent 62%),
+    linear-gradient(180deg, #0f1a2e, #0b1020);
+}
+.side-item.is-tall .side-art { width: 76px; height: 56px; }
+.side-item.is-tall .side-title { font-size: 16px; }
+
 /* ============================================================
    КАЗИНО: ЛОББИ ИГР ПРОВАЙДЕРОВ
    ============================================================
@@ -10570,52 +10595,10 @@ body.cz-playing { overflow: hidden; }
    * подложки: блик сверху слева и узкая светлая кромка; при наведении плитка
    * поднимается и подсвечивается, у активной рамка переливается.
    */
-  .side-list { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-  .side-item { position: relative; overflow: hidden; isolation: isolate; }
-  .side-item::before {
-    content: ''; position: absolute; inset: 0; z-index: -1; pointer-events: none;
-    background:
-      radial-gradient(120% 70% at 20% 0%, rgba(255, 255, 255, 0.16), transparent 55%),
-      linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 40%);
-  }
-  .side-item::after {
-    content: ''; position: absolute; left: 12%; right: 12%; top: 0; height: 1px; pointer-events: none;
-    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent);
-  }
-  .side-item.is-sq {
-    aspect-ratio: 1; padding: 10px 8px 12px;
-    display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 6px;
-    text-align: center; border-radius: 20px;
-    transition: transform 0.18s cubic-bezier(0.2, 1.4, 0.4, 1), border-color 0.15s, box-shadow 0.2s;
-  }
-  .side-item.is-sq .side-art { width: 100%; height: auto; max-height: 62%; flex: 1 1 auto; min-height: 0; filter: drop-shadow(0 8px 12px rgba(0, 0, 0, 0.5)); transition: transform 0.25s; }
-  .side-item.is-sq .side-ico[data-ico] { width: 58%; height: auto; flex: 1 1 auto; padding: 8% 0 0; color: #c9a8ff; filter: drop-shadow(0 6px 10px rgba(120, 60, 255, 0.5)); }
-  .side-item.is-sq .side-title { font-size: 13px; letter-spacing: 0.6px; }
-  .side-item.is-sq .side-sub, .side-item.is-sq .side-go { display: none; }
   .side-item.is-sq:hover { transform: translateY(-3px); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 14px 28px -14px rgba(160, 100, 255, 0.8); }
   .side-item.is-sq:hover .side-art { transform: scale(1.06) translateY(-2px); }
-  .side-item.is-sq.active { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 0 0 1px rgba(200, 120, 255, 0.55), 0 12px 30px -12px var(--violet); }
   .side-item.is-sq.active::after { animation: sideSheen 3.4s ease-in-out infinite; }
   @keyframes sideSheen { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
-
-  /* Касса и поддержка: внизу панели, отдельно от игр. */
-  .side-bottom { margin-top: auto; padding-top: 14px; display: flex; flex-direction: column; gap: 10px; border-top: 1px solid var(--line); }
-  .side-item.is-wide {
-    border-color: rgba(255, 200, 110, 0.35);
-    background:
-      linear-gradient(145deg, rgba(255, 190, 80, 0.16), transparent 62%),
-      linear-gradient(180deg, #1f0f22, #120818);
-  }
-  .side-item.is-wide .side-title { color: #ffe3a3; }
-  .side-item.is-tall {
-    padding: 18px 16px 18px 12px; min-height: 92px; border-radius: 20px;
-    border-color: rgba(90, 190, 240, 0.32);
-    background:
-      linear-gradient(145deg, rgba(55, 174, 226, 0.2), transparent 62%),
-      linear-gradient(180deg, #0f1a2e, #0b1020);
-  }
-  .side-item.is-tall .side-art { width: 76px; height: 56px; }
-  .side-item.is-tall .side-title { font-size: 16px; }
   #sideSupport { margin-top: 0; }
 
   /* Риск-игра на мониторе: карты в столбике разумной ширины, а не на весь

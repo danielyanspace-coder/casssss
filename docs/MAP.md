@@ -490,7 +490,7 @@ grep -nE "^app\.(get|post)\(" server/app.js                  # все ручки
 
 Порядок в файле: `<head>` (шрифты Google Fonts с `display=swap`) ->
 `#moneyRain`, `#sideNav` (боковое меню ПК), шапка (`#topStats`,
-`#topAuth`), меню-картинка (`#menuBackdrop`, `#menuPhoto`, `#menuExtra`) ->
+`#topAuth`), лист меню (`#menuBackdrop`, `#menuNav`, `#menuClose`) ->
 разделы `<section class="view" id="view-...">` -> экран открытия кейса
 `#opener` -> подвал `#siteFooter` -> окна поверх (`#docBackdrop`,
 `#buyBackdrop`, `#authBackdrop`, `#onbBackdrop`, `#feedBackdrop`,
@@ -602,7 +602,7 @@ grep -nE "^app\.(get|post)\(" server/app.js                  # все ручки
 | Админка: партнёры | `loadAdminPartners`, `partnerRowHtml` |
 | Админка: заявки на вывод | `SICILIA_STATUS`, `siciliaAdminInfo`, `siciliaPayoutBlock`, `riskPlate`, `riskDetailsHtml`, `loadAdminPayouts` |
 | КАССА (заголовок) | **`switchView(name)`** - переключение разделов и их загрузка |
-| МЕНЮ | `MENU_HITS` (зоны нажатия на меню-картинке), `openSupport`, `MENU_EXTRA` (вход в админку на телефоне), `renderMenu` |
+| МЕНЮ | `openSupport`, `MENU_ADMIN` (вход в админку на телефоне), `renderMenu` (лист меню телефона), `navTilesHtml` (плитки, общие с боковой панелью) |
 | БОКОВОЕ МЕНЮ ДЛЯ КОМПЬЮТЕРА | `VIEW_SWITCH`, `viewOpen`, `SIDE_NAV`, **`renderSideNav`**, `markSideNav`, `openMenu`, `closeMenu`, `STATUS_LABEL`, `SOURCE_LABEL` |
 | Касса: общие детали оформления | `CASH_ICONS`, `paintCashBalance`, `setCashMode` (пополнить/вывести), `cashTxRow`, `withCashBusy`, `bindCashCopy`, `renderDepositOffer`, **`loadWallet`**, `renderWalletBonus`, `payoutRequisites`, `sendPayoutEnvelope`, `renderPayoutList` |
 | КРИПТОКАССА | `loadCryptoOptions`, `renderCoinGrid`, `selectCoin`, `bindAmountInput`, `refreshCryptoRate`, `openCryptoDeposit`, `showCryptoCheckout`, `DEPOSIT_PANES`, `showDepositPane`, `markDepositMethod`, `openDefaultDeposit` |
@@ -629,8 +629,8 @@ grep -nE "^app\.(get|post)\(" server/app.js                  # все ручки
 Разделы - `<section class="view" id="view-NAME">` в `public/index.html`,
 переключаются `switchView(NAME)` (`public/app.js`, блок «КАССА»); активный
 получает `.active`. Доступность - `viewOpen()` по `config.open` (настройки
-`games_*`). Навигация: меню-картинка на телефоне (`renderMenu`, `MENU_HITS`,
-`MENU_EXTRA`) и `renderSideNav` (`SIDE_NAV`) на компьютере.
+`games_*`). Навигация: одни плитки `navTilesHtml` (`SIDE_NAV`) - листом на телефоне
+(`renderMenu`) и боковой панелью на компьютере (`renderSideNav`).
 
 | Раздел | Что внутри разметки | Кто рисует / открывает |
 |---|---|---|
@@ -658,7 +658,7 @@ grep -nE "^app\.(get|post)\(" server/app.js                  # все ручки
 | `#buyBackdrop` (покупка пачки фриспинов) | `confirmBuyFreeSpins` |
 | `#feedBackdrop` (выигрыш из ленты) | `openFeedDrop` |
 | `#fortuneStepsBackdrop`, `#fortuneWinBackdrop` | `showFortuneSteps`, `showFortuneWin` |
-| `#menuBackdrop` (меню-картинка) | `openMenu`, `closeMenu` |
+| `#menuBackdrop` (лист меню) | `openMenu`, `closeMenu` |
 | `#fxLayer`, `#toast` | `celebrate`/`fx*`, `toast` |
 | сцены motion (`mo-*`, создаются кодом) | `motion().win/purchase/inspect/...` |
 
@@ -876,7 +876,7 @@ tools/case-covers.mjs` (и `--stage`); полка - `CATEGORIES` / `THEMED_SHELV
 | `fast-covers.mjs` | обложки «Быстрых игр» (`fast-crash`, `fast-upgrade`) |
 | `favicon.mjs` | значок вкладки и ярлыка |
 | `freespin-packs.mjs` | части дизайна выбора фриспинов |
-| `menu-image.mjs` | меню-картинка телефона |
+| `menu-image.mjs` | прежняя меню-картинка телефона (не используется) |
 | `motion-demo.mjs` + `motion-demo.html` | демо анимаций -> `dist/motion-demo.html` |
 | `promo-banners.mjs` | слайд «Большие джекпоты» (`hero-jackpot.webp`) |
 | `promo-logos.mjs` | квадраты `promo-casino.webp`, `promo-cases.webp` (900x782) из присланных логотипов |

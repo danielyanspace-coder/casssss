@@ -82,13 +82,12 @@
   <!-- Меню-сетка вместо нижней панели -->
   <div class="menu-backdrop" id="menuBackdrop" hidden>
     <div class="menu-sheet">
-      <!-- Меню собрано поверх присланной картинки: сама картинка и есть
-           оформление, а кликабельные области лежат на ней прозрачными
-           кнопками. Заголовок и кнопка возврата тоже нарисованы на ней. -->
-      <div class="menu-photo" id="menuPhoto">
-        <img src="/assets/menu.webp" alt="Меню" class="menu-photo-img" id="menuPhotoImg">
+      <!-- Те же плитки, что в боковой панели компьютера (navTilesHtml). -->
+      <div class="menu-head">
+        <h2 class="menu-head-title">Меню</h2>
+        <button class="menu-close" id="menuClose" aria-label="Закрыть меню"></button>
       </div>
-      <div class="menu-extra" id="menuExtra"></div>
+      <div class="menu-nav" id="menuNav"></div>
     </div>
   </div>
 
