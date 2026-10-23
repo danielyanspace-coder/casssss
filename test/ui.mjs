@@ -40,6 +40,9 @@ let passed = 0;
 /** Сколько ждать, пока бонус слота доиграет: серия из 10-15 прокрутов. */
 const SLOT_SETTLE_STEPS = 120;
 const SLOT_SETTLE_MS = 500;
+/* Повторы нажатия «прокрут», пока занята фоновая серия прошлой игры. */
+const SLOT_SPIN_TRIES = 40;
+const SLOT_SPIN_RETRY_MS = 1000;
 
 const failures = [];
 const check = (name, ok, detail = '') => {
@@ -2373,7 +2376,19 @@ slotChecks: {
         return res;
       };
     });
-    await page.evaluate(() => document.getElementById('slotSpin').click());
+    /*
+     * Нажатие повторяется, пока сервер не ответит. Прокрут прошлой игры мог
+     * выдать бонус, и его серия доигрывает в фоне уже после перехода к этой
+     * игре (признак is-bonus пропадает вместе с её экраном, settleSlot его не
+     * видит). Пока серия идёт, кнопка молча игнорирует нажатие: тест падал
+     * через раз, хотя сама игра исправна. Принятое нажатие одно - дальше
+     * кнопка занята своим прокрутом, а повторы прекращаются.
+     */
+    for (let i = 0; i < SLOT_SPIN_TRIES; i++) {
+      await page.evaluate(() => document.getElementById('slotSpin')?.click());
+      await page.waitForTimeout(SLOT_SPIN_RETRY_MS);
+      if (await page.evaluate(() => Boolean(window.__slotAnswer))) break;
+    }
     await page.waitForTimeout(3600);
     const answer = await page.evaluate(() => window.__slotAnswer);
     // Если ответа нет, говорим, почему кнопка промолчала: открытое окно,
