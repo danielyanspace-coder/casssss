@@ -1,5 +1,5 @@
 /**
- * Шлюз Sicilia: подписи, платёжное окно, зачисление, выплаты.
+ * Шлюз Sicilia: подписи, ордер через API и платёжное окно, зачисление, выплаты.
  *
  *   npm run test:sicilia
  *
@@ -16,6 +16,8 @@ for (const t of ['', '-wal', '-shm']) rmSync(process.env.DB_PATH + t, { force: t
 Object.assign(process.env, {
   SICILIA_API_URL: 'https://api.test/api',
   SICILIA_PAY_URL: 'https://pay.test',
+  // Старые проверки ниже - про окно; ордер через API проверяется своим блоком.
+  SICILIA_PAYIN: 'window',
   SICILIA_MERCHANT: '7',
   SICILIA_LOGIN: 'lucky',
   SICILIA_API_KEY: 'k3y',
@@ -86,13 +88,13 @@ function player(balance = 0) {
 {
   const u = player();
   let err = null;
-  try { s.createDeposit(u.id, 100); } catch (e) { err = e; }
+  try { await s.createDeposit(u.id, 100); } catch (e) { err = e; }
   check('пополнение ниже минимума отклонено', err?.code === 'MIN');
   err = null;
-  try { s.createDeposit(u.id, 200000); } catch (e) { err = e; }
+  try { await s.createDeposit(u.id, 200000); } catch (e) { err = e; }
   check('пополнение выше максимума отклонено', err?.code === 'MAX');
 
-  const d = s.createDeposit(u.id, 1500);
+  const d = await s.createDeposit(u.id, 1500);
   const url = new URL(d.url);
   const invid = url.searchParams.get('invid');
   check('окно: адрес из SICILIA_PAY_URL', url.origin === 'https://pay.test');
@@ -108,7 +110,7 @@ function player(balance = 0) {
   const saved = process.env.SICILIA_PAY_URL;
   process.env.SICILIA_PAY_URL = '';
   err = null;
-  try { s.createDeposit(u.id, 1500); } catch (e) { err = e; }
+  try { await s.createDeposit(u.id, 1500); } catch (e) { err = e; }
   check('без адреса окна пополнение недоступно', err?.code === 'NOT_CONFIGURED' && !s.payinReady());
   process.env.SICILIA_PAY_URL = saved;
 
@@ -144,7 +146,7 @@ function player(balance = 0) {
 
   // Сумму поправили вручную: зачисляется FactSum, дробь отбрасывается.
   const u2 = player();
-  const d2 = s.createDeposit(u2.id, 2000);
+  const d2 = await s.createDeposit(u2.id, 2000);
   reply = statusReply('completed', { fact_sum: 1800.75 });
   const fixed = await s.refreshDeposit(d2.id, u2.id);
   check('зачисляется фактическая сумма, если шлюз её поправил', fixed.credited && siciliaPaid(u2.id) === 1800,
@@ -152,7 +154,7 @@ function player(balance = 0) {
 
   // Шлюз ответил про чужой ордер - статус не применяется.
   const u3 = player();
-  const d3 = s.createDeposit(u3.id, 900);
+  const d3 = await s.createDeposit(u3.id, 900);
   reply = () => ({ status: 200, body: { invid: 'чужой', status: 'completed', sum: '900' } });
   let mism = null;
   try { await s.refreshDeposit(d3.id, u3.id); } catch (e) { mism = e; }
@@ -174,9 +176,10 @@ function player(balance = 0) {
   /* ---------- Сверка и отзыв просроченных ---------- */
 
   const u4 = player();
-  const d4 = s.createDeposit(u4.id, 700);
+  const d4 = await s.createDeposit(u4.id, 700);
   const inv4 = db.prepare('SELECT invid FROM sicilia_orders WHERE id = ?').get(d4.id).invid;
-  db.prepare('UPDATE sicilia_orders SET created_at = ? WHERE id = ?').run(Date.now() - 31 * 60_000, d4.id);
+  db.prepare('UPDATE sicilia_orders SET created_at = ?, expires_at = ? WHERE id = ?')
+    .run(Date.now() - 31 * 60_000, Date.now() - 60_000, d4.id);
   reply = (u5) => (u5.endsWith('/orders/check-status')
     ? { status: 200, body: { invid: inv4, status: 'processing', sum: '700' } }
     : u5.endsWith('/orders/unclaimed') ? { status: 200, body: {} } : { status: 404, body: {} });
@@ -188,12 +191,156 @@ function player(balance = 0) {
   check('сверка: просроченный помечен истёкшим', s.listDeposits(u4.id)[0].status === 'expired');
 
   const u5 = player();
-  const d5 = s.createDeposit(u5.id, 600);
+  const d5 = await s.createDeposit(u5.id, 600);
   db.prepare('UPDATE sicilia_orders SET created_at = ? WHERE id = ?').run(Date.now() - 5 * 60_000, d5.id);
   const inv5 = db.prepare('SELECT invid FROM sicilia_orders WHERE id = ?').get(d5.id).invid;
   reply = () => ({ status: 200, body: { invid: inv5, status: 'completed', sum: '600' } });
   await s.reconcile();
   check('сверка: потерянный колбэк не теряет деньги', siciliaPaid(u5.id) === 600);
+}
+
+/* ---------- Ордер через API: реквизит у нас в кассе ---------- */
+
+{
+  process.env.SICILIA_PAYIN = 'h2h';
+  const savedPay = process.env.SICILIA_PAY_URL;
+  process.env.SICILIA_PAY_URL = '';
+  check('через API пополнение доступно и без адреса окна', s.payinReady());
+
+  // Ответ orders/create из их документации.
+  const created = (body, extra = {}) => ({
+    id: 212, invid: body.invid, exist: 'new', status: 'processing', operation: 'Пополнение',
+    card: { number: '2200 1234 5678 9010', telefon: '79991234567', account_number: '40817810000000000001', bank_id_code: '044525225', payment_link: null },
+    currency: 'RUB', sum: `${body.sum}.0000`, fact_sum: null, fio: 'Иванов И', bank: 'sberbank',
+    bank_data: { name: 'Сбербанк', code: 'sberbank', logo: '', code_nspk: '100000000111' },
+    deeplink: body.sender_bank ? 'https://deep.link/pay' : null,
+    sbp: true, account_transfer: false, trans_gov: null, trans_gov_country: null, ...extra,
+  });
+  let createdReply = created;
+  reply = (url, m, body) => (url.endsWith('/orders/create') ? { status: 201, body: createdReply(body) }
+    : url.endsWith('/orders/check-status') ? { status: 200, body: { invid: body.invid, status: 'processing', sum: '1000' } }
+      : url.endsWith('/orders/unclaimed') ? { status: 200, body: {} } : { status: 404, body: {} });
+
+  const u = player();
+  let err = null;
+  try { await s.createDeposit(u.id, 1000, { method: 'qr' }); } catch (e) { err = e; }
+  check('api: неизвестный способ оплаты отклонён', err?.code === 'BAD_METHOD');
+
+  calls.length = 0;
+  const d = await s.createDeposit(u.id, 1000, { method: 'sbp', senderBank: 'sberbank' });
+  const sent = lastCall('/orders/create');
+  check('api: ордер заводим сами, POST orders/create', sent && sent.method === 'POST');
+  check('api: метод СБП, рубли, сумма, мерчант, игрок', sent.body.bank === 'sbp' && sent.body.currency === 'RUB'
+    && sent.body.sum === 1000 && sent.body.merchant === 7 && sent.body.external_user_id === String(u.id)
+    && sent.body.operation === 'Пополнение');
+  check('api: подпись ордера sha256(login:sum:invid:apiKey)', sent.body.signature === sha(`lucky:1000:${sent.body.invid}:k3y`));
+  check('api: колбэк на наш адрес', sent.body.callback_url === 'https://luckybox.test/api/webhooks/sicilia');
+  check('api: банк игрока уходит для диплинка', sent.body.sender_bank === 'sberbank');
+  check('api: игрок получает реквизит', d.requisite && d.requisite.phone === '79991234567'
+    && d.requisite.card === '2200123456789010' && d.requisite.holder === 'Иванов И' && d.requisite.bank === 'Сбербанк',
+    JSON.stringify(d.requisite));
+  check('api: сумма к оплате и таймер', d.paySum === 1000 && d.expiresAt > Date.now() + 29 * 60_000
+    && d.expiresAt <= Date.now() + 30 * 60_000);
+  check('api: диплинк банка передан игроку', d.requisite.deeplink === 'https://deep.link/pay');
+  check('api: ссылки на окно у такого ордера нет', !d.url);
+  check('api: ключ и подпись игроку не уходят', !JSON.stringify(d).includes('k3y') && !('signature' in d));
+
+  err = null;
+  try { await s.createDeposit(u.id, 2000, { method: 'card' }); } catch (e) { err = e; }
+  check('api: второй открытый перевод не заводится, игрок видит первый', err?.code === 'OPEN_ORDER' && err.order?.id === d.id);
+
+  const again = s.reopenDeposit(d.id, u.id);
+  check('api: возврат в кассу показывает тот же реквизит', again.requisite?.phone === '79991234567' && !again.url);
+
+  // Отмена: сначала статус, потом отзыв у шлюза.
+  calls.length = 0;
+  const cancelled = await s.cancelDeposit(d.id, u.id);
+  check('api: отмена сначала спрашивает статус', calls[0]?.url.endsWith('/orders/check-status'));
+  const un = lastCall('/orders/unclaimed');
+  check('api: отмена отзывает ордер у шлюза', un && un.body.order_invid === sent.body.invid
+    && un.body.signature === sha(`lucky:${sent.body.invid}:k3y`));
+  check('api: отменённый закрыт и реквизит больше не показывается',
+    cancelled.payment.status === 'unclaimed' && cancelled.payment.requisite === null);
+  check('api: в истории реквизита закрытого перевода нет', s.listDeposits(u.id).every((r) => !r.requisite));
+
+  // Отмена уже оплаченного: деньги зачисляются, а не теряются.
+  const d2 = await s.createDeposit(u.id, 1000, { method: 'card' });
+  check('api: перевод на карту - метод any-bank', lastCall('/orders/create').body.bank === 'any-bank'
+    && d2.requisite.card === '2200123456789010');
+  reply = (url, m, body) => (url.endsWith('/orders/check-status')
+    ? { status: 200, body: { invid: body.invid, status: 'completed', sum: '1000.0000', fact_sum: null } }
+    : { status: 200, body: {} });
+  calls.length = 0;
+  const late = await s.cancelDeposit(d2.id, u.id);
+  check('api: отмена оплаченного перевода зачисляет его', late.credited && siciliaPaid(u.id) === 1000
+    && !calls.some((c) => c.url.endsWith('/orders/unclaimed')));
+
+  // Шлюз недоступен - отмена не делается вслепую.
+  const u2 = player();
+  reply = (url, m, body) => (url.endsWith('/orders/create') ? { status: 201, body: created(body) } : { status: 404, body: {} });
+  const d3 = await s.createDeposit(u2.id, 800, { method: 'sbp' });
+  const savedFetch = globalThis.fetch;
+  globalThis.fetch = async () => { throw new Error('ECONNRESET'); };
+  err = null;
+  try { await s.cancelDeposit(d3.id, u2.id); } catch (e) { err = e; }
+  globalThis.fetch = savedFetch;
+  check('api: без ответа шлюза перевод не отменяется', err?.code === 'GATEWAY_UNREACHABLE'
+    && s.listDeposits(u2.id)[0].status === 'processing');
+
+  // Время вышло: реквизит скрыт сразу, не дожидаясь сверки.
+  db.prepare('UPDATE sicilia_orders SET created_at = ?, expires_at = ? WHERE id = ?')
+    .run(Date.now() - 31 * 60_000, Date.now() - 1000, d3.id);
+  check('api: просроченный реквизит не показывается', s.listDeposits(u2.id)[0].requisite === null);
+  err = null;
+  try { s.reopenDeposit(d3.id, u2.id); } catch (e) { err = e; }
+  check('api: просроченный перевод заново не открыть', err?.code === 'CLOSED');
+  reply = (url, m, body) => (url.endsWith('/orders/check-status')
+    ? { status: 200, body: { invid: body.invid, status: 'processing', sum: '800' } } : { status: 200, body: {} });
+  await s.reconcile();
+  check('api: сверка закрывает просроченный по его сроку', s.listDeposits(u2.id)[0].status === 'expired');
+
+  // Нет свободного реквизита - понятный отказ, строка закрыта.
+  const u3 = player();
+  reply = () => ({ status: 422, body: { message: 'No available calls' } });
+  err = null;
+  try { await s.createDeposit(u3.id, 900, { method: 'sbp' }); } catch (e) { err = e; }
+  check('api: «No available calls» - игроку «нет свободных реквизитов»', err?.code === 'NO_REQUISITE'
+    && /реквизит/.test(err.message));
+  check('api: неудачный ордер закрыт и не мешает следующему', s.listDeposits(u3.id)[0].status === 'error');
+
+  // Шлюз ответил без реквизита - ордер отзывается, игрок ничего не видит.
+  createdReply = (body) => created(body, { card: {} });
+  reply = (url, m, body) => (url.endsWith('/orders/create') ? { status: 201, body: createdReply(body) } : { status: 200, body: {} });
+  calls.length = 0;
+  err = null;
+  try { await s.createDeposit(u3.id, 900, { method: 'sbp' }); } catch (e) { err = e; }
+  check('api: ответ без реквизита - отказ и отзыв ордера', err?.code === 'GATEWAY_ERROR'
+    && calls.some((c) => c.url.endsWith('/orders/unclaimed')));
+
+  // Ответ про чужой ордер не показывается игроку.
+  createdReply = (body) => created({ ...body, invid: 'чужой' });
+  err = null;
+  try { await s.createDeposit(u3.id, 900, { method: 'sbp' }); } catch (e) { err = e; }
+  check('api: реквизит чужого ордера не показывается', err?.code === 'GATEWAY_ERROR');
+
+  // Сеть оборвалась на создании: ордер мог создаться, строку не закрываем.
+  const u4 = player();
+  globalThis.fetch = async () => { throw new Error('timeout'); };
+  err = null;
+  try { await s.createDeposit(u4.id, 900, { method: 'sbp' }); } catch (e) { err = e; }
+  globalThis.fetch = savedFetch;
+  check('api: обрыв на создании оставляет строку сверке', err?.code === 'GATEWAY_UNREACHABLE'
+    && s.listDeposits(u4.id)[0].status === 'created');
+
+  // Перевод по счёту: номер счёта и БИК, только когда шлюз так сказал.
+  const u5 = player();
+  createdReply = (body) => created(body, { account_transfer: true, card: { account_number: '40817810000000000001', bank_id_code: '044525225' } });
+  reply = (url, m, body) => (url.endsWith('/orders/create') ? { status: 201, body: createdReply(body) } : { status: 200, body: {} });
+  const d5 = await s.createDeposit(u5.id, 900, { method: 'card' });
+  check('api: перевод по счёту - счёт и БИК', d5.requisite.account === '40817810000000000001' && d5.requisite.bik === '044525225');
+
+  process.env.SICILIA_PAY_URL = savedPay;
+  process.env.SICILIA_PAYIN = 'window';
 }
 
 /* ---------- Банки ---------- */
@@ -284,7 +431,7 @@ function player(balance = 0) {
   // Самая маленькая настоящая PNG: проверка типа идёт по первым байтам.
   const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
   const u = player();
-  const order = s.createDeposit(u.id, 2000);
+  const order = await s.createDeposit(u.id, 2000);
   const row = db.prepare('SELECT * FROM sicilia_orders WHERE id = ?').get(order.id);
   check('номер платежа виден игроку для поддержки', order.number === row.invid && /^lb-/.test(order.number));
 
@@ -337,7 +484,7 @@ function player(balance = 0) {
 
   // Проигранная апелляция: шлюз отказал, денег нет.
   const u2 = player();
-  const o2 = s.createDeposit(u2.id, 1000);
+  const o2 = await s.createDeposit(u2.id, 1000);
   const r2 = db.prepare('SELECT * FROM sicilia_orders WHERE id = ?').get(o2.id);
   reply = () => ({ status: 200, body: { id: 813, invid: r2.invid, status: 'cancelled', sum: '1000' } });
   const lost = await s.handleCallback({ invid: r2.invid, status: 'rejected', reason: 'чек не совпал', signature: sha(`lucky:${r2.invid}:k3y`) });
@@ -346,7 +493,7 @@ function player(balance = 0) {
 
   // Отказ сотрудника: только по новому спору и с причиной для игрока.
   const u3 = player();
-  const o3 = s.createDeposit(u3.id, 700);
+  const o3 = await s.createDeposit(u3.id, 700);
   reply = () => ({ status: 200, body: { status: 'pending' } });
   await s.reportDeposit(u3.id, o3.id, { image: png });
   const d4 = db.prepare('SELECT * FROM sicilia_disputes WHERE order_id = ?').get(o3.id);
@@ -358,7 +505,7 @@ function player(balance = 0) {
 
   // Поздняя сверка: ордер истёк у нас, а потом шлюз зачёл его без колбэка.
   const u4 = player();
-  const o4 = s.createDeposit(u4.id, 900);
+  const o4 = await s.createDeposit(u4.id, 900);
   const r4 = db.prepare('SELECT * FROM sicilia_orders WHERE id = ?').get(o4.id);
   db.prepare("UPDATE sicilia_orders SET status = 'expired', created_at = ? WHERE id = ?").run(Date.now() - 3600_000, o4.id);
   reply = (url, m, body) => url.endsWith('/orders/check-status') && body.invid === r4.invid
@@ -382,7 +529,7 @@ function player(balance = 0) {
   // колбэке, check-status его не вернул: зачисляем по факту.
   {
     const u = player();
-    const o = s.createDeposit(u.id, 1000);
+    const o = await s.createDeposit(u.id, 1000);
     const inv = db.prepare('SELECT invid FROM sicilia_orders WHERE id = ?').get(o.id).invid;
     reply = (url, m, body) => url.endsWith('/orders/check-status')
       ? { status: 200, body: { id: 70, invid: body.invid, status: 'completed', sum: '1000', fact_sum: null } } : { status: 404, body: {} };
@@ -394,7 +541,7 @@ function player(balance = 0) {
   // Вход 2, обман: FactSum в колбэке без подтверждения шлюзом не берётся.
   {
     const u = player();
-    const o = s.createDeposit(u.id, 1000);
+    const o = await s.createDeposit(u.id, 1000);
     const inv = db.prepare('SELECT invid FROM sicilia_orders WHERE id = ?').get(o.id).invid;
     reply = (url, m, body) => url.endsWith('/orders/check-status')
       ? { status: 200, body: { id: 71, invid: body.invid, status: 'processing', sum: '1000' } } : { status: 404, body: {} };
@@ -406,7 +553,7 @@ function player(balance = 0) {
   // Вход 3: отмена со стороны шлюза: колбэк cancelled, денег нет, оплата закрыта.
   {
     const u = player();
-    const o = s.createDeposit(u.id, 800);
+    const o = await s.createDeposit(u.id, 800);
     const inv = db.prepare('SELECT invid FROM sicilia_orders WHERE id = ?').get(o.id).invid;
     reply = (url, m, body) => url.endsWith('/orders/check-status')
       ? { status: 200, body: { id: 72, invid: body.invid, status: 'cancelled', sum: '800' } } : { status: 404, body: {} };
@@ -419,7 +566,7 @@ function player(balance = 0) {
   // пробуем путь из документации с /api.
   {
     const u = player();
-    const o = s.createDeposit(u.id, 900);
+    const o = await s.createDeposit(u.id, 900);
     const inv = db.prepare('SELECT invid FROM sicilia_orders WHERE id = ?').get(o.id).invid;
     calls.length = 0;
     let unclaimed = false;
@@ -429,7 +576,7 @@ function player(balance = 0) {
       if (url.endsWith('/orders/check-status')) return { status: 200, body: { id: 73, invid: body.invid, status: unclaimed ? 'unclaimed' : 'pending', sum: '900' } };
       return { status: 404, body: {} };
     };
-    const r = await s.cancelDeposit(admin.id, o.id);
+    const r = await s.staffCancelDeposit(admin.id, o.id);
     const un = calls.filter((c) => c.url.includes('/orders/unclaimed'));
     check('вход 4: отзыв идёт PUT с подписью sha256(login:invid:apiKey)', un.length === 2 && un.every((c) => c.method === 'PUT'
       && c.body.order_invid === inv && c.body.signature === sha(`lucky:${inv}:k3y`)));
@@ -439,10 +586,10 @@ function player(balance = 0) {
   // Вход 4, гонка: игрок успел оплатить, пока отменяли - деньги зачисляются.
   {
     const u = player();
-    const o = s.createDeposit(u.id, 600);
+    const o = await s.createDeposit(u.id, 600);
     reply = (url, m, body) => url.includes('/orders/unclaimed') ? { status: 422, body: { message: 'Order completed' } }
       : url.endsWith('/orders/check-status') ? { status: 200, body: { id: 74, invid: body.invid, status: 'completed', sum: '600' } } : { status: 404, body: {} };
-    const r = await s.cancelDeposit(admin.id, o.id);
+    const r = await s.staffCancelDeposit(admin.id, o.id);
     check('вход 4: отмена оплаченной не отменяет, деньги зачислены', r.credited && siciliaPaid(u.id) === 600);
   }
 

@@ -88,6 +88,7 @@ import {
   playGamble,
   clearGamble,
   MIN_PAYOUT,
+  PAYOUT_STEP,
   getDeposits,
   getPayouts,
   pendingPayoutTotal,
@@ -1302,6 +1303,8 @@ app.post('/api/wallet', auth, limits.read, (req, res) => {
     depositDebt: req.player.deposit_debt || 0,
     wagerProgress: req.player.wager_progress,
     minPayout: minPayoutNow(),
+    // Шаг суммы для карты и СБП: клиент подсказывает его и округляет «Всё».
+    payoutStep: PAYOUT_STEP,
     deposits: getDeposits(req.player.id),
     payouts: getPayouts(req.player.id),
     bonus: {
@@ -1366,7 +1369,7 @@ app.post('/api/payout/create', auth, limits.cashier, (req, res) => {
     // так». WAGER_PROGRESS - не отыграно пополнение, остальные - проверки
     // реквизитов платёжного модуля. Бонус вывод больше не запирает.
     if ([
-      'MIN', 'INSUFFICIENT_FUNDS', 'WAGER', 'WAGER_PROGRESS',
+      'MIN', 'STEP', 'INSUFFICIENT_FUNDS', 'WAGER', 'WAGER_PROGRESS',
       'BAD_PHONE', 'BAD_BANK', 'BAD_CARD', 'BAD_METHOD', 'PAYOUT_KEY_MISSING',
       'BAD_CURRENCY', 'BAD_NETWORK', 'BAD_ADDRESS', 'BAD_RATE',
     ].includes(err.code)) {
@@ -2324,25 +2327,42 @@ app.post('/api/webhooks/heleket', limits.webhook, (req, res) => {
    ============================================================ */
 
 /*
- * Пополнение через платёжное окно шлюза, открытое отдельной вкладкой
- * (решение заказчика). Сервер подписывает ссылку, клиент её открывает,
- * деньги приходят колбэком и сверкой. Подробности - в server/sicilia.js.
+ * Пополнение СБП и картой. Через API шлюза (по умолчанию) сервер заводит
+ * ордер и отдаёт реквизит, касса показывает его сама; через окно - сервер
+ * подписывает ссылку. Деньги приходят колбэком и сверкой. Подробности - в
+ * server/sicilia.js.
  */
 app.post('/api/sicilia/options', auth, limits.read, (req, res) => {
   const env = sicilia.siciliaEnv();
-  res.json({ enabled: sicilia.payinReady(env), min: env.min, max: env.max });
+  res.json({ enabled: sicilia.payinReady(env), mode: env.payin, min: env.min, max: env.max,
+    ttlMin: Math.round(env.ttlMs / 60_000) });
 });
 
-app.post('/api/sicilia/create', auth, limits.cashier, (req, res) => {
+app.post('/api/sicilia/create', auth, limits.cashier, async (req, res) => {
   if (!setting('deposits_open')) return res.status(503).json({ error: 'Приём пополнений временно закрыт' });
   try {
-    res.status(201).json(sicilia.createDeposit(req.player.id, req.body?.amount));
+    const b = req.body || {};
+    res.status(201).json(await sicilia.createDeposit(req.player.id, b.amount, { method: b.method, senderBank: b.senderBank }));
   } catch (err) {
-    res.status(err.code === 'NOT_CONFIGURED' ? 503 : 400).json({ error: err.message, code: err.code });
+    const status = err.code === 'NOT_CONFIGURED' || err.code === 'GATEWAY_UNREACHABLE' || err.code === 'NO_REQUISITE' ? 503
+      : err.code === 'OPEN_ORDER' ? 409 : 400;
+    res.status(status).json({ error: err.message, code: err.code, order: err.order });
   }
 });
 
-/* Ссылка на то же окно ещё раз: игрок закрыл его, не заплатив. */
+/* Отмена перевода игроком: реквизит освобождается сразу, а не по сроку. */
+app.post('/api/sicilia/cancel', auth, limits.cashier, async (req, res) => {
+  try {
+    const result = await sicilia.cancelDeposit(req.body?.id, req.player.id);
+    if (result.credited) emitPayment(req.player.id, 'payment.completed', { source: 'sicilia' });
+    res.json({ ...result, user: publicUser(getUserById(req.player.id)) });
+  } catch (err) {
+    const status = err.code === 'NOT_FOUND' ? 404 : err.code === 'GATEWAY_UNREACHABLE' ? 503 : 400;
+    res.status(status).json({ error: err.message, code: err.code });
+  }
+});
+
+/* Тот же перевод ещё раз: игрок закрыл кассу или окно, не заплатив. */
 app.post('/api/sicilia/reopen', auth, limits.cashier, (req, res) => {
   try {
     res.json(sicilia.reopenDeposit(req.body?.id, req.player.id));
@@ -2375,7 +2395,12 @@ app.post('/api/sicilia/refresh', auth, limits.cashier, async (req, res) => {
  * отвечаем 503, и шлюз повторит; деньги не теряются и сверкой по расписанию.
  */
 app.post('/api/webhooks/sicilia', limits.webhook, async (req, res) => {
-  if (!sicilia.callbackIpAllowed(req.ip)) return res.status(403).json({ error: 'Чужой адрес' });
+  if (!sicilia.callbackIpAllowed(req.ip)) {
+    // Адрес в журнал: если шлюз сменит адрес отправки, его видно отсюда и
+    // дописывают в SICILIA_CALLBACK_IPS. Деньги до тех пор зачисляет сверка.
+    console.error('[sicilia] колбэк: чужой адрес', req.ip);
+    return res.status(403).json({ error: 'Чужой адрес' });
+  }
   if (!sicilia.verifyCallback(req.body)) return res.status(401).json({ error: 'Подпись не совпала' });
   try {
     const result = await sicilia.handleCallback(req.body);
@@ -2515,7 +2540,7 @@ app.post('/api/admin/sicilia/payout/release', auth, need('finance.payouts.resolv
 /* Отмена пополнения с нашей стороны: отзыв ордера у шлюза. */
 app.post('/api/admin/deposit/cancel', auth, need('finance.payouts.resolve'), async (req, res) => {
   try {
-    const r = await sicilia.cancelDeposit(req.player.id, req.body?.id);
+    const r = await sicilia.staffCancelDeposit(req.player.id, req.body?.id);
     if (r.credited) emitPayment(r.userId, 'payment.completed', { source: 'sicilia' });
     res.json(r);
   } catch (err) {

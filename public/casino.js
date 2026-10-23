@@ -31,6 +31,19 @@ import { PROVIDER_LOGOS } from './provider-logos.js';
 export function createCasino(deps) {
   const { api, esc, money, toast, haptic, state, onUser, plural } = deps;
 
+  /*
+   * Наши быстрые игры в одной сетке с играми провайдеров. Обложки нарисованы
+   * под соседние обложки Spribe (tools/fast-covers.mjs). Пути целые, вместе
+   * с ведущим слешем: автономная сборка подставляет файл по строке пути.
+   * Выключенная в панели игра на витрину не попадает (deps.ownOpen).
+   */
+  const OWN_FAST = [
+    { view: 'crash', name: 'Краш', cover: '/assets/ui/fast-crash.webp' },
+    { view: 'upgrade', name: 'Апгрейд', cover: '/assets/ui/fast-upgrade.webp' },
+  ];
+  // Быстрых игр у провайдера десяток: столько грузим разом, без «Показать ещё».
+  const FAST_LIMIT = 60;
+
   /* Сколько плиток за один запрос страницы: целые ряды и по три, и по шесть. */
   const PAGE = 48;
   // Пока игра открыта, баланс обновляется так часто. Чаще незачем: ставка в
@@ -46,6 +59,7 @@ export function createCasino(deps) {
     lobby: null,           // вкладки, счётчики, провайдеры, отдача
     kind: 'slots',
     home: {},              // блоки лобби по вкладкам, кешируются
+    fast: null,            // все быстрые игры одним списком, кешируется
     view: { type: 'home' },
     stack: [],             // откуда пришли: для «Назад»
     q: '',
@@ -132,7 +146,8 @@ export function createCasino(deps) {
   /* Чипы: «Лобби» и блоки текущей вкладки, которые сейчас есть. */
   function renderChips() {
     const chips = $('czChips');
-    const blocks = (ui.home[ui.kind] || []).filter((b) => b.type !== 'provider');
+    // У быстрых игр категорий нет: их десяток, и все видны одной сеткой.
+    const blocks = ui.kind === 'fast' ? [] : (ui.home[ui.kind] || []).filter((b) => b.type !== 'provider');
     const active = ui.view.type === 'home' ? 'home' : ui.view.type === 'category' ? ui.view.id : '';
     chips.hidden = !blocks.length;
     chips.innerHTML = [
@@ -231,7 +246,44 @@ export function createCasino(deps) {
     </section>`;
   }
 
+  /*
+   * Быстрые игры - одна сетка без категорий и без лент со стрелками
+   * (решение заказчика): игр немного, и все должны быть видны сразу, без
+   * прокрутки вбок. Наши Краш и Апгрейд стоят первыми.
+   */
+  function ownTileHtml(o) {
+    return `<button class="cz-tile cz-own" data-own="${o.view}">
+      <span class="cz-art">
+        <img src="${o.cover}" alt="" loading="lazy" decoding="async">
+        <span class="cz-hover">
+          <span class="cz-play"><svg width="20" height="20" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" fill="#3a1d00"/></svg></span>
+        </span>
+      </span>
+      <span class="cz-name">${esc(o.name)}</span>
+      <span class="cz-prov">LUCKYBOX</span>
+    </button>`;
+  }
+
+  function renderFast() {
+    const body = $('czBody');
+    if (!ui.fast) { skeletonHome(); return; }
+    const own = OWN_FAST.filter((o) => !deps.ownOpen || deps.ownOpen(o.view));
+    body.innerHTML = `<div class="cz-grid cz-fast" data-block="fast">
+        ${own.map(ownTileHtml).join('')}${ui.fast.map((g) => tileHtml(g, remember(g))).join('')}
+      </div>
+      <p class="cz-note">Отдача игр провайдеров <b>${esc(String(ui.lobby.rtp))}%</b>. Краш и Апгрейд - наши игры,
+        их исход проверяется в разделе «Честность игры».</p>`;
+  }
+
+  async function loadFast() {
+    if (ui.fast) return ui.fast;
+    const { games } = await api('/api/casino/games', { kind: 'fast', offset: 0, limit: FAST_LIMIT });
+    ui.fast = games;
+    return games;
+  }
+
   function renderHome() {
+    if (ui.kind === 'fast') { renderFast(); return; }
     const body = $('czBody');
     const blocks = ui.home[ui.kind];
     if (!blocks) { skeletonHome(); return; }
@@ -258,6 +310,7 @@ export function createCasino(deps) {
   }
 
   async function loadHome(kind) {
+    if (kind === 'fast') return loadFast();
     if (ui.home[kind]) return ui.home[kind];
     const { blocks } = await api('/api/casino/home', { kind });
     ui.home[kind] = blocks;
@@ -473,6 +526,8 @@ export function createCasino(deps) {
       const arrow = e.target.closest('[data-scroll]');
       if (arrow) { scrollTrack(arrow); return; }
       if (e.target.closest('#czMoreBtn')) { loadMore(); return; }
+      const own = e.target.closest('[data-own]');
+      if (own) { haptic('light'); deps.openOwn?.(own.dataset.own); return; }
       const tile = e.target.closest('.cz-tile[data-ref]');
       if (tile) openSheet(refs.get(tile.dataset.ref));
     };

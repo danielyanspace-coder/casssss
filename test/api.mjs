@@ -1337,6 +1337,8 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
   check('sicilia: колбэк с чужой подписью отвергнут', sicHook.status === 401, `статус ${sicHook.status}`);
   const sicList = await post('/api/sicilia/list');
   check('sicilia: список оплат игрока отдаётся', sicList.status === 200 && Array.isArray(sicList.data.rows));
+  const sicCancel = await post('/api/sicilia/cancel', { id: 999999 });
+  check('sicilia: чужой или несуществующий перевод не отменить', sicCancel.status === 404, `статус ${sicCancel.status}`);
   const payoutsAdm = await post('/api/admin/payouts', { status: 'all' });
   check('sicilia: в заявках на вывод есть признак шлюза', payoutsAdm.status === 200 && payoutsAdm.data.siciliaReady === false
     && typeof payoutsAdm.data.gateway === 'object');
