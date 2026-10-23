@@ -924,6 +924,10 @@ function renderBonuses() {
   // пустая полка с извинением сверху раздела - худшее начало витрины.
   const gifts = document.getElementById('fmGifts');
   if (gifts) gifts.hidden = !cards.length && !(state.user.x2Perks || []).length;
+  const total = cards.reduce((a, g) => a + g.n, 0)
+    + (state.user.x2Perks || []).reduce((a, p) => a + (p.count || 1), 0);
+  const sum = document.getElementById('fmGiftsSum');
+  if (sum) sum.textContent = `Подарков: ${fmt(total)}`;
   if (!cards.length) {
     list.innerHTML = '';
     return;
@@ -9622,6 +9626,7 @@ function openFreeMoney() {
   document.getElementById('fortuneIntro').hidden = false;
   document.getElementById('fortuneStage').hidden = true;
   // Подарки первыми: от них зависит, есть ли вкладка «Подарки».
+  setGiftsOpen(false);
   renderBonuses();
   renderFreeMoney();
   loadFortune();
@@ -9659,6 +9664,7 @@ function renderFmTabs() {
   tabs.querySelectorAll('[data-go]').forEach((b) => {
     b.onclick = () => {
       haptic('light');
+      if (b.dataset.go === 'fmGifts') setGiftsOpen(true);
       const el = document.getElementById(b.dataset.go);
       const top = el.getBoundingClientRect().top + window.scrollY - fmStickyBottom() - FM_TAB_GAP;
       window.scrollTo({ top, behavior: 'smooth' });
@@ -9667,12 +9673,16 @@ function renderFmTabs() {
   markFmTab();
 }
 
-/** Отступ от вкладок до ивента, к которому прокрутили. */
-const FM_TAB_GAP = 10;
+/** Отступ от шапки до ивента, к которому прокрутили. */
+const FM_TAB_GAP = 12;
 
-/** Нижний край шапки вместе с липкими вкладками - по разметке, а не числом. */
+/*
+ * Нижний край шапки - по разметке, а не числом. Вкладки к ней не липнут
+ * (решение заказчика: полоса, едущая за прокруткой, мешала), поэтому
+ * прокрутка к ивенту отсчитывается от шапки.
+ */
 function fmStickyBottom() {
-  return document.getElementById('fmTabs')?.getBoundingClientRect().bottom || 0;
+  return document.querySelector('.topbar')?.getBoundingClientRect().bottom || 0;
 }
 
 function markFmTab() {
@@ -9716,6 +9726,23 @@ function syncTopbarHeight() {
 window.addEventListener('resize', syncTopbarHeight);
 syncTopbarHeight();
 
+/*
+ * «Ваши подарки» свёрнуты кнопкой: список виден только по нажатию (решение
+ * заказчика - россыпь плиток портила вид раздела). Состояние не
+ * запоминается: зашёл в раздел - подарки снова свёрнуты.
+ */
+function setGiftsOpen(open) {
+  const btn = document.getElementById('fmGiftsToggle');
+  const body = document.getElementById('fmGiftsBody');
+  if (!btn || !body) return;
+  btn.setAttribute('aria-expanded', String(open));
+  body.hidden = !open;
+}
+document.getElementById('fmGiftsToggle')?.addEventListener('click', (e) => {
+  haptic('light');
+  setGiftsOpen(e.currentTarget.getAttribute('aria-expanded') !== 'true');
+});
+
 /* ---------- Lucky Drive: розыгрыш автомобиля ---------- */
 
 /*
@@ -9736,10 +9763,7 @@ function renderDriveEvent() {
   box.innerHTML = `
     <div class="dv-photo">
       <img src="/assets/ui/raffle-dubai.webp" alt="Rolls-Royce Wraith">
-      <span class="dv-live" title="Идёт розыгрыш" aria-label="Идёт розыгрыш">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="2.6" fill="#fff"/>
-          <path d="M7.8 7.8a6 6 0 0 0 0 8.4M16.2 7.8a6 6 0 0 1 0 8.4M5 5a10 10 0 0 0 0 14M19 5a10 10 0 0 1 0 14"
-            fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg></span>
+      <span class="dv-badge"><i></i>Идёт розыгрыш</span>
       <div class="dv-head">
         <div class="dv-kicker">Розыгрыш авто</div>
         <div class="dv-give">Дарим</div>

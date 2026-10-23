@@ -5250,12 +5250,12 @@ div.mini-row { cursor: default; }
   text-transform: uppercase; color: #fff;
 }
 
-/* Вкладки липнут вплотную к шапке: --topbar-h мерит код (syncTopbarHeight). */
+/* Вкладки стоят наверху раздела и за прокруткой не едут (решение
+   заказчика). Переход по вкладке прокручивает к ивенту под шапкой. */
 .fm-tabs {
-  position: sticky; top: var(--topbar-h, 64px); z-index: 6;
   display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none;
-  margin: 0 -18px 14px; padding: 8px 18px;
-  background: #0d0318; border-bottom: 1px solid var(--fm-line);
+  margin: 0 -18px 18px; padding: 8px 18px;
+  border-top: 1px solid var(--fm-line); border-bottom: 1px solid var(--fm-line);
 }
 .fm-tabs::-webkit-scrollbar { display: none; }
 .fm-tab {
@@ -5266,7 +5266,8 @@ div.mini-row { cursor: default; }
 }
 .fm-tab.active { color: #fff; background: rgba(255, 255, 255, 0.08); }
 
-.fm-bento { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+/* Между плитками заметный воздух (просьба заказчика): плитки читаются отдельными. */
+.fm-bento { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
 .fm-tile {
   grid-column: span 2; position: relative; min-width: 0;
   border-radius: var(--fm-radius); padding: 14px;
@@ -5278,7 +5279,35 @@ div.mini-row { cursor: default; }
 .fm-drive { padding: 0; overflow: hidden; }
 .fm-tile-head { display: flex; align-items: baseline; gap: 10px; margin: 0 2px 12px; flex-wrap: wrap; }
 .fm-tile-title { margin: 0; font: 800 16px/1.15 'Unbounded', 'Manrope', system-ui, sans-serif; color: var(--fm-text); }
-.fm-gifts .fm-tile-title { margin: 0 2px 12px; }
+/* «Ваши подарки» - кнопка во всю плитку, список раскрывается под ней. */
+.fm-gifts { padding: 0; overflow: hidden; }
+.fm-gifts-toggle {
+  width: 100%; display: flex; align-items: center; gap: 12px; padding: 14px 16px;
+  border: 0; cursor: pointer; text-align: left; color: var(--fm-text); font: inherit;
+  background:
+    radial-gradient(80% 140% at 0% 0%, rgba(255, 200, 74, 0.22), transparent 60%),
+    linear-gradient(160deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.02));
+}
+.fm-gifts-ico {
+  flex: none; width: 42px; height: 42px; border-radius: 13px; display: grid; place-items: center; color: #2b1500;
+  background: linear-gradient(180deg, var(--fm-gold-1), var(--fm-gold-2) 55%, var(--fm-gold-3));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 3px 0 #8a4f08;
+}
+.fm-gifts-ico svg { width: 24px; height: 24px; }
+.fm-gifts-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.fm-gifts-txt b { font: 800 15px/1.1 'Unbounded', 'Manrope', system-ui, sans-serif; }
+.fm-gifts-txt small { color: var(--fm-muted); font: 600 12px/1 'Manrope', system-ui, sans-serif; }
+.fm-gifts-chev {
+  flex: none; width: 32px; height: 32px; border-radius: 50%; background: rgba(255, 255, 255, 0.08);
+  display: grid; place-items: center; transition: transform 0.25s;
+}
+.fm-gifts-chev::before {
+  content: ''; width: 8px; height: 8px; margin-top: -3px; rotate: 45deg;
+  border-right: 2px solid #fff; border-bottom: 2px solid #fff;
+}
+.fm-gifts-toggle[aria-expanded="true"] .fm-gifts-chev { transform: rotate(180deg); }
+.fm-gifts-body { padding: 4px 14px 16px; }
+.fm-gifts-body[hidden] { display: none; }
 .fm-tile-note { margin-left: auto; color: var(--fm-muted); font: 600 12px/1.2 'Manrope', system-ui, sans-serif; }
 
 /* Одна главная кнопка на весь раздел: золото с тёмным текстом. */
@@ -5329,13 +5358,16 @@ div.mini-row { cursor: default; }
 /* Сверху лёгкое затемнение под заголовки, снизу фото тает в плитку. */
 .dv-photo::before { top: 0; height: 46%; background: linear-gradient(180deg, rgba(8, 20, 48, 0.55), rgba(8, 20, 48, 0)); }
 .dv-photo::after { bottom: 0; height: 34%; background: linear-gradient(180deg, rgba(21, 12, 36, 0), var(--fm-tile)); }
-.dv-live {
-  position: absolute; left: 14px; top: 14px; z-index: 2; width: 34px; height: 34px; border-radius: 50%;
-  display: grid; place-items: center; background: #ff5a1f; box-shadow: 0 4px 14px rgba(255, 90, 31, 0.5);
+.dv-badge {
+  position: absolute; left: 12px; top: 12px; z-index: 2;
+  display: inline-flex; align-items: center; gap: 7px; padding: 7px 11px 7px 9px; border-radius: 99px;
+  color: #fff; font: 700 11px/1 'Manrope', system-ui, sans-serif; letter-spacing: 0.04em;
+  background: rgba(10, 18, 40, 0.42);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), inset 0 0 0 1px rgba(255, 255, 255, 0.22);
 }
-.dv-live svg { width: 20px; height: 20px; }
+.dv-badge i { width: 8px; height: 8px; border-radius: 50%; background: #3ef08f; box-shadow: 0 0 0 3px rgba(62, 240, 143, 0.25); }
 .dv-head {
-  position: relative; z-index: 1; padding: 22px 14px 0; text-align: center; color: #fff;
+  position: relative; z-index: 1; padding: 50px 14px 0; text-align: center; color: #fff;
   font-family: 'Unbounded', 'Manrope', system-ui, sans-serif; font-weight: 800; text-transform: uppercase;
   text-shadow: 0 2px 14px rgba(0, 20, 60, 0.45);
 }
@@ -10447,13 +10479,13 @@ body.cz-playing { overflow: hidden; }
      пара «Начало» и бот, под ними колесо; подарки и Lucky Fortune во всю
      ширину. Фото машины 4:5 в узкой колонке не растягивается на весь экран. */
   #view-freemoney { max-width: 1000px; margin-left: auto; margin-right: auto; }
-  .fm-bento { grid-template-columns: 1.15fr 1fr 1fr; gap: 14px; }
+  .fm-bento { grid-template-columns: 1.15fr 1fr 1fr; gap: 24px; }
   .fm-gifts, .fm-fortune { grid-column: 1 / -1; }
   .fm-drive { grid-column: 1; grid-row: span 2; }
   .fm-start { grid-column: 2; }
   .fm-bot { grid-column: 3; }
   .fm-wheel { grid-column: 2 / span 2; }
-  .fm-tabs { margin: 0 0 14px; border-radius: 0 0 14px 14px; }
+  .fm-tabs { margin: 0 0 22px; padding-left: 0; padding-right: 0; }
 }
 @media (min-width: 1024px) and (prefers-reduced-motion: reduce) {
   .side-item.is-sq.active::after { animation: none; }
