@@ -9842,8 +9842,17 @@ body.mo-receded .opener-scroll { filter: blur(4px) saturate(.55); transform: sca
   .shelf-row .case-card.has-art:hover .case-cover { transform: translateY(-8px) scale(1.04); }
 }
 .case-cover > .fx-burst { z-index: 3; }
+/* Подарки во Free Money дышат, но без блика. Анимация filter с drop-shadow
+   на этих обложках роняет вкладку Safari целиком (WebKit, проверено
+   бисекцией): раздел открывался пустым экраном. Блик здесь и не нужен -
+   подарок бесплатный, «хватает баланса» про него ничего не значит. */
+#bonusList .case-card.has-art.can-afford .cover-art {
+  animation: caseBreath 5.5s ease-in-out infinite;
+  animation-delay: var(--breath, 0s);
+}
 @media (prefers-reduced-motion: reduce) {
-  .shelf-row .case-card.has-art .cover-art { animation: none; }
+  .shelf-row .case-card.has-art .cover-art,
+  #bonusList .case-card.has-art.can-afford .cover-art { animation: none; }
 }
 
 /* Монеты пополнения летят поверх всего. */
