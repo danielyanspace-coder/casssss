@@ -6327,7 +6327,51 @@ const SIDE_NAV = [
  * отделены они так же. Одна разметка на боковую панель компьютера и лист
  * меню телефона - иначе они разошлись бы с первой же правки.
  */
-function navTilesHtml({ admin = false, supportId }) {
+/*
+ * «Главный приз дня» в боковой панели компьютера, между разделами и кассой
+ * (там пустовало место). Это самый дорогой предмет одного из дорогих
+ * кейсов - то, что в нём действительно лежит, с настоящей суммой.
+ *
+ * НЕ «крупнейший выигрыш дня». Заказчик просил выдуманный выигрыш, чтобы
+ * не стыдно было за 700 ₽; но выдуманный выигрыш игрок читает как факт
+ * «кто-то сегодня столько снял», а это неправда, подталкивающая ставить
+ * (то же правило, что у блока лучших выигрышей казино: раундов нет - блока
+ * нет). Приз кейса - правда, и сумма у него те же миллионы.
+ *
+ * Кейс меняется раз в сутки и случайно, а не по кругу: номер берётся из
+ * хеша даты. Хеш, а не Math.random, чтобы все игроки и все перерисовки за
+ * день видели один и тот же приз.
+ */
+const DAILY_PRIZE_MIN_PRICE = 20000;
+
+function dailyPrize() {
+  const cases = (state.config?.cases || []).filter((c) => !c.free && c.price >= DAILY_PRIZE_MIN_PRICE
+    && (!c.availableFrom || Date.now() >= c.availableFrom) && c.items?.length);
+  if (!cases.length) return null;
+  const d = new Date();
+  const key = `prize:${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+  let h = 0x811c9dc5;
+  for (let i = 0; i < key.length; i++) h = Math.imul(h ^ key.charCodeAt(i), 0x01000193) >>> 0;
+  const c = cases[h % cases.length];
+  const item = c.items.filter((it) => it.kind === 'item').reduce((a, b) => (b.value > a.value ? b : a), { value: 0 });
+  return item.value > 0 ? { c, item } : null;
+}
+
+function dailyPrizeHtml() {
+  const p = dailyPrize();
+  if (!p) return '';
+  const color = tierColor(p.item.tier);
+  return `<button class="side-prize" data-prize-case="${esc(p.c.id)}" style="--tier-color:${color}"
+      data-material="${p.item.skin?.material || 'gold'}">
+    <span class="side-prize-kicker">Главный приз дня</span>
+    <span class="side-prize-art">${tileArt(p.item, color)}</span>
+    <span class="side-prize-name">${esc(p.item.name)}</span>
+    <span class="side-prize-value">${money(p.item.value)}</span>
+    <span class="side-prize-case">в кейсе «${esc(p.c.name)}»</span>
+  </button>`;
+}
+
+function navTilesHtml({ admin = false, supportId, prize = false }) {
   const items = SIDE_NAV.filter((m) => (!m.adminOnly || state.user?.isAdmin)
                                     && (!m.partnerOnly || state.user?.isPartner)
                                     && viewOpen(m.view));
@@ -6354,6 +6398,7 @@ function navTilesHtml({ admin = false, supportId }) {
     <nav class="side-list">
       ${grid.map((m) => tile(m, ' is-sq')).join('')}
     </nav>
+    ${prize ? dailyPrizeHtml() : ''}
     <div class="side-bottom">
       ${wallet ? tile(wallet, ' is-wide') : ''}
       ${tile({ id: supportId, art: '/assets/ui/nav-support.webp', title: 'Поддержка',
@@ -6369,9 +6414,13 @@ function renderSideNav() {
     <button class="side-brand" data-view="cases" aria-label="На главную">
       <img src="/assets/ui/logo.webp" alt="LUCKYBOX" class="side-brand-logo">
     </button>
-    ${navTilesHtml({ supportId: 'sideSupport' })}
+    ${navTilesHtml({ supportId: 'sideSupport', prize: true })}
   `;
   mountIcons(nav);
+  nav.querySelector('[data-prize-case]')?.addEventListener('click', (e) => {
+    if (state.crash && !state.crash.finished) { toast('Сначала закончите раунд краша'); return; }
+    openCase(e.currentTarget.dataset.prizeCase);
+  });
 
   nav.querySelectorAll('[data-view]').forEach((btn) => {
     btn.addEventListener('click', () => {
