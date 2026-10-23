@@ -19,6 +19,7 @@ import {
   CASH_PRIZE, GIFT_CASE_MAX_PRICE, SPINS_PER_CYCLE, SPIN_COOLDOWN_MS, MIN_DEPOSIT,
 } from './fortune.js';
 import { SLOT_RTP } from './slots.js';
+import { START_CASE_ID } from './cases.js';
 
 const DB_PATH = resolve(process.env.DB_PATH || './data/app.db');
 mkdirSync(dirname(DB_PATH), { recursive: true });
@@ -786,6 +787,12 @@ ensureColumn('users', 'bonus_converted', 'INTEGER NOT NULL DEFAULT 0');
 const depositsTotalAdded = ensureColumn('users', 'deposits_total', 'INTEGER NOT NULL DEFAULT 0');
 // Бонусная часть ставки риск-игры: выигрыш кейса мог прийти на оба счёта.
 ensureColumn('users', 'gamble_bonus', 'INTEGER NOT NULL DEFAULT 0');
+// Кейс «Начало» и билеты розыгрыша: оборот своими деньгами и сколько
+// тысяч оборота уже обменяно на кейс (см. блок «КЕЙС НАЧАЛО И БИЛЕТЫ»).
+ensureColumn('users', 'turnover_real', 'INTEGER NOT NULL DEFAULT 0');
+ensureColumn('users', 'start_case_given', 'INTEGER NOT NULL DEFAULT 0');
+ensureColumn('users', 'start_case_mark', 'INTEGER NOT NULL DEFAULT 0');
+ensureColumn('users', 'raffle_turnover', 'INTEGER NOT NULL DEFAULT 0');
 
 // Какая часть ставки и выплаты раунда пришлась на бонусный счёт, и входные
 // данные раунда (цвет рулетки, цель апгрейда, карта риск-игры) - по ним
@@ -2529,6 +2536,7 @@ export function consumeWager(userId, opts) {
                      wager_required = MAX(0, wager_required - ?),
                      wager_progress = wager_progress + ?
                WHERE id = ?`).run(counted, countedBonus, real + bonus, userId);
+  if (real > 0) addRealTurnover(userId, real);
   // Сколько долга пополнения реально погашено: казино возвращает его, если
   // агрегатор отменит ставку (отменённая ставка риска не несла).
   return { debtCut: Math.min(counted, debtBefore) };
@@ -2680,6 +2688,101 @@ export function firstDepositBonus(amount, rules = firstDepositRules()) {
  * Вызывать внутри транзакции того, кто зачисляет: бонус и счётчик пополнений
  * не должны пережить откат зачисления.
  */
+/* ============================================================
+   КЕЙС НАЧАЛО И БИЛЕТЫ
+   ============================================================ */
+
+/*
+ * «Начало» - бесплатный кейс (server/cases.js, START_CASE_ID). Выдаётся
+ * ваучером-подарком: первый раз за пополнение на сумму от
+ * START_CASE_MIN_DEPOSIT, дальше за каждые START_CASE_TURNOVER рублей
+ * ставок СВОИМИ деньгами.
+ *
+ * Почему только свои деньги. Выигрыш с подарка приходит бонусом, а ставки
+ * бонусом крутили бы счётчик дальше: подарок выдавал бы следующий подарок.
+ * Почему оборот без веса по отдаче игры: игроку обещано «прокрутите тысячу»,
+ * и шкала в Free Money обязана двигаться ровно на поставленное.
+ *
+ * Сколько это стоит. Кейс в среднем отдаёт 60 ₽ бонусом, тысяча оборота в
+ * наших играх приносит кассе 300 ₽, в казино с отдачей 80% - 200 ₽. И бонус
+ * переходит в деньги только в пределах потолка от пополнений (bonusAllowance).
+ *
+ * Билеты розыгрыша считаются из того же оборота: один билет за каждые
+ * RAFFLE_TICKET_TURNOVER, не больше RAFFLE_MAX_TICKETS. Свой счётчик
+ * (raffle_turnover) - чтобы следующий розыгрыш можно было начать с нуля, не
+ * трогая шкалу кейса.
+ */
+export function startCaseRules() {
+  return {
+    minDeposit: Math.max(1, Number(process.env.START_CASE_MIN_DEPOSIT) || 100),
+    turnover: Math.max(100, Number(process.env.START_CASE_TURNOVER) || 1000),
+  };
+}
+export const RAFFLE_TICKET_TURNOVER = 1000;
+export const RAFFLE_MAX_TICKETS = 100;
+
+function addRealTurnover(userId, rub) {
+  db.prepare(`UPDATE users SET turnover_real = turnover_real + ?, raffle_turnover = raffle_turnover + ?
+               WHERE id = ?`).run(rub, rub, userId);
+  grantStartCase(userId);
+}
+
+/**
+ * Выдаёт «Начало», если оно заработано. Зовётся из той же транзакции, что
+ * двигает пополнение или оборот, поэтому два параллельных запроса не выдадут
+ * один кейс дважды.
+ */
+function grantStartCase(userId) {
+  const u = getUserById(userId);
+  if (!u) return 0;
+  const rules = startCaseRules();
+  const blocks = Math.floor((u.turnover_real || 0) / rules.turnover);
+  if (!u.start_case_given) {
+    if ((u.deposits_total || 0) < rules.minDeposit) return 0;
+    // Оборот до первой выдачи в зачёт не идёт: первый кейс - за пополнение,
+    // а шкала следующего начинается с этой минуты.
+    addVoucher(userId, START_CASE_ID, 1, true);
+    db.prepare('UPDATE users SET start_case_given = 1, start_case_mark = ? WHERE id = ?').run(blocks, userId);
+    trackEvent(userId, 'start_case_granted', { reason: 'deposit' });
+    return 1;
+  }
+  const add = blocks - (u.start_case_mark || 0);
+  if (add <= 0) return 0;
+  addVoucher(userId, START_CASE_ID, add, true);
+  db.prepare('UPDATE users SET start_case_mark = ? WHERE id = ?').run(blocks, userId);
+  trackEvent(userId, 'start_case_granted', { reason: 'turnover', count: add });
+  return add;
+}
+
+/** Состояние «Начала» и билетов для клиента. */
+export function startCaseState(user) {
+  const rules = startCaseRules();
+  const ready = db.prepare('SELECT count FROM vouchers WHERE user_id = ? AND case_id = ?')
+    .get(user.id, START_CASE_ID)?.count || 0;
+  const turnover = user.turnover_real || 0;
+  const done = user.start_case_given
+    ? Math.max(0, turnover - (user.start_case_mark || 0) * rules.turnover) : 0;
+  const raffle = user.raffle_turnover || 0;
+  const tickets = Math.min(RAFFLE_MAX_TICKETS, Math.floor(raffle / RAFFLE_TICKET_TURNOVER));
+  return {
+    startCase: {
+      caseId: START_CASE_ID,
+      ready,
+      // До первого пополнения кейс ждёт пополнения, а не оборота.
+      needDeposit: !user.start_case_given,
+      minDeposit: rules.minDeposit,
+      step: rules.turnover,
+      progress: Math.min(done, rules.turnover),
+    },
+    raffle: {
+      tickets,
+      max: RAFFLE_MAX_TICKETS,
+      step: RAFFLE_TICKET_TURNOVER,
+      progress: tickets >= RAFFLE_MAX_TICKETS ? RAFFLE_TICKET_TURNOVER : raffle % RAFFLE_TICKET_TURNOVER,
+    },
+  };
+}
+
 export function registerDeposit(userId, amount, source = 'gateway') {
   const before = getUserById(userId);
   if (!before) return { bonus: 0 };
@@ -2690,6 +2793,7 @@ export function registerDeposit(userId, amount, source = 'gateway') {
                                deposits_total = deposits_total + ?
                WHERE id = ?`).run(paid, paid, userId);
   trackEvent(userId, 'deposit_paid', { amount, source });
+  grantStartCase(userId);
 
   /*
    * Прокруты колеса фортуны выдаются здесь же, а не отдельной ручкой: это
@@ -2779,7 +2883,7 @@ const ALL_EVENTS = new Set([
   ...CLIENT_EVENTS,
   'deposit_first_bonus', 'promo_redeemed', 'freespins_bought', 'bot_reminder',
   'fortune_unlocked', 'fortune_spin', 'casino_launch',
-  'slot_spin', 'slot_jackpot', 'slot_bonus_bought', 'login', 'deposit_dispute',
+  'slot_spin', 'slot_jackpot', 'slot_bonus_bought', 'login', 'deposit_dispute', 'start_case_granted',
 ]);
 
 const insertEvent = db.prepare(

@@ -70,7 +70,7 @@ import {
   rotateServerSeed,
   setClientSeed,
   startCrashRound,
-  getVouchers, getX2Perks,
+  getVouchers, getX2Perks, startCaseState,
   fortuneState, fortuneHistory, playFortuneSpin,
   syncStaff, staffRow, staffList, staffSave, staffRemove, findUserByAnyId,
   playerNotes, addPlayerNote, deletePlayerNote,
@@ -391,6 +391,8 @@ function publicUser(user) {
     gambleStake: user.gamble_stake,
     gambleCase: user.gamble_case,
     vouchers: getVouchers(user.id),
+    // Бесплатный кейс «Начало» и билеты розыгрыша: шкалы в Free Money.
+    ...startCaseState(user),
     /*
      * Бонусный счёт отдельно от своих денег. balance - свои (их показывает
      * шапка, ими играет казино, их выводят), bonusBalance - подарки, которыми
@@ -827,10 +829,25 @@ app.post('/api/open', auth, limits.play, gameGate('cases'), (req, res) => {
     return res.status(403).json({ error: `Кейс откроется ${starts}` });
   }
 
-  const count = Math.min(MAX_BATCH, Math.max(1, Math.trunc(Number(req.body?.count) || 1)));
+  let count = Math.min(MAX_BATCH, Math.max(1, Math.trunc(Number(req.body?.count) || 1)));
 
   const user = req.player;
   const vouchers = getVouchers(user.id).find((v) => v.case_id === caseData.id)?.count || 0;
+
+  /*
+   * Бесплатный кейс открывается только подарком, по одному. Без подарка -
+   * отказ с условием: клиент рисует по нему сцену «пополни от 100 ₽» или
+   * шкалу оборота. Цена кейса - номинал решателя, списать её нельзя.
+   */
+  if (caseData.free) {
+    if (vouchers <= 0) {
+      const st = startCaseState(user).startCase;
+      return res.status(403).json({ error: st.needDeposit
+        ? `Пополните баланс от ${st.minDeposit} ₽, и этот кейс ваш бесплатно`
+        : `Поставьте ещё ${st.step - st.progress} ₽, и кейс снова ваш`, code: 'START_LOCKED', startCase: st });
+    }
+    count = 1;
+  }
   // Ваучеры покрывают первые открытия пачки, остальное оплачивается балансом.
   const payable = Math.max(0, count - vouchers);
   const need = payable * caseData.price;
@@ -843,9 +860,9 @@ app.post('/api/open', auth, limits.play, gameGate('cases'), (req, res) => {
       const roll = computeRoll(serverSeed, clientSeed, nonce);
       return { item: pickItem(caseData, roll), roll };
     }, (serverSeed, clientSeed, nonce) => {
-      // Фриспин крутит ту же полную таблицу, что и платное открытие.
+      // Фриспин крутит свою таблицу: крупное в серии выпадает чаще.
       const roll = computeRoll(serverSeed, clientSeed, nonce);
-      return { item: pickItem(caseData, roll), roll };
+      return { item: pickItem(caseData, roll, true), roll };
     });
   } catch (err) {
     if (err.code === 'INSUFFICIENT_FUNDS') return sendInsufficient(res, need - spendable(user));
@@ -925,6 +942,7 @@ app.post('/api/freespins/buy', auth, limits.play, gameGate('cases'), (req, res) 
     return res.status(403).json({ error: `Кейс откроется ${starts}` });
   }
 
+  if (caseData.free) return res.status(400).json({ error: 'В этом кейсе фриспины не продаются' });
   const count = Math.trunc(Number(req.body?.count));
   const cost = freeSpinPackPrice(caseData, count);
   if (!cost) return res.status(400).json({ error: 'Такой пачки нет' });
@@ -937,7 +955,7 @@ app.post('/api/freespins/buy', auth, limits.play, gameGate('cases'), (req, res) 
     result = buyFreeSpins(user.id, caseData, count, cost,
       (serverSeed, clientSeed, nonce) => {
         const roll = computeRoll(serverSeed, clientSeed, nonce);
-        return { item: pickItem(caseData, roll), roll };
+        return { item: pickItem(caseData, roll, true), roll };
       });
   } catch (err) {
     if (err.code === 'INSUFFICIENT_FUNDS') return sendInsufficient(res, cost - spendable(user));

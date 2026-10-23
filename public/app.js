@@ -797,7 +797,8 @@ function caseCardHtml(c, vouchers, artAspect = null) {
   const x2 = (state.user.x2Perks || []).some((p) => p.case_id === c.id);
   const locked = lockedUntil(c);
   let badge = '';
-  if (locked) badge = `<span class="cover-badge soon">С ${locked.toUpperCase()}</span>`;
+  if (c.free) badge = '<span class="cover-badge perk">FREE</span>';
+  else if (locked) badge = `<span class="cover-badge soon">С ${locked.toUpperCase()}</span>`;
   else if (freeCount) badge = `<span class="cover-badge perk">БЕСПЛАТНО ×${freeCount}</span>`;
   else if (x2) badge = '<span class="cover-badge perk">×2</span>';
 
@@ -831,9 +832,12 @@ function caseCardHtml(c, vouchers, artAspect = null) {
   let h = 0;
   for (let i = 0; i < c.id.length; i++) h = (h * 31 + c.id.charCodeAt(i)) >>> 0;
   const breath = `;--breath:${-((h % 5500) / 1000).toFixed(2)}s;--glint:${-((h % 9000) / 1000).toFixed(2)}s`;
-  const afford = !locked && (freeCount > 0 || c.price <= (state.user?.balance || 0));
+  const afford = !locked && (freeCount > 0 || (!c.free && c.price <= (state.user?.balance || 0)));
+  // Бесплатный кейс: вместо цены - «Бесплатно», а готовый подарок светится.
+  const priceLabel = c.free ? (freeCount ? `Бесплатно ×${freeCount}` : 'Бесплатно')
+    : freeCount && !locked ? 'ПОДАРОК' : money(c.price);
 
-  return `<div class="case-card ${hasArt ? 'has-art' : ''} ${freeCount ? 'free-ready' : ''} ${locked ? 'locked' : ''} ${afford ? 'can-afford' : ''}"
+  return `<div class="case-card ${hasArt ? 'has-art' : ''} ${freeCount ? 'free-ready' : ''} ${c.free ? 'is-gift' : ''} ${locked ? 'locked' : ''} ${afford ? 'can-afford' : ''}"
       data-case="${c.id}" style="--cat-color:${color}${
         artAspect ? `;--art-ar:${artAspect}` : ''}${glow}${breath}">
     <div class="case-cover">
@@ -843,7 +847,7 @@ function caseCardHtml(c, vouchers, artAspect = null) {
     </div>
     <div class="case-name">${esc(c.name)}</div>
     <div class="case-foot">
-      <span class="case-price">${freeCount && !locked ? 'ПОДАРОК' : money(c.price)}</span>
+      <span class="case-price">${priceLabel}</span>
       ${hasArt ? '' : `<span class="case-max">${c.maxMultiplier}x</span>`}
     </div>
   </div>`;
@@ -912,7 +916,10 @@ function renderCases() {
   }));
   const themedIds = new Set(themed.flatMap((t) => t.cases.map((c) => c.id)));
 
-  const sorted = all.filter((c) => c !== featured && !themedIds.has(c.id));
+  // Бесплатный «Начало» стоит первым на первой полке (решение заказчика):
+  // его номинал - для решателя, по цене он не сортируется.
+  const gifts = all.filter((c) => c.free);
+  const sorted = all.filter((c) => c !== featured && !themedIds.has(c.id) && !c.free);
 
   /*
    * Высота слота под арт задаётся пропорцией, а не пикселями.
@@ -935,20 +942,23 @@ function renderCases() {
     return arts.length ? Math.min(...arts) : null;
   };
 
-  const shelfHtml = (cls, title, hint, items) => `<section class="shelf ${cls}">
+  const shelfHtml = (cls, title, hint, items) => {
+    const paid = items.filter((c) => !c.free);
+    return `<section class="shelf ${cls}">
       <div class="shelf-head">
         <div>
           <h2 class="shelf-title">${title}</h2>
           <div class="shelf-hint">${hint}</div>
         </div>
-        <div class="shelf-range">${fmt(items[0].price)}${
-          items[items.length - 1].price !== items[0].price
-            ? ` - ${fmt(items[items.length - 1].price)}` : ''} ₽</div>
+        <div class="shelf-range">${fmt(paid[0].price)}${
+          paid[paid.length - 1].price !== paid[0].price
+            ? ` - ${fmt(paid[paid.length - 1].price)}` : ''} ₽</div>
       </div>
       <div class="shelf-row">
         ${items.map((c, i) => caseCardHtml(c, vouchers, pairAspect(items, i))).join('')}
       </div>
     </section>`;
+  };
 
   let from = 0;
   const blocks = [];
@@ -971,6 +981,7 @@ function renderCases() {
 
   for (const shelf of SHELVES) {
     const items = sorted.filter((c) => c.price > from && c.price <= shelf.max);
+    if (from === 0) items.unshift(...gifts);
     from = shelf.max;
     if (items.length) blocks.push(shelfHtml('', shelf.title, shelf.hint, items));
 
@@ -1106,7 +1117,7 @@ function openCase(caseId) {
   const locked = lockedUntil(c);
 
   document.getElementById('openerCaseName').innerHTML =
-    `${esc(c.name)} · <span>${money(c.price)}</span>`;
+    `${esc(c.name)} · <span>${c.free ? 'бесплатно' : money(c.price)}</span>`;
   document.getElementById('openerViewers').textContent =
     `этот кейс крутят ${viewersFor(c.id)} игроков`;
 
@@ -1185,6 +1196,11 @@ function openCase(caseId) {
     AUTO_COUNTS.map((k) => `<button class="auto-btn" data-auto="${k}" aria-pressed="false">${k}</button>`).join('');
 
   renderFreeSpinBuy(c, locked);
+  // Бесплатный кейс открывается по одному и только подарком: ни икса, ни
+  // авто, ни пачек фриспинов у него нет.
+  document.getElementById('countRow').hidden = !!c.free;
+  document.getElementById('autoToggle').hidden = !!c.free;
+  document.getElementById('autoRow').hidden = !!c.free;
 
   const openBtn = document.getElementById('doOpenBtn');
   let count = 1;
@@ -1214,6 +1230,15 @@ function openCase(caseId) {
       return;
     }
     openPrice.hidden = false;
+
+    if (c.free) {
+      openAct.textContent = 'Открыть';
+      openSub.textContent = freeCount ? `подарков: ${freeCount}` : 'подарок за пополнение';
+      openPrice.textContent = 'Бесплатно';
+      openBtn.classList.remove('is-short');
+      fitOpenBtn();
+      return;
+    }
 
     // Автооткрытие крутит кейс по одному. На кнопке полная сумма серии, а
     // не «10 раз подряд»: игрок видит, на сколько он соглашается.
@@ -1270,7 +1295,8 @@ function openCase(caseId) {
   });
   autoToggle.onclick = () => setAuto(auto ? 0 : autoLast);
 
-  openBtn.onclick = () => (auto ? runAutoOpen(c.id, auto) : startOpening(c.id, count));
+  openBtn.onclick = () => (c.free ? startOpening(c.id, 1)
+    : auto ? runAutoOpen(c.id, auto) : startOpening(c.id, count));
 
   document.getElementById('result').hidden = true;
   document.getElementById('gamble').hidden = true;
@@ -1520,11 +1546,12 @@ function measureReel(reel) {
   return { tileW: first.width, step };
 }
 
-function weightedSample(items) {
+/** key = 'fsProbability' для ленты серии фриспинов: у неё своя таблица. */
+function weightedSample(items, key = 'probability') {
   const r = Math.random();
   let acc = 0;
   for (const it of items) {
-    acc += it.probability;
+    acc += it[key] ?? it.probability;
     if (r < acc) return it;
   }
   return items[0];
@@ -1649,6 +1676,8 @@ async function startOpening(caseId, count = 1, { again = false } = {}) {
   if (!c) return;
 
   const freeCount = (state.user.vouchers || []).find((v) => v.case_id === c.id)?.count || 0;
+  // Бесплатный кейс без подарка не открывается: вместо кассы - приглашение.
+  if (c.free && !freeCount) { showStartGate(c); return; }
   const need = Math.max(0, count - freeCount) * c.price;
   if (need > spendableMoney()) {
     needMoney(need - spendableMoney());
@@ -1918,7 +1947,7 @@ function renderFreeSpinBuy(c, locked) {
   const row = document.getElementById('fsBuyRow');
   const packs = state.config.freeSpinPacks || [];
 
-  if (!packs.length || locked) {
+  if (!packs.length || locked || c.free) {
     box.hidden = true;
     return;
   }
@@ -2004,8 +2033,9 @@ function confirmBuyFreeSpins(c, count, fromEl = null) {
   document.getElementById('buyRows').innerHTML = `
     <span>по ${money(perSpin)} за прокрут</span>
     <span>останется ${money(Math.max(0, spendableMoney() - price))}</span>`;
+  // Таблица серии своя, и это говорится прямо: крупное в ней чаще.
   document.getElementById('buyNote').textContent =
-    'Прокруты начнутся сразу. Внутри серии может выпасть что угодно из этого кейса, включая новые фриспины.';
+    `Прокруты начнутся сразу. В серии крупные выигрыши выпадают в ${String(c.fsBoost || 1.5).replace('.', ',')} раза чаще, чем при обычном открытии.`;
 
   // Жетоны вокруг: по одному на прокрут, каждый со своей задержкой появления.
   const n = Math.min(count, BUY_ORBIT_MAX);
@@ -2492,10 +2522,11 @@ async function runFreeSpins(grant, caseData, { auto = false, replay = false, cos
      же: к предмету лента подходит ползком, а не гаснет на полном ходу. */
   const SPIN_MS = 2300;
 
-  // Лента серии - по настоящим вероятностям кейса, как и основная. Раньше
-  // плитки брались равномерно, и предмет за 184 000 мелькал в ней так же
-  // часто, как филлер: игрок читает по ленте свои шансы, и это была ложь.
-  const pickFiller = () => weightedSample(caseData.items);
+  // Лента серии - по настоящим вероятностям серии (своя таблица фриспинов,
+  // в ней крупное чаще), как и основная. Раньше плитки брались равномерно, и
+  // предмет за 184 000 мелькал так же часто, как филлер: игрок читает по
+  // ленте свои шансы, и это была ложь.
+  const pickFiller = () => weightedSample(caseData.items, 'fsProbability');
 
   let acc = 0;
 
@@ -2803,6 +2834,15 @@ function showCaseResult(data, caseData) {
  */
 function setAgainButton(btn, caseData, count) {
   const freeLeft = (state.user.vouchers || []).find((v) => v.case_id === caseData.id)?.count || 0;
+  if (caseData.free) {
+    // Подарков больше нет - кнопка ведёт к условию, а не в кассу.
+    btn.disabled = false;
+    btn.querySelector('.open-act > span').textContent = freeLeft ? 'Ещё раз' : 'Как получить ещё';
+    btn.querySelector('.open-act small').textContent = freeLeft ? `подарков: ${freeLeft}` : 'за каждые 1 000 ₽ ставок';
+    btn.querySelector('.open-price').textContent = 'Бесплатно';
+    requestAnimationFrame(() => fitOpenBtn(btn));
+    return;
+  }
   const paid = Math.max(0, count - freeLeft);
   btn.disabled = paid * caseData.price > spendableMoney();
   btn.querySelector('.open-act > span').textContent = btn.disabled ? 'Не хватает' : 'Ещё раз';
@@ -2810,6 +2850,91 @@ function setAgainButton(btn, caseData, count) {
     count > 1 ? `${count} ${plural(count, 'кейс', 'кейса', 'кейсов')} сразу` : 'тот же кейс';
   btn.querySelector('.open-price').textContent = paid === 0 ? 'бесплатно' : money(paid * caseData.price);
   requestAnimationFrame(() => fitOpenBtn(btn));
+}
+
+/* ---------- Бесплатный кейс «Начало»: приглашение ---------- */
+
+/** Сколько сцена-приглашение ждёт, прежде чем закрыться сама. */
+const START_GATE_MS = 16000;
+
+/**
+ * Сцена вместо кассы, когда «Начало» нечем открыть.
+ *
+ * Не тост и не окно подтверждения: это предложение, и оно должно выглядеть
+ * подарком. Кейс поднимается из света, за ним медленно вращаются лучи, на
+ * нём бирка FREE. Новичку - «пополните от 100 ₽», тому, кто кейс уже
+ * открывал, - шкала до следующего (тот же оборот, что в Free Money).
+ * Закрывается кнопкой, нажатием мимо, Esc и сама: ничто не ждёт вечно.
+ */
+function showStartGate(c) {
+  document.getElementById('startGate')?.remove();
+  const st = state.user?.startCase || { needDeposit: true, minDeposit: 100, step: 1000, progress: 0 };
+  const guest = !!state.guest;
+  const deposit = guest || st.needDeposit;
+  const left = Math.max(0, st.step - st.progress);
+  const pct = Math.round((st.progress / st.step) * 100);
+  const cover = caseStageSrc(c) || caseArtSrc(c);
+  const top = Math.max(...c.items.map((i) => i.value));
+
+  const scene = document.createElement('div');
+  scene.id = 'startGate';
+  scene.className = 'sg-scene';
+  scene.innerHTML = `
+    <div class="sg-glow"></div>
+    <div class="sg-card" role="dialog" aria-label="Как получить кейс «${esc(c.name)}»">
+      <button class="sg-close" aria-label="Закрыть">×</button>
+      <div class="sg-hero">
+        <div class="sg-rays"></div>
+        ${cover ? `<img class="sg-cover" src="${cover}" alt="">` : ''}
+      </div>
+      <div class="sg-kicker">${deposit ? 'Подарок новичку' : 'Кейс снова ждёт'}</div>
+      <h3 class="sg-title">${deposit
+        ? `Пополните от <b>${money(st.minDeposit)}</b><br>и кейс ваш бесплатно`
+        : `Ещё <b>${money(left)}</b> ставок<br>и кейс снова ваш`}</h3>
+      <p class="sg-sub">В кейсе до ${money(top)}. Выигрыш приходит на бонусный счёт.</p>
+      ${deposit ? `<ol class="sg-steps">
+        <li><i>1</i><span>Пополнение<br>от ${money(st.minDeposit)}</span></li>
+        <li><i>2</i><span>Кейс<br>в подарок</span></li>
+        <li><i>3</i><span>Ещё один за каждые ${fmt(st.step)} ₽ ставок</span></li>
+      </ol>` : `<div class="sg-meter" style="--p:${pct}%">
+        <div class="sg-meter-bar"><i></i></div>
+        <div class="sg-meter-row"><span>${money(st.progress)}</span><span>из ${money(st.step)}</span></div>
+      </div>`}
+      <button class="sg-cta">${guest ? 'Зарегистрироваться' : deposit ? `Пополнить от ${money(st.minDeposit)}` : 'Играть дальше'}</button>
+      <button class="sg-later">${deposit ? 'Позже' : 'Понятно'}</button>
+    </div>`;
+  document.body.appendChild(scene);
+  void scene.offsetWidth;
+  scene.classList.add('is-in');
+  sndWhoosh(true);
+  haptic('light');
+  setTimeout(() => {
+    if (!scene.isConnected || scene.classList.contains('is-out')) return;
+    const r = scene.querySelector('.sg-cover, .sg-hero')?.getBoundingClientRect();
+    if (r) sparkBurst(scene, r.left + r.width / 2, r.top + r.height * 0.55,
+      { n: 20, colors: ['#ffe58a', '#ffffff', '#ffb648'], dist: [60, 140], size: 5 });
+    sndChime();
+  }, 520);
+
+  let timer = 0;
+  const close = () => {
+    if (scene.classList.contains('is-out')) return;
+    clearTimeout(timer);
+    document.removeEventListener('keydown', onKey);
+    scene.classList.add('is-out');
+    setTimeout(() => scene.remove(), 320);
+  };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKey);
+  timer = setTimeout(close, START_GATE_MS);
+  scene.querySelector('.sg-close').onclick = close;
+  scene.querySelector('.sg-later').onclick = close;
+  scene.onclick = (e) => { if (!e.target.closest('.sg-card')) close(); };
+  scene.querySelector('.sg-cta').onclick = () => {
+    close();
+    if (guest) return openAuth(authDefaultPane());
+    if (deposit) { closeOpener(); openCashier(); }
+  };
 }
 
 /**

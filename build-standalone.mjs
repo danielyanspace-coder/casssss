@@ -168,6 +168,7 @@ const drawTables = CASES.map((c) => ({
   // Дата старта нужна и офлайн: иначе сезонный кейс, закрытый на сервере,
   // в автономной сборке открывался бы свободно.
   availableFrom: c.availableFrom,
+  free: c.free,
   items: c.items.map((it) => ({
     id: it.id,
     name: it.name,
@@ -181,6 +182,7 @@ const drawTables = CASES.map((c) => ({
     perk: it.perk || null,
     perkLabel: it.perkLabel || null,
     cumulative: it.cumulative,
+    fsCumulative: it.fsCumulative,
   })),
 }));
 
@@ -590,7 +592,9 @@ function freshUser() {
     serverSeed, serverSeedHash: sha256Hex(serverSeed),
     clientSeed: randHex(8), nonce: 0,
     prevServerSeed: null, prevServerHash: null,
-    x2Perks: {}, vouchers: {}, gambleStake: 0,
+    x2Perks: {}, gambleStake: 0,
+    // «Начало» в демо выдано сразу: заказчик смотрит файл, а не пополняет.
+    vouchers: { start_free: 1 }, startMark: 0,
     // Прокруты колеса в демо выдаются сразу: ждать пополнения заказчику,
     // который открыл файл посмотреть, нечего.
     fortune: { spins: FORTUNE.spinsPerCycle, cycles: 1, lastSpin: 0, history: [] },
@@ -695,9 +699,32 @@ function save() {
 
 /* ---------- Публичный вид игрока ---------- */
 
+/*
+ * «Начало» и билеты - как startCaseState в server/db.js: кейс за каждую
+ * тысячу оборота, билет за каждую тысячу, не больше ста.
+ */
+function startCaseDemo(u) {
+  const turnover = u.wagerProgress || 0;
+  const blocks = Math.floor(turnover / 1000);
+  if (blocks > (u.startMark || 0)) {
+    u.vouchers.start_free = (u.vouchers.start_free || 0) + blocks - (u.startMark || 0);
+    u.startMark = blocks;
+  }
+  const tickets = Math.min(100, blocks);
+  return {
+    startCase: {
+      caseId: 'start_free', ready: u.vouchers.start_free || 0, needDeposit: false,
+      minDeposit: 100, step: 1000, progress: turnover - (u.startMark || 0) * 1000,
+    },
+    raffle: { tickets, max: 100, step: 1000, progress: tickets >= 100 ? 1000 : turnover % 1000 },
+  };
+}
+
 function publicUser() {
   const u = store.user;
+  const start = startCaseDemo(u);
   return {
+    ...start,
     id: u.id, username: u.username, firstName: u.firstName,
     balance: u.balance,
     // Кнопка «Админ» скрыта: в рабочей версии её видят только владельцы из
@@ -733,8 +760,10 @@ function publicUser() {
   };
 }
 
-function pickItem(table, roll) {
-  for (const it of table.items) if (roll < it.cumulative) return it;
+// free - прокрут серии фриспинов: своя таблица, как в server/cases.js.
+function pickItem(table, roll, free = false) {
+  const key = free ? 'fsCumulative' : 'cumulative';
+  for (const it of table.items) if (roll < it[key]) return it;
   return table.items[table.items.length - 1];
 }
 
@@ -766,7 +795,7 @@ function runFreeSpinSeries(table, startCount) {
     remaining--;
     u.nonce++;
     const fRoll = computeRoll(u.serverSeed, u.clientSeed, u.nonce);
-    const fItem = pickItem(table, fRoll);
+    const fItem = pickItem(table, fRoll, true);
 
     let added = 0;
     if (fItem.perk) {
@@ -1131,8 +1160,17 @@ const routes = {
     }
 
     const u = store.user;
-    const count = Math.min(CONFIG.maxBatch, Math.max(1, Math.trunc(Number(body.count) || 1)));
+    let count = Math.min(CONFIG.maxBatch, Math.max(1, Math.trunc(Number(body.count) || 1)));
     const vouchers = u.vouchers[table.id] || 0;
+    // Бесплатный кейс - только подарком и по одному, как на сервере.
+    if (table.free) {
+      if (vouchers <= 0) {
+        const st = startCaseDemo(u).startCase;
+        return { status: 403, body: { error: 'Поставьте ещё ' + (st.step - st.progress) + ' ₽, и кейс снова ваш',
+          code: 'START_LOCKED', startCase: st } };
+      }
+      count = 1;
+    }
     // Ваучеры покрывают первые открытия пачки, остальное платное.
     const need = Math.max(0, count - vouchers) * table.price;
 
