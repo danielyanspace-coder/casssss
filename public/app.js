@@ -706,8 +706,8 @@ function showMedal(m) {
   setTimeout(() => {
     if (!scene.isConnected) return;
     const fly = scene.querySelector('.medal-fly');
-    const to = document.querySelector('#sideNav .side-item[data-view="bonuses"]')?.offsetParent
-      ? document.querySelector('#sideNav .side-item[data-view="bonuses"]')
+    const to = document.querySelector('#sideNav .side-item[data-view="freemoney"]')?.offsetParent
+      ? document.querySelector('#sideNav .side-item[data-view="freemoney"]')
       : document.getElementById('menuBtn');
     const a = fly.getBoundingClientRect();
     const b = to?.getBoundingClientRect();
@@ -739,6 +739,8 @@ function applyUser(user) {
   renderCases();
   renderMenu();
   renderSideNav();
+  // Шкалы Free Money двигаются вместе с оборотом, пока раздел открыт.
+  if (state.view === 'freemoney') { renderFreeMoney(); renderBonuses(); }
 }
 
 /* ============================================================
@@ -1040,9 +1042,12 @@ function renderBonuses() {
       return c && v.count > 0 ? Array.from({ length: v.count }, () => c) : [];
     });
 
+  // Блок «Ваши подарки» во Free Money виден, только когда есть что открыть:
+  // пустая полка с извинением сверху раздела - худшее начало витрины.
+  const gifts = document.getElementById('fmGifts');
+  if (gifts) gifts.hidden = !cards.length && !(state.user.x2Perks || []).length;
   if (!cards.length) {
-    list.innerHTML = '<div class="empty" style="grid-column:1/-1">Пока нет выигранных кейсов - '
-      + 'они появятся здесь, когда выпадут в подарок из других кейсов.</div>';
+    list.innerHTML = '';
     return;
   }
 
@@ -6262,6 +6267,9 @@ const slot = createSlot({
    ============================================================ */
 
 function switchView(name) {
+  // Раздела «Бонусы» больше нет: всё бесплатное живёт во Free Money, и
+  // старые входы (меню, ссылки, медаль, улетающая «в бонусы») ведут туда.
+  if (name === 'bonuses') name = 'freemoney';
   // Выключенную игру не открываем даже по прямой ссылке или из старого меню:
   // сервер всё равно откажет, и игрок увидит ошибку вместо объяснения.
   if (!viewOpen(name)) {
@@ -6292,7 +6300,6 @@ function switchView(name) {
   else casino.close();
   if (name === 'admin') initAdminPanel();
   if (name === 'cases') loadFreeCase();
-  if (name === 'bonuses') { renderBonuses(); renderMedals(); loadPromoState(); }
   if (name === 'freemoney') openFreeMoney();
   if (name === 'partner') loadPartner();
   if (name === 'upgrade') {
@@ -6331,7 +6338,8 @@ const MENU_HITS = [
   // Второй ряд: рулетка, касса, бонусы.
   { view: 'roulette', left: 4.82,  top: 46.59, width: 28.77, height: 29.76 },
   { view: 'wallet',   left: 35.62, top: 46.59, width: 28.77, height: 29.76 },
-  { view: 'bonuses',  left: 66.42, top: 46.59, width: 28.77, height: 29.76 },
+  // На картинке «Бонусы»: ведут во Free Money, отдельного раздела больше нет.
+  { view: 'freemoney', left: 66.42, top: 46.59, width: 28.77, height: 29.76 },
 ];
 
 /** Кнопка возврата, нарисованная в правом верхнем углу картинки. */
@@ -6499,7 +6507,7 @@ const SIDE_NAV = [
   { view: 'wallet', art: '/assets/ui/nav-wallet.webp', title: 'Касса', sub: 'Пополнение и вывод' },
   { view: 'casino', ico: 'slot', title: 'Казино', sub: 'Слоты провайдеров' },
   { view: 'slots', ico: 'slot', title: 'Слоты', sub: 'TREASURE ISLAND' },
-  { view: 'bonuses', art: '/assets/ui/nav-bonuses.webp', title: 'Бонусы', sub: 'Ежедневные награды' },
+  { view: 'freemoney', art: '/assets/ui/nav-bonuses.webp', title: 'Бонусы', sub: 'Free Money и подарки' },
   { view: 'partner', ico: 'people', title: 'Партнёру', sub: 'Статистика и выплаты',
     partnerOnly: true },
 ];
@@ -9790,7 +9798,411 @@ function showFortuneWin(prize) {
 function openFreeMoney() {
   document.getElementById('fortuneIntro').hidden = false;
   document.getElementById('fortuneStage').hidden = true;
+  renderFreeMoney();
+  renderBonuses();
+  renderMedals();
+  if (!state.guest) loadPromoState();
   loadFortune();
+}
+
+/* ============================================================
+   FREE MONEY: ИВЕНТЫ
+   ============================================================ */
+
+/*
+ * Ивенты рисуются из state.user (startCase, raffle, vouchers) и config
+ * (promoWheel, raffle, projectBot). Перерисовка дешёвая и идёт при каждом
+ * applyUser, пока раздел открыт: поставил в соседней вкладке - шкалы
+ * сдвинулись сами.
+ */
+function renderFreeMoney() {
+  if (!document.getElementById('view-freemoney')) return;
+  renderDriveEvent();
+  renderStartEvent();
+  renderPromoWheel();
+  renderBotEvent();
+  // Номера ивентов - по порядку на странице, а не зашитые: подарков нет -
+  // нумерация не прыгает через пустое место.
+  const evs = [...document.querySelectorAll('#view-freemoney .fm-ev')].filter((e) => !e.hidden);
+  let n = 0;
+  evs.forEach((e) => {
+    const no = e.querySelector('.fm-ev-no');
+    if (no && !e.classList.contains('fm-gifts')) no.textContent = String(++n).padStart(2, '0');
+  });
+  const tabs = document.getElementById('fmTabs');
+  tabs.innerHTML = evs.map((e) => `<button class="fm-tab${e.classList.contains('fm-drive') ? ' is-hot' : ''}"
+    data-go="${e.id}">${esc(e.dataset.tab || '')}</button>`).join('');
+  tabs.querySelectorAll('[data-go]').forEach((b) => {
+    b.onclick = () => {
+      haptic('light');
+      const el = document.getElementById(b.dataset.go);
+      const top = el.getBoundingClientRect().top + window.scrollY - (document.querySelector('.topbar')?.offsetHeight || 64) - 12;
+      window.scrollTo({ top, behavior: 'smooth' });
+    };
+  });
+}
+
+/* ---------- Lucky Drive: розыгрыш автомобиля ---------- */
+
+/** Сколько билетов в ряду сетки: десять рядов по десять - «карта» из ста. */
+const DRIVE_TICKET_COLS = 10;
+
+function renderDriveEvent() {
+  const box = document.getElementById('fmDrive');
+  if (!box) return;
+  const cfg = state.config.raffle || { prize: 'Rolls-Royce Wraith', step: 1000, max: 100 };
+  const r = state.user?.raffle || { tickets: 0, max: cfg.max, step: cfg.step, progress: 0 };
+  const left = Math.max(0, r.step - r.progress);
+  const full = r.tickets >= r.max;
+  const tickets = Array.from({ length: r.max }, (_, i) => {
+    const got = i < r.tickets;
+    // Свежий билет - последний полученный: он один раз «пробивается».
+    return `<i class="dv-t${got ? ' got' : ''}${got && i === r.tickets - 1 ? ' fresh' : ''}" style="--i:${i}">${i + 1}</i>`;
+  }).join('');
+
+  box.innerHTML = `
+    <div class="fm-ev-head"><span class="fm-ev-no"></span><h2 class="fm-ev-title">Lucky Drive</h2>
+      <span class="fm-live"><i></i>идёт розыгрыш</span></div>
+    <div class="dv-card">
+      <div class="dv-sky"><i></i><i></i><i></i></div>
+      <div class="dv-head">
+        <div class="dv-kicker">Разыгрываем</div>
+        <div class="dv-brand">ROLLS-ROYCE</div>
+        <div class="dv-model">Wraith</div>
+      </div>
+      <div class="dv-stage">
+        <div class="dv-spot"></div>
+        <img class="dv-car" src="/assets/ui/raffle-wraith.webp" alt="Rolls-Royce Wraith">
+        <div class="dv-floor"></div>
+        <div class="dv-sweep"></div>
+      </div>
+      <div class="dv-rules">
+        <div class="dv-rule"><b>1 билет</b><span>за каждые ${fmt(r.step)} ₽ ставок</span></div>
+        <div class="dv-rule"><b>до ${r.max}</b><span>билетов на игрока</span></div>
+        <div class="dv-rule"><b>больше билетов</b><span>выше шанс</span></div>
+      </div>
+      <div class="dv-mine">
+        <div class="dv-count"><span>Ваши билеты</span><b>${r.tickets}<small> из ${r.max}</small></b></div>
+        <div class="dv-next">${full ? 'Все билеты собраны' : state.guest ? 'Войдите, чтобы копить билеты'
+          : `До следующего билета <b>${money(left)}</b> ставок`}</div>
+        <div class="dv-bar" style="--p:${full ? 100 : Math.round((r.progress / r.step) * 100)}%"><i></i></div>
+      </div>
+      <div class="dv-tickets" style="--cols:${DRIVE_TICKET_COLS}" aria-label="Билеты: ${r.tickets} из ${r.max}">${tickets}</div>
+      <button class="dv-cta" id="dvGo">${state.guest ? 'Участвовать' : full ? 'Играть' : 'Получить билеты'}</button>
+      <p class="dv-fine">Дату розыгрыша и правила опубликуем в боте @${esc(state.config.projectBot || 'luckybox_bot')}. Билеты копятся автоматически: отдельно записываться не нужно.</p>
+    </div>`;
+  box.querySelector('#dvGo').onclick = () => {
+    haptic('light');
+    if (state.guest) return openAuth(authDefaultPane());
+    switchView('cases');
+  };
+}
+
+/* ---------- Кейс «Начало» ---------- */
+
+/** На сколько делений режется шкала оборота: по сотне на деление. */
+const START_SEGMENTS = 10;
+
+function renderStartEvent() {
+  const box = document.getElementById('fmStart');
+  if (!box) return;
+  const c = state.config.cases.find((x) => x.free);
+  if (!c) { box.hidden = true; return; }
+  const st = state.user?.startCase || { ready: 0, needDeposit: true, minDeposit: 100, step: 1000, progress: 0 };
+  const guest = !!state.guest;
+  const pct = st.needDeposit ? 0 : Math.round((st.progress / st.step) * 100);
+  const cover = caseArtSrc(c);
+  const top = Math.max(...c.items.map((i) => i.value));
+  const status = st.ready > 0
+    ? { cls: 'is-ready', title: st.ready > 1 ? `Готово к открытию: ${st.ready}` : 'Кейс готов к открытию', cta: 'Открыть бесплатно' }
+    : guest || st.needDeposit
+      ? { cls: 'is-locked', title: `Пополните от ${money(st.minDeposit)} - первый кейс в подарок`, cta: guest ? 'Зарегистрироваться' : 'Пополнить' }
+      : { cls: 'is-progress', title: `Ещё ${money(st.step - st.progress)} ставок до следующего`, cta: 'Играть' };
+
+  box.innerHTML = `
+    <div class="fm-ev-head"><span class="fm-ev-no"></span><h2 class="fm-ev-title">Бесплатный кейс</h2>
+      <span class="fm-ev-note">до ${money(top)}</span></div>
+    <div class="st-card ${status.cls}">
+      <button class="st-cover" data-case="${c.id}" aria-label="Открыть кейс «${esc(c.name)}»">
+        ${cover ? `<img src="${cover}" alt="">` : ''}
+        ${st.ready > 0 ? `<span class="st-badge">×${st.ready}</span>` : ''}
+      </button>
+      <div class="st-body">
+        <div class="st-name">«${esc(c.name)}»</div>
+        <div class="st-title">${status.title}</div>
+        <div class="st-meter" style="--p:${st.ready > 0 ? 100 : pct}%">
+          <div class="st-segs">${Array.from({ length: START_SEGMENTS }, (_, i) =>
+            `<i class="${(i + 1) * (100 / START_SEGMENTS) <= (st.ready > 0 ? 100 : pct) ? 'on' : ''}"></i>`).join('')}</div>
+          <div class="st-row"><span>${st.ready > 0 ? 'готов' : st.needDeposit ? 'после пополнения' : money(st.progress)}</span>
+            <span>${money(st.step)}</span></div>
+        </div>
+        <button class="st-cta">${status.cta}</button>
+      </div>
+    </div>
+    <div class="st-how">
+      <div><b>1</b><span>Первый кейс - за пополнение от ${money(st.minDeposit)}, один раз</span></div>
+      <div><b>2</b><span>Каждые ${fmt(st.step)} ₽ ставок - ещё один</span></div>
+      <div><b>3</b><span>Выигрыш - на бонусный счёт</span></div>
+    </div>`;
+  const go = () => {
+    haptic('light');
+    if (st.ready > 0) return openCase(c.id);
+    if (guest) return openAuth(authDefaultPane());
+    if (st.needDeposit) return openCashier();
+    return showStartGate(c);
+  };
+  box.querySelector('.st-cta').onclick = go;
+  box.querySelector('.st-cover').onclick = () => { haptic('light'); openCase(c.id); };
+}
+
+/* ---------- Колесо удачи: прокрут промокодом ---------- */
+
+const WHEEL_R = 150;          // радиус секторов в координатах SVG
+const WHEEL_HUB_R = 74;       // радиус ступицы с промокодом (41% колеса, см. .pw-hub)
+const WHEEL_BULBS = 24;       // лампочек по ободу
+const WHEEL_SPIN_MS = 5600;   // длительность прокрута
+const WHEEL_TURNS = 6;        // полных оборотов до остановки
+
+const wheelState = { rotation: 0, busy: false };
+
+/** Точка на окружности: угол от верхней точки по часовой стрелке. */
+function wheelPoint(r, turn) {
+  const a = turn * Math.PI * 2 - Math.PI / 2;
+  return [r * Math.cos(a), r * Math.sin(a)];
+}
+
+function wheelSvg(sectors) {
+  const paths = sectors.map((s, i) => {
+    const [x0, y0] = wheelPoint(WHEEL_R, s.from);
+    const [x1, y1] = wheelPoint(WHEEL_R, s.from + s.share);
+    const large = s.share > 0.5 ? 1 : 0;
+    const deg = (s.from + s.share / 2) * 360;
+    // Подпись идёт вдоль радиуса от обода к центру, как на настоящих колёсах:
+    // так в узкий сектор помещается и «Подворотня», а не только «+30%».
+    // Длина подписи ограничена ступицей: слово сжимается, а не уходит под
+    // поле промокода. На правой половине текст разворачивается, чтобы ни
+    // одна подпись не читалась вверх ногами.
+    const room = WHEEL_R - 12 - WHEEL_HUB_R;
+    const size = Math.min(s.type === 'pct' ? 17 : 12.5, room / (s.label.length * 0.62));
+    const right = deg < 180;
+    return `<g class="pw-sec" data-sec="${s.id}">
+      <path d="M0 0 L${x0.toFixed(2)} ${y0.toFixed(2)} A${WHEEL_R} ${WHEEL_R} 0 ${large} 1 ${x1.toFixed(2)} ${y1.toFixed(2)} Z"
+        fill="url(#pwg${i})" stroke="rgba(255,226,150,0.55)" stroke-width="1.4"/>
+      <g transform="rotate(${deg.toFixed(2)})">
+        <text class="pw-lbl${s.type === 'pct' ? ' is-pct' : ''}" transform="translate(0 ${-WHEEL_R + 10}) rotate(${right ? -90 : 90})"
+          text-anchor="${right ? 'end' : 'start'}" dominant-baseline="central" style="font-size:${size.toFixed(1)}px">${esc(s.label)}</text>
+      </g>
+    </g>`;
+  }).join('');
+  const grads = sectors.map((s, i) => `<radialGradient id="pwg${i}" cx="0" cy="0" r="${WHEEL_R}" gradientUnits="userSpaceOnUse">
+      <stop offset="0.25" stop-color="${s.color}" stop-opacity="0.55"/>
+      <stop offset="0.85" stop-color="${s.color}"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.25"/></radialGradient>`).join('');
+  const bulbs = Array.from({ length: WHEEL_BULBS }, (_, i) => {
+    const [x, y] = wheelPoint(WHEEL_R + 13, i / WHEEL_BULBS);
+    return `<circle class="pw-bulb${i % 2 ? ' odd' : ''}" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3.6"/>`;
+  }).join('');
+  return `<svg class="pw-svg" viewBox="-180 -180 360 360" aria-hidden="true">
+    <defs>${grads}
+      <linearGradient id="pwRim" x1="0" y1="-1" x2="0" y2="1" gradientUnits="objectBoundingBox">
+        <stop offset="0" stop-color="#fff2c2"/><stop offset="0.45" stop-color="#d9a031"/>
+        <stop offset="0.55" stop-color="#8a5a12"/><stop offset="1" stop-color="#ffd46a"/></linearGradient>
+    </defs>
+    <circle r="${WHEEL_R + 22}" fill="#170d22"/>
+    <circle r="${WHEEL_R + 13}" fill="none" stroke="url(#pwRim)" stroke-width="16"/>
+    <g class="pw-bulbs">${bulbs}</g>
+    <g class="pw-rotor" id="pwRotor" style="transform:rotate(${wheelState.rotation}deg)">${paths}
+      <circle r="${WHEEL_R}" fill="none" stroke="rgba(255,226,150,0.6)" stroke-width="2"/></g>
+  </svg>`;
+}
+
+function renderPromoWheel() {
+  const box = document.getElementById('fmWheel');
+  const cfg = state.config.promoWheel;
+  if (!box || !cfg) return;
+  // Колесо не пересобираем посреди прокрута: перерисовка сбросила бы угол.
+  if (wheelState.busy && box.querySelector('.pw-svg')) return;
+  const bot = state.config.projectBot || 'luckybox_bot';
+  box.innerHTML = `
+    <div class="fm-ev-head"><span class="fm-ev-no"></span><h2 class="fm-ev-title">Колесо удачи</h2>
+      <span class="fm-ev-note">кейсы до 150 ₽ и до +30% к пополнению</span></div>
+    <div class="pw-card">
+      <div class="pw-wheel">
+        <span class="pw-pin" aria-hidden="true"></span>
+        ${wheelSvg(cfg.sectors)}
+        <form class="pw-hub" id="pwForm" autocomplete="off">
+          <label class="pw-hub-lbl" for="pwCode">промокод</label>
+          <input class="pw-code" id="pwCode" maxlength="32" placeholder="ВВЕДИТЕ КОД"
+            autocapitalize="characters" spellcheck="false">
+          <button class="pw-spin" id="pwSpin" type="submit">Крутить</button>
+        </form>
+      </div>
+      <div class="pw-legend">${cfg.sectors.map((x) => {
+        const c = x.caseId ? state.config.cases.find((k) => k.id === x.caseId) : null;
+        const art = c ? caseArtSrc(c) : null;
+        return `<div class="pw-leg${x.type === 'pct' ? ' is-pct' : ''}" style="--c:${x.color}">
+          ${art ? `<img src="${art}" alt="">` : `<b>${esc(x.label)}</b>`}
+          <span>${c ? `${esc(c.name)} · ${money(c.price)}` : `${esc(x.label)} к пополнению`}</span>
+          <em>${(x.share * 100).toFixed(0)}%</em></div>`;
+      }).join('')}</div>
+      <div class="pw-where">
+        <span class="pw-tg" aria-hidden="true"></span>
+        <div>Промокоды для колеса - в нашем Telegram-боте <b>@${esc(bot)}</b></div>
+      </div>
+      <div class="pw-err" id="pwErr" hidden></div>
+      <p class="pw-fine">Каждый сектор занимает на колесе ровно свою долю шанса. Кейс приходит подарком, процент срабатывает на следующем пополнении от ${money(cfg.pctMinDeposit)} (бонус до ${money(cfg.pctCap)}).</p>
+    </div>`;
+  const input = box.querySelector('#pwCode');
+  input.addEventListener('input', () => { input.value = input.value.toUpperCase(); box.querySelector('#pwErr').hidden = true; });
+  box.querySelector('#pwForm').onsubmit = (e) => { e.preventDefault(); spinPromoWheel(); };
+}
+
+async function spinPromoWheel() {
+  if (wheelState.busy) return;
+  if (state.guest) return openAuth(authDefaultPane());
+  const input = document.getElementById('pwCode');
+  const err = document.getElementById('pwErr');
+  const code = input.value.trim();
+  if (!code) {
+    err.textContent = 'Введите промокод из бота';
+    err.hidden = false;
+    input.focus();
+    haptic('error');
+    return;
+  }
+  wheelState.busy = true;
+  const btn = document.getElementById('pwSpin');
+  btn.disabled = true;
+  let data;
+  try {
+    data = await api('/api/wheel/spin', { code }, { quiet: true });
+  } catch (e) {
+    wheelState.busy = false;
+    btn.disabled = false;
+    err.textContent = e.message;
+    err.hidden = false;
+    haptic('error');
+    return;
+  }
+
+  const cfg = state.config.promoWheel;
+  const sec = cfg.sectors.find((x) => x.id === data.result.sector);
+  // Точка остановки - внутри сектора, но не на самой границе: стрелка,
+  // вставшая на шов, читается как спорная.
+  const jitter = (Math.random() - 0.5) * sec.share * 0.6;
+  const target = (sec.from + sec.share / 2 + jitter) * 360;
+  const base = Math.ceil(wheelState.rotation / 360) * 360;
+  const finalRot = base + WHEEL_TURNS * 360 - target;
+  const rotor = document.getElementById('pwRotor');
+  const card = document.querySelector('.pw-card');
+  card.classList.add('is-spinning');
+  sndSpinStart();
+  rotor.style.transition = `transform ${WHEEL_SPIN_MS}ms cubic-bezier(0.12, 0.62, 0.08, 1)`;
+  requestAnimationFrame(() => { rotor.style.transform = `rotate(${finalRot}deg)`; });
+
+  // Щелчки на каждом шве: угол снимается с настоящего поворота, а не
+  // из расписания, поэтому звук совпадает с тем, что видно.
+  const seams = cfg.sectors.map((x) => x.from * 360);
+  let lastSeam = -1;
+  const t0 = performance.now();
+  const tick = () => {
+    const m = getComputedStyle(rotor).transform;
+    if (m && m !== 'none') {
+      const [a, b] = m.slice(7, -1).split(',').map(Number);
+      const rot = ((Math.atan2(b, a) * 180) / Math.PI + 360) % 360;
+      const under = (360 - rot) % 360;
+      const idx = seams.filter((d) => d <= under).length - 1;
+      if (idx !== lastSeam) { if (lastSeam !== -1) sndTick(1.1); lastSeam = idx; }
+    }
+    if (performance.now() - t0 < WHEEL_SPIN_MS) requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+
+  await new Promise((r) => setTimeout(r, WHEEL_SPIN_MS + 120));
+  wheelState.rotation = finalRot;
+  card.classList.remove('is-spinning');
+  document.querySelector(`.pw-sec[data-sec="${sec.id}"]`)?.classList.add('is-win');
+  sndLand();
+  input.value = '';
+  btn.disabled = false;
+  wheelState.busy = false;
+  if (data.user) applyUser(data.user);
+  showWheelWin(data.result, sec);
+}
+
+/** Окно приза колеса: кейс с обложкой или процент крупной цифрой. */
+function showWheelWin(result, sec) {
+  document.getElementById('wheelWin')?.remove();
+  const c = result.caseId ? state.config.cases.find((x) => x.id === result.caseId) : null;
+  const cover = c ? (caseStageSrc(c) || caseArtSrc(c)) : null;
+  const scene = document.createElement('div');
+  scene.id = 'wheelWin';
+  scene.className = 'sg-scene pw-win';
+  scene.innerHTML = `<div class="sg-glow"></div>
+    <div class="sg-card" role="dialog" aria-label="Приз колеса">
+      <button class="sg-close" aria-label="Закрыть">×</button>
+      <div class="sg-hero"><div class="sg-rays"></div>
+        ${cover ? `<img class="sg-cover" src="${cover}" alt="">` : `<div class="pw-win-pct">+${result.pct}%</div>`}</div>
+      <div class="sg-kicker">Колесо удачи</div>
+      <h3 class="sg-title">${c ? `Кейс <b>«${esc(c.name)}»</b><br>в подарок` : `<b>+${result.pct}%</b> к пополнению`}</h3>
+      <p class="sg-sub">${c ? 'Он уже лежит в ваших подарках: откройте его, когда захотите.'
+        : `Сработает на следующем пополнении от ${money(result.minDeposit)}, бонус до ${money(result.maxBonus)}.`}</p>
+      <button class="sg-cta">${c ? 'Открыть сейчас' : 'Пополнить'}</button>
+      <button class="sg-later">Позже</button>
+    </div>`;
+  document.body.appendChild(scene);
+  void scene.offsetWidth;
+  scene.classList.add('is-in');
+  sndFanfare();
+  haptic('success');
+  setTimeout(() => {
+    if (!scene.isConnected) return;
+    const r = scene.querySelector('.sg-hero').getBoundingClientRect();
+    sparkBurst(scene, r.left + r.width / 2, r.top + r.height * 0.55,
+      { n: 30, colors: ['#ffe58a', '#ffffff', '#8cf5b4'], dist: [70, 170], size: 6 });
+  }, 420);
+  let timer = 0;
+  const close = () => {
+    if (scene.classList.contains('is-out')) return;
+    clearTimeout(timer);
+    scene.classList.add('is-out');
+    setTimeout(() => scene.remove(), 320);
+  };
+  timer = setTimeout(close, START_GATE_MS);
+  scene.querySelector('.sg-close').onclick = close;
+  scene.querySelector('.sg-later').onclick = close;
+  scene.onclick = (e) => { if (!e.target.closest('.sg-card')) close(); };
+  scene.querySelector('.sg-cta').onclick = () => { close(); if (c) openCase(c.id); else openCashier(); };
+}
+
+/* ---------- Telegram-бот ---------- */
+
+function renderBotEvent() {
+  const box = document.getElementById('fmBot');
+  if (!box) return;
+  const bot = state.config.projectBot || 'luckybox_bot';
+  box.innerHTML = `
+    <div class="fm-ev-head"><span class="fm-ev-no"></span><h2 class="fm-ev-title">Наш бот</h2></div>
+    <div class="bt-card">
+      <div class="bt-plane" aria-hidden="true"><svg viewBox="0 0 48 48"><path fill="#fff"
+        d="M40.6 9.4 6.9 22.4c-2.3.9-2.3 2.2-.4 2.8l8.6 2.7 3.3 10.2c.4 1.1.2 1.6 1.4 1.6.9 0 1.3-.4 1.8-.9l4.3-4.2 8.9 6.6c1.6.9 2.8.4 3.2-1.5l5.8-27.4c.6-2.4-.9-3.5-2.5-2.8zM17.2 27.6l19.4-12.2c.9-.6 1.8-.3 1.1.4L21.1 30.8l-.6 6.9z"/></svg></div>
+      <div class="bt-body">
+        <div class="bt-name" role="button" tabindex="0" title="Скопировать">@${esc(bot)}</div>
+        <ul class="bt-list">
+          <li>Промокоды для Колеса удачи</li>
+          <li>Напоминание, когда кейс «Начало» готов</li>
+          <li>Новости розыгрыша Rolls-Royce</li>
+        </ul>
+        <a class="bt-open" href="tg://resolve?domain=${encodeURIComponent(bot)}">Открыть в Telegram</a>
+      </div>
+    </div>`;
+  // Ник копируется нажатием: на компьютере кнопки «Открыть» нет, а
+  // перепечатывать ник руками - лишний повод ошибиться.
+  const name = box.querySelector('.bt-name');
+  name.onclick = async () => {
+    try { await navigator.clipboard.writeText(`@${bot}`); toast('Ник бота скопирован'); } catch { /* буфер недоступен */ }
+    haptic('light');
+  };
 }
 
 function wireFortune() {

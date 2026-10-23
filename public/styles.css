@@ -5250,6 +5250,329 @@ div.mini-row { cursor: default; }
 .feed-scene.is-out .fsc-body { transform: scale(0.96); transition: opacity 0.17s, transform 0.17s; }
 
 /* ============================================================
+   FREE MONEY: РАЗДЕЛ ИВЕНТОВ
+   ============================================================ */
+
+/*
+ * Каждый ивент - отдельное событие со своим номером и цветом. Разделитель
+ * не линия, а шапка с номером: глаз цепляется за «01, 02, 03» и понимает,
+ * что это разные истории, а не одна длинная карточка.
+ */
+.fm-hero { position: relative; text-align: center; padding: 6px 0 10px; }
+.fm-hero-kicker {
+  font: 700 11px/1 'Manrope', system-ui, sans-serif; letter-spacing: 0.18em; text-transform: uppercase;
+  color: #9fe3b9;
+}
+.fm-hero-title {
+  margin: 8px 0 0; font: 900 34px/1 'Unbounded', 'Manrope', system-ui, sans-serif; letter-spacing: 0.02em;
+  color: #fff; text-shadow: 0 0 24px rgba(120, 255, 180, 0.25);
+}
+.fm-hero-title span {
+  background: linear-gradient(180deg, #d6ffe6, #3ee08a 55%, #1b9e5c);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.fm-tabs {
+  position: sticky; top: calc(var(--topbar-h, 64px) + var(--safe-top)); z-index: 5;
+  display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none;
+  margin: 4px -16px 14px; padding: 8px 16px;
+  background: linear-gradient(180deg, rgba(18, 10, 28, 0.94), rgba(18, 10, 28, 0.75));
+  -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+}
+.fm-tabs::-webkit-scrollbar { display: none; }
+.fm-tab {
+  flex: none; padding: 9px 14px; border-radius: 99px; cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, 0.1); background: rgba(255, 255, 255, 0.05);
+  color: #e9e0f5; font: 700 13px/1 'Manrope', system-ui, sans-serif; white-space: nowrap;
+}
+.fm-tab.is-hot {
+  border-color: transparent; color: #fff;
+  background: linear-gradient(135deg, #3d7bff, #7a4dff);
+  box-shadow: 0 6px 18px -6px rgba(90, 110, 255, 0.7);
+}
+.fm-ev { margin: 0 0 30px; scroll-margin-top: 130px; }
+.fm-ev-head { display: flex; align-items: center; gap: 10px; margin: 0 2px 12px; flex-wrap: wrap; }
+.fm-ev-no {
+  display: grid; place-items: center; min-width: 34px; height: 26px; padding: 0 6px; border-radius: 8px;
+  font: 800 12px/1 'Unbounded', system-ui, sans-serif; color: #1a0f05;
+  background: linear-gradient(180deg, #fff1b8, #ffbe38);
+  box-shadow: 0 4px 12px -4px rgba(255, 190, 56, 0.7);
+}
+.fm-gifts .fm-ev-no { background: linear-gradient(180deg, #d6ffe6, #3ee08a); }
+.fm-ev-title { margin: 0; font: 800 19px/1.1 'Unbounded', 'Manrope', system-ui, sans-serif; color: #fff; }
+.fm-ev-note { margin-left: auto; color: var(--muted); font: 600 12px/1.2 'Manrope', system-ui, sans-serif; }
+.fm-live {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 10px; border-radius: 99px; background: rgba(255, 70, 70, 0.14);
+  color: #ff9a9a; font: 700 11px/1 'Manrope', system-ui, sans-serif; text-transform: uppercase; letter-spacing: 0.06em;
+}
+.fm-live i { width: 7px; height: 7px; border-radius: 50%; background: #ff4b4b; animation: fmLive 1.4s ease-in-out infinite; }
+@keyframes fmLive { 0%, 100% { box-shadow: 0 0 0 0 rgba(255, 75, 75, 0.7); } 50% { box-shadow: 0 0 0 6px rgba(255, 75, 75, 0); } }
+
+/* ---------- Lucky Drive ---------- */
+.dv-card {
+  position: relative; overflow: hidden; border-radius: 26px; padding: 18px 16px 16px;
+  background:
+    radial-gradient(120% 60% at 50% 38%, rgba(90, 120, 255, 0.35), transparent 60%),
+    linear-gradient(180deg, #0c1230 0%, #0a0b1c 55%, #07060f 100%);
+  border: 1px solid rgba(160, 180, 255, 0.18);
+  box-shadow: 0 30px 60px -30px rgba(40, 60, 200, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+.dv-sky i {
+  position: absolute; width: 2px; height: 2px; border-radius: 50%; background: #fff; opacity: 0.6;
+  box-shadow: 40px 30px #fff, 120px 70px #fff, 210px 20px #fff, 290px 90px #fff, 330px 40px #fff,
+    70px 120px #fff, 250px 140px #fff, 160px 160px #fff;
+  animation: dvTwinkle 3s ease-in-out infinite;
+}
+.dv-sky i:nth-child(2) { left: 18px; top: 46px; animation-delay: 1s; transform: scale(0.7); }
+.dv-sky i:nth-child(3) { left: 60px; top: 8px; animation-delay: 2s; }
+@keyframes dvTwinkle { 0%, 100% { opacity: 0.25; } 50% { opacity: 0.85; } }
+.dv-head { position: relative; text-align: center; }
+.dv-kicker {
+  color: #b9c6ff; font: 700 12px/1 'Manrope', system-ui, sans-serif; letter-spacing: 0.24em; text-transform: uppercase;
+}
+.dv-brand {
+  margin-top: 8px; color: #fff; font: 900 34px/0.95 'Unbounded', system-ui, sans-serif; letter-spacing: 0.02em;
+  text-shadow: 0 4px 30px rgba(120, 150, 255, 0.45);
+}
+.dv-model {
+  margin-top: 4px; font: 300 26px/1 'Bodoni Moda', Georgia, serif; font-style: italic; letter-spacing: 0.12em;
+  background: linear-gradient(90deg, #f6e2a8, #fff7dc 45%, #d6a64a);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.dv-stage { position: relative; aspect-ratio: 1.62; margin: 10px -6px 2px; }
+.dv-spot {
+  position: absolute; left: 50%; bottom: 22px; width: 92%; height: 70px; translate: -50% 0;
+  background: radial-gradient(closest-side, rgba(160, 190, 255, 0.45), transparent);
+  filter: blur(6px);
+}
+.dv-car {
+  position: absolute; left: 50%; bottom: 14px; width: 100%; translate: -50% 0;
+  filter: drop-shadow(0 18px 18px rgba(0, 0, 0, 0.65));
+  animation: dvArrive 1.1s cubic-bezier(0.2, 1, 0.3, 1) both, dvIdle 6s ease-in-out 1.1s infinite;
+}
+.dv-floor {
+  position: absolute; left: 6%; right: 6%; bottom: 18px; height: 16px; border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(0, 0, 0, 0.85), transparent);
+}
+.dv-sweep {
+  position: absolute; inset: 0; pointer-events: none; mix-blend-mode: screen;
+  background: linear-gradient(100deg, transparent 40%, rgba(255, 255, 255, 0.22) 50%, transparent 60%);
+  translate: -120% 0; animation: dvSweep 5.5s ease-in-out 1.6s infinite;
+}
+@keyframes dvArrive { from { translate: 30% 0; opacity: 0; } to { translate: -50% 0; opacity: 1; } }
+@keyframes dvIdle { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+@keyframes dvSweep { 0%, 60% { translate: -120% 0; } 100% { translate: 120% 0; } }
+.dv-rules { position: relative; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 14px; }
+.dv-rule {
+  padding: 10px 6px; border-radius: 14px; text-align: center;
+  background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.dv-rule b { display: block; color: #ffe7a6; font: 800 14px/1.1 'Unbounded', system-ui, sans-serif; }
+.dv-rule span { display: block; margin-top: 4px; color: #aab3d8; font: 600 11px/1.25 'Manrope', system-ui, sans-serif; }
+.dv-mine { position: relative; margin-bottom: 12px; }
+.dv-count { display: flex; align-items: baseline; justify-content: space-between; color: #c9d1f5; font: 600 13px/1 'Manrope', system-ui, sans-serif; }
+.dv-count b { color: #fff; font: 900 26px/1 'Unbounded', system-ui, sans-serif; }
+.dv-count small { color: #8f99c4; font: 700 13px/1 'Manrope', system-ui, sans-serif; }
+.dv-next { margin-top: 6px; color: #aab3d8; font: 600 12px/1.3 'Manrope', system-ui, sans-serif; }
+.dv-next b { color: #ffe7a6; }
+.dv-bar { position: relative; height: 8px; margin-top: 8px; border-radius: 99px; overflow: hidden; background: rgba(255, 255, 255, 0.08); }
+.dv-bar i {
+  position: absolute; inset: 0 auto 0 0; width: var(--p); border-radius: inherit;
+  background: linear-gradient(90deg, #4f7bff, #b98bff 60%, #ffe08a);
+  box-shadow: 0 0 12px rgba(150, 140, 255, 0.7);
+  animation: dvGrow 1.2s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@keyframes dvGrow { from { width: 0; } }
+/* Билеты: «карта» на сто мест, полученные - золотые, с вырезами по бокам. */
+.dv-tickets {
+  display: grid; grid-template-columns: repeat(var(--cols), 1fr); gap: 4px; margin-bottom: 14px;
+}
+.dv-t {
+  position: relative; display: grid; place-items: center; aspect-ratio: 1.35;
+  border-radius: 4px; font: 700 9px/1 'Manrope', system-ui, sans-serif; font-style: normal;
+  color: rgba(200, 210, 255, 0.35); background: rgba(255, 255, 255, 0.04);
+  border: 1px dashed rgba(200, 210, 255, 0.18);
+  -webkit-mask: radial-gradient(circle 3px at 0 50%, #0000 98%, #000) left / 51% 100% no-repeat,
+          radial-gradient(circle 3px at 100% 50%, #0000 98%, #000) right / 51% 100% no-repeat;
+  mask: radial-gradient(circle 3px at 0 50%, #0000 98%, #000) left / 51% 100% no-repeat,
+        radial-gradient(circle 3px at 100% 50%, #0000 98%, #000) right / 51% 100% no-repeat;
+}
+.dv-t.got {
+  color: #3a2200; border: 0;
+  background: linear-gradient(160deg, #fff4c6, #ffd04f 50%, #e7a42a);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  animation: dvStamp 0.5s cubic-bezier(0.2, 1.6, 0.4, 1) both;
+  animation-delay: calc(var(--i) * 18ms);
+}
+.dv-t.fresh { animation: dvStamp 0.5s cubic-bezier(0.2, 1.6, 0.4, 1) both, dvFresh 1.8s ease-in-out 1s infinite; }
+@keyframes dvStamp { from { transform: scale(0.4) rotate(-12deg); opacity: 0; } }
+@keyframes dvFresh { 0%, 100% { filter: none; } 50% { filter: brightness(1.25) drop-shadow(0 0 4px #ffd04f); } }
+.dv-cta {
+  position: relative; overflow: hidden; width: 100%; padding: 15px; border: 0; border-radius: 16px; cursor: pointer;
+  color: #0b0f2a; font: 800 15px/1 'Unbounded', 'Manrope', system-ui, sans-serif;
+  background: linear-gradient(180deg, #ffffff, #dfe6ff);
+  box-shadow: 0 4px 0 #8c97c9, 0 16px 30px -12px rgba(140, 160, 255, 0.7);
+}
+.dv-cta:active { transform: translateY(3px); box-shadow: 0 1px 0 #8c97c9; }
+.dv-fine { margin: 10px 2px 0; color: #7f88b3; font: 500 11px/1.4 'Manrope', system-ui, sans-serif; text-align: center; }
+
+/* ---------- Бесплатный кейс ---------- */
+.st-card {
+  position: relative; display: grid; grid-template-columns: 128px 1fr; gap: 12px; align-items: center;
+  padding: 14px; border-radius: 22px;
+  background: radial-gradient(90% 120% at 0% 50%, rgba(255, 170, 60, 0.22), transparent 60%),
+    linear-gradient(160deg, #2a1a10, #1a1022 70%);
+  border: 1px solid rgba(255, 200, 110, 0.2);
+}
+.st-card.is-ready { border-color: rgba(120, 240, 170, 0.45); box-shadow: 0 0 0 1px rgba(120, 240, 170, 0.15), 0 18px 40px -20px rgba(60, 220, 130, 0.6); }
+.st-cover { position: relative; padding: 0; border: 0; background: none; cursor: pointer; }
+.st-cover img { width: 128px; height: 128px; object-fit: contain; filter: drop-shadow(0 10px 14px rgba(0, 0, 0, 0.55)); animation: sgFloat 3.6s ease-in-out infinite; }
+.st-badge {
+  position: absolute; right: 2px; top: 4px; padding: 4px 8px; border-radius: 99px;
+  background: linear-gradient(180deg, #8cf5b4, #2fbf74); color: #052414; font: 800 12px/1 'Unbounded', system-ui, sans-serif;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4);
+}
+.st-name { color: #ffcf6a; font: 800 12px/1 'Manrope', system-ui, sans-serif; letter-spacing: 0.08em; text-transform: uppercase; }
+.st-title { margin: 6px 0 10px; color: #fff4dc; font: 800 15px/1.25 'Unbounded', 'Manrope', system-ui, sans-serif; }
+.st-segs { display: grid; grid-template-columns: repeat(10, 1fr); gap: 3px; }
+.st-segs i { height: 9px; border-radius: 3px; background: rgba(255, 255, 255, 0.08); }
+.st-segs i.on { background: linear-gradient(180deg, #ffe07a, #ff9d2a); box-shadow: 0 0 8px rgba(255, 180, 60, 0.6); }
+.st-card.is-ready .st-segs i.on { background: linear-gradient(180deg, #a8ffcc, #2fbf74); box-shadow: 0 0 8px rgba(60, 220, 130, 0.6); }
+.st-row { display: flex; justify-content: space-between; margin-top: 5px; color: #b9a98c; font: 700 11px/1 'Manrope', system-ui, sans-serif; }
+.st-cta {
+  width: 100%; margin-top: 12px; padding: 12px; border: 0; border-radius: 13px; cursor: pointer;
+  color: #3a1d00; font: 800 13px/1 'Unbounded', 'Manrope', system-ui, sans-serif;
+  background: linear-gradient(180deg, #fff3c4, #ffd34d 40%, #e8a024);
+  box-shadow: 0 3px 0 #8a4f08;
+}
+.st-card.is-ready .st-cta { background: linear-gradient(180deg, #d6ffe6, #3ee08a 45%, #1b9e5c); color: #052414; box-shadow: 0 3px 0 #0d5a33; }
+.st-how { display: grid; gap: 6px; margin-top: 10px; }
+.st-how div {
+  display: flex; gap: 10px; align-items: center; padding: 9px 12px; border-radius: 14px;
+  background: rgba(255, 255, 255, 0.04); color: #cfc2dd; font: 600 12.5px/1.3 'Manrope', system-ui, sans-serif;
+}
+.st-how b {
+  flex: none; display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%;
+  background: rgba(255, 200, 110, 0.18); color: #ffcf6a; font: 800 11px/1 'Unbounded', system-ui, sans-serif;
+}
+
+/* ---------- Колесо удачи ---------- */
+.pw-card {
+  position: relative; padding: 16px 14px 14px; border-radius: 26px; text-align: center;
+  background: radial-gradient(90% 60% at 50% 40%, rgba(160, 60, 255, 0.28), transparent 70%),
+    linear-gradient(180deg, #1c0f2e, #120a1c);
+  border: 1px solid rgba(200, 150, 255, 0.18);
+}
+.pw-wheel { position: relative; width: min(340px, 100%); aspect-ratio: 1; margin: 0 auto; }
+.pw-svg { width: 100%; height: 100%; display: block; filter: drop-shadow(0 16px 30px rgba(0, 0, 0, 0.55)); }
+.pw-rotor { transform-origin: 0 0; }
+.pw-lbl { fill: #fff; font-family: 'Manrope', system-ui, sans-serif; font-weight: 800; paint-order: stroke; stroke: rgba(0, 0, 0, 0.45); stroke-width: 3px; }
+.pw-lbl.is-pct { font-family: 'Unbounded', system-ui, sans-serif; font-weight: 900; fill: #eafff2; }
+/* Легенда: что на каждом секторе и какая у него доля - те же числа, что
+   ширина сектора на колесе. */
+.pw-legend { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 14px; text-align: left; }
+.pw-leg {
+  display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04); border-left: 3px solid var(--c);
+  color: #ddd0ee; font: 600 11.5px/1.2 'Manrope', system-ui, sans-serif;
+}
+.pw-leg img { width: 30px; height: 30px; object-fit: contain; flex: none; }
+.pw-leg b { flex: none; width: 30px; text-align: center; color: #8cf5b4; font: 900 11px/1 'Unbounded', system-ui, sans-serif; }
+.pw-leg span { flex: 1; min-width: 0; }
+.pw-leg em { font-style: normal; color: #ffcf6a; font-weight: 800; }
+.pw-sec.is-win path { filter: brightness(1.45); }
+.pw-bulb { fill: #fff3c2; filter: drop-shadow(0 0 3px #ffd46a); animation: pwBulb 1.2s steps(1) infinite; }
+.pw-bulb.odd { animation-delay: 0.6s; }
+.pw-card.is-spinning .pw-bulb { animation-duration: 0.24s; }
+.pw-card.is-spinning .pw-bulb.odd { animation-delay: 0.12s; }
+@keyframes pwBulb { 0% { fill: #fff3c2; } 50% { fill: #7a4a10; filter: none; } }
+.pw-pin {
+  position: absolute; left: 50%; top: -2px; z-index: 3; width: 30px; height: 38px; translate: -50% 0;
+  background: linear-gradient(180deg, #fff5cf, #f2b53a 60%, #b8730f);
+  clip-path: polygon(0 0, 100% 0, 100% 40%, 50% 100%, 0 40%);
+  filter: drop-shadow(0 4px 4px rgba(0, 0, 0, 0.5));
+}
+.pw-card.is-spinning .pw-pin { animation: pwPin 0.12s ease-in-out infinite alternate; transform-origin: 50% 0; }
+@keyframes pwPin { to { rotate: -8deg; } }
+/* Середина колеса - поле промокода прямо в ступице. */
+.pw-hub {
+  position: absolute; left: 50%; top: 50%; translate: -50% -50%; z-index: 2;
+  width: 41%; aspect-ratio: 1; border-radius: 50%;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+  background: radial-gradient(circle at 35% 30%, #3a2457, #170c26 70%);
+  border: 3px solid #e6b84a;
+  box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.35), inset 0 2px 8px rgba(255, 255, 255, 0.12), 0 10px 26px rgba(0, 0, 0, 0.6);
+}
+.pw-hub-lbl { color: #e7c873; font: 700 9px/1 'Manrope', system-ui, sans-serif; letter-spacing: 0.2em; text-transform: uppercase; }
+.pw-code {
+  width: 88%; padding: 7px 4px; border-radius: 9px; text-align: center;
+  border: 1px solid rgba(231, 200, 115, 0.45); background: rgba(0, 0, 0, 0.35); color: #fff;
+  font: 800 12px/1 'JetBrains Mono', ui-monospace, monospace; letter-spacing: 0.06em; outline: none;
+}
+.pw-code::placeholder { color: rgba(255, 255, 255, 0.35); font-size: 10px; }
+.pw-code:focus { border-color: #ffd46a; box-shadow: 0 0 0 3px rgba(255, 212, 106, 0.2); }
+.pw-spin {
+  padding: 7px 12px; border: 0; border-radius: 99px; cursor: pointer;
+  color: #3a1d00; font: 800 11px/1 'Unbounded', system-ui, sans-serif; text-transform: uppercase;
+  background: linear-gradient(180deg, #fff3c4, #ffd34d 40%, #e8a024);
+  box-shadow: 0 3px 0 #8a4f08;
+}
+.pw-spin:disabled { filter: grayscale(0.6) brightness(0.8); }
+.pw-where {
+  display: flex; align-items: center; gap: 10px; justify-content: center; margin-top: 14px;
+  color: #d8cbe8; font: 600 13px/1.35 'Manrope', system-ui, sans-serif; text-align: left;
+}
+.pw-where b { color: #7fd3ff; }
+.pw-tg { flex: none; width: 28px; height: 28px; border-radius: 50%; background: linear-gradient(180deg, #37aee2, #1e96c8)
+  url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Cpath fill='%23fff' d='M36.6 13.4 10.9 23.4c-1.8.7-1.8 1.7-.3 2.1l6.6 2.1 2.5 7.8c.3.8.2 1.2 1.1 1.2.7 0 1-.3 1.4-.7l3.3-3.2 6.8 5c1.2.7 2.1.3 2.4-1.1l4.4-20.9c.5-1.9-.7-2.7-2.5-2.3z'/%3E%3C/svg%3E") center / 70% no-repeat; }
+.pw-err { margin-top: 10px; color: #ff9a9a; font: 700 13px/1.3 'Manrope', system-ui, sans-serif; }
+.pw-fine { margin: 10px 4px 0; color: #8d7fa3; font: 500 11px/1.4 'Manrope', system-ui, sans-serif; }
+.pw-win-pct {
+  position: relative; font: 900 64px/1 'Unbounded', system-ui, sans-serif;
+  background: linear-gradient(180deg, #d6ffe6, #3ee08a 55%, #1b9e5c);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  filter: drop-shadow(0 6px 20px rgba(60, 220, 130, 0.45));
+  animation: sgRise 0.7s cubic-bezier(0.2, 1.5, 0.4, 1) 0.1s both;
+}
+
+/* ---------- Telegram-бот ---------- */
+.bt-card {
+  display: flex; gap: 14px; align-items: flex-start; padding: 16px; border-radius: 22px;
+  background: radial-gradient(80% 120% at 0% 0%, rgba(55, 174, 226, 0.35), transparent 60%),
+    linear-gradient(160deg, #0f2233, #101626 70%);
+  border: 1px solid rgba(90, 190, 240, 0.25);
+}
+.bt-plane {
+  flex: none; width: 58px; height: 58px; border-radius: 18px; display: grid; place-items: center;
+  background: linear-gradient(180deg, #4cc3f0, #1e8fc4);
+  box-shadow: 0 10px 24px -8px rgba(40, 160, 220, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  animation: btFly 3.2s ease-in-out infinite;
+}
+.bt-plane svg { width: 34px; height: 34px; }
+@keyframes btFly { 0%, 100% { transform: translate(0, 0) rotate(0); } 50% { transform: translate(2px, -3px) rotate(-4deg); } }
+.bt-name {
+  display: inline-block; cursor: pointer; color: #fff;
+  font: 800 20px/1.1 'JetBrains Mono', ui-monospace, monospace; letter-spacing: 0.01em;
+  border-bottom: 1px dashed rgba(127, 211, 255, 0.5);
+}
+.bt-list { margin: 10px 0 0; padding: 0; list-style: none; color: #b8cfe0; font: 600 13px/1.4 'Manrope', system-ui, sans-serif; }
+.bt-list li { position: relative; padding-left: 18px; margin-top: 4px; }
+.bt-list li::before { content: ''; position: absolute; left: 2px; top: 6px; width: 8px; height: 8px; border-radius: 50%; background: #37aee2; box-shadow: 0 0 8px #37aee2; }
+.bt-open {
+  display: inline-block; margin-top: 12px; padding: 11px 16px; border-radius: 13px; text-decoration: none;
+  color: #fff; font: 800 13px/1 'Manrope', system-ui, sans-serif;
+  background: linear-gradient(180deg, #4cc3f0, #1e8fc4); box-shadow: 0 3px 0 #0f5f86;
+}
+/* Кнопка «Открыть» - только на телефоне: там Telegram стоит приложением, и
+   одно нажатие переносит прямо в бота. На компьютере остаётся ник. */
+@media (min-width: 1024px) { .bt-open { display: none; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .fm-live i, .dv-sky i, .dv-car, .dv-sweep, .dv-t.got, .dv-t.fresh, .dv-bar i, .pw-bulb, .bt-plane, .st-cover img { animation: none; }
+  .dv-car { translate: -50% 0; }
+}
+
+/* ============================================================
    БЕСПЛАТНЫЙ КЕЙС «НАЧАЛО»
    ============================================================ */
 

@@ -20,6 +20,7 @@ import {
 } from './fortune.js';
 import { SLOT_RTP } from './slots.js';
 import { START_CASE_ID } from './cases.js';
+import { pickWheelSector, WHEEL_PCT_CAP, WHEEL_PCT_MIN_DEPOSIT } from './promo-wheel.js';
 
 const DB_PATH = resolve(process.env.DB_PATH || './data/app.db');
 mkdirSync(dirname(DB_PATH), { recursive: true });
@@ -3038,7 +3039,7 @@ export function markNoticeSent(userId, kind, tag) {
    ПРОМОКОДЫ
    ============================================================ */
 
-const PROMO_TYPES = new Set(['balance', 'deposit_pct', 'free_case']);
+const PROMO_TYPES = new Set(['balance', 'deposit_pct', 'free_case', 'wheel']);
 
 /** Приводит код к каноническому виду: регистр и пробелы не должны мешать. */
 export function normalizePromoCode(raw) {
@@ -3058,7 +3059,7 @@ export function getPromoByCode(code) {
  * Возвращает описание того, что игрок получил, чтобы интерфейс мог сказать это
  * словами, а не «код принят».
  */
-export const redeemPromo = moneyTx('promo', (userId, rawCode, resolveCase) => {
+export const redeemPromo = moneyTx('promo', (userId, rawCode, resolveCase, { wheel = false } = {}) => {
   const code = normalizePromoCode(rawCode);
   const fail = (message, codeName) =>
     Object.assign(new Error(message), { code: codeName || 'PROMO' });
@@ -3067,6 +3068,10 @@ export const redeemPromo = moneyTx('promo', (userId, rawCode, resolveCase) => {
 
   const promo = db.prepare('SELECT * FROM promocodes WHERE code = ?').get(code);
   if (!promo || !promo.is_active) throw fail('Промокод не найден');
+  // Код колеса крутит колесо, а обычный в колесе не работает: иначе игрок
+  // ввёл бы код колеса в поле промокода и не увидел бы самого прокрута.
+  if (promo.type === 'wheel' && !wheel) throw fail('Этот код крутит Колесо удачи в Free Money: введите его в центре колеса');
+  if (wheel && promo.type !== 'wheel') throw fail('Этот промокод не для колеса: введите его в поле «Промокод»');
 
   const now = Date.now();
   if (promo.starts_at && now < promo.starts_at) throw fail('Промокод ещё не начал действовать');
@@ -3126,6 +3131,34 @@ export const redeemPromo = moneyTx('promo', (userId, rawCode, resolveCase) => {
            promo.wager_multiplier, now);
     result = { type: 'deposit_pct', pct: promo.pct, maxBonus: promo.max_bonus,
                minDeposit: promo.min_deposit };
+
+  } else if (promo.type === 'wheel') {
+    /*
+     * Прокрут «Колеса удачи» (promo-wheel.js). Исход - из seed игрока, как
+     * у всех наших игр: проверка заявки на вывод пересчитает его так же.
+     */
+    const nonce = bumpNonce(userId);
+    const u = getUserById(userId);
+    const roll = computeRoll(u.server_seed, u.client_seed, nonce);
+    const sector = pickWheelSector(roll);
+    if (sector.type === 'case') {
+      const target = resolveCase(sector.caseId);
+      if (!target) throw fail('Промокод настроен неверно');
+      addVoucher(userId, sector.caseId, 1, true);
+      granted = Math.round(target.price * target.rtp);
+      db.prepare('UPDATE users SET bonus_granted = bonus_granted + ? WHERE id = ?').run(granted, userId);
+      result = { type: 'wheel', sector: sector.id, prize: 'case', caseId: sector.caseId, caseName: target.name, roll, nonce };
+    } else {
+      // Тот же слот, что у промокода и Lucky Fortune: свежий приз вытесняет
+      // прошлое обещание, складывать их нельзя.
+      db.prepare('DELETE FROM pending_deposit_bonus WHERE user_id = ?').run(userId);
+      db.prepare(`INSERT INTO pending_deposit_bonus
+                    (user_id, promo_id, pct, max_bonus, min_deposit, wager_multiplier, created_at)
+                  VALUES (?, ?, ?, ?, ?, ?, ?)`)
+        .run(userId, promo.id, sector.pct, WHEEL_PCT_CAP, WHEEL_PCT_MIN_DEPOSIT, bonusRules().wager, now);
+      result = { type: 'wheel', sector: sector.id, prize: 'pct', pct: sector.pct, maxBonus: WHEEL_PCT_CAP,
+        minDeposit: WHEEL_PCT_MIN_DEPOSIT, roll, nonce };
+    }
 
   } else {
     throw fail('Промокод настроен неверно');

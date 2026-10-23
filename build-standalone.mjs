@@ -17,6 +17,7 @@
 import { chromium } from 'playwright';
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 'node:fs';
 import { CASES, CATEGORIES, TIERS, publicCase, FREESPIN_PACKS } from './server/cases.js';
+import { wheelConfig, WHEEL_SECTORS } from './server/promo-wheel.js';
 import {
   CRASH_CONFIG, ROULETTE_CONFIG, ROULETTE_WHEEL, GAMBLE_CONFIG, UPGRADE_CONFIG,
 } from './server/games.js';
@@ -122,6 +123,11 @@ const config = {
   feed: { minMultiplier: FEED_MIN_MULTIPLIER, minValue: FEED_MIN_VALUE },
   // Бесплатный кейс проверяет подписку ботом Telegram - в автономной сборке его нет.
   freeCase: { enabled: false },
+  // Free Money: те же описания, что отдаёт сервер.
+  promoWheel: wheelConfig(),
+  projectBot: 'luckybox_bot',
+  raffle: { prize: 'Rolls-Royce Wraith', step: 1000, max: 100 },
+  startCase: { minDeposit: 100, turnover: 1000 },
   bonus: { enabled: false },
   maxBatch: 2,
   freeSpinPacks: FREESPIN_PACKS,
@@ -398,6 +404,7 @@ const CONFIG = ${JSON.stringify(config)};
 const CASINO_CATALOG = ${JSON.stringify(casinoCatalog)};
 const CASINO_RULES = ${JSON.stringify(casinoRules)};
 const DRAW_BY_ID = new Map(DRAW.map((c) => [c.id, c]));
+const WHEEL = ${JSON.stringify(WHEEL_SECTORS)};
 
 /*
  * Слоты в автономной сборке считаются ТЕМ ЖЕ кодом, что и на сервере:
@@ -1264,6 +1271,29 @@ const routes = {
   },
 
   /* ---------- Промокоды ---------- */
+
+  /*
+   * Колесо удачи. Бота в файле нет, поэтому код подходит любой: показать
+   * прокрут важнее, чем проверить код. Сектор - по тем же весам.
+   */
+  'POST /api/wheel/spin': (body) => {
+    const code = String(body.code || '').trim();
+    if (!code) return { status: 400, body: { error: 'Введите промокод' } };
+    const u = store.user;
+    const total = WHEEL.reduce((a, x) => a + x.weight, 0);
+    let r = Math.random() * total;
+    const sec = WHEEL.find((x) => (r -= x.weight) < 0) || WHEEL[WHEEL.length - 1];
+    let result;
+    if (sec.type === 'case') {
+      u.vouchers[sec.caseId] = (u.vouchers[sec.caseId] || 0) + 1;
+      const t = DRAW_BY_ID.get(sec.caseId);
+      result = { type: 'wheel', sector: sec.id, prize: 'case', caseId: sec.caseId, caseName: t ? t.name : '' };
+    } else {
+      u.pendingDeposit = { pct: sec.pct, max_bonus: 5000, min_deposit: 100, wager_multiplier: 3 };
+      result = { type: 'wheel', sector: sec.id, prize: 'pct', pct: sec.pct, maxBonus: 5000, minDeposit: 100 };
+    }
+    return { result, user: publicUser() };
+  },
 
   'POST /api/promo/redeem': (body) => {
     const u = store.user;

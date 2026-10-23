@@ -1,0 +1,5 @@
+Фото: 2014 Rolls-Royce Wraith (MY14) coupe, автор OSX, Wikimedia Commons,
+общественное достояние (Public domain):
+https://commons.wikimedia.org/wiki/File:2014_Rolls-Royce_Wraith_(MY14)_coupe_(2015-07-25)_01.jpg
+Фон снят rembg (модель isnet-general-use), номер заменён на LUCKYBOX.
+В приложении: public/assets/ui/raffle-wraith.webp, 1100 px по ширине.

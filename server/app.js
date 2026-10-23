@@ -70,7 +70,7 @@ import {
   rotateServerSeed,
   setClientSeed,
   startCrashRound,
-  getVouchers, getX2Perks, startCaseState,
+  getVouchers, getX2Perks, startCaseState, startCaseRules, RAFFLE_TICKET_TURNOVER, RAFFLE_MAX_TICKETS,
   fortuneState, fortuneHistory, playFortuneSpin,
   syncStaff, staffRow, staffList, staffSave, staffRemove, findUserByAnyId,
   playerNotes, addPlayerNote, deletePlayerNote,
@@ -156,6 +156,7 @@ import {
   subscriptionConfig,
   FREE_CASE_COOLDOWN_MS,
 } from './subscription.js';
+import { wheelConfig } from './promo-wheel.js';
 // Если математика поехала - падаем на старте, до первого игрока.
 const caseReport = validateCases();
 const gameReport = validateGames();
@@ -497,6 +498,14 @@ app.get('/api/config', (req, res) => {
     },
     feed: { minMultiplier: FEED_CONFIG.minMultiplier, minValue: FEED_CONFIG.minValue },
     freeCase: subscriptionConfig(),
+    // Колесо удачи за промокод: сектора и их доли круга (угол = вероятность).
+    promoWheel: wheelConfig(),
+    // Телеграм-бот проекта: ивент в Free Money и откуда берутся коды колеса.
+    projectBot: (process.env.PROJECT_BOT_USERNAME || 'luckybox_bot').replace(/^@/, ''),
+    // Розыгрыш автомобиля: условие билетов (startCaseState считает сами билеты).
+    raffle: { prize: 'Rolls-Royce Wraith', step: RAFFLE_TICKET_TURNOVER, max: RAFFLE_MAX_TICKETS },
+    // Кейс «Начало»: за какое пополнение и за какой оборот.
+    startCase: startCaseRules(),
     // Чем можно войти. Виджет Telegram показывается, только если задан бот:
     // без его имени виджет не загрузится, а кнопка, которая не работает, хуже
     // отсутствующей. Сброс пароля - только при настроенной почте.
@@ -1199,7 +1208,20 @@ app.post('/api/promo/redeem', auth, limits.guess, (req, res) => {
   res.json({ result, user: publicUser(getUserById(req.player.id)) });
 });
 
-/** Всё, что показывается в разделе «Бонусы». */
+/** Прокрут «Колеса удачи» промокодом (server/promo-wheel.js). */
+app.post('/api/wheel/spin', auth, limits.guess, (req, res) => {
+  let result;
+  try {
+    result = redeemPromo(req.player.id, req.body?.code, promoCaseResolver, { wheel: true });
+  } catch (err) {
+    if (err.code === 'PROMO' || err.code === 'BAD') return res.status(400).json({ error: err.message });
+    throw err;
+  }
+  trackEvent(req.player.id, 'promo_redeemed', { type: 'wheel' });
+  res.json({ result, user: publicUser(getUserById(req.player.id)) });
+});
+
+/** Всё, что показывается в Free Money: промокоды, ожидающий процент, отыгрыш. */
 app.post('/api/promo/state', auth, (req, res) => {
   res.json({
     pendingDeposit: pendingDepositBonus(req.player.id),
