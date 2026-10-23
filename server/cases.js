@@ -500,6 +500,12 @@ function buildCase(spec, builtById) {
     .filter((p) => p.type !== 'credits')
     .reduce((s, p) => s + p.share, 0);
   const creditEv = target * (1 - deferredShare);
+  // Удвоитель удваивает и выпавший кейс-подарок (второй ваучер), поэтому его
+  // ценность - денежная выплата плюс матожидание подарков этого кейса, то
+  // есть ровно их доля в отдаче.
+  const voucherEv = target * perkSpecs
+    .filter((p) => p.type === 'voucher')
+    .reduce((s, p) => s + p.share, 0);
 
   const perkItems = perkSpecs.map((p, i) => {
     let evValue;
@@ -511,8 +517,9 @@ function buildCase(spec, builtById) {
       payout = p.amount;
       label = `Бонус +${p.amount.toLocaleString('ru-RU')}`;
     } else if (p.type === 'x2') {
-      // Удваивается только выплата единицами следующего открытия этого кейса.
-      evValue = creditEv;
+      // Удваивается выплата единицами следующего платного открытия этого
+      // кейса или выпавший в нём подарок.
+      evValue = creditEv + voucherEv;
       label = 'Удвоитель ×2';
     } else if (p.type === 'freespins') {
       /*

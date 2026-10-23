@@ -172,6 +172,7 @@ grep -nE "^app\.(get|post)\(" server/app.js                  # все ручки
 - `CRYPTO_MIN/MAX`, `COINS`, `NETWORKS`, `isConfigured`.
 - `signBody`, `verifyWebhook`, `webhookIpAllowed`.
 - `coins`, `rates`, `createDeposit`, `applyWebhook`, `listDeposits`, `getDeposit`, `refreshDeposit`.
+- Курс USDT по бирже Rapira: `rapiraRate`, `payoutRate` (плюс `PAYOUT_MARKUP` 5%), `payoutQuote` (заявка на вывод), `cashierRates` (оба курса для кассы).
 
 ### server/sicilia.js - СБП и карта, шлюз Sicilia
 
@@ -617,7 +618,7 @@ grep -nE "^app\.(get|post)\(" server/app.js                  # все ручки
 | ПЕРВЫЙ ЗАХОД | `ONBOARDING`, `licenseLine`, `renderOnboarding`, `startOnboarding` |
 | ВХОД НА САЙТ | `guestUser`, `AUTH_PANES`, `openAuth`, `closeAuth`, `showAuthPane`, `mountTelegramWidget`, `onTelegramAuth`, `renderAccount`, `openAccount`, `renderAuthChrome`, `signedIn`, `submitAuth`, `wireAuth`, `takeResetToken`, `loadMe` |
 | НАВИГАЦИЯ И СТАРТ | **`init()`** - старт приложения, навешивание обработчиков |
-| КОЛЕСО ФОРТУНЫ | `loadFortune`, `renderFortuneStatus`, `renderFortuneLog`, `showFortuneSteps`, `spinFortune`, `fortuneHighlight`, `showFortuneWin`, **`openFreeMoney`**, `wireFortune` |
+| КОЛЕСО ФОРТУНЫ | `fortuneWheelMarkup` (рисунок колеса по описанию сервера), `renderFortuneArt`, `loadFortune`, `renderFortuneStatus`, `renderFortuneLog`, `showFortuneSteps`, `spinFortune`, `fortuneHighlight`, `showFortuneWin`, **`openFreeMoney`**, `wireFortune` |
 | ГЛАВНЫЙ БАННЕР | `runHeroSlider` (`data-ms` на слайдах) |
 | СЧЁТЧИКИ В ПОДВАЛЕ | `startFooterCounters` |
 
@@ -878,7 +879,8 @@ tools/case-covers.mjs` (и `--stage`); полка - `CATEGORIES` / `THEMED_SHELV
 | `menu-image.mjs` | меню-картинка телефона |
 | `motion-demo.mjs` + `motion-demo.html` | демо анимаций -> `dist/motion-demo.html` |
 | `promo-banners.mjs` | слайд «Большие джекпоты» (`hero-jackpot.webp`) |
-| `promo-squares.mjs` | квадраты `promo-casino.webp`, `promo-cases.webp` (900x782) |
+| `promo-logos.mjs` | квадраты `promo-casino.webp`, `promo-cases.webp` (900x782) из присланных логотипов |
+| `promo-squares.mjs` | самые старые рисованные квадраты; запуск перезапишет нынешние |
 | `provider-logos.mjs` | логотипы провайдеров -> `prov-*.webp`, `public/provider-logos.js` |
 | `slot-assets.mjs` | разбор макета TREASURE ISLAND |
 | `slot-golden-assets.mjs` | разбор макета GOLDEN LEGACY |

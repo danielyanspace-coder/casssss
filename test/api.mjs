@@ -674,8 +674,11 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
 /* ---------- Вывод криптовалютой ---------- */
 
 {
+  // USDC, а не USDT: курс вывода USDT считает сервер по бирже Rapira (его
+  // правило проверяет test/crypto.mjs с подменой сети), а здесь проверяется
+  // путь заявки с курсом, который видел игрок.
   const crypto = (extra = {}) => post('/api/payout/create', {
-    amount: 5000, method: 'crypto', cryptoCurrency: 'USDT', cryptoNetwork: 'TRON',
+    amount: 5000, method: 'crypto', cryptoCurrency: 'USDC', cryptoNetwork: 'TRON',
     cryptoAddress: 'TLmZD36o3hZ4Bk5EaLAvMbF7TFpgLwyRzP',
     cryptoAmount: '58.03', cryptoRate: 86.16, ...extra,
   });
@@ -686,7 +689,7 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
   const rows = (await post('/api/admin/payouts', { status: 'pending' })).data.rows;
   const row = rows.find((r) => r.id === made.data.id);
   check('вывод криптой: админка видит монету, сеть и адрес',
-        row?.crypto_currency === 'USDT' && row?.crypto_network === 'TRON'
+        row?.crypto_currency === 'USDC' && row?.crypto_network === 'TRON'
         && row?.crypto_address === 'TLmZD36o3hZ4Bk5EaLAvMbF7TFpgLwyRzP');
   check('вывод криптой: сумма в монете и курс сохранены',
         row?.crypto_amount === '58.03' && Number(row?.crypto_rate) === 86.16);

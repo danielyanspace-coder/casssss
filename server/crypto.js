@@ -104,6 +104,11 @@ if (!payCols.includes('credited_rub')) {
 if (!payCols.includes('address_qr')) {
   db.exec('ALTER TABLE crypto_payments ADD COLUMN address_qr TEXT');
 }
+// Курс рубля к монете, по которому выставлен счёт в монете (USDT по Rapira).
+// Пусто - счёт в рублях, курс тогда считал шлюз.
+if (!payCols.includes('rub_rate')) {
+  db.exec('ALTER TABLE crypto_payments ADD COLUMN rub_rate REAL');
+}
 
 const txCols = db.prepare('PRAGMA table_info(balance_transactions)').all().map((c) => c.name);
 if (!txCols.includes('crypto_payment_id')) {
@@ -353,6 +358,86 @@ export async function rates({ force = false } = {}) {
   }
 }
 
+/*
+ * USDT считается по бирже Rapira, а не по шлюзу (решение заказчика, октябрь
+ * 2026): пополнение - ровно по курсу биржи, вывод - курс биржи плюс
+ * PAYOUT_MARKUP. То есть за 1 USDT при выводе списывается на 5% больше
+ * рублей, чем за него зачисляется при пополнении: это наша маржа на обмене.
+ *
+ * Берётся последняя цена пары USDT/RUB (close) из открытого API биржи. Курс
+ * меняется в течение дня, поэтому в заявку и в счёт он записывается тем, по
+ * которому посчитано, а не пересчитывается задним числом.
+ */
+const RAPIRA_URL = process.env.RAPIRA_URL || 'https://api.rapira.net/open/market/rates';
+const RAPIRA_PAIR = 'USDT/RUB';
+export const RAPIRA_COIN = 'USDT';
+export const PAYOUT_MARKUP = 1.05;
+let rapiraCache = { at: 0, rate: 0 };
+
+export async function rapiraRate({ force = false } = {}) {
+  if (!force && rapiraCache.rate > 0 && Date.now() - rapiraCache.at < RATES_TTL_MS) {
+    return rapiraCache.rate;
+  }
+  try {
+    const res = await fetch(RAPIRA_URL, { signal: AbortSignal.timeout(10_000) });
+    if (!res.ok) throw new Error(`Rapira: ${res.status}`);
+    const json = await res.json();
+    const pair = (json.data || []).find((d) => d.symbol === RAPIRA_PAIR);
+    const rate = Number(pair?.close);
+    if (!(rate > 0)) throw new Error('Rapira: нет пары USDT/RUB');
+    rapiraCache = { at: Date.now(), rate };
+    return rate;
+  } catch (err) {
+    // Последний известный курс лучше, чем закрытая касса. Совсем нет курса -
+    // ноль: пополнение USDT уйдёт счётом в рублях по курсу шлюза, вывод
+    // USDT откажет с BAD_RATE.
+    countError('rapira:down', `Курс Rapira недоступен: ${err.message}`, { threshold: 3 });
+    return rapiraCache.rate || 0;
+  }
+}
+
+/** Курс вывода: рублей за одну монету. Для USDT - Rapira плюс наценка. */
+export async function payoutRate(currency) {
+  if (String(currency).toUpperCase() !== RAPIRA_COIN) return (await rates())[currency] || 0;
+  const rate = await rapiraRate();
+  return rate > 0 ? Math.round(rate * PAYOUT_MARKUP * 100) / 100 : 0;
+}
+
+/**
+ * Курс и сумма в монете для заявки на вывод.
+ *
+ * Для USDT считает сервер (Rapira плюс наценка): сумму в монете отправит
+ * сотрудник, и она не должна зависеть от того, что прислал браузер. Сумма
+ * округляется вниз до цента: вверх отправляли бы больше, чем списали. Для
+ * остальных монет остаётся курс, который видел игрок; createPayout
+ * проверит, что он есть.
+ */
+export async function payoutQuote(currency, amountRub, clientAmount, clientRate) {
+  if (String(currency || '').toUpperCase() !== RAPIRA_COIN) {
+    return { cryptoRate: clientRate, cryptoAmount: clientAmount };
+  }
+  const rate = await payoutRate(RAPIRA_COIN);
+  return {
+    cryptoRate: rate,
+    cryptoAmount: rate > 0 ? (Math.floor((amountRub / rate) * 100) / 100).toFixed(2) : '',
+  };
+}
+
+/**
+ * Курсы для кассы: пополнение и вывод отдельно. Для USDT они разные
+ * (наценка вывода), для остальных монет один и тот же курс шлюза.
+ */
+export async function cashierRates() {
+  const [base, usdt] = await Promise.all([rates(), rapiraRate()]);
+  const deposit = { ...base };
+  const payout = { ...base };
+  if (usdt > 0) {
+    deposit[RAPIRA_COIN] = usdt;
+    payout[RAPIRA_COIN] = Math.round(usdt * PAYOUT_MARKUP * 100) / 100;
+  }
+  return { deposit, payout };
+}
+
 /* ============================================================
    ПОПОЛНЕНИЕ
    ============================================================ */
@@ -392,7 +477,12 @@ export async function createDeposit(userId, amountRub, currency, network, rubRat
    * монету, которую игрок не выбирал осознанно. Проверяем сами и говорим
    * по-русски, во сколько это обходится в рублях.
    */
-  const rate = Number(rubRate) > 0 ? Number(rubRate) : (await rates())[coin.currency];
+  // USDT выставляется счётом в самой монете по курсу Rapira: тогда игрок
+  // платит ровно по курсу биржи, а не по курсу шлюза. Нет курса биржи -
+  // прежний путь, счёт в рублях.
+  const usdtRate = coin.currency === RAPIRA_COIN ? await rapiraRate() : 0;
+  const rate = usdtRate > 0 ? usdtRate
+    : Number(rubRate) > 0 ? Number(rubRate) : (await rates())[coin.currency];
   if (net.minAmount > 0 && rate > 0) {
     const minRub = Math.ceil(net.minAmount * rate);
     if (amount < minRub) {
@@ -405,17 +495,19 @@ export async function createDeposit(userId, amountRub, currency, network, rubRat
 
   const orderId = makeOrderId(userId);
   const row = db.prepare(`
-    INSERT INTO crypto_payments (user_id, order_id, amount_rub, currency, network, created_at)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run(userId, orderId, amount, coin.currency, net.network, Date.now());
+    INSERT INTO crypto_payments (user_id, order_id, amount_rub, currency, network, rub_rate, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(userId, orderId, amount, coin.currency, net.network, usdtRate > 0 ? usdtRate : null, Date.now());
   const id = row.lastInsertRowid;
 
   let invoice;
   try {
     invoice = await call('/payment', {
-      amount: String(amount),
-      currency: 'RUB',
-      to_currency: coin.currency,
+      // Сумма в монете округляется вверх до цента: округление вниз
+      // зачисляло бы игроку на копейки больше, чем пришло.
+      ...(usdtRate > 0
+        ? { amount: (Math.ceil((amount / usdtRate) * 100) / 100).toFixed(2), currency: RAPIRA_COIN }
+        : { amount: String(amount), currency: 'RUB', to_currency: coin.currency }),
       network: net.network,
       order_id: orderId,
       lifetime: INVOICE_LIFETIME_S,
@@ -551,7 +643,9 @@ export const applyWebhook = moneyTx('deposit', (payload) => {
 function creditedRubles(row, payload) {
   const paid = Number(payload.payment_amount);
   const asked = Number(payload.payer_amount ?? row.payer_amount);
-  const invoiced = Number(payload.amount) || row.amount_rub;
+  // Счёт в монете (USDT по Rapira): payload.amount там в монете, а не в
+  // рублях, и рубли счёта берутся из нашей строки.
+  const invoiced = row.rub_rate > 0 ? row.amount_rub : (Number(payload.amount) || row.amount_rub);
 
   if (paid > 0 && asked > 0 && invoiced > 0) {
     return Math.max(1, Math.round(paid * (invoiced / asked)));

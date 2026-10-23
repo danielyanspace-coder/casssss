@@ -700,8 +700,27 @@
 
           <!-- Витрина -->
           <div class="fortune-intro" id="fortuneIntro">
+            <!-- Витрина нарисована разметкой, а не картинкой: колесо на ней -
+                 то же, что крутится на сцене (renderFortuneArt). -->
             <div class="fortune-card">
-              <img src="/assets/ui/fortune-card.webp" alt="Lucky Fortune" class="fortune-card-img">
+              <div class="fortune-card-img fc-hero" role="img" aria-label="Lucky Fortune">
+                <div class="fc-art">
+                  <svg class="fc-wheel" id="fortuneMini" viewBox="-50 -50 100 100" aria-hidden="true"></svg>
+                  <span class="fc-gloss" aria-hidden="true"></span>
+                  <span class="fc-hub" aria-hidden="true"><span class="fh-core"><i>✦</i><b>SPIN</b></span></span>
+                </div>
+                <div class="fc-text">
+                  <div class="fc-logo">LUCKY<span>FORTUNE</span></div>
+                  <p class="fc-lead">Забирайте крутые бонусы каждый день</p>
+                  <ul class="fc-prizes">
+                    <li>Кейс в подарок</li>
+                    <li>Удвоитель ×2</li>
+                    <li>+% к пополнению</li>
+                    <li id="fortuneVoucherChip">Ваучер до 1 500 ₽</li>
+                    <li class="is-gold" id="fortuneCashChip">2 000 ₽</li>
+                  </ul>
+                </div>
+              </div>
               <button class="fortune-card-go" id="fortuneGo">Продолжить</button>
             </div>
           </div>
@@ -714,12 +733,22 @@
             </div>
 
             <div class="fortune-wheel-box">
-              <img src="/assets/ui/fortune-wheel.webp" alt="" class="fortune-wheel" id="fortuneWheel">
-              <!-- Указатель нарисован здесь, а не вырезан из картинки: вырезанный
-                   крутился бы вместе с колесом и никуда бы не показывал. -->
-              <span class="fortune-pin" aria-hidden="true"></span>
+              <span class="fortune-aura" aria-hidden="true"></span>
+              <svg class="fortune-wheel" id="fortuneWheel" viewBox="-50 -50 100 100" aria-hidden="true"></svg>
+              <!-- Блик-купол и указатель неподвижны: стекло и стрелка не
+                   крутятся вместе с секторами. -->
+              <span class="fortune-gloss" aria-hidden="true"></span>
+              <span class="fortune-pin" aria-hidden="true"><svg viewBox="0 0 36 44">
+                <defs><linearGradient id="fpG" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0" stop-color="#fff6c4"/><stop offset="0.5" stop-color="#ffc83a"/><stop offset="1" stop-color="#9a5a08"/></linearGradient>
+                  <radialGradient id="fpR" cx="0.38" cy="0.32" r="0.7">
+                  <stop offset="0" stop-color="#ffd0dc"/><stop offset="0.45" stop-color="#ff2f6d"/><stop offset="1" stop-color="#7a0428"/></radialGradient></defs>
+                <path d="M2 22 L30 4 Q35 2 35 8 V36 Q35 42 30 40 Z" fill="url(#fpG)" stroke="#5a2a00" stroke-width="1.2"/>
+                <circle cx="25" cy="22" r="6.2" fill="url(#fpR)" stroke="#5a2a00" stroke-width="1"/>
+                <circle cx="23" cy="20" r="1.8" fill="#fff" opacity="0.8"/>
+              </svg></span>
               <button class="fortune-hub" id="fortuneSpin" aria-label="Крутить">
-                <img src="/assets/ui/fortune-hub.webp" alt="">
+                <span class="fh-core"><i aria-hidden="true">✦</i><b>SPIN</b></span>
               </button>
             </div>
 
@@ -1186,7 +1215,12 @@
   <div class="confirm-backdrop fortune-steps-backdrop" id="fortuneStepsBackdrop" hidden>
     <div class="fortune-steps">
       <button class="fortune-steps-close" id="fortuneStepsClose" aria-label="Закрыть">×</button>
-      <img src="/assets/ui/fortune-steps.webp" alt="" class="fortune-steps-art">
+      <!-- Шапка окна - верх того же колеса, что на сцене, а не старая картинка. -->
+      <div class="fortune-steps-art" aria-hidden="true">
+        <svg class="fsa-wheel" id="fortuneStepsWheel" viewBox="-50 -50 100 100"></svg>
+        <span class="fsa-gloss"></span>
+        <span class="fc-hub fsa-hub"><span class="fh-core"><i>✦</i><b>SPIN</b></span></span>
+      </div>
 
       <div class="fortune-steps-panel">
         <h2 class="fortune-steps-title">Выполните <b>2 шага</b></h2>

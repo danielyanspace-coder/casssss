@@ -880,7 +880,9 @@ function openOnce(table) {
     // кейсе. Свой, привязанный к кейсу, тратится первым.
     const ownX2 = (u.x2Perks[table.id] || 0) > 0;
     const anyX2 = (u.x2Perks['*'] || 0) > 0;
-    const x2Active = item.value > 0 && (ownX2 || anyX2);
+    // Кроме денег удвоитель удваивает кейс-подарок: два ваучера вместо одного.
+    const doublesVoucher = item.perk?.type === 'voucher';
+    const x2Active = !free && (item.value > 0 || doublesVoucher) && (ownX2 || anyX2);
     const payout = x2Active ? item.value * 2 : item.value;
     if (x2Active) { const key = ownX2 ? table.id : '*'; u.x2Perks[key]--; }
 
@@ -890,9 +892,13 @@ function openOnce(table) {
       // Сумма берётся из payout: при активном ×2 бонус зачисляется удвоенным.
       if (item.perk.type === 'credits') granted.push({ type: 'credits', amount: payout });
       if (item.perk.type === 'voucher') {
-        u.vouchers[item.perk.caseId] = (u.vouchers[item.perk.caseId] || 0) + 1;
+        u.vouchers[item.perk.caseId] = (u.vouchers[item.perk.caseId] || 0) + (x2Active ? 2 : 1);
         granted.push({ type: 'voucher', caseId: item.perk.caseId,
           caseName: DRAW_BY_ID.get(item.perk.caseId)?.name });
+        if (x2Active) {
+          granted.push({ type: 'voucher', caseId: item.perk.caseId, doubled: true,
+            caseName: DRAW_BY_ID.get(item.perk.caseId)?.name });
+        }
       }
       if (item.perk.type === 'x2') {
         u.x2Perks[table.id] = (u.x2Perks[table.id] || 0) + 1;
@@ -937,7 +943,7 @@ function openOnce(table) {
       item: { id: item.id, name: item.name, kind: item.kind, value: payout,
               tier: item.tier, skin: item.skin, art: item.art, perkLabel: item.perkLabel,
               multiplier: Number((payout / table.price).toFixed(2)), baseValue: item.value },
-      granted, free, x2Applied: x2Active && item.value > 0,
+      granted, free, x2Applied: x2Active,
       net: totalPayout - spent,
       fair: { roll, nonce: u.nonce },
     };
@@ -1849,6 +1855,8 @@ const routes = {
       USDT: 86.2, USDC: 86.2, BTC: 6850000, ETH: 216000, TRX: 29.4,
       BNB: 60700, SOL: 9160, LTC: 4250, DOGE: 7.6, XMR: 40700, GRAM: 0.4,
     },
+    // Вывод USDT на сервере - Rapira плюс 5%, здесь то же соотношение.
+    payoutRates: { USDT: 90.51 },
   }),
 
   // «Я оплатил» в счёте: сети нет, платёж в файле не приходит никогда.

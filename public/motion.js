@@ -913,7 +913,7 @@ export function createMotion({ money, artFor, tierColor, snd, haptic = () => {} 
    * Сумма на плитке в конце обязана совпасть с выплатой: по ней сверяется
    * лента с результатом.
    */
-  async function doubler(tile, { from, to, label = '×2', sub = 'удвоитель' }) {
+  async function doubler(tile, { from, to, label = '×2', sub = 'удвоитель', note = '' }) {
     mount();
     const valueEl = tile.querySelector('.tile-value');
     const b = box(tile);
@@ -939,7 +939,18 @@ export function createMotion({ money, artFor, tierColor, snd, haptic = () => {} 
     play('sndBoom');
     haptic('heavy');
 
-    // 2. Сумма на плитке растёт до удвоенной.
+    // 2. Сумма на плитке растёт до удвоенной. У кейса-подарка суммы нет:
+    // удвоитель приносит второй такой же кейс, и вместо счёта всплывает
+    // надпись об этом.
+    if (note) {
+      play('sndChime');
+      floatText(note, b.cx, b.y - 6, { color: '#ffe58a', dur: 1300 });
+      await sleep(900);
+      anim(stamp, [{ opacity: 1 }, { opacity: 0, transform: 'translate(-50%, -50%) scale(.6) rotate(-10deg)' }], { duration: 260, easing: E.out })
+        .onfinish = () => stamp.remove();
+      await sleep(200);
+      return;
+    }
     const COUNT_MS = 750;
     const t0 = performance.now();
     let coin = 0;

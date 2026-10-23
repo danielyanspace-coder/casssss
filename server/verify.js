@@ -121,7 +121,9 @@ console.log('\n=== Кейсы с плюшками: симуляция цепоч
   function simulate(c, seed) {
     let spent = 0;
     let received = 0;
-    let x2 = false;
+    // Удвоители копятся счётчиком, как в x2_perks: плюшка без денег и без
+    // подарка удвоитель не тратит.
+    let x2 = 0;
     let perkHits = 0;
     // Разброс копим по ходу симуляции: закрытой формулы у цепочки нет -
     // ×2 связывает соседние раунды, а подарок подмешивает чужой кейс.
@@ -133,24 +135,25 @@ console.log('\n=== Кейсы с плюшками: симуляция цепоч
       const roll = computeRoll(seed, `perk:${c.id}`, n);
       const item = pickItem(c, roll);
 
-      // ×2 удваивает только выплату единицами - плюшки не удваиваются.
-      let round = item.value * (x2 && item.value > 0 ? 2 : 1);
-      x2 = false;
+      // ×2 удваивает выплату единицами и подарочный кейс, остальные плюшки
+      // не удваиваются и удвоитель не тратят.
+      const doubles = x2 > 0 && (item.value > 0 || item.perk?.type === 'voucher');
+      if (doubles) x2--;
+      let round = item.value * (doubles ? 2 : 1);
 
       if (item.kind === 'perk') {
         perkHits++;
-        if (item.perk.type === 'x2') x2 = true;
+        if (item.perk.type === 'x2') x2++;
         if (item.perk.type === 'voucher') {
           // Бесплатное открытие стоит игроку 0, а приносит полное EV кейса.
           const gift = CASES.find((g) => g.id === item.perk.caseId);
-          round += gift.price * gift.rtp;
+          round += gift.price * gift.rtp * (doubles ? 2 : 1);
         }
         if (item.perk.type === 'freespins') {
           // Серия проигрывается как в игре: по полной таблице, с перезапуском
           // и с ×2 внутри. Именно здесь и проверяется, что рекурсия сходится к
           // заявленной отдаче, а не уводит кейс в плюс игроку.
           let remaining = item.perk.count;
-          let seriesX2 = false;
           let done = 0;
 
           while (remaining > 0 && done < 300) {
@@ -159,12 +162,12 @@ console.log('\n=== Кейсы с плюшками: симуляция цепоч
             const fi = pickItem(c, fRoll, true);
             done++;
 
-            const doubled = seriesX2 && fi.value > 0;
-            round += fi.value * (doubled ? 2 : 1);
-            seriesX2 = false;
+            // Фриспины удвоитель не расходуют и не удваиваются; выпавший в
+            // серии копится до следующего платного открытия, как на сервере.
+            round += fi.value;
 
             if (fi.perk?.type === 'freespins') remaining += fi.perk.count;
-            if (fi.perk?.type === 'x2') seriesX2 = true;
+            if (fi.perk?.type === 'x2') x2++;
             if (fi.perk?.type === 'voucher') {
               const g = CASES.find((x) => x.id === fi.perk.caseId);
               round += g.price * g.rtp;

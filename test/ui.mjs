@@ -136,6 +136,14 @@ if (newcomer) {
   check('первый заход: второй раз не показывается', !(await page.isVisible('#onbBackdrop')));
 }
 
+/* ---------- Кейс «Начало» на полке: FREE вместо цены ---------- */
+{
+  const freeLabel = await page.evaluate(() =>
+    document.querySelector('.case-card[data-case="start_free"]')?.textContent || '');
+  check('кейс «Начало» на главной подписан FREE, а не «Бесплатно»',
+    /FREE/.test(freeLabel) && !/Бесплатно/.test(freeLabel), freeLabel.replace(/\s+/g, ' ').slice(0, 80));
+}
+
 /* ---------- Баннеры первого экрана ---------- */
 
 /*
@@ -244,6 +252,14 @@ if (newcomer) {
   check('медалей нет нигде', fm.medals === 0, String(fm.medals));
   check('Free Money: ивенты без номеров', fm.numbers === 0, String(fm.numbers));
   check('Free Money: вкладки-якоря ивентов', fm.tabs >= 5, String(fm.tabs));
+  // Вкладки в 1.3 раза мельче прежних 19 точек, выбранная залита не золотом.
+  const tabLook = await page.evaluate(() => {
+    const t = document.querySelector('.fm-tab.active') || document.querySelector('.fm-tab');
+    const cs = getComputedStyle(t);
+    return { size: parseFloat(cs.fontSize), bg: cs.backgroundImage };
+  });
+  check('Free Money: вкладки не крупнее 15 точек', tabLook.size <= 15, String(tabLook.size));
+  check('Free Money: выбранная вкладка не золотая', !/255, 200, 74|255, 243, 196/.test(tabLook.bg), tabLook.bg);
 
   // Код введён - поле уходит, в центре кнопка SPIN; «изменить» возвращает поле.
   await page.fill('#pwCode', 'проверка');
@@ -295,6 +311,15 @@ if (newcomer) {
   check('раздела «Бонусы» больше нет', !fm.bonusesView);
   check('раздел открывается с обложки', await page.isVisible('#fortuneIntro'));
   check('колесо пока скрыто', !(await page.isVisible('#fortuneStage')));
+  // Колесо нарисовано разметкой по описанию секторов, а не картинкой.
+  const lfDrawn = await page.evaluate(() => ({
+    mini: document.querySelectorAll('#fortuneMini .lf-sec').length,
+    stage: document.querySelectorAll('#fortuneWheel .lf-sec').length,
+    oldArt: !!document.querySelector('img[src*="fortune-wheel"], img[src*="fortune-card"]'),
+  }));
+  check('Lucky Fortune: колесо нарисовано из девяти секторов', lfDrawn.mini === 9 && lfDrawn.stage === 9,
+    JSON.stringify(lfDrawn));
+  check('Lucky Fortune: присланной картинки больше нет', !lfDrawn.oldArt);
 
   /*
    * Обложка вписана во всю ширину раздела, а не превращена в значок. Это уже

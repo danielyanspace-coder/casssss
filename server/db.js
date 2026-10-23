@@ -2080,7 +2080,14 @@ export const playCaseRound = moneyTx('case', (userId, caseData, resolve, resolve
    */
   // Удвоитель - только на платном открытии (правило в CLAUDE.md): ваучер
   // уже подарок, и удвоенный подарок в отдачу кейса не заложен.
-  const x2Active = !isFree && item.value > 0 && x2Available(userId, caseData.id);
+  //
+  // Кроме денег удвоитель удваивает выпавший кейс-подарок: вместо одного
+  // ваучера приходят два (решение заказчика, октябрь 2026). Это заложено в
+  // ценность удвоителя в решателе (server/cases.js), поэтому отдача кейса
+  // по-прежнему ровно своя. Остальные плюшки (фриспины, бонус-удвоитель)
+  // удвоитель не трогают и не тратят его.
+  const doublesVoucher = item.perk?.type === 'voucher';
+  const x2Active = !isFree && (item.value > 0 || doublesVoucher) && x2Available(userId, caseData.id);
   // Потолок ограничивает ДОПЛАТУ, а не выигрыш, и только у удвоителя с
   // колеса (ключ ANY_CASE): свой удвоитель кейса заложен в его отдачу целиком,
   // и урезать его значило бы платить меньше объявленного. Ноль - без потолка.
@@ -2117,6 +2124,12 @@ export const playCaseRound = moneyTx('case', (userId, caseData, resolve, resolve
     if (item.perk.type === 'voucher') {
       addVoucher(userId, item.perk.caseId, 1, bonusPerks);
       granted.push({ type: 'voucher', caseId: item.perk.caseId });
+      if (x2Active) {
+        // Второй ваучер от удвоителя с колеса - подарок акции, как и его
+        // денежная доплата: он бонусный. От своего удвоителя - как первый.
+        addVoucher(userId, item.perk.caseId, 1, bonusPerks || x2Key === ANY_CASE);
+        granted.push({ type: 'voucher', caseId: item.perk.caseId, doubled: true });
+      }
     }
     if (item.perk.type === 'x2') {
       // Новый удвоитель кладётся в запас уже после того, как старый применён

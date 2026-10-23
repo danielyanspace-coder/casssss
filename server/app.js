@@ -1367,7 +1367,7 @@ app.post('/api/bonus/refuse', auth, limits.cashier, (req, res) => {
   }
 });
 
-app.post('/api/payout/create', auth, limits.cashier, (req, res) => {
+app.post('/api/payout/create', auth, limits.cashier, async (req, res) => {
   if (!setting('payouts_open')) {
     return res.status(503).json({ error: 'Приём заявок на вывод временно закрыт' });
   }
@@ -1381,6 +1381,11 @@ app.post('/api/payout/create', auth, limits.cashier, (req, res) => {
     });
   }
 
+  // Курс вывода USDT считает сервер (Rapira плюс наценка), см. payoutQuote.
+  const { cryptoRate, cryptoAmount } = req.body?.method === 'crypto'
+    ? await crypto.payoutQuote(req.body?.cryptoCurrency, amount, req.body?.cryptoAmount, req.body?.cryptoRate)
+    : {};
+
   try {
     const result = createPayout(req.player.id, amount, {
       minPayout: minPayoutNow(),
@@ -1391,8 +1396,8 @@ app.post('/api/payout/create', auth, limits.cashier, (req, res) => {
       cryptoCurrency: req.body?.cryptoCurrency,
       cryptoNetwork: req.body?.cryptoNetwork,
       cryptoAddress: req.body?.cryptoAddress,
-      cryptoAmount: req.body?.cryptoAmount,
-      cryptoRate: req.body?.cryptoRate,
+      cryptoAmount,
+      cryptoRate,
     });
     trackEvent(req.player.id, 'payout_created', { amount, method: req.body?.method });
     // Проверка заявки сразу, пока игрок ждёт ответа: к моменту, когда
@@ -2279,11 +2284,12 @@ app.post('/api/admin/payout/resolve', auth, need('finance.payouts.resolve'), (re
 app.post('/api/crypto/options', auth, limits.read, async (req, res) => {
   if (!crypto.isConfigured()) return res.json({ enabled: false, coins: [], rates: {} });
   try {
-    const [coins, rates] = await Promise.all([crypto.coins(), crypto.rates()]);
+    const [coins, rates] = await Promise.all([crypto.coins(), crypto.cashierRates()]);
     res.json({
       enabled: true,
       coins,
-      rates,
+      rates: rates.deposit,
+      payoutRates: rates.payout,
       min: crypto.CRYPTO_MIN,
       max: crypto.CRYPTO_MAX,
     });

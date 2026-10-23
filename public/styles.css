@@ -901,13 +901,16 @@ main { position: relative; z-index: 2; padding: 18px; }
    цвет, а не сюжет, иначе фон начинает спорить с содержимым. */
 .opener-theme-wash {
   position: absolute;
-  left: 50%; top: -14%;
-  width: 150%;
+  /* Сдвиг в точках, а не в процентах: проценты считаются от высоты всего
+     экрана кейса (около трёх тысяч точек вместе с составом), и при -14%
+     картинка уезжала за верх экрана - фон пропадал, хотя слой был на месте. */
+  left: 50%; top: -230px;
+  width: 240%;
   transform: translateX(-50%);
-  filter: blur(58px) saturate(1.7);
-  opacity: 0.5;
-  -webkit-mask-image: linear-gradient(180deg, #000 18%, transparent 72%);
-  mask-image: linear-gradient(180deg, #000 18%, transparent 72%);
+  filter: blur(34px) saturate(1.6) brightness(1.2);
+  opacity: 1;
+  -webkit-mask-image: linear-gradient(180deg, #000 24%, transparent 80%);
+  mask-image: linear-gradient(180deg, #000 24%, transparent 80%);
 }
 
 /* Затемнение поверх фона. Размытая обложка поднимает яркость всего экрана, и
@@ -917,7 +920,7 @@ main { position: relative; z-index: 2; padding: 18px; }
   content: '';
   position: absolute; inset: 0;
   background: linear-gradient(180deg,
-    rgba(6, 1, 12, 0.22), rgba(6, 1, 12, 0.6) 42%, rgba(6, 1, 12, 0.86));
+    rgba(6, 1, 12, 0.16), rgba(6, 1, 12, 0.42) 46%, rgba(6, 1, 12, 0.82));
 }
 
 /* Чёткая копия в углу, водяным знаком. Это и есть «деталь с обложки»: кейс
@@ -927,7 +930,7 @@ main { position: relative; z-index: 2; padding: 18px; }
   position: absolute;
   right: -8%; top: 3%;
   width: 58%;
-  opacity: 0.1;
+  opacity: 0.2;
   -webkit-mask-image: radial-gradient(70% 70% at 60% 40%, #000 25%, transparent 78%);
   mask-image: radial-gradient(70% 70% at 60% 40%, #000 25%, transparent 78%);
 }
@@ -4553,55 +4556,115 @@ div.mini-row { cursor: default; }
 
 .fortune-page { max-width: 560px; margin: 0 auto; }
 
-/* ---------- Витрина: присланная карточка целиком ---------- */
-
-/*
- * Карточка показывается картинкой, как её прислали, с обрезанной рамкой.
- * Кнопка «Продолжить» на ней нарисована, поэтому поверх неё лежит настоящая
- * кнопка, выставленная не в пикселях, а в ДОЛЯХ картинки: пиксели разъехались
- * бы на первом же экране другой ширины.
+/* ---------- Витрина ----------
  *
- * Числа сняты с файла: светлый прямоугольник кнопки занимает по горизонтали
- * от 2.5% до 97.4% ширины, по вертикали от 86.5% до 97.2% высоты.
+ * Нарисована разметкой (прежде - присланная картинка с нарисованной на ней
+ * кнопкой). Ночное небо с цветными туманностями, сверху крупное колесо с
+ * блик-куполом, под ним надпись золотом и призы плашками. Ничего не
+ * движется само: украшения только на нажатие, раздел уже падал на iPhone.
  */
-.fortune-card { position: relative; }
-.fortune-card-img {
-  display: block;
-  width: 100%; height: auto;
-  border-radius: 20px;
+.fortune-card {
+  position: relative; overflow: hidden;
+  border-radius: 24px;
+  background:
+    radial-gradient(60% 40% at 50% 30%, rgba(255, 196, 70, 0.28), transparent 70%),
+    radial-gradient(70% 50% at 10% 15%, rgba(53, 196, 255, 0.28), transparent 70%),
+    radial-gradient(70% 55% at 95% 60%, rgba(255, 62, 180, 0.32), transparent 70%),
+    radial-gradient(80% 60% at 30% 100%, rgba(122, 77, 255, 0.45), transparent 70%),
+    linear-gradient(180deg, #1b0a3a, #0d0420);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+/* Звёзды - неподвижные точки фоном, без анимации. */
+.fortune-card::before {
+  content: ''; position: absolute; inset: 0; pointer-events: none; opacity: 0.7;
+  background-image:
+    radial-gradient(1px 1px at 12% 18%, #fff, transparent 60%),
+    radial-gradient(1.5px 1.5px at 82% 12%, #ffe9a8, transparent 60%),
+    radial-gradient(1px 1px at 68% 34%, #fff, transparent 60%),
+    radial-gradient(1px 1px at 22% 52%, #cfe6ff, transparent 60%),
+    radial-gradient(1.5px 1.5px at 90% 48%, #fff, transparent 60%),
+    radial-gradient(1px 1px at 8% 76%, #ffd6f2, transparent 60%),
+    radial-gradient(1px 1px at 55% 8%, #fff, transparent 60%);
+}
+.fortune-card-img { display: block; position: relative; width: 100%; padding: 22px 18px 0; text-align: center; }
+.fc-art { position: relative; width: min(78%, 330px); aspect-ratio: 1; margin: 0 auto; }
+.fc-art::before {
+  content: ''; position: absolute; inset: -9%; border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(255, 200, 80, 0.45), rgba(255, 80, 190, 0.18) 60%, transparent);
+}
+.fc-wheel { position: relative; display: block; width: 100%; height: 100%; transform: rotate(-12deg); }
+.fc-gloss, .fortune-gloss {
+  position: absolute; inset: 2%; border-radius: 50%; pointer-events: none;
+  background:
+    radial-gradient(60% 38% at 34% 22%, rgba(255, 255, 255, 0.42), transparent 70%),
+    linear-gradient(165deg, rgba(255, 255, 255, 0.16), transparent 42%, transparent 70%, rgba(0, 0, 0, 0.25));
+}
+.fc-hub {
+  position: absolute; left: 50%; top: 50%; width: 26%; height: 26%; transform: translate(-50%, -50%);
+  padding: 4.5%; border-radius: 50%;
+  background: linear-gradient(160deg, #fff6c4, #f2b53a 35%, #8a4d0a 60%, #ffd76a 85%, #7a3f06);
+  box-shadow: 0 8px 22px -6px rgba(0, 0, 0, 0.75);
+}
+.fc-hub .fh-core b { font-size: clamp(12px, 3.6vw, 20px); }
+.fc-text { position: relative; margin-top: 10px; }
+.fc-logo {
+  font: 900 34px/0.95 'Unbounded', 'Manrope', system-ui, sans-serif; letter-spacing: 0.04em;
+  background: linear-gradient(180deg, #fffbe6 0%, #ffe07a 40%, #f0a21f 62%, #ffe9a6 100%);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  -webkit-text-stroke: 0.6px rgba(90, 40, 0, 0.6);
+}
+.fc-logo span {
+  display: block; margin-top: 4px;
+  font: 600 15px/1 'Unbounded', 'Manrope', system-ui, sans-serif; letter-spacing: 0.62em; margin-right: -0.62em;
+  background: linear-gradient(180deg, #ffffff, #d8c8ff);
+  -webkit-background-clip: text; background-clip: text; color: transparent; -webkit-text-stroke: 0;
+}
+.fc-lead { margin: 10px 0 12px; color: #e7dcf7; font: 600 14px/1.35 'Manrope', system-ui, sans-serif; }
+.fc-prizes { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.fc-prizes li {
+  padding: 6px 10px; border-radius: 999px;
+  color: #fff; font: 700 12px/1 'Manrope', system-ui, sans-serif; white-space: nowrap;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.05));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3), inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+}
+.fc-prizes li.is-gold {
+  color: #3a1800;
+  background: linear-gradient(180deg, #fff3c4, #ffc84a 55%, #e3901a);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7), 0 4px 12px -4px rgba(255, 180, 40, 0.8);
 }
 .fortune-card-go {
-  position: absolute;
-  left: 2.5%; right: 2.6%;
-  top: 86.5%; bottom: 2.8%;
-  /* Кнопка прозрачная: под ней уже нарисована настоящая. Видимым остаётся
-     только отклик на нажатие. */
-  border: none; background: none;
-  border-radius: 999px;
-  font: inherit; color: transparent;
-  cursor: pointer;
-  transition: transform 0.12s, background 0.12s;
+  position: relative; display: block; width: calc(100% - 36px); margin: 18px auto 18px;
+  padding: 15px 18px; border: 0; border-radius: 16px; cursor: pointer;
+  color: #3a1800; font: 900 17px/1 'Unbounded', 'Manrope', system-ui, sans-serif; letter-spacing: 0.02em;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.08) 50%, transparent 51%),
+    linear-gradient(180deg, #fff1b3, #ffc63d 55%, #e08a12);
+  box-shadow: inset 0 1px 0 #fff, inset 0 -3px 0 rgba(150, 70, 0, 0.45), 0 12px 28px -10px rgba(255, 170, 30, 0.85);
+  transition: transform 0.12s;
 }
-.fortune-card-go:active { transform: scale(0.985); background: rgba(0, 0, 0, 0.14); }
+.fortune-card-go:active { transform: scale(0.98); }
 
 /* ---------- Колесо ---------- */
 
 .fortune-head { text-align: center; margin-bottom: 14px; }
 .fortune-title {
   margin: 0;
-  font-size: 30px; font-weight: 900; letter-spacing: 2px;
-  color: var(--text);
+  font: 900 30px/1 'Unbounded', 'Manrope', system-ui, sans-serif; letter-spacing: 0.04em;
+  background: linear-gradient(180deg, #fffbe6 0%, #ffe07a 40%, #f0a21f 62%, #ffe9a6 100%);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
 }
-.fortune-title span { color: var(--violet); }
-.fortune-sub { margin: 6px 0 0; font-size: 13.5px; color: var(--muted); }
+.fortune-title span {
+  background: linear-gradient(180deg, #ffffff, #d8c8ff);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.fortune-sub { margin: 8px 0 0; font-size: 13.5px; color: var(--muted); }
 
 /*
  * Колесо, указатель и ступица лежат в одном квадрате.
  *
- * Крутится ТОЛЬКО картинка колеса. Ступица со словом SPIN и указатель стоят
- * неподвижно поверх: вращать их вместе с колесом значило бы, что надпись
- * кувыркается, а указатель уезжает с трёх часов и перестаёт на что-либо
- * показывать.
+ * Крутится ТОЛЬКО рисунок колеса. Ступица со словом SPIN, блик-купол и
+ * указатель стоят неподвижно поверх: вращать их вместе с колесом значило
+ * бы, что надпись кувыркается, а указатель уезжает с трёх часов.
  */
 .fortune-wheel-box {
   position: relative;
@@ -4609,40 +4672,59 @@ div.mini-row { cursor: default; }
   margin: 0 auto;
   aspect-ratio: 1;
 }
+/* Свечение за колесом: тёплое сверху, розовое снизу. Неподвижное. */
+.fortune-aura {
+  position: absolute; inset: -8%; border-radius: 50%; pointer-events: none;
+  background: radial-gradient(closest-side, rgba(255, 196, 70, 0.4), rgba(255, 70, 190, 0.2) 62%, transparent);
+}
 .fortune-wheel {
   position: absolute; inset: 0;
   width: 100%; height: 100%;
-  /* will-change обязателен: без него длинный поворот крупной картинки идёт
+  overflow: visible;
+  /* will-change обязателен: без него длинный поворот крупного рисунка идёт
      перерисовкой на каждом кадре и заметно дёргается на телефоне. */
   will-change: transform;
 }
 
-/* Указатель на трёх часах. Нарисован здесь, а не вырезан из картинки: из
-   картинки он крутился бы вместе с колесом. */
+/* Лампы обода: бегут только во время прокрута. */
+.fortune-wheel-box.is-spinning .lf-lamp-0 { animation: lfChase 0.32s steps(1) infinite; }
+.fortune-wheel-box.is-spinning .lf-lamp-1 { animation: lfChase 0.32s steps(1) 0.16s infinite; }
+@keyframes lfChase { 50% { opacity: 0.25; } }
+
+/* Указатель на трёх часах: золотой клин с рубином. */
 .fortune-pin {
   position: absolute;
-  right: -2%; top: 50%;
-  width: 9%; height: 13%;
+  right: -4%; top: 50%;
+  width: 12%; aspect-ratio: 36 / 44;
   transform: translateY(-50%);
-  background: linear-gradient(180deg, #ffe6a3, #d2a33c);
-  clip-path: polygon(100% 0, 100% 100%, 0 50%);
-  filter: drop-shadow(-3px 0 6px rgba(0, 0, 0, 0.5));
   pointer-events: none;
 }
+.fortune-pin svg { display: block; width: 100%; height: 100%; filter: drop-shadow(-2px 3px 4px rgba(0, 0, 0, 0.55)); }
 
+/* Ступица: глянцевая фиолетовая кнопка в золотом кольце. */
 .fortune-hub {
   position: absolute;
   left: 50%; top: 50%;
-  /* Ступица чуть больше вырезанной из картинки: она обязана полностью
-     закрывать крутящуюся под ней середину колеса. */
-  width: 33%; height: 33%;
+  width: 27%; height: 27%;
   transform: translate(-50%, -50%);
-  padding: 0; border: none; background: none;
-  border-radius: 50%;
+  padding: 4.5%; border: none; border-radius: 50%;
+  background: linear-gradient(160deg, #fff6c4, #f2b53a 35%, #8a4d0a 60%, #ffd76a 85%, #7a3f06);
+  box-shadow: 0 8px 22px -6px rgba(0, 0, 0, 0.75), 0 0 0 2px rgba(60, 25, 0, 0.6);
   cursor: pointer;
   transition: transform 0.15s, filter 0.15s;
 }
-.fortune-hub img { display: block; width: 100%; height: 100%; }
+.fh-core {
+  display: grid; place-content: center; width: 100%; height: 100%; border-radius: 50%;
+  background:
+    radial-gradient(70% 45% at 40% 25%, rgba(255, 255, 255, 0.55), transparent 70%),
+    radial-gradient(circle at 50% 60%, #b04dff, #5a16b8 70%, #2c0866);
+  box-shadow: inset 0 -4px 8px rgba(20, 0, 50, 0.6), inset 0 2px 2px rgba(255, 255, 255, 0.35);
+}
+.fh-core i { font-style: normal; color: #ffe58a; font-size: clamp(10px, 3.2vw, 16px); line-height: 1; text-align: center; }
+.fh-core b {
+  color: #fff; font: 900 clamp(14px, 4.6vw, 24px)/1 'Unbounded', 'Manrope', system-ui, sans-serif;
+  letter-spacing: 0.04em; text-shadow: 0 2px 0 rgba(40, 0, 80, 0.7);
+}
 .fortune-hub:active { transform: translate(-50%, -50%) scale(0.94); }
 .fortune-hub:disabled { cursor: default; filter: grayscale(0.55) brightness(0.7); }
 /* Прокрутов нет: кнопка приглушена, но нажимается - нажатие объясняет, как
@@ -4677,7 +4759,19 @@ div.mini-row { cursor: default; }
   position: relative;
   border-radius: 26px;
 }
-.fortune-steps-art { display: block; width: 100%; height: auto; }
+/* Шапка окна: верхняя половина колеса выглядывает из туманности. */
+.fortune-steps-art {
+  position: relative; height: 150px; overflow: hidden; border-radius: 24px 24px 0 0;
+  background:
+    radial-gradient(60% 70% at 50% 100%, rgba(255, 196, 70, 0.35), transparent 70%),
+    radial-gradient(60% 60% at 10% 20%, rgba(53, 196, 255, 0.25), transparent 70%),
+    radial-gradient(60% 60% at 90% 30%, rgba(255, 62, 180, 0.3), transparent 70%),
+    linear-gradient(180deg, #1b0a3a, #120628);
+}
+.fsa-wheel, .fsa-gloss { position: absolute; left: 50%; top: 18px; width: 240px; height: 240px; margin-left: -120px; }
+.fsa-gloss { border-radius: 50%; background: radial-gradient(60% 38% at 34% 22%, rgba(255, 255, 255, 0.42), transparent 70%); }
+.fsa-hub.fc-hub { top: 138px; width: 64px; height: 64px; padding: 6px; }
+.fsa-hub .fh-core b { font-size: 15px; }
 .fortune-steps-close {
   position: absolute; top: 10px; right: 10px;
   z-index: 2;
@@ -4691,9 +4785,10 @@ div.mini-row { cursor: default; }
 }
 
 .fortune-steps-panel {
-  /* Панель наезжает на иллюстрацию: в макете подиум переходит в панель без
-     стыка, и зазор между ними сразу выдал бы две разные картинки. */
-  margin-top: -8%;
+  /* Панель встаёт под шапку с колесом, чуть наезжая на неё: колесо
+     уходит за панель, как за горизонт. */
+  position: relative;
+  margin-top: -14px;
   padding: 20px 18px calc(20px + var(--safe-bottom));
   border: 1px solid var(--line);
   border-radius: 24px;
@@ -5259,19 +5354,21 @@ div.mini-row { cursor: default; }
 }
 .fm-tabs::-webkit-scrollbar { display: none; }
 .fm-tab {
-  flex: none; padding: 10px 16px; border: 0; border-radius: 13px; cursor: pointer;
+  flex: none; padding: 8px 12px; border: 0; border-radius: 11px; cursor: pointer;
   background: none; color: #c9bedb;
-  font: 600 19px/1 'Manrope', system-ui, sans-serif; white-space: nowrap;
+  font: 600 15px/1 'Manrope', system-ui, sans-serif; white-space: nowrap;
   transition: color 0.2s, background 0.2s;
 }
-/* Выбранный пункт - золотом и жирным: видно с первого взгляда, где ты. */
+/* Выбранный пункт - фиолетовой заливкой и жирным (не золотом: золото у
+   кнопок действия, и вкладка с ним спорила). */
 .fm-tab.active {
-  color: #2b1500; font-weight: 800;
-  background: linear-gradient(180deg, var(--fm-gold-1), var(--fm-gold-2) 55%, var(--fm-gold-3));
+  color: #fff; font-weight: 800;
+  background: linear-gradient(180deg, #a55bff, #7a2fe0);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3), 0 6px 16px -8px rgba(160, 80, 255, 0.9);
 }
 
 /* Между плитками заметный воздух (просьба заказчика): плитки читаются отдельными. */
-.fm-bento { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.fm-bento { display: grid; grid-template-columns: 1fr 1fr; gap: 26px; }
 .fm-tile {
   grid-column: span 2; position: relative; min-width: 0;
   border-radius: var(--fm-radius); padding: 14px;
@@ -7303,6 +7400,49 @@ div.mini-row { cursor: default; }
   }
   .side-brand:active { transform: scale(0.97); }
   .side-brand-logo { display: block; width: 100%; max-width: 216px; height: auto; }
+
+  /* Глянец логотипа (просьба заказчика): светлая верхняя половина и
+     тонкая кромка блика, наложенные ровно по контуру букв - маской из того
+     же файла. Без фильтров и без вечной анимации: блик проходит один раз,
+     при наведении. */
+  .side-brand { position: relative; overflow: hidden; }
+  .side-brand::after {
+    content: '';
+    position: absolute; left: 6px; top: 4px;
+    width: calc(100% - 12px); max-width: 216px; aspect-ratio: 900 / 235; /* logo.webp */
+    pointer-events: none;
+    -webkit-mask: url(/assets/ui/logo.webp) left top / 100% auto no-repeat;
+    mask: url(/assets/ui/logo.webp) left top / 100% auto no-repeat;
+    background:
+      linear-gradient(115deg, transparent 38%, rgba(255, 255, 255, 0.75) 47%, transparent 56%) -260px 0 / 300% 100% no-repeat,
+      linear-gradient(180deg, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.14) 50%, transparent 53%);
+    transition: background-position 0s;
+  }
+  .side-brand:hover::after {
+    background-position: 260px 0, 0 0;
+    transition: background-position 0.9s ease-out;
+  }
+
+  /* «Пополнить» в шапке - глянцевая: блик по верхней половине, светлая
+     кромка сверху, тень снизу. Блик - отдельный слой, а не фильтр. */
+  .top-deposit {
+    position: relative; overflow: hidden;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0.08) 50%, transparent 51%),
+      linear-gradient(135deg, #ff4fa8, #b23cff);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.7),
+      inset 0 -2px 0 rgba(80, 0, 90, 0.35),
+      0 10px 26px -8px rgba(255, 46, 160, 0.65);
+    text-shadow: 0 1px 1px rgba(90, 0, 70, 0.4);
+  }
+  .top-deposit::after {
+    content: ''; position: absolute; top: 0; bottom: 0; left: -60%; width: 40%;
+    background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+    transform: skewX(-18deg);
+    pointer-events: none;
+  }
+  .top-deposit:hover::after { left: 130%; transition: left 0.8s ease-out; }
 
   .side-list { display: flex; flex-direction: column; gap: 9px; }
 
@@ -9675,8 +9815,6 @@ body.mo-receded .opener-scroll { filter: blur(4px) saturate(.55); transform: sca
 .fs-verdict { margin: -4px 0 12px; font-size: 13px; font-weight: 800; }
 .fs-verdict:empty { display: none; }
 .fs-verdict em { font-style: normal; color: #9dffcf; }
-.fs-verdict.is-quiet { color: var(--muted); }
-.fs-verdict.is-quiet em { color: #ffb0bd; }
 
 @media (prefers-reduced-motion: reduce) {
   .mo-take::after, .mo-hero-sheen, .opener-bonus::before, .opener.is-bonus .fs-emblem { animation: none; }
@@ -9773,7 +9911,8 @@ body.mo-receded .opener-scroll { filter: blur(4px) saturate(.55); transform: sca
 .fortune-hl.is-blink path { animation: fortuneBlink 0.35s ease-out; }
 @keyframes fortuneBlink { from { fill: rgba(255, 255, 255, 0.7); } }
 .fortune-hl.is-final path { fill: rgba(255, 211, 77, 0.35); animation: fortuneFinal 0.6s ease-in-out 4 alternate; }
-@keyframes fortuneFinal { to { fill: rgba(255, 246, 207, 0.6); filter: drop-shadow(0 0 4px #ffd34d); } }
+/* Без drop-shadow в ключевых кадрах: мигающий фильтр ронял Safari. */
+@keyframes fortuneFinal { to { fill: rgba(255, 246, 207, 0.6); } }
 
 /* ---------- Покупка фриспинов: сцена ----------
    Тот же язык, что у сцены выигрыша из ленты: затемнение, лучи, предмет
@@ -10001,16 +10140,18 @@ body.mo-receded .opener-scroll { filter: blur(4px) saturate(.55); transform: sca
       0 8px 26px -12px var(--violet);
   }
 
-  /* Экран кейса: фон без размытой картинки и без прямоугольника затемнения. */
-  .opener-theme-wash,
-  .opener-theme-mark,
-  .opener-theme::after { display: none; }
+  /* Экран кейса: размытая обложка вернулась и на компьютер (заказчик её
+     хватился). Раньше она стекала мутью за края колонки - теперь слой
+     обрезан своей колонкой (overflow у .opener-theme), а по бокам уходит в
+     фон страницы маской, без прямоугольника. Кейс на сцене остаётся резким:
+     размыт только фон. */
   .opener.is-themed { background: transparent; }
-  .opener.is-themed .opener-theme {
-    background:
-      radial-gradient(42% 34% at 50% 30%, hsl(var(--case-h1, 275) 85% 50% / 0.22), transparent 100%),
-      radial-gradient(60% 40% at 50% 62%, hsl(var(--case-h2, 300) 80% 45% / 0.1), transparent 100%);
+  .opener-theme {
+    -webkit-mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
+    mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
   }
+  .opener-theme-wash { width: 100%; top: -260px; opacity: 0.5; }
+  .opener-theme-mark { width: 34%; right: 2%; }
   /* Кейс на сцене - резкий, со своим контурным светом, а не в дымке. */
   .case-stage-art { image-rendering: auto; }
 }
@@ -10495,14 +10636,26 @@ body.cz-playing { overflow: hidden; }
   /* Free Money: бенто в три колонки. Розыгрыш слева на два ряда, справа
      пара «Начало» и бот, под ними колесо; подарки и Lucky Fortune во всю
      ширину. Фото машины 4:5 в узкой колонке не растягивается на весь экран. */
-  #view-freemoney { max-width: 1000px; margin-left: auto; margin-right: auto; }
-  .fm-bento { grid-template-columns: 1.15fr 1fr 1fr; gap: 24px; }
+  #view-freemoney { max-width: 1240px; margin-left: auto; margin-right: auto; }
+  .fm-bento { grid-template-columns: 1.15fr 1fr 1fr; gap: 34px; }
+  /* Заголовок справа, по правому краю плиток, и с воздухом до вкладок. */
+  .fm-title { text-align: right; margin: 22px 0 22px; }
+  /* Бот: надписи по центру плитки, а не прижаты к верху. */
+  .bt-tile { justify-content: center; }
+  /* Переход по вкладке: плитка на секунду приподнимается - «это я». Одна
+     короткая анимация на нажатие, не вечная (iPhone, см. CLAUDE.md). */
+  .fm-tile.fm-hello { animation: fmHello 1s ease-out; z-index: 2; }
   .fm-gifts, .fm-fortune { grid-column: 1 / -1; }
   .fm-drive { grid-column: 1; grid-row: span 2; }
   .fm-start { grid-column: 2; }
   .fm-bot { grid-column: 3; }
   .fm-wheel { grid-column: 2 / span 2; }
-  .fm-tabs { margin: 0 0 22px; padding-left: 0; padding-right: 0; }
+  .fm-tabs { margin: 0 0 30px; padding-left: 0; padding-right: 0; }
+}
+@keyframes fmHello {
+  0% { transform: scale(1); }
+  30% { transform: scale(1.035); box-shadow: 0 0 0 2px rgba(165, 91, 255, 0.85), 0 24px 60px -20px rgba(165, 91, 255, 0.8); }
+  100% { transform: scale(1); }
 }
 @media (min-width: 1024px) and (prefers-reduced-motion: reduce) {
   .side-item.is-sq.active::after { animation: none; }
