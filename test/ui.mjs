@@ -1791,6 +1791,44 @@ check('честность: личная статистика убрана', fair
   check('компьютер: меню-картинка убрана', !(await desk.isVisible('#menuBtn')));
   check('компьютер: кнопка пополнения в шапке', await desk.isVisible('#topDeposit'));
 
+  // Каллиграфия в шапке: видна целиком между показателями и кассой.
+  const motto = await desk.evaluate(() => {
+    const m = document.querySelector('.top-motto').getBoundingClientRect();
+    const st = document.getElementById('topStats').getBoundingClientRect();
+    const dep = document.getElementById('topDeposit').getBoundingClientRect();
+    const el = document.querySelector('.top-motto');
+    // Ширину текста меряем диапазоном: у каллиграфии завитки выходят за
+    // границы букв, и scrollWidth врал «не помещается» на целой надписи.
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    const textW = range.getBoundingClientRect().width;
+    return { text: el.textContent.trim(), between: m.left >= st.right && m.right <= dep.left,
+      whole: textW <= m.width + 2, textW: Math.round(textW), boxW: Math.round(m.width) };
+  });
+  check('компьютер: «World Tennis» в шапке между показателями и кассой',
+    motto.text === 'World Tennis' && motto.between && motto.whole, JSON.stringify(motto));
+
+  // Главный приз дня: настоящий предмет из состава кейса, а не выдуманный выигрыш.
+  const prize = await desk.evaluate(async () => {
+    const btn = document.querySelector('#sideNav .side-prize');
+    if (!btn) return null;
+    const cfg = await (await fetch('/api/config')).json();
+    const c = cfg.cases.find((x) => x.id === btn.dataset.prizeCase);
+    const top = c ? Math.max(...c.items.filter((i) => i.kind === 'item').map((i) => i.value)) : 0;
+    const shown = Number(btn.querySelector('.side-prize-value').textContent.replace(/[^\d]/g, ''));
+    return { caseId: btn.dataset.prizeCase, shown, top, price: c?.price || 0 };
+  });
+  check('компьютер: главный приз дня - самый дорогой предмет дорогого кейса',
+    Boolean(prize) && prize.shown === prize.top && prize.price >= 20000, JSON.stringify(prize));
+  if (prize) {
+    await desk.click('#sideNav .side-prize');
+    await desk.waitForTimeout(600);
+    check('компьютер: приз дня открывает свой кейс', await desk.evaluate(() =>
+      !document.getElementById('opener').hidden), '');
+    await desk.evaluate(() => document.getElementById('closeOpenerTop')?.click());
+    await desk.waitForTimeout(400);
+  }
+
   // Считаем по разметке, а не по CSS-свойству: полка выкладывается flex-ом,
   // и число колонок из стилей уже не прочитать.
   const perRow = await desk.evaluate(() => {

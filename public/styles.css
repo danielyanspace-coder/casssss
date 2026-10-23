@@ -7334,6 +7334,7 @@ div.mini-row { cursor: default; }
 .side-nav { display: none; }
 .top-deposit { display: none; }
 .top-stats { display: none; }
+.top-motto { display: none; }
 
 @media (min-width: 1024px) {
 
@@ -7415,7 +7416,10 @@ div.mini-row { cursor: default; }
   }
   .top-deposit:hover::after { left: 130%; transition: left 0.8s ease-out; }
 
-  .side-item:hover {
+  /* Касса и поддержка залиты своим цветом: при наведении они светлеют, а
+     не перекрашиваются в общий фиолетовый. */
+  .side-item.is-wide:hover, .side-item.is-tall:hover { filter: brightness(1.12); }
+  .side-item:not(.is-wide):not(.is-tall):hover {
     border-color: rgba(168, 120, 255, 0.7);
     background:
       linear-gradient(145deg, rgba(168, 120, 255, 0.2), transparent 62%),
@@ -7445,6 +7449,27 @@ div.mini-row { cursor: default; }
   .top-stat b, .top-online b { color: var(--text); font-weight: 800; }
 
   .top-online { display: flex; align-items: center; gap: 8px; }
+  /* Показатели не сжимаются и не переносятся: уступает место надпись. */
+  .top-stats { flex: none; white-space: nowrap; }
+
+  /* Каллиграфия в шапке: золото с бликом сверху, тонкая тёмная обводка,
+     чтобы тонкие штрихи не терялись на тёмной полосе. Стоит посередине
+     свободного места и сжимается первой, если окно узкое. */
+  .top-motto {
+    /* Не сжимается: обрезанная каллиграфия хуже пустого места. Где ей не
+       хватает ширины, она прячется целиком (медиазапрос ниже). Поля auto
+       ставят её посередине свободной полосы. */
+    display: block; flex: 0 0 auto; margin: 0 auto; padding: 0 6px;
+    text-align: center; white-space: nowrap;
+    font: 400 34px/1.15 'Great Vibes', 'Snell Roundhand', 'Apple Chancery', cursive;
+    letter-spacing: 0.5px;
+    background: linear-gradient(180deg, #fff6d0 0%, #ffd56a 45%, #e7a23a 70%, #fff0c0 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    filter: drop-shadow(0 2px 8px rgba(255, 190, 80, 0.25));
+  }
+  /* Уже 1440 точек надпись не помещается рядом со счётчиками с воздухом, а
+     обрезанная каллиграфия хуже пустого места: прячем. */
+  @media (max-width: 1439px) { .top-motto { display: none; } }
 
   /*
    * Зелёная точка мигает медленно и без резкого гашения: частое мигание в углу
@@ -10165,21 +10190,33 @@ body.mo-receded .opener-scroll { filter: blur(4px) saturate(.55); transform: sca
 /* Касса и поддержка: внизу панели, отдельно от игр. */
 .side-bottom { margin-top: auto; padding-top: 14px; display: flex; flex-direction: column; gap: 10px; border-top: 1px solid var(--line); }
 .side-item.is-wide {
-  border-color: rgba(255, 200, 110, 0.35);
+  /* Касса и поддержка были бледными (заказчик), а золото и голубой - чужие
+     проекту. Цвета свои: касса - розово-фиолетовая, как кнопка
+     «Пополнить» (это то же действие), поддержка - глубокий фиолетовый, тише.
+     Глянец сверху и светлая кромка - как у остальных плиток. */
+  border-color: rgba(255, 92, 190, 0.6);
   background:
-    linear-gradient(145deg, rgba(255, 190, 80, 0.16), transparent 62%),
-    linear-gradient(180deg, #1f0f22, #120818);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.02) 48%, transparent 50%),
+    radial-gradient(120% 140% at 0% 0%, rgba(255, 79, 168, 0.45), transparent 62%),
+    linear-gradient(135deg, #5a1470, #3a0c58 55%, #1f0838);
+  box-shadow: inset 0 1px 0 rgba(255, 210, 240, 0.3), 0 8px 22px -12px rgba(255, 60, 170, 0.7);
 }
-.side-item.is-wide .side-title { color: #ffe3a3; }
+.side-item.is-wide .side-title { color: #fff; }
+.side-item.is-wide .side-sub { color: #f0c9ec; }
+.side-item.is-wide .side-go { border-color: #f6d4f0; }
 .side-item.is-tall {
   padding: 18px 16px 18px 12px; min-height: 92px; border-radius: 20px;
-  border-color: rgba(90, 190, 240, 0.32);
+  border-color: rgba(178, 120, 255, 0.55);
   background:
-    linear-gradient(145deg, rgba(55, 174, 226, 0.2), transparent 62%),
-    linear-gradient(180deg, #0f1a2e, #0b1020);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.02) 48%, transparent 50%),
+    radial-gradient(120% 140% at 0% 0%, rgba(160, 90, 255, 0.4), transparent 62%),
+    linear-gradient(135deg, #3b1880, #26105a 55%, #170a36);
+  box-shadow: inset 0 1px 0 rgba(225, 205, 255, 0.28), 0 8px 22px -12px rgba(150, 80, 255, 0.7);
 }
 .side-item.is-tall .side-art { width: 76px; height: 56px; }
-.side-item.is-tall .side-title { font-size: 16px; }
+.side-item.is-tall .side-title { font-size: 16px; color: #fff; }
+.side-item.is-tall .side-sub { color: #d6c6f5; }
+.side-item.is-tall .side-go { border-color: #e2d6ff; }
 
 /* ============================================================
    КАЗИНО: ЛОББИ ИГР ПРОВАЙДЕРОВ
@@ -10600,6 +10637,41 @@ body.cz-playing { overflow: hidden; }
   .side-item.is-sq.active::after { animation: sideSheen 3.4s ease-in-out infinite; }
   @keyframes sideSheen { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
   #sideSupport { margin-top: 0; }
+
+  /* «Главный приз дня» - в пустоте между разделами и кассой. Отступы auto
+     сверху у карточки и у кассы делят свободное место пополам: карточка
+     стоит посередине, а не прилипает к разделам. */
+  .side-prize {
+    position: relative; overflow: hidden; isolation: isolate;
+    flex-shrink: 0; margin: auto 0 0; padding: 10px 12px 12px;
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+    border: 1px solid rgba(255, 200, 110, 0.35); border-radius: 20px; cursor: pointer;
+    text-align: center; color: var(--text); font: inherit;
+    background:
+      radial-gradient(80% 60% at 50% 35%, color-mix(in srgb, var(--tier-color) 30%, transparent), transparent 70%),
+      linear-gradient(180deg, #1d0d36, #120722);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+    transition: transform 0.18s, box-shadow 0.2s;
+  }
+  .side-prize:hover { transform: translateY(-2px); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 14px 28px -14px rgba(255, 190, 80, 0.7); }
+  .side-prize-kicker {
+    font: 800 10.5px/1 'Manrope', system-ui, sans-serif; letter-spacing: 0.14em; text-transform: uppercase;
+    color: #ffd98a;
+  }
+  .side-prize-art { width: 60px; height: 60px; margin: 4px 0 2px; display: grid; place-items: center; }
+  .side-prize-art > * { width: 100%; height: 100%; }
+  .side-prize-name { font: 800 13px/1.2 'Manrope', system-ui, sans-serif; }
+  .side-prize-value {
+    font: 900 20px/1.1 'Unbounded', 'Manrope', system-ui, sans-serif;
+    background: linear-gradient(180deg, #fff6d0, #ffc84a 60%, #e08a12);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .side-prize-case { font: 600 11.5px/1.2 'Manrope', system-ui, sans-serif; color: #a99bbd; }
+  .side-prize + .side-bottom { margin-top: auto; }
+  /* Рисунок крупнее только там, где по высоте есть место. */
+  @media (min-height: 980px) { .side-prize-art { width: 92px; height: 92px; margin: 6px 0 4px; } }
+  /* На низком окне карточке нет места: меню важнее. */
+  @media (max-height: 860px) { .side-prize { display: none; } }
 
   /* Риск-игра на мониторе: карты в столбике разумной ширины, а не на весь
      экран - раньше один туз занимал полэкрана. */
