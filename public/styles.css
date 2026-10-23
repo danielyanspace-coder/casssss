@@ -132,7 +132,8 @@ body {
 .brand:active { transform: scale(0.96); }
 .brand-logo {
   display: block;
-  height: 34px; width: auto;
+  /* Подписи «Кейсы и игры» в картинке больше нет, и знак чуть крупнее. */
+  height: 37px; width: auto;
   /* Логотип нарисован для тёмного фона, подложка ему не нужна. */
   object-fit: contain;
 }
@@ -4542,7 +4543,7 @@ div.mini-row { cursor: default; }
 
 /* На узком экране логотип сжимается первым: важнее уместить баланс и меню. */
 @media (max-width: 420px) {
-  .brand-logo { height: 28px; }
+  .brand-logo { height: 31px; }
   .balance-value { font-size: 14px; }
 }
 
@@ -5245,28 +5246,32 @@ div.mini-row { cursor: default; }
   --fm-radius: 24px;
 }
 .fm-title {
-  margin: 2px 0 10px; text-align: center;
-  font: 800 14px/1.2 'Unbounded', 'Manrope', system-ui, sans-serif; letter-spacing: 0.08em;
-  text-transform: uppercase; color: #fff;
+  margin: 18px 2px 12px; text-align: left;
+  font: 800 21px/1.2 'Unbounded', 'Manrope', system-ui, sans-serif; color: #fff;
 }
 
-/* Вкладки липнут вплотную к шапке: --topbar-h мерит код (syncTopbarHeight). */
+/* Вкладки стоят наверху раздела и за прокруткой не едут (решение
+   заказчика). Переход по вкладке прокручивает к ивенту под шапкой. */
 .fm-tabs {
-  position: sticky; top: var(--topbar-h, 64px); z-index: 6;
   display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none;
-  margin: 0 -18px 14px; padding: 8px 18px;
-  background: #0d0318; border-bottom: 1px solid var(--fm-line);
+  margin: 0 -18px 18px; padding: 8px 18px;
+  border-top: 1px solid var(--fm-line); border-bottom: 1px solid var(--fm-line);
 }
 .fm-tabs::-webkit-scrollbar { display: none; }
 .fm-tab {
-  flex: none; padding: 7px 12px; border: 0; border-radius: 10px; cursor: pointer;
-  background: none; color: var(--fm-muted);
-  font: 700 13px/1 'Manrope', system-ui, sans-serif; white-space: nowrap;
+  flex: none; padding: 10px 16px; border: 0; border-radius: 13px; cursor: pointer;
+  background: none; color: #c9bedb;
+  font: 600 19px/1 'Manrope', system-ui, sans-serif; white-space: nowrap;
   transition: color 0.2s, background 0.2s;
 }
-.fm-tab.active { color: #fff; background: rgba(255, 255, 255, 0.08); }
+/* Выбранный пункт - золотом и жирным: видно с первого взгляда, где ты. */
+.fm-tab.active {
+  color: #2b1500; font-weight: 800;
+  background: linear-gradient(180deg, var(--fm-gold-1), var(--fm-gold-2) 55%, var(--fm-gold-3));
+}
 
-.fm-bento { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+/* Между плитками заметный воздух (просьба заказчика): плитки читаются отдельными. */
+.fm-bento { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
 .fm-tile {
   grid-column: span 2; position: relative; min-width: 0;
   border-radius: var(--fm-radius); padding: 14px;
@@ -5278,7 +5283,35 @@ div.mini-row { cursor: default; }
 .fm-drive { padding: 0; overflow: hidden; }
 .fm-tile-head { display: flex; align-items: baseline; gap: 10px; margin: 0 2px 12px; flex-wrap: wrap; }
 .fm-tile-title { margin: 0; font: 800 16px/1.15 'Unbounded', 'Manrope', system-ui, sans-serif; color: var(--fm-text); }
-.fm-gifts .fm-tile-title { margin: 0 2px 12px; }
+/* «Ваши подарки» - кнопка во всю плитку, список раскрывается под ней. */
+.fm-gifts { padding: 0; overflow: hidden; }
+.fm-gifts-toggle {
+  width: 100%; display: flex; align-items: center; gap: 12px; padding: 14px 16px;
+  border: 0; cursor: pointer; text-align: left; color: var(--fm-text); font: inherit;
+  background:
+    radial-gradient(80% 140% at 0% 0%, rgba(255, 200, 74, 0.22), transparent 60%),
+    linear-gradient(160deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.02));
+}
+.fm-gifts-ico {
+  flex: none; width: 42px; height: 42px; border-radius: 13px; display: grid; place-items: center; color: #2b1500;
+  background: linear-gradient(180deg, var(--fm-gold-1), var(--fm-gold-2) 55%, var(--fm-gold-3));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 3px 0 #8a4f08;
+}
+.fm-gifts-ico svg { width: 24px; height: 24px; }
+.fm-gifts-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.fm-gifts-txt b { font: 800 15px/1.1 'Unbounded', 'Manrope', system-ui, sans-serif; }
+.fm-gifts-txt small { color: var(--fm-muted); font: 600 12px/1 'Manrope', system-ui, sans-serif; }
+.fm-gifts-chev {
+  flex: none; width: 32px; height: 32px; border-radius: 50%; background: rgba(255, 255, 255, 0.08);
+  display: grid; place-items: center; transition: transform 0.25s;
+}
+.fm-gifts-chev::before {
+  content: ''; width: 8px; height: 8px; margin-top: -3px; rotate: 45deg;
+  border-right: 2px solid #fff; border-bottom: 2px solid #fff;
+}
+.fm-gifts-toggle[aria-expanded="true"] .fm-gifts-chev { transform: rotate(180deg); }
+.fm-gifts-body { padding: 4px 14px 16px; }
+.fm-gifts-body[hidden] { display: none; }
 .fm-tile-note { margin-left: auto; color: var(--fm-muted); font: 600 12px/1.2 'Manrope', system-ui, sans-serif; }
 
 /* Одна главная кнопка на весь раздел: золото с тёмным текстом. */
@@ -5320,7 +5353,7 @@ div.mini-row { cursor: default; }
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 3px 0 #8a4f08; font: 800 13px/1 'Manrope', system-ui, sans-serif;
 }
 
-/* ---------- Lucky Drive ----------
+/* ---------- Dream Car (розыгрыш автомобиля) ----------
    По образцу 1Win: фото во всю плитку, заголовки широким жирным шрифтом
    поверх неба, низ фото уходит в цвет плитки. */
 .dv-photo { position: relative; aspect-ratio: 4 / 5; overflow: hidden; }
@@ -5329,20 +5362,24 @@ div.mini-row { cursor: default; }
 /* Сверху лёгкое затемнение под заголовки, снизу фото тает в плитку. */
 .dv-photo::before { top: 0; height: 46%; background: linear-gradient(180deg, rgba(8, 20, 48, 0.55), rgba(8, 20, 48, 0)); }
 .dv-photo::after { bottom: 0; height: 34%; background: linear-gradient(180deg, rgba(21, 12, 36, 0), var(--fm-tile)); }
-.dv-live {
-  position: absolute; left: 14px; top: 14px; z-index: 2; width: 34px; height: 34px; border-radius: 50%;
-  display: grid; place-items: center; background: #ff5a1f; box-shadow: 0 4px 14px rgba(255, 90, 31, 0.5);
+.dv-badge {
+  position: absolute; left: 12px; top: 12px; z-index: 2;
+  display: inline-flex; align-items: center; gap: 7px; padding: 7px 11px 7px 9px; border-radius: 99px;
+  color: #fff; font: 700 11px/1 'Manrope', system-ui, sans-serif; letter-spacing: 0.04em;
+  background: rgba(10, 18, 40, 0.42);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), inset 0 0 0 1px rgba(255, 255, 255, 0.22);
 }
-.dv-live svg { width: 20px; height: 20px; }
+.dv-badge i { width: 8px; height: 8px; border-radius: 50%; background: #3ef08f; box-shadow: 0 0 0 3px rgba(62, 240, 143, 0.25); }
 .dv-head {
-  position: relative; z-index: 1; padding: 22px 14px 0; text-align: center; color: #fff;
+  position: relative; z-index: 1; padding: 50px 14px 0; text-align: center; color: #fff;
   font-family: 'Unbounded', 'Manrope', system-ui, sans-serif; font-weight: 800; text-transform: uppercase;
   text-shadow: 0 2px 14px rgba(0, 20, 60, 0.45);
 }
-.dv-kicker { font-size: 13px; line-height: 1.15; letter-spacing: 0.02em; }
-.dv-give { margin-top: 12px; font-size: 22px; line-height: 1; }
-.dv-brand { margin-top: 6px; font-size: clamp(26px, 8.4vw, 46px); line-height: 1; letter-spacing: -0.01em; }
-.dv-model { margin-top: 8px; font-size: clamp(20px, 6vw, 30px); line-height: 1; letter-spacing: 0.02em; }
+.dv-kicker { font-size: 15.5px; font-weight: 600; line-height: 1.15; letter-spacing: 0.02em; }
+.dv-give { margin-top: 12px; font-size: 22px; font-weight: 800; line-height: 1; }
+/* Марка - самое жирное на плитке, «Дарим» - следующее по жирности. */
+.dv-brand { margin-top: 6px; font-size: clamp(26px, 8.4vw, 46px); font-weight: 900; line-height: 1; letter-spacing: -0.01em; }
+.dv-model { margin-top: 8px; font-size: clamp(20px, 6vw, 30px); font-weight: 600; line-height: 1; letter-spacing: 0.02em; }
 .dv-body { position: relative; padding: 2px 16px 16px; }
 .dv-lead { margin: 0 0 14px; color: #ece6f5; font: 500 14px/1.4 'Manrope', system-ui, sans-serif; }
 .dv-count { margin-bottom: 10px; color: var(--fm-muted); font: 600 16px/1 'Manrope', system-ui, sans-serif; }
@@ -10215,7 +10252,7 @@ body.mo-receded .opener-scroll { filter: blur(4px) saturate(.55); transform: sca
 @media (min-width: 600px) {
   .cz-grid { gap: 14px; grid-template-columns: repeat(auto-fill, minmax(225px, 1fr)); }
 }
-.cz-tile { display: block; min-width: 0; padding: 0; border: 0; background: none; cursor: pointer; text-align: left; color: var(--text); font: inherit; }
+.cz-tile { display: block; position: relative; min-width: 0; padding: 0; border: 0; background: none; cursor: pointer; text-align: left; color: var(--text); font: inherit; }
 /* block обязателен: .cz-art - span внутри кнопки, а у строчного элемента
    aspect-ratio не действует, и плитка схлопывается в ноль. */
 .cz-art {
@@ -10250,13 +10287,25 @@ body.mo-receded .opener-scroll { filter: blur(4px) saturate(.55); transform: sca
 .cz-tile:active .cz-art { transform: scale(.97); }
 .cz-name { display: block; margin-top: 7px; font-size: 12.5px; font-weight: 700; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cz-prov { display: block; margin-top: 1px; color: var(--muted); font-size: 11px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Название игры провайдера под обложкой не пишется (решение заказчика): оно
+   уже нарисовано на самой обложке. Строка остаётся в разметке для экранных
+   чтецов и поиска по тексту, но на экране её нет; ряд под обложкой начинается
+   сразу с провайдера или «N играют». */
+.cz-tile[data-game] .cz-name, .cz-skel .cz-name {
+  /* Внутри плитки (у неё position: relative): иначе скрытая строка
+     выпадала из ленты и раздвигала страницу вбок. */
+  position: absolute; left: 0; top: 0; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+}
+.cz-tile[data-game] .cz-prov, .cz-tile[data-game] .cz-live { margin-top: 7px; }
 /* «N играют»: зелёная точка дышит, число белое, как у образца. Провайдер
    при этом уходит: под обложкой одна строка, а не две. */
 .cz-live {
   display: flex; align-items: center; gap: 5px; margin-top: 3px;
-  color: var(--muted); font: 600 12px/1 'Inter', 'Manrope', system-ui, sans-serif; white-space: nowrap;
+  color: var(--muted); font: 400 12px/1 'Inter', 'Manrope', system-ui, sans-serif; white-space: nowrap;
 }
-.cz-live b { color: #fff; font-weight: 700; }
+/* Строка тонкая (просьба заказчика): это фон под обложкой, не призыв. */
+.cz-live b { color: #fff; font-weight: 500; }
 .cz-live i { width: 7px; height: 7px; border-radius: 50%; background: #3ee08a; animation: czLive 2.4s ease-in-out infinite; }
 @keyframes czLive { 0%, 100% { box-shadow: 0 0 0 0 rgba(62, 224, 138, 0.6); } 60% { box-shadow: 0 0 0 5px rgba(62, 224, 138, 0); } }
 .cz-tile:has(.cz-live) .cz-prov { display: none; }
@@ -10447,13 +10496,13 @@ body.cz-playing { overflow: hidden; }
      пара «Начало» и бот, под ними колесо; подарки и Lucky Fortune во всю
      ширину. Фото машины 4:5 в узкой колонке не растягивается на весь экран. */
   #view-freemoney { max-width: 1000px; margin-left: auto; margin-right: auto; }
-  .fm-bento { grid-template-columns: 1.15fr 1fr 1fr; gap: 14px; }
+  .fm-bento { grid-template-columns: 1.15fr 1fr 1fr; gap: 24px; }
   .fm-gifts, .fm-fortune { grid-column: 1 / -1; }
   .fm-drive { grid-column: 1; grid-row: span 2; }
   .fm-start { grid-column: 2; }
   .fm-bot { grid-column: 3; }
   .fm-wheel { grid-column: 2 / span 2; }
-  .fm-tabs { margin: 0 0 14px; border-radius: 0 0 14px 14px; }
+  .fm-tabs { margin: 0 0 22px; padding-left: 0; padding-right: 0; }
 }
 @media (min-width: 1024px) and (prefers-reduced-motion: reduce) {
   .side-item.is-sq.active::after { animation: none; }

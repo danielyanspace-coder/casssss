@@ -24,7 +24,7 @@
   -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;800&amp;family=Manrope:wght@500;700;800&amp;family=Inter:wght@600;700;800&amp;family=Bodoni+Moda:opsz,wght@6..96,700;6..96,900&amp;family=JetBrains+Mono:wght@400;700&amp;display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;800;900&amp;family=Manrope:wght@500;700;800&amp;family=Inter:wght@400;500;600;700;800&amp;family=Bodoni+Moda:opsz,wght@6..96,700;6..96,900&amp;family=JetBrains+Mono:wght@400;700&amp;display=swap">
 
   <link rel="stylesheet" href="/styles.css">
 </head>
@@ -675,7 +675,7 @@
          витрина, а не сохранённая игра (openFreeMoney). -->
     <section class="view" id="view-freemoney">
 
-      <h1 class="fm-title">Free Money</h1>
+      <h1 class="fm-title">Free money</h1>
 
       <!-- Вкладки-якоря: быстрый переход к ивенту. Список собирается кодом из
            тех ивентов, что сейчас на странице; липнут прямо под шапкой. -->
@@ -684,13 +684,7 @@
       <!-- Бенто: плитки разной ширины в одной сетке. Порядок здесь - порядок
            на телефоне; «Начало» и бот стоят парой в одном ряду. -->
       <div class="fm-bento">
-      <section class="fm-tile fm-gifts" id="fmGifts" data-tab="Подарки" hidden>
-        <h2 class="fm-tile-title">Ваши подарки</h2>
-        <div class="perk-bar" id="bonusPerks" hidden></div>
-        <div class="fm-gift-row" id="bonusList"></div>
-      </section>
-
-      <section class="fm-tile fm-drive" id="fmDrive" data-tab="Lucky Drive"></section>
+      <section class="fm-tile fm-drive" id="fmDrive" data-tab="Dream Car"></section>
 
       <section class="fm-tile fm-start" id="fmStart" data-tab="Начало"></section>
 
@@ -732,6 +726,22 @@
             <div class="fortune-status" id="fortuneStatus"></div>
             <div class="fortune-log" id="fortuneLog"></div>
           </div>
+        </div>
+      </section>
+
+      <!-- Подарки - в конце и свёрнуты кнопкой (решение заказчика: витрина
+           с десятками плиток портила вид раздела). -->
+      <section class="fm-tile fm-gifts" id="fmGifts" data-tab="Подарки" hidden>
+        <button class="fm-gifts-toggle" id="fmGiftsToggle" type="button" aria-expanded="false" aria-controls="fmGiftsBody">
+          <span class="fm-gifts-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="2" stroke-linejoin="round" stroke-linecap="round"><rect x="3.5" y="8" width="17" height="4" rx="1"/>
+            <path d="M5 12v8h14v-8M12 8v12M12 8C10.5 4.5 7 4.5 7 6.5S10 8 12 8Zm0 0c1.5-3.5 5-3.5 5-1.5S14 8 12 8Z"/></svg></span>
+          <span class="fm-gifts-txt"><b>Ваши подарки</b><small id="fmGiftsSum"></small></span>
+          <span class="fm-gifts-chev" aria-hidden="true"></span>
+        </button>
+        <div class="fm-gifts-body" id="fmGiftsBody" hidden>
+          <div class="perk-bar" id="bonusPerks" hidden></div>
+          <div class="fm-gift-row" id="bonusList"></div>
         </div>
       </section>
 

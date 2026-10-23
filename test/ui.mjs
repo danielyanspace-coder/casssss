@@ -261,14 +261,36 @@ if (newcomer) {
   await page.waitForTimeout(150);
   check('Колесо удачи: «изменить» возвращает поле', await page.isVisible('#pwCode'));
 
-  // Вкладки липнут вплотную к шапке: зазора, в котором видно контент, нет.
+  // Вкладки стоят наверху раздела и за прокруткой не едут (просьба заказчика).
   await page.evaluate(() => window.scrollTo(0, 900));
   await page.waitForTimeout(300);
   const stick = await page.evaluate(() => ({
+    pos: getComputedStyle(document.getElementById('fmTabs')).position,
+    tabs: document.getElementById('fmTabs').getBoundingClientRect().bottom,
     bar: document.querySelector('.topbar').getBoundingClientRect().bottom,
-    tabs: document.getElementById('fmTabs').getBoundingClientRect().top,
   }));
-  check('Free Money: вкладки прилегают к шапке', Math.abs(stick.tabs - stick.bar) <= 1, JSON.stringify(stick));
+  check('Free Money: вкладки не едут за прокруткой', stick.pos !== 'sticky' && stick.pos !== 'fixed' && stick.tabs < stick.bar,
+    JSON.stringify(stick));
+
+  // Порядок: розыгрыш первым, подарки последними и свёрнуты кнопкой.
+  const order = await page.evaluate(() => {
+    const tiles = [...document.querySelectorAll('#view-freemoney .fm-tile')].filter((e) => !e.hidden).map((e) => e.id);
+    return {
+      first: tiles[0], last: tiles[tiles.length - 1],
+      bodyHidden: document.getElementById('fmGiftsBody')?.hidden,
+      badge: !!document.querySelector('#fmDrive .dv-badge'), live: !!document.querySelector('#fmDrive .dv-live'),
+    };
+  });
+  check('Free Money: розыгрыш первым', order.first === 'fmDrive', order.first);
+  check('Free Money: подарки последними', order.last === 'fmGifts', order.last);
+  check('Free Money: подарки свёрнуты, пока не нажали', order.bodyHidden === true);
+  check('Free Money: в углу розыгрыша своя плашка, не кружок конкурента', order.badge && !order.live);
+  await page.click('#fmGiftsToggle');
+  await page.waitForTimeout(200);
+  check('Free Money: кнопка раскрывает подарки', await page.isVisible('#bonusList .fm-gift'));
+  await page.click('#fmGiftsToggle');
+  await page.waitForTimeout(150);
+  check('Free Money: повторное нажатие сворачивает', !(await page.isVisible('#fmGiftsBody')));
   await page.evaluate(() => window.scrollTo(0, 0));
   check('раздела «Бонусы» больше нет', !fm.bonusesView);
   check('раздел открывается с обложки', await page.isVisible('#fortuneIntro'));
@@ -2419,9 +2441,19 @@ slotChecks: {
     ['bet-pick', 'ВЫБЕРИТЕ СТАВКУ'],
     ['auto', 'ОСТАНОВИТЬ'],
   ]) {
-    await page.evaluate((a) => document.querySelector(`[data-act="${a}"]`)?.click(), act);
-    await page.waitForTimeout(280);
-    const text = await page.evaluate(() => document.getElementById('slotModalBody')?.textContent || '');
+    // Окно выигрыша от прошлого прокрута может всплыть с задержкой (счёт
+    // суммы идёт до него) и перекрыть проверяемое окно: тогда закрываем его
+    // и открываем нужное ещё раз.
+    let text = '';
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await settleSlot();
+      await page.evaluate((a) => document.querySelector(`[data-act="${a}"]`)?.click(), act);
+      await page.waitForTimeout(280);
+      text = await page.evaluate(() => document.getElementById('slotModalBody')?.textContent || '');
+      if (text.includes(needle) || !/WIN|БОНУС ЗАВЕРШ/.test(text)) break;
+      await page.evaluate(() => document.querySelector('[data-act="modal-close"]')?.click());
+      await page.waitForTimeout(200);
+    }
     check(`слоты: окно «${act}» открывается`, text.includes(needle), text.slice(0, 60));
     await page.evaluate(() => document.querySelector('[data-act="modal-close"]')?.click());
     await page.waitForTimeout(150);

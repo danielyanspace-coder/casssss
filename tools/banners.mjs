@@ -150,8 +150,11 @@ const JOBS = [
     side: SQUARE_SIDE, crop: 'padding' },
 
   // Логотип. Он с прозрачным фоном, поэтому границу ищем по альфе.
+  // Подпись «КЕЙСЫ И ИГРЫ» под словом стирается (решение заказчика): на
+  // телефоне она мельче читаемого и съедала высоту шапки. Полоса задана
+  // долями готовой картинки и не задевает значок «L» слева.
   { src: '6970FDCD-ECAF-473C-979D-800B099CEA90.png', out: 'logo.webp',
-    side: 900, crop: 'alpha' },
+    side: 900, crop: 'alpha', eraseBox: { x0: 0.2, y0: 0.77, x1: 0.8, y1: 1 } },
 
   // Lucky Fortune: карточка без рамки, колесо, ступица, иллюстрация окна.
   { src: 'BCA613B3-E7FC-4125-B93C-1B59B7E3AEF5.png', out: 'fortune-card.webp',
@@ -185,11 +188,16 @@ const browser = await chromium.launch({
 });
 const page = await browser.newPage();
 
+// node tools/banners.mjs --only logo.webp - пересобрать одну картинку, не
+// трогая остальные.
+const ONLY = process.argv.includes('--only') ? process.argv[process.argv.indexOf('--only') + 1] : null;
+
 for (const job of JOBS) {
+  if (ONLY && job.out !== ONLY) continue;
   const src = 'data:image/png;base64,'
     + readFileSync(new URL(job.src, ROOT)).toString('base64');
 
-  const res = await page.evaluate(async ({ src, side, quality, crop, erase, keyDark }) => {
+  const res = await page.evaluate(async ({ src, side, quality, crop, erase, eraseBox, keyDark }) => {
     const img = new Image();
     img.src = src;
     await img.decode();
@@ -290,12 +298,17 @@ for (const job of JOBS) {
       ctx.globalCompositeOperation = 'source-over';
     }
 
+    if (eraseBox) {
+      ctx.clearRect(eraseBox.x0 * c.width, eraseBox.y0 * c.height,
+        (eraseBox.x1 - eraseBox.x0) * c.width, (eraseBox.y1 - eraseBox.y0) * c.height);
+    }
+
     return {
       w: c.width, h: c.height,
       base64: c.toDataURL('image/webp', quality).split(',')[1],
     };
   }, { src, side: job.side, quality: QUALITY, crop: job.crop || null,
-       erase: job.erase || null, keyDark: !!job.keyDark });
+       erase: job.erase || null, eraseBox: job.eraseBox || null, keyDark: !!job.keyDark });
 
   const buf = Buffer.from(res.base64, 'base64');
   writeFileSync(new URL(job.out, OUT), buf);
