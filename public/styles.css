@@ -5400,7 +5400,13 @@ div.mini-row { cursor: default; }
     linear-gradient(180deg, rgba(40, 26, 60, 0.9), rgba(22, 14, 34, 0.95));
   color: #fff; font: inherit; text-align: center;
 }
+.fm-gift { position: relative; }
 .fm-gift img { width: 100%; max-width: 150px; aspect-ratio: 1; object-fit: contain; }
+.fm-gift-n {
+  position: absolute; top: 8px; right: 8px; padding: 6px 10px; border-radius: 999px;
+  color: #3a2200; background: linear-gradient(180deg, #fff4c6, #ffd04f 55%, #e7a42a);
+  font: 900 16px/1 'Unbounded', 'Manrope', system-ui, sans-serif;
+}
 .fm-gift-name { font: 800 15px/1.15 'Unbounded', 'Manrope', system-ui, sans-serif; }
 .fm-gift-go {
   padding: 8px 14px; border-radius: 999px; color: #052414;
