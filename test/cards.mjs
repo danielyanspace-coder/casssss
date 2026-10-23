@@ -169,7 +169,8 @@ const seenFamilies = new Set();
 
 for (const pub of sample) {
   await page.evaluate((id) => {
-    const card = [...document.querySelectorAll('.case-card')].find((c) => c.dataset.case === id);
+    // Сезонный кейс стоит витриной (.featured-card), остальные - карточками полок.
+    const card = [...document.querySelectorAll('.case-card, .featured-card')].find((c) => c.dataset.case === id);
     if (card) { card.scrollIntoView({ block: 'center' }); card.click(); }
   }, pub.id);
   await page.waitForSelector('.drop-card', { timeout: 10000 });

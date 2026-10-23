@@ -442,7 +442,8 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
   const TARGET_RTP = 0.7;
   let offRtp = 0;
   let evMismatch = 0;
-  for (const c of config.cases) {
+  // Бесплатный «Начало» - подарок со своей отдачей 0.6 (server/cases.js).
+  for (const c of config.cases.filter((x) => !x.free)) {
     if (Math.abs(c.rtp - TARGET_RTP) > 1e-9) offRtp++;
     const ev = c.items.reduce((s, it) => s + it.probability * (it.evValue ?? it.value), 0);
     if (Math.abs(ev / c.price - TARGET_RTP) > 1e-6) evMismatch++;
@@ -707,14 +708,18 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
 
 /* ---------- Фриспины и джекпот ---------- */
 {
-  const withFs = config.cases.filter((c) =>
+  // Бесплатный «Начало» фриспинов не даёт: его открывают только подарком.
+  const paidCases = config.cases.filter((c) => !c.free);
+  const withFs = paidCases.filter((c) =>
     c.items.some((it) => it.kind === 'perk' && /фриспин/i.test(it.name)));
-  check('фриспины есть во всех кейсах', withFs.length === config.cases.length,
-        `${withFs.length} из ${config.cases.length}`);
+  check('фриспины есть во всех платных кейсах', withFs.length === paidCases.length,
+        `${withFs.length} из ${paidCases.length}`);
+  check('у бесплатного кейса фриспинов нет',
+        config.cases.filter((c) => c.free).every((c) => !c.items.some((it) => /фриспин/i.test(it.name))));
 
   // Ряд сходится, только если ожидаемое продление меньше единицы: p·N = share.
   let diverging = 0;
-  for (const c of config.cases) {
+  for (const c of paidCases) {
     const fs = c.items.find((it) => /фриспин/i.test(it.name));
     const count = Number(String(fs.name).match(/\d+/)[0]);
     if (fs.probability * count >= 1) diverging++;
@@ -838,8 +843,11 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
 
     check(`пачка ${pack.count}: цена считается сервером`, r.data.cost === expected,
           `${r.data.cost} vs ${expected}`);
-    check(`пачка ${pack.count}: пачка дешевле поштучных прокрутов`,
-          r.data.cost < c.price * pack.count);
+    // Выгода пачки - в таблице серии (крупное чаще, отдача выше), а скидка
+    // сверху есть только у больших пачек: малая стоит как поштучные.
+    check(`пачка ${pack.count}: не дороже поштучных прокрутов`,
+          r.data.cost <= c.price * pack.count);
+    check(`пачка ${pack.count}: таблица серии щедрее обычной`, (c.fsBoost || 0) > 1, String(c.fsBoost));
     check(`пачка ${pack.count}: прокрутов не меньше купленного`,
           r.data.grant.spins.length >= pack.count);
 

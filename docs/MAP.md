@@ -977,3 +977,17 @@ UI против автономной сборки: `npm run demo && node test/ui
 | `TG_CHANNEL_ID`, `TG_CHANNEL_URL`, `FREE_CASE_ID` | бесплатный кейс за подписку |
 | `RATE_LIMIT_*`, `TRUST_PROXY_HOPS` | ограничитель частоты и прокси |
 | `BACKUP_DIR`, `BACKUP_KEEP`, `RCLONE_REMOTE` | копии базы |
+
+## 14. Free Money, «Начало», фриспины (октябрь 2026)
+
+| Задача | Куда идти |
+|---|---|
+| Раздел Free Money целиком | `public/index.html` `#view-freemoney`; `public/app.js` `openFreeMoney`, `renderFreeMoney`, `renderDriveEvent`, `renderStartEvent`, `renderPromoWheel`, `spinPromoWheel`, `showWheelWin`, `renderBotEvent`; стили - блок «FREE MONEY: РАЗДЕЛ ИВЕНТОВ» в `styles.css` |
+| Розыгрыш автомобиля (билеты) | `server/db.js` `startCaseState` (поле `raffle`), `RAFFLE_TICKET_TURNOVER`, `RAFFLE_MAX_TICKETS`, колонка `raffle_turnover`; фото `public/assets/ui/raffle-wraith.webp` |
+| Бесплатный кейс «Начало» | `server/cases.js` `start_free`, `START_CASE_ID`, профиль `gift`; `server/db.js` `grantStartCase`, `startCaseRules`, `addRealTurnover`; `/api/open` отказ `START_LOCKED`; клиент `showStartGate`, `.is-gift`; тест `test/start-case.mjs` |
+| Колесо удачи (промокод) | `server/promo-wheel.js` (`WHEEL_SECTORS`, `pickWheelSector`, `wheelConfig`); `redeemPromo(..., { wheel: true })`; ручка `/api/wheel/spin`; тип промокода `wheel` |
+| Окно выигрыша Lucky Fortune | `public/app.js` `showFortuneWin`, разметка `#fortuneWinBackdrop`, стили `.fw-*` |
+| Таблица фриспинов | `server/cases.js` `fsRtpFor`, `FS_RTP_LIFT`, `fsProbability`/`fsCumulative`, `pickItem(c, roll, true)`; клиент `weightedSample(items, 'fsProbability')` |
+| Форма выплат кейсов | `server/cases.js` `BAND_STEPS`, `MID_STEPS`, `PROFILES` (`bandShare`, `midShare`) |
+| Казино: «N играют», значки категорий | `public/casino.js` `livePlayers`, `liveHtml`, `ICON_TONES`, `icon`; выключатель `FEED_SYNTHETIC` (config.feed.synthetic) |
+| Меню компьютера плитками | `public/app.js` `renderSideNav` (`.is-sq`, `.is-wide`, `.is-tall`); стили в последнем блоке `styles.css` |

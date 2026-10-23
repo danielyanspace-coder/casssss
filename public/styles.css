@@ -10435,12 +10435,12 @@ body.mo-receded .opener-scroll { filter: blur(4px) saturate(.55); transform: sca
 /* Live казино: плитки крупнее, чем у слотов и быстрых игр (просьба
    заказчика). Обложка стола горизонтальная, поэтому кадр 4:3 и без размытой
    подложки: картинка стола заполняет кадр целиком. */
-.cz[data-kind="live"] .cz-track { --cz-tile: calc((100vw - 2 * var(--cz-gutter) - 10px) / 1.55); }
-.cz[data-kind="live"] .cz-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.cz[data-kind="live"] .cz-art { aspect-ratio: 4 / 3; }
-.cz[data-kind="live"] .cz-art.is-wide .cz-blur { display: none; }
-.cz[data-kind="live"] .cz-art.is-wide .cz-fit { object-fit: cover; }
-.cz[data-kind="live"] .cz-name { font-size: 14px; }
+.cz[data-cz-kind="live"] .cz-track { --cz-tile: calc((100vw - 2 * var(--cz-gutter) - 10px) / 1.55); }
+.cz[data-cz-kind="live"] .cz-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.cz[data-cz-kind="live"] .cz-art { aspect-ratio: 4 / 3; }
+.cz[data-cz-kind="live"] .cz-art.is-wide .cz-blur { display: none; }
+.cz[data-cz-kind="live"] .cz-art.is-wide .cz-fit { object-fit: cover; }
+.cz[data-cz-kind="live"] .cz-name { font-size: 14px; }
 @media (min-width: 600px) {
   .cz-grid { gap: 14px; grid-template-columns: repeat(auto-fill, minmax(225px, 1fr)); }
 }
@@ -10576,8 +10576,8 @@ body.cz-playing { overflow: hidden; }
      заказчика): на мониторе мелкие плитки читались значками. Live ещё
      крупнее - у стола картинка горизонтальная. */
   .cz-track { --cz-tile: 234px; gap: 16px 14px; margin: 0; padding: 0 0 4px; scroll-padding: 0; }
-  .cz[data-kind="live"] .cz-track { --cz-tile: 340px; }
-  .cz[data-kind="live"] .cz-grid { grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
+  .cz[data-cz-kind="live"] .cz-track { --cz-tile: 340px; }
+  .cz[data-cz-kind="live"] .cz-grid { grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
   .cz-chips { margin: 12px 0 0; padding: 0 0 2px; flex-wrap: wrap; overflow: visible; }
   .cz-tools { max-width: 720px; }
   .cz-btitle { font-size: 19px; }

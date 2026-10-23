@@ -55,7 +55,8 @@ function gatewayDeposit(userId, amount) {
 const CASE = getCase('warmup_100') || getCase('dust_25');
 const openCase = (userId) => playCaseRound(userId, CASE,
   (s, c, n) => { const roll = computeRoll(s, c, n); return { item: pickItem(CASE, roll), roll }; },
-  (s, c, n) => { const roll = computeRoll(s, c, n); return { item: pickItem(CASE, roll), roll }; });
+  // Серия фриспинов крутит свою таблицу, как на сервере (pickItem(..., true)).
+  (s, c, n) => { const roll = computeRoll(s, c, n); return { item: pickItem(CASE, roll, true), roll }; });
 
 const sbp = (phone = '79001234567') => ({ method: 'sbp', phone, bank: 'Сбербанк' });
 const verdictOf = (res) => `${res.verdict}: ${res.reasons.join(', ')}`;

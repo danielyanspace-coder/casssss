@@ -502,8 +502,10 @@ export function createCasino(deps) {
 
   function render() {
     // Вкладка на корне: по ней стили делают плитки live крупнее (у живых
-    // столов обложка - картинка стола, мелкой она не читается).
-    root().dataset.kind = ui.kind;
+    // столов обложка - картинка стола, мелкой она не читается). Именно
+    // data-cz-kind, а не data-kind: по data-kind обработчик нажатий ищет
+    // кнопки вкладок, и корень с этим атрибутом ловил бы каждое нажатие.
+    root().dataset.czKind = ui.kind;
     syncBanners();
     renderSeg();
     renderChips();

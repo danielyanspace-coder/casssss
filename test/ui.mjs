@@ -194,7 +194,41 @@ if (newcomer) {
   check('баннер открывает Free Money',
     await page.evaluate(() => document.getElementById('view-freemoney').classList.contains('active')));
   check('у раздела есть заголовок',
-    /free\s*money/i.test(await page.textContent('#view-freemoney .game-title')));
+    /free\s*money/i.test(await page.textContent('#view-freemoney .fm-hero-title')));
+
+  /*
+   * Ивенты Free Money. Раздел «Бонусы» убран и живёт здесь целиком, поэтому
+   * проверяется, что на месте всё: розыгрыш с картой из ста билетов,
+   * бесплатный кейс, Колесо удачи с полем промокода прямо в ступице, бот,
+   * промокод и медали.
+   */
+  const fm = await page.evaluate(() => {
+    const sec = [...document.querySelectorAll('.pw-sec path')];
+    return {
+      tickets: document.querySelectorAll('#fmDrive .dv-t').length,
+      car: !!document.querySelector('#fmDrive .dv-car'),
+      start: !!document.querySelector('#fmStart .st-card'),
+      hubInput: !!document.querySelector('.pw-hub #pwCode'),
+      sectors: sec.length,
+      legend: [...document.querySelectorAll('.pw-leg em')].reduce((a, e) => a + parseFloat(e.textContent), 0),
+      bot: document.querySelector('#fmBot .bt-name')?.textContent || '',
+      promo: !!document.querySelector('#fmPromo #promoInput'),
+      medals: document.querySelectorAll('#fmMedals .medal-grid > *').length,
+      tabs: document.querySelectorAll('#fmTabs .fm-tab').length,
+      bonusesView: !!document.getElementById('view-bonuses'),
+    };
+  });
+  check('Free Money: карта из ста билетов', fm.tickets === 100, String(fm.tickets));
+  check('Free Money: фото автомобиля', fm.car);
+  check('Free Money: бесплатный кейс', fm.start);
+  check('Free Money: поле промокода в ступице колеса', fm.hubInput);
+  check('Free Money: у колеса восемь секторов', fm.sectors === 8, String(fm.sectors));
+  // Легенда - те же доли, что ширина секторов: в сумме сотня (с округлением).
+  check('Free Money: доли колеса в сумме 100%', Math.abs(fm.legend - 100) <= 2, String(fm.legend));
+  check('Free Money: ник бота', fm.bot === '@luckybox_bot', fm.bot);
+  check('Free Money: промокод и медали переехали из «Бонусов»', fm.promo && fm.medals > 0);
+  check('Free Money: чипы-якоря ивентов', fm.tabs >= 6, String(fm.tabs));
+  check('раздела «Бонусы» больше нет', !fm.bonusesView);
   check('раздел открывается с обложки', await page.isVisible('#fortuneIntro'));
   check('колесо пока скрыто', !(await page.isVisible('#fortuneStage')));
 
@@ -359,7 +393,7 @@ async function goto(view) {
   check('меню: картинка загрузилась', menu.imgLoaded);
   check('меню: шесть кликабельных разделов', menu.views.length === 6, menu.views.join(', '));
   check('меню: порядок разделов совпадает с картинкой',
-        menu.views.join(',') === 'cases,upgrade,crash,roulette,wallet,bonuses',
+        menu.views.join(',') === 'cases,upgrade,crash,roulette,wallet,freemoney',
         menu.views.join(','));
   check('меню: «Честности» в меню нет', !menu.views.includes('fair'));
   check('меню: «Истории» в меню нет', !menu.views.includes('history'));
@@ -2395,7 +2429,20 @@ slotChecks: {
   check('гость: окно входа само не открывается', !(await g.isVisible('#authBackdrop')));
 
   // Открыть кейс без аккаунта нельзя: вместо кассы и тоста - окно входа.
-  await g.evaluate(() => document.querySelector('.case-card').click());
+  // Бесплатный «Начало» гостю показывает приглашение, а не окно входа:
+  // сначала проверяется оно, потом обычный платный кейс.
+  await g.evaluate(() => document.querySelector('.case-card.is-gift').click());
+  await g.waitForTimeout(800);
+  await g.evaluate(() => document.getElementById('doOpenBtn')?.click());
+  await g.waitForTimeout(700);
+  check('гость: «Начало» показывает приглашение со входом',
+    await g.isVisible('#startGate') && /Зарегистрироваться/.test(await g.textContent('#startGate .sg-cta')));
+  await g.click('#startGate .sg-later');
+  await g.waitForTimeout(400);
+  await g.evaluate(() => document.getElementById('closeOpenerTop')?.click());
+  await g.waitForTimeout(400);
+
+  await g.evaluate(() => document.querySelector('.case-card:not(.is-gift)').click());
   await g.waitForTimeout(800);
   check('гость: просмотр кейса не зовёт ко входу', !(await g.isVisible('#authBackdrop')));
   await g.evaluate(() => document.getElementById('doOpenBtn')?.click());
