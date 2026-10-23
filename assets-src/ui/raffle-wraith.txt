@@ -1,4 +1,0 @@
-Фото Rolls-Royce Wraith прислал заказчик (октябрь 2026, вместо фото с
-Wikimedia Commons). Фон снят rembg (модель isnet-general-use), дилерский
-номер HOLLMANN заменён на LUCKYBOX, водяной знак ушёл вместе с фоном.
-В приложении: public/assets/ui/raffle-wraith.webp, 1100 px по ширине.

@@ -7,7 +7,7 @@
  * - следующие - за каждые START_CASE_TURNOVER ставок СВОИМИ деньгами;
  *   ставки бонусом счётчик не двигают (иначе подарок выдавал бы подарок);
  * - выигрыш с кейса приходит на бонусный счёт;
- * - билеты: один за тысячу оборота, не больше ста.
+ * - билеты: один за тысячу оборота, не больше двадцати.
  *
  * Запуск: node test/start-case.mjs
  */
@@ -99,7 +99,7 @@ check('3 200 ₽ одной ставкой - три кейса и 200 на шк�
   check('2 500 ₽ - два билета и 500 на шкале', state(b.id).raffle.tickets === 2 && state(b.id).raffle.progress === 500,
     JSON.stringify(state(b.id).raffle));
   consumeWager(b.id, { real: 1_000_000 });
-  check('билетов не больше ста', state(b.id).raffle.tickets === 100);
+  check('билетов не больше двадцати', state(b.id).raffle.tickets === 20);
 }
 
 if (failures.length) {

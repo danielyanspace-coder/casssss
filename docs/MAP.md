@@ -542,10 +542,6 @@ grep -nE "^app\.(get|post)\(" server/app.js                  # все ручки
 
 - `iconCases`, `iconCrash`, `iconRoulette`, `iconFair`, `iconAdmin`, `iconCoin`, `iconX2`, `iconGift`, `iconSlot`, `iconTelegram` и др., `GAME_ICONS`; знаки подвала `markF1`, `markITF`, `markGambling`, `markWorldGame`. В `app.js` собраны в `ICONS`, ставятся по `data-ico` (`mountIcons`).
 
-### public/medals.js - рисунки медалей
-
-- `medalSvg(id)`, `MEDAL_IDS` (r1, r10, r100, r500, c1000, r5000, x10, x50, x100). Условия медалей - `MEDALS` в `app.js`.
-
 ### public/covers.js - обложки кейсов
 
 - `caseCover` (процедурная запасная), `caseArtSrc` (обложка полки `/assets/covers/<art>.webp`), `caseStageSrc` (крупная сцены `/assets/covers/stage/`), `porschePhotoSrc`, `porscheCover`, `artCover`.
@@ -579,7 +575,7 @@ grep -nE "^app\.(get|post)\(" server/app.js                  # все ручки
 |---|---|
 | API И УТИЛИТЫ | `api()` (fetch, 401 AUTH -> окно входа), `fmt`, `fmtMoney`, **`money()`**, `esc`, `plural`, `playerIdent`, `tierColor`, `CATEGORY_COLORS`, `toast`, `toastAction`, `needMoney`, `track`, `openCashier`, `haptic`, `buildMoneyRain`, `motion()` |
 | ПРАЗДНИЧНЫЕ ЭФФЕКТЫ | `winnerTile`, `fxLayer`, `fxAdd`, `fxConfetti`, `fxShout`, `celebrate`, `FX_PALETTES` |
-| БАЛАНС, ПЛЮШКИ, СТАТИСТИКА | `renderBalance`, `spendableMoney`, `renderPerkBar`, `wireCaseCardFx`, `celebrateDeposit`, `coinShower`, `countBalance`, `showFirstDepositChest`; медали `MEDALS`, `MEDALS_SEEN_KEY`, `medalEarned`, `renderMedals`, `checkMedals`, `showMedal`; **`applyUser`** (новый ответ сервера -> весь интерфейс) |
+| БАЛАНС, ПЛЮШКИ, СТАТИСТИКА | `renderBalance`, `spendableMoney`, `renderPerkBar`, `wireCaseCardFx`, `celebrateDeposit`, `coinShower`, `countBalance`, `showFirstDepositChest`; **`applyUser`** (новый ответ сервера -> весь интерфейс) |
 | КЕЙСЫ | полки `THEMED_SHELVES`, `SHELVES`, `caseCardHtml`, `featuredHtml`, `renderCases`, `renderBonuses`; экран кейса `applyCaseTheme`, **`openCase`**, `resumePendingSpins`, `renderCaseStage`, `playRitual`; лента `STRIP_LENGTH`, `WINNER_INDEX`, `renderIdleReel`, `measureReel`, **`weightedSample`**, `skinOfCase`, `skinAttrs`, `tileArt`, `tileHtml`, `reelWrapHtml`, **`startOpening`**, `reelItem`, `playDoublers`, `spinReels`, `SPIN_DURATION` |
 | ПОКУПКА ФРИСПИНОВ | `renderFreeSpinBuy`, `freeSpinPackPrice`, `confirmBuyFreeSpins` (`.buy-scene`, `BUY_ORBIT_MAX`), `buyFreeSpins`, `fitOpenBtn` |
 | АВТООТКРЫТИЕ | `AUTO_COUNTS`, `runAutoOpen`, `showAutoResult`, `collectFreeSpins`, `mergeFreeSpinGrants`, `runFreeSpins`, `seriesRatio`, `endBonusMode`, `showBatchResult`, `showCaseResult`, `setAgainButton` |
@@ -647,7 +643,7 @@ grep -nE "^app\.(get|post)\(" server/app.js                  # все ручки
 | `#view-freemoney` (Free Money) | `#fmFortune` (обложка), `#fortuneStage`, `#fortuneStatus`, `#fortuneLog` | `openFreeMoney`, `loadFortune`, `spinFortune`, `wireFortune` |
 | `#view-casino` | `#czSeg`, `#czBanners`/`#czHero`, `#casinoRoot`; поверх `#czSheet`, `#czFrame` | `createCasino()` -> `casino.open()` |
 | `#view-slots` | `#slotShelf`, `#slotRoot` | `createSlot()` -> `slot.openShelf()` |
-| `#view-bonuses` | `#promoFlaps`, `#promoResult`, `#wagerNote`, `#bonusPerks`, `#medalGrid`, `#bonusList`, `#promoHistory` | `renderBonuses`, `renderMedals`, `loadPromoState`, `applyPromo` |
+| `#fmGifts` (во Free Money) | `#bonusPerks`, `#bonusList` | `renderBonuses` |
 | `#view-partner` | `#partnerBody` | `loadPartner` |
 | `#view-admin` (панель) | `#boGate`, `#boShell`, `#boNav`, панели `#admin-<id>` (overview, reports, funnel, users, payouts, deposits, risk, promos, partners, feed, settings, staff, journal, casino), `#adminDetail` | `initAdminPanel`, `boOpen(id)` по `BO_SECTIONS` |
 
@@ -696,7 +692,7 @@ tools/case-covers.mjs` (и `--stage`); полка - `CATEGORIES` / `THEMED_SHELV
 
 **Открытие кейса на сервере.** `/api/open` -> `playCaseBatch` ->
 `playCaseRound` (`db.js`, блок «Витрина выпадений»): `chargeBet`, удвоители
-`spendX2`, медаль ×10 `x10Rules`, фриспины `runFreeSpinSeries`.
+`spendX2`, фриспины `runFreeSpinSeries`.
 
 **Лента барабана / анимация открытия.** `startOpening`, `spinReels`,
 `tileHtml`, `weightedSample`, `STRIP_LENGTH`, `WINNER_INDEX` (`app.js`);
@@ -734,12 +730,12 @@ tools/case-covers.mjs` (и `--stage`); полка - `CATEGORIES` / `THEMED_SHELV
 `test:payout-check`.
 
 **Промокоды.** `db.js` «ПРОМОКОДЫ» (`redeemPromo`) и «Админка: промокоды»;
-клиент - `applyPromo`, `renderPromoFlaps`, `showGiftReveal`; панель -
-`loadAdminPromos`, `savePromo`.
+ввод только при регистрации - `createEmailUserWithPromo` (`db.js`), ручка
+`/api/auth/register` (поле `promo`), поле `#authPromo`; сцена подарка -
+`showGiftReveal`; панель - `loadAdminPromos`, `savePromo`.
 
-**Медали.** Условия - `MEDALS` в `app.js` (`medalEarned`, `checkMedals`,
-`renderMedals`), рисунки - `public/medals.js`, медаль ×10 на сервере -
-`x10Rules`/`playCaseRound` (`X10_MEDAL_OPENS`, `X10_MEDAL_CAP`).
+**Медали сняты** вместе с наградой ×10; колонки `x10_*` в `users` остались
+(см. CLAUDE.md, «Живые мелочи»).
 
 **Колесо фортуны.** Сектора и веса - `server/fortune.js`; прокрут -
 `playFortuneSpin` (`db.js`), выдача прокрутов - `registerDeposit`; клиент -
@@ -921,7 +917,7 @@ tools/case-covers.mjs` (и `--stage`); полка - `CATEGORIES` / `THEMED_SHELV
 | `npm run test:modules` | импорты клиента сходятся, нет длинных тире | нет |
 | `npm run test:art` | объёмные рисунки: у всех есть, все различны | нет |
 | `npm run test:ratelimit` | ограничитель частоты | нет |
-| `npm run test:x2` | удвоители и медаль ×10 | нет |
+| `npm run test:x2` | удвоители и снятая медаль ×10 | нет |
 | `npm run test:wager` | отыгрыш депозита и бонусный счёт | нет |
 | `npm run test:payout-check` | проверка заявок, журнал денег | нет |
 | `npm run test:crypto` | Heleket | нет |
@@ -982,8 +978,8 @@ UI против автономной сборки: `npm run demo && node test/ui
 
 | Задача | Куда идти |
 |---|---|
-| Раздел Free Money целиком | `public/index.html` `#view-freemoney`; `public/app.js` `openFreeMoney`, `renderFreeMoney`, `renderDriveEvent`, `renderStartEvent`, `renderPromoWheel`, `spinPromoWheel`, `showWheelWin`, `renderBotEvent`; стили - блок «FREE MONEY: РАЗДЕЛ ИВЕНТОВ» в `styles.css` |
-| Розыгрыш автомобиля (билеты) | `server/db.js` `startCaseState` (поле `raffle`), `RAFFLE_TICKET_TURNOVER`, `RAFFLE_MAX_TICKETS`, колонка `raffle_turnover`; фото `public/assets/ui/raffle-wraith.webp` |
+| Раздел Free Money целиком | `public/index.html` `#view-freemoney`; `public/app.js` `openFreeMoney`, `renderFreeMoney`, `renderDriveEvent`, `renderStartEvent`, `renderFmTabs`, `markFmTab`, `syncTopbarHeight`, `renderPromoWheel`, `takeWheelCode`, `spinPromoWheel`, `showWheelWin`, `renderBotEvent`; стили - блок «FREE MONEY: РАЗДЕЛ ИВЕНТОВ» в `styles.css` |
+| Розыгрыш автомобиля (билеты) | `server/db.js` `startCaseState` (поле `raffle`), `RAFFLE_TICKET_TURNOVER`, `RAFFLE_MAX_TICKETS`, колонка `raffle_turnover`; фото `public/assets/ui/raffle-dubai.webp` (исходник `assets-src/ui/raffle-dubai.png`) |
 | Бесплатный кейс «Начало» | `server/cases.js` `start_free`, `START_CASE_ID`, профиль `gift`; `server/db.js` `grantStartCase`, `startCaseRules`, `addRealTurnover`; `/api/open` отказ `START_LOCKED`; клиент `showStartGate`, `.is-gift`; тест `test/start-case.mjs` |
 | Колесо удачи (промокод) | `server/promo-wheel.js` (`WHEEL_SECTORS`, `pickWheelSector`, `wheelConfig`); `redeemPromo(..., { wheel: true })`; ручка `/api/wheel/spin`; тип промокода `wheel` |
 | Окно выигрыша Lucky Fortune | `public/app.js` `showFortuneWin`, разметка `#fortuneWinBackdrop`, стили `.fw-*` |
