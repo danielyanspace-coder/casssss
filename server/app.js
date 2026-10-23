@@ -106,7 +106,7 @@ import {
   redeemPromo,
   pendingDepositBonus,
   myPromoRedemptions,
-  db, getPartnerForUser, isOwnerKeyed, createEmailUser, findUserByEmail, findUserByTgId,
+  db, getPartnerForUser, isOwnerKeyed, createEmailUser, createEmailUserWithPromo, findUserByEmail, findUserByTgId,
   linkTelegram, setEmailLogin, setPasswordHash, deleteUserSessions, purgeExpiredSessions,
   createPasswordReset, usePasswordReset,
   partnerStats,
@@ -119,7 +119,6 @@ import {
   adminListPartners,
   adminPayPartner,
   savePendingSpins,
-  x10Rules,
   getPendingSpins,
   clearPendingSpins,
   trackEvent, funnelStats, eventTotals, CLIENT_EVENTS,
@@ -406,14 +405,6 @@ function publicUser(user) {
     bonusCashoutLeft: bonusAllowance(user),
     // По нему клиент решает, показывать ли предложение первого пополнения.
     depositsCount: user.deposits_count || 0,
-    // Медаль «Десятикратный»: сколько платных открытий сделано, сколько надо,
-    // и состояние награды (none / ready / used) с потолком цены кейса.
-    caseOpens: user.case_opens || 0,
-    x10: {
-      need: x10Rules().opens,
-      state: ['none', 'ready', 'used'][user.x10_state || 0],
-      ceiling: user.x10_ceiling || 0,
-    },
     isPartner: Boolean(getPartnerForUser(user)),
     // Чем игрок входит: от этого зависит профиль (привязать Telegram, задать
     // пароль) и бонус за подписку на канал, который без Telegram не проверить.
@@ -611,11 +602,11 @@ function authError(res, err) {
   res.status(status).json({ error: err.message, code: err.code });
 }
 
-function welcome(req, res, user, created = false) {
+function welcome(req, res, user, created = false, extra = {}) {
   if (user.is_blocked) return res.status(403).json({ error: 'Аккаунт заблокирован' });
   startSession(req, res, user.id);
   if (!created) trackEvent(user.id, 'login');
-  res.json({ ok: true, created, user: publicUser(user) });
+  res.json({ ok: true, created, user: publicUser(user), ...extra });
 }
 
 app.post('/api/auth/register', authGate, limits.auth, async (req, res) => {
@@ -626,8 +617,12 @@ app.post('/api/auth/register', authGate, limits.auth, async (req, res) => {
     const email = normalizeEmail(req.body?.email);
     const password = checkPassword(req.body?.password);
     const nick = normalizeNick(req.body?.nick);
-    const user = createEmailUser({ email, passwordHash: await hashPassword(password), nick });
-    welcome(req, res, user, true);
+    const { user, promo } = createEmailUserWithPromo({
+      email, passwordHash: await hashPassword(password), nick,
+      promo: req.body?.promo, resolveCase: promoCaseResolver,
+    });
+    if (promo) trackEvent(user.id, 'promo_redeemed', { type: promo.type });
+    welcome(req, res, user, true, { promo });
   } catch (err) {
     authError(res, err);
   }
@@ -904,7 +899,6 @@ app.post('/api/open', auth, limits.play, gameGate('cases'), (req, res) => {
     })),
     free: result.free,
     x2Applied: result.x2Applied,
-    x10Applied: result.x10Applied,
     net: result.totalPayout - (result.free ? 0 : caseData.price),
     fair: { roll: result.roll, nonce: result.nonce },
   }));

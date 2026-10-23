@@ -1479,6 +1479,20 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
   const shortPass = await req('/api/auth/register', { email: `x${email}`, password: '123', nick: 'Сайт' });
   check('регистрация: короткий пароль - 400', shortPass.status === 400);
 
+  // Промокод вводится только при регистрации, и аккаунт с кодом - одна
+  // транзакция: неверный код не оставляет полузаведённого аккаунта.
+  const regCode = `REG${Date.now() % 1_000_000}`;
+  await post('/api/admin/promo/save', { code: regCode, type: 'free_case', case_id: 'dust_25', case_count: 1 });
+  const promoMail = `promo${email}`;
+  const badPromo = await req('/api/auth/register', { email: promoMail, password: 'secret123', nick: 'Код', promo: 'НЕТТАКОГО' });
+  check('регистрация: неверный промокод - 400 без входа', badPromo.status === 400 && !badPromo.cookie,
+    `${badPromo.status} ${JSON.stringify(badPromo.data)}`);
+  const goodPromo = await req('/api/auth/register', { email: promoMail, password: 'secret123', nick: 'Код', promo: regCode.toLowerCase() });
+  const promoVoucher = (goodPromo.data.user?.vouchers || []).find((x) => x.case_id === 'dust_25');
+  check('регистрация: после неверного кода почта свободна, верный код применён',
+    goodPromo.status === 200 && goodPromo.data.promo?.type === 'free_case' && promoVoucher?.count >= 1,
+    `${goodPromo.status} ${JSON.stringify(goodPromo.data.promo || goodPromo.data)}`);
+
   const wrong = await req('/api/auth/login', { email, password: 'wrong-pass' });
   const nobody = await req('/api/auth/login', { email: `nobody${email}`, password: 'wrong-pass' });
   check('вход: неверный пароль - 401', wrong.status === 401 && !wrong.cookie);

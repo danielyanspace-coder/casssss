@@ -675,31 +675,33 @@
          витрина, а не сохранённая игра (openFreeMoney). -->
     <section class="view" id="view-freemoney">
 
-      <header class="fm-hero">
-        <div class="fm-hero-kicker">Подарки · розыгрыши · бесплатные кейсы</div>
-        <h1 class="fm-hero-title">FREE <span>MONEY</span></h1>
-      </header>
+      <h1 class="fm-title">Free Money</h1>
 
-      <!-- Чипы-якоря: быстрый переход к ивенту. Список собирается кодом из
-           тех ивентов, что сейчас на странице. -->
+      <!-- Вкладки-якоря: быстрый переход к ивенту. Список собирается кодом из
+           тех ивентов, что сейчас на странице; липнут прямо под шапкой. -->
       <nav class="fm-tabs" id="fmTabs" aria-label="Ивенты"></nav>
 
-      <section class="fm-ev fm-gifts" id="fmGifts" data-tab="Подарки" hidden>
-        <div class="fm-ev-head"><span class="fm-ev-no">★</span><h2 class="fm-ev-title">Ваши подарки</h2></div>
+      <!-- Бенто: плитки разной ширины в одной сетке. Порядок здесь - порядок
+           на телефоне; «Начало» и бот стоят парой в одном ряду. -->
+      <div class="fm-bento">
+      <section class="fm-tile fm-gifts" id="fmGifts" data-tab="Подарки" hidden>
+        <h2 class="fm-tile-title">Ваши подарки</h2>
         <div class="perk-bar" id="bonusPerks" hidden></div>
         <div class="fm-gift-row" id="bonusList"></div>
       </section>
 
-      <section class="fm-ev fm-drive" id="fmDrive" data-tab="Lucky Drive"></section>
+      <section class="fm-tile fm-drive" id="fmDrive" data-tab="Lucky Drive"></section>
 
-      <section class="fm-ev fm-start" id="fmStart" data-tab="Начало"></section>
+      <section class="fm-tile fm-start" id="fmStart" data-tab="Начало"></section>
 
-      <section class="fm-ev fm-wheel" id="fmWheel" data-tab="Колесо удачи"></section>
+      <section class="fm-tile fm-bot" id="fmBot" data-tab="Бот"></section>
+
+      <section class="fm-tile fm-wheel" id="fmWheel" data-tab="Колесо удачи"></section>
 
       <!-- ---------- Ивент: Lucky Fortune ---------- -->
-      <section class="fm-ev fm-fortune" id="fmFortune" data-tab="Lucky Fortune">
-        <div class="fm-ev-head"><span class="fm-ev-no"></span><h2 class="fm-ev-title">Lucky Fortune</h2>
-          <span class="fm-ev-note">5 прокрутов за пополнение от 500 ₽</span></div>
+      <section class="fm-tile fm-fortune" id="fmFortune" data-tab="Lucky Fortune">
+        <div class="fm-tile-head"><h2 class="fm-tile-title">Lucky Fortune</h2>
+          <span class="fm-tile-note">5 прокрутов за пополнение от 500 ₽</span></div>
         <div class="fortune-page">
 
           <!-- Витрина -->
@@ -733,34 +735,8 @@
         </div>
       </section>
 
-      <section class="fm-ev fm-bot" id="fmBot" data-tab="Бот"></section>
-
-      <section class="fm-ev fm-promo" id="fmPromo" data-tab="Промокод">
-        <div class="fm-ev-head"><span class="fm-ev-no"></span><h2 class="fm-ev-title">Промокод</h2></div>
-        <div class="promo-card">
-        <div class="promo-form">
-          <!-- Под полем ввода - механические плашки: каждая буква
-               переворачивается, как на табло вокзала. Само поле прозрачное
-               поверх них, поэтому ввод, вставка и курсор работают как обычно. -->
-          <div class="promo-field">
-            <div class="promo-flaps" id="promoFlaps" aria-hidden="true"></div>
-            <input class="promo-input" id="promoInput" maxlength="32" placeholder="ВВЕДИТЕ КОД"
-                   autocapitalize="characters" autocomplete="off" spellcheck="false">
-          </div>
-          <button class="promo-btn" id="promoBtn">Применить</button>
-        </div>
-        <div class="promo-result" id="promoResult" hidden></div>
       </div>
 
-        <div class="wager-note" id="wagerNote" hidden></div>
-        <div id="promoHistory"></div>
-      </section>
-
-      <section class="fm-ev fm-medals" id="fmMedals" data-tab="Медали">
-        <div class="fm-ev-head"><span class="fm-ev-no"></span><h2 class="fm-ev-title">Ваши медали</h2>
-          <span class="sec-chip" id="medalCount"></span></div>
-        <div class="medal-grid" id="medalGrid"></div>
-      </section>
     </section>
 
     <!-- ══════════ СЛОТЫ ══════════ -->
@@ -1112,6 +1088,13 @@
             <input id="authPassword" name="password" type="password" autocomplete="current-password" placeholder="Не короче 8 символов">
             <button type="button" class="auth-eye" id="authEye" aria-label="Показать пароль" data-ico="eye"></button>
           </span>
+        </label>
+        <!-- Промокод вводится только здесь, при регистрации: отдельного поля
+             в разделах нет (решение заказчика). -->
+        <label class="auth-field" data-auth-field="promo">
+          <span>Промокод <small class="auth-opt">если есть</small></span>
+          <input id="authPromo" name="promo" maxlength="32" autocomplete="off" autocapitalize="characters"
+                 spellcheck="false" placeholder="Необязательно">
         </label>
         <label class="auth-check" data-auth-field="adult">
           <input type="checkbox" id="authAdult">

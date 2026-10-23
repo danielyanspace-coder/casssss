@@ -31,7 +31,6 @@ import {
   sndShuffle, sndCardDrop, sndHeartbeat, sndAceWin, sndStamp, sndBurn, sndPurchase,
 } from './sounds.js';
 import { createMotion, MOTION_NICE_AT } from './motion.js';
-import { medalSvg } from './medals.js';
 
 
 const state = {
@@ -410,11 +409,6 @@ function renderPerkBar() {
 
   // Удвоители копятся по кейсам: у одного игрока их может быть несколько и на
   // разные кейсы. Показываем каждый кейс отдельной плашкой со счётчиком.
-  // Награда медали «Десятикратный» ждёт выигрыша - видно её там же, где
-  // удвоители: это того же рода плюшка, только сильнее.
-  if (state.user.x10?.state === 'ready') {
-    chips.push(`<span class="perk-chip is-x10">×10 медаль · кейсы до ${money(state.user.x10.ceiling)}</span>`);
-  }
   for (const p of state.user.x2Perks || []) {
     // Удвоитель с колеса фортуны не привязан к кейсу и лежит под ключом «*».
     // Подписывать его названием кейса нельзя: он работает в любом.
@@ -612,120 +606,6 @@ function showFirstDepositChest(amount, bonus) {
   setTimeout(close, FIRST_DEPOSIT_SCENE_MS);
 }
 
-/**
- * Медали за рубежи. Считаются из статистики, которую сервер и так присылает,
- * поэтому подделать их нечем и хранить на сервере нечего: медаль - это
- * отметка о том, что уже случилось, а не награда с деньгами.
- */
-const MEDALS = [
-  { id: 'r1', title: 'Первый раунд', hint: 'сыграть первый раз', goal: 1, of: (u) => u.stats.rounds },
-  { id: 'r10', title: 'Разогрев', hint: '10 раундов в любых играх', goal: 10, of: (u) => u.stats.rounds },
-  { id: 'r100', title: 'Завсегдатай', hint: '100 раундов', goal: 100, of: (u) => u.stats.rounds },
-  { id: 'r500', title: 'Ветеран', hint: '500 раундов', goal: 500, of: (u) => u.stats.rounds },
-  /*
-   * Единственная медаль с деньгами: ×10 к следующему денежному выигрышу в
-   * кейсе. Порог, потолки и расчёт - на сервере (x10Rules в server/db.js),
-   * здесь только показ: сколько открыто и в каком состоянии награда.
-   */
-  { id: 'c1000', title: 'Десятикратный', reward: true,
-    hint: (u) => `${fmt(u.x10?.need || 1000)} платных открытий кейсов: ×10 к следующему выигрышу`,
-    goal: (u) => u.x10?.need || 1000, of: (u) => u.caseOpens || 0,
-    done: (u) => (u.x10?.state || 'none') !== 'none' },
-  { id: 'r5000', title: 'Легенда зала', hint: '5000 раундов', goal: 5000, of: (u) => u.stats.rounds },
-  { id: 'x10', title: 'Удачный удар', hint: 'выигрыш ×10 к ставке', goal: 10, of: (u) => u.stats.bestMultiplier },
-  { id: 'x50', title: 'Молния', hint: 'выигрыш ×50 к ставке', goal: 50, of: (u) => u.stats.bestMultiplier },
-  { id: 'x100', title: 'Звезда вечера', hint: 'выигрыш ×100 к ставке', goal: 100, of: (u) => u.stats.bestMultiplier },
-];
-
-const MEDALS_SEEN_KEY = 'lb-medals-v2';
-
-const medalGoal = (m, u) => (typeof m.goal === 'function' ? m.goal(u) : m.goal);
-const medalHint = (m, u) => (typeof m.hint === 'function' ? m.hint(u) : m.hint);
-const medalEarned = (m, u) => (m.done ? m.done(u) : (m.of(u) || 0) >= medalGoal(m, u));
-
-/** Подпись награды «Десятикратного»: готова, использована или в пути. */
-function medalRewardNote(u) {
-  const x = u.x10 || {};
-  if (x.state === 'ready') return `готово: ×10 к следующему выигрышу в кейсе до ${money(x.ceiling)}`;
-  if (x.state === 'used') return 'награда получена';
-  return `${fmt(u.caseOpens || 0)} из ${fmt(x.need || 1000)}`;
-}
-
-/** Сетка медалей в «Бонусах»: полученные в цвете, остальные с прогрессом. */
-function renderMedals() {
-  const grid = document.getElementById('medalGrid');
-  const u = state.user;
-  if (!grid || !u?.stats) return;
-  const got = MEDALS.filter((m) => medalEarned(m, u)).length;
-  document.getElementById('medalCount').textContent = `${got} из ${MEDALS.length}`;
-  grid.innerHTML = MEDALS.map((m) => {
-    const done = medalEarned(m, u);
-    const pct = Math.min(100, Math.round(((m.of(u) || 0) / medalGoal(m, u)) * 100));
-    return `<div class="medal${done ? ' is-done' : ''}${m.reward ? ' is-reward' : ''}" data-medal="${m.id}">
-      <div class="medal-art">${medalSvg(m.id)}</div>
-      <b>${m.title}</b><small>${esc(medalHint(m, u))}</small>
-      ${m.reward ? `<em class="medal-note">${esc(medalRewardNote(u))}</em>` : ''}
-      ${done ? '' : `<span class="medal-bar"><i style="width:${pct}%"></i></span>`}
-    </div>`;
-  }).join('');
-}
-
-/**
- * Новые медали после раунда. Увиденные хранятся на устройстве: это
- * удобство, а не учёт. На первом заходе всё уже полученное отмечается
- * молча, иначе старый игрок получил бы салют из восьми медалей сразу.
- */
-function checkMedals(user) {
-  const earned = MEDALS.filter((m) => medalEarned(m, user)).map((m) => m.id);
-  let seen = null;
-  try { seen = JSON.parse(localStorage.getItem(MEDALS_SEEN_KEY) || 'null'); } catch { /* приватный режим */ }
-  try { localStorage.setItem(MEDALS_SEEN_KEY, JSON.stringify(earned)); } catch { /* приватный режим */ }
-  if (!seen) return;
-  const fresh = MEDALS.filter((m) => earned.includes(m.id) && !seen.includes(m.id));
-  // Если медалей сразу несколько, показываем старшую: две сцены подряд
-  // посреди игры - уже помеха.
-  if (fresh.length) setTimeout(() => showMedal(fresh[fresh.length - 1]), 1600);
-}
-
-/** Сцена медали: падает, поворачивается и улетает в «Бонусы». */
-function showMedal(m) {
-  if (document.querySelector('.medal-scene')) return;
-  const scene = document.createElement('div');
-  scene.className = 'medal-scene';
-  scene.innerHTML = `
-    <div class="medal-fly">${medalSvg(m.id)}</div>
-    <div class="medal-cap"><small>новая медаль</small><b>${m.title}</b><span>${esc(m.reward ? medalRewardNote(state.user) : medalHint(m, state.user))}</span></div>`;
-  document.body.append(scene);
-  requestAnimationFrame(() => scene.classList.add('is-in'));
-  sndChime();
-  setTimeout(() => sndStamp(), 500);
-  haptic('success');
-
-  // Улетает туда, где медали живут: в «Бонусы» бокового меню на компьютере и
-  // в кнопку меню на телефоне.
-  setTimeout(() => {
-    if (!scene.isConnected) return;
-    const fly = scene.querySelector('.medal-fly');
-    const to = document.querySelector('#sideNav .side-item[data-view="freemoney"]')?.offsetParent
-      ? document.querySelector('#sideNav .side-item[data-view="freemoney"]')
-      : document.getElementById('menuBtn');
-    const a = fly.getBoundingClientRect();
-    const b = to?.getBoundingClientRect();
-    scene.classList.add('is-out');
-    if (b) {
-      fly.animate([
-        { transform: 'translate(-50%, -50%) scale(1)' },
-        { transform: `translate(calc(-50% + ${b.left + b.width / 2 - (a.left + a.width / 2)}px), calc(-50% + ${b.top + b.height / 2 - (a.top + a.height / 2)}px)) scale(0.15)`, opacity: 0.6 },
-      ], { duration: 700, easing: 'cubic-bezier(.65,0,.35,1)', fill: 'forwards' });
-      setTimeout(() => {
-        to.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.18)' }, { transform: 'scale(1)' }], { duration: 360 });
-        sndCoin();
-      }, 680);
-    }
-    setTimeout(() => scene.remove(), 760);
-  }, 2600);
-}
-
 function applyUser(user) {
   const before = state.user;
   state.user = user;
@@ -734,13 +614,12 @@ function applyUser(user) {
   if (before && user && user.depositsCount > (before.depositsCount || 0)) {
     celebrateDeposit(before, user);
   }
-  if (user?.stats) checkMedals(user);
   renderBalance();
   renderCases();
   renderMenu();
   renderSideNav();
   // Шкалы Free Money двигаются вместе с оборотом, пока раздел открыт.
-  if (state.view === 'freemoney') { renderFreeMoney(); renderBonuses(); }
+  if (state.view === 'freemoney') { renderBonuses(); renderFreeMoney(); }
 }
 
 /* ============================================================
@@ -1805,17 +1684,17 @@ async function startOpening(caseId, count = 1, { again = false } = {}) {
  * ответов его нет, и тогда плитка остаётся как была.
  */
 function reelItem(o) {
-  return (o.x2Applied || o.x10Applied) && o.item.baseValue != null
+  return o.x2Applied && o.item.baseValue != null
     ? { ...o.item, value: o.item.baseValue } : o.item;
 }
 
 /** Печать ×2 на всех плитках, где сработал удвоитель. Ждёт самую долгую. */
 async function playDoublers(opened) {
   const jobs = opened
-    .map((o, i) => ((o.x2Applied || o.x10Applied) && o.item.baseValue != null && o.item.value > o.item.baseValue
+    .map((o, i) => (o.x2Applied && o.item.baseValue != null && o.item.value > o.item.baseValue
       ? motion().doubler(winnerTile(i), {
         from: o.item.baseValue, to: o.item.value,
-        label: o.x10Applied ? '×10' : '×2', sub: o.x10Applied ? 'медаль' : 'удвоитель',
+        label: '×2', sub: 'удвоитель',
       })
       : null))
     .filter(Boolean);
@@ -2708,7 +2587,7 @@ function showBatchResult(data, caseData) {
         const rowValue = o.item.value + (fs?.total || 0);
         const rowName = fs ? `${esc(o.item.name)} + ${fs.spins.length} фриспинов` : esc(o.item.name);
         return `<div class="mini-row" style="--tier-color:${tierColor(o.item.tier)}">
-        <span class="mini-name">${rowName}${o.x10Applied ? ' (×10)' : o.x2Applied ? ' (×2)' : ''}</span>
+        <span class="mini-name">${rowName}${o.x2Applied ? ' (×2)' : ''}</span>
         <span class="mini-val">${money(rowValue)}</span>
       </div>`;
       }).join('')}
@@ -2770,10 +2649,6 @@ function showCaseResult(data, caseData) {
   if (data.x2Applied) {
     const extra = item.baseValue != null ? item.value - item.baseValue : 0;
     parts.push(extra > 0 ? `удвоитель ×2: +${fmt(extra)}` : 'удвоитель применён');
-  }
-  if (data.x10Applied) {
-    const extra = item.baseValue != null ? item.value - item.baseValue : 0;
-    parts.push(`медаль ×10: +${fmt(extra)}`);
   }
 
   // Удвоителей за один прокрут может прийти несколько: сам предмет плюс те,
@@ -6270,7 +6145,7 @@ const slot = createSlot({
 
 function switchView(name) {
   // Раздела «Бонусы» больше нет: всё бесплатное живёт во Free Money, и
-  // старые входы (меню, ссылки, медаль, улетающая «в бонусы») ведут туда.
+  // старые входы (меню, ссылки) ведут туда.
   if (name === 'bonuses') name = 'freemoney';
   // Выключенную игру не открываем даже по прямой ссылке или из старого меню:
   // сервер всё равно откажет, и игрок увидит ошибку вместо объяснения.
@@ -8424,12 +8299,6 @@ document.getElementById('freeCase').addEventListener('click', async () => {
    ПРОМОКОДЫ
    ============================================================ */
 
-const PROMO_TYPE_LABEL = {
-  balance: 'на баланс',
-  deposit_pct: 'процент к пополнению',
-  free_case: 'бесплатный кейс',
-};
-
 /** Показывает, что именно дал промокод, словами, а не «код принят». */
 function promoResultText(r) {
   if (r.type === 'balance') return `Начислено ${money(r.amount)}`;
@@ -8444,79 +8313,6 @@ function promoResultText(r) {
   }
   return 'Промокод применён';
 }
-
-async function applyPromo() {
-  const input = document.getElementById('promoInput');
-  const box = document.getElementById('promoResult');
-  const code = input.value.trim();
-  const btn = document.getElementById('promoBtn');
-  // Enter в поле идёт мимо кнопки: без этой проверки двойной Enter слал два
-  // запроса, и ответ «уже активирован» затирал успех под полем.
-  if (!code || btn.disabled) return;
-  btn.disabled = true;
-
-  try {
-    const data = await api('/api/promo/redeem', { code });
-    box.textContent = promoResultText(data.result);
-    box.className = 'promo-result';
-    box.hidden = false;
-    input.value = '';
-    renderPromoFlaps();
-    applyUser(data.user);
-    renderBonuses();
-    loadPromoState();
-    showGiftReveal(code.toUpperCase(), promoResultText(data.result));
-    haptic('success');
-  } catch (err) {
-    box.textContent = err.message;
-    box.className = 'promo-result bad';
-    box.hidden = false;
-    const flaps = document.getElementById('promoFlaps');
-    flaps.classList.remove('is-bad');
-    void flaps.offsetWidth;
-    flaps.classList.add('is-bad');
-    sndLose();
-    haptic('error');
-  }
-
-  btn.disabled = false;
-}
-
-/**
- * Механические плашки кода. Плашек столько, сколько букв, и не меньше
- * восьми: пустые ждут ввода. Перерисовывается только изменившаяся плашка -
- * она и переворачивается, остальные стоят.
- */
-const PROMO_MIN_FLAPS = 8;
-
-function renderPromoFlaps() {
-  const box = document.getElementById('promoFlaps');
-  const value = document.getElementById('promoInput').value.toUpperCase();
-  const n = Math.max(PROMO_MIN_FLAPS, value.length);
-  while (box.children.length < n) box.insertAdjacentHTML('beforeend', '<span class="flap"><b></b></span>');
-  while (box.children.length > n) box.lastElementChild.remove();
-  [...box.children].forEach((flap, i) => {
-    const ch = value[i] || '';
-    const b = flap.firstElementChild;
-    // Курсор - подсвеченная следующая плашка: настоящий курсор поля
-    // спрятан, он стоял бы не над той буквой.
-    flap.classList.toggle('is-cursor', i === value.length);
-    if (b.textContent === ch) return;
-    b.textContent = ch;
-    flap.classList.toggle('is-set', !!ch);
-    flap.classList.remove('is-flip');
-    void flap.offsetWidth;
-    if (ch) flap.classList.add('is-flip');
-  });
-  box.classList.toggle('is-empty', !value);
-  box.style.setProperty('--n', n);
-}
-
-document.getElementById('promoInput').addEventListener('input', (e) => {
-  renderPromoFlaps();
-  if (e.inputType !== 'deleteContentBackward') sndTick(1.3);
-});
-renderPromoFlaps();
 
 /** Подарок по промокоду закрывается сам: ничто не ждёт нажатия вечно. */
 const GIFT_SCENE_MS = 5200;
@@ -8575,45 +8371,6 @@ function showGiftReveal(code, text) {
   };
   scene.onclick = close;
   setTimeout(close, GIFT_SCENE_MS);
-}
-
-document.getElementById('promoBtn').addEventListener('click', applyPromo);
-document.getElementById('promoInput').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') applyPromo();
-});
-
-/** Долг по обороту, ожидающий процент и история активаций. */
-async function loadPromoState() {
-  let d;
-  try { d = await api('/api/promo/state'); } catch { return; }
-
-  const note = document.getElementById('wagerNote');
-  const parts = [];
-  if (d.wagerRequired > 0) {
-    parts.push(`Бонус отыгрывается: осталось поставить бонусом <b>${money(d.wagerRequired)}</b>. ` +
-      'Свои деньги выводятся и сейчас: бонус лежит на отдельном счёте и вывод не запирает.');
-  }
-  if (d.pendingDeposit) {
-    const p = d.pendingDeposit;
-    const limits = [
-      p.min_deposit ? `от ${money(p.min_deposit)}` : '',
-      p.max_bonus ? `не более ${money(p.max_bonus)}` : '',
-    ].filter(Boolean).join(', ');
-    parts.push(`К следующему пополнению будет добавлено <b>+${p.pct}%</b>` +
-      (limits ? ` (${limits})` : '') + '.');
-  }
-  note.innerHTML = parts.join('<br><br>');
-  note.hidden = !parts.length;
-
-  const hist = document.getElementById('promoHistory');
-  hist.innerHTML = d.history?.length
-    ? '<h2 class="section-title">Активированные промокоды</h2>' +
-      d.history.map((h) => `<div class="log-row">
-        <span>${esc(h.code)} · ${PROMO_TYPE_LABEL[h.type] || h.type}<br>
-          <small>${new Date(h.created_at).toLocaleString('ru-RU')}</small></span>
-        <b class="${h.granted ? 'plus' : ''}">${h.granted ? '+' + money(h.granted) : ''}</b>
-      </div>`).join('')
-    : '';
 }
 
 /* ============================================================
@@ -9136,8 +8893,8 @@ function guestUser() {
   return {
     id: 0, username: null, firstName: null, balance: 0, isAdmin: false,
     x2Perks: [], gambleStake: 0, gambleCase: null, vouchers: [],
-    wagerRequired: 0, bonusBalance: 0, bonusCashoutLeft: 0, depositsCount: 0, caseOpens: 0,
-    x10: { need: 0, state: 'none', ceiling: 0 }, isPartner: false,
+    wagerRequired: 0, bonusBalance: 0, bonusCashoutLeft: 0, depositsCount: 0,
+    isPartner: false,
     email: null, hasPassword: false, telegram: null,
     stats: { rounds: 0, spent: 0, won: 0, bestMultiplier: 0, profit: 0 },
     fair: { serverSeedHash: '', clientSeed: '', nonce: 0, prevServerSeed: null, prevServerHash: null },
@@ -9153,7 +8910,7 @@ function authDefaultPane() {
 
 const AUTH_PANES = {
   login: { title: 'Вход', submit: 'Войти', fields: ['email', 'password'], tabs: true, forgot: true, telegram: true },
-  register: { title: 'Регистрация', submit: 'Создать аккаунт', fields: ['nick', 'email', 'password', 'adult'], tabs: true, telegram: true },
+  register: { title: 'Регистрация', submit: 'Создать аккаунт', fields: ['nick', 'email', 'password', 'promo', 'adult'], tabs: true, telegram: true },
   forgot: { title: 'Восстановление пароля', submit: 'Прислать ссылку', fields: ['email'] },
   reset: { title: 'Новый пароль', submit: 'Сохранить и войти', fields: ['password'] },
   password: { title: 'Пароль', submit: 'Сохранить', fields: ['password'] },
@@ -9341,10 +9098,14 @@ async function submitAuth(event) {
       const res = await api('/api/auth/login', { email: v('authEmail'), password: v('authPassword') });
       signedIn(res.user);
     } else if (pane === 'register') {
+      const promo = v('authPromo').trim();
       const res = await api('/api/auth/register', {
-        email: v('authEmail'), password: v('authPassword'), nick: v('authNick'),
+        email: v('authEmail'), password: v('authPassword'), nick: v('authNick'), promo,
       });
       signedIn(res.user, true);
+      // Подарок по коду показываем той же сценой, что была у поля промокода:
+      // текст - ровно то, что начислено.
+      if (res.promo) setTimeout(() => showGiftReveal(promo.toUpperCase(), promoResultText(res.promo)), 600);
     } else if (pane === 'forgot') {
       if (!state.config?.auth?.mail) { openSupport(); return; }
       const res = await api('/api/auth/forgot', { email: v('authEmail') });
@@ -9860,10 +9621,9 @@ function showFortuneWin(prize) {
 function openFreeMoney() {
   document.getElementById('fortuneIntro').hidden = false;
   document.getElementById('fortuneStage').hidden = true;
-  renderFreeMoney();
+  // Подарки первыми: от них зависит, есть ли вкладка «Подарки».
   renderBonuses();
-  renderMedals();
-  if (!state.guest) loadPromoState();
+  renderFreeMoney();
   loadFortune();
 }
 
@@ -9883,81 +9643,122 @@ function renderFreeMoney() {
   renderStartEvent();
   renderPromoWheel();
   renderBotEvent();
-  // Номера ивентов - по порядку на странице, а не зашитые: подарков нет -
-  // нумерация не прыгает через пустое место.
-  const evs = [...document.querySelectorAll('#view-freemoney .fm-ev')].filter((e) => !e.hidden);
-  let n = 0;
-  evs.forEach((e) => {
-    const no = e.querySelector('.fm-ev-no');
-    if (no && !e.classList.contains('fm-gifts')) no.textContent = String(++n).padStart(2, '0');
-  });
+  renderFmTabs();
+}
+
+/*
+ * Вкладки-якоря. Список - из ивентов, что сейчас на странице (подарков нет -
+ * нет и вкладки). Подсвечена та, чей ивент сейчас под вкладками: игрок видит,
+ * где он, и вкладка не врёт после ручной прокрутки.
+ */
+function renderFmTabs() {
   const tabs = document.getElementById('fmTabs');
-  tabs.innerHTML = evs.map((e) => `<button class="fm-tab${e.classList.contains('fm-drive') ? ' is-hot' : ''}"
-    data-go="${e.id}">${esc(e.dataset.tab || '')}</button>`).join('');
+  if (!tabs) return;
+  const evs = [...document.querySelectorAll('#view-freemoney .fm-tile')].filter((e) => !e.hidden);
+  tabs.innerHTML = evs.map((e) => `<button class="fm-tab" data-go="${e.id}">${esc(e.dataset.tab || '')}</button>`).join('');
   tabs.querySelectorAll('[data-go]').forEach((b) => {
     b.onclick = () => {
       haptic('light');
       const el = document.getElementById(b.dataset.go);
-      const top = el.getBoundingClientRect().top + window.scrollY - (document.querySelector('.topbar')?.offsetHeight || 64) - 12;
+      const top = el.getBoundingClientRect().top + window.scrollY - fmStickyBottom() - FM_TAB_GAP;
       window.scrollTo({ top, behavior: 'smooth' });
     };
   });
+  markFmTab();
 }
+
+/** Отступ от вкладок до ивента, к которому прокрутили. */
+const FM_TAB_GAP = 10;
+
+/** Нижний край шапки вместе с липкими вкладками - по разметке, а не числом. */
+function fmStickyBottom() {
+  return document.getElementById('fmTabs')?.getBoundingClientRect().bottom || 0;
+}
+
+function markFmTab() {
+  if (state.view !== 'freemoney') return;
+  const tabs = document.getElementById('fmTabs');
+  const line = fmStickyBottom() + FM_TAB_GAP * 3;
+  let current = null;
+  tabs?.querySelectorAll('[data-go]').forEach((b) => {
+    const el = document.getElementById(b.dataset.go);
+    if (el && el.getBoundingClientRect().top <= line) current = b;
+  });
+  current ||= tabs?.querySelector('[data-go]');
+  tabs?.querySelectorAll('.fm-tab').forEach((b) => b.classList.toggle('active', b === current));
+  // Активная вкладка не уходит за край ленты: полоса прокручивается к ней сама.
+  if (current) {
+    const r = current.getBoundingClientRect();
+    const box = tabs.getBoundingClientRect();
+    if (r.left < box.left || r.right > box.right) {
+      tabs.scrollLeft += r.left - box.left - (box.width - r.width) / 2;
+    }
+  }
+}
+
+let fmScrollQueued = false;
+window.addEventListener('scroll', () => {
+  if (fmScrollQueued || state.view !== 'freemoney') return;
+  fmScrollQueued = true;
+  requestAnimationFrame(() => { fmScrollQueued = false; markFmTab(); });
+}, { passive: true });
+
+/*
+ * Высота шапки - в переменную --topbar-h, по которой липнут вкладки Free
+ * Money. Числом в стилях она расходилась с настоящей (в шапке ещё отступ под
+ * вырез экрана), и между шапкой и вкладками оставалась щель, в которой
+ * проезжал контент.
+ */
+function syncTopbarHeight() {
+  const bar = document.querySelector('.topbar');
+  if (bar) document.documentElement.style.setProperty('--topbar-h', `${bar.offsetHeight}px`);
+}
+window.addEventListener('resize', syncTopbarHeight);
+syncTopbarHeight();
 
 /* ---------- Lucky Drive: розыгрыш автомобиля ---------- */
 
-/** Сколько билетов в ряду сетки: десять рядов по десять - «карта» из ста. */
-const DRIVE_TICKET_COLS = 10;
-
+/*
+ * Собран по образцу 1Win, присланному заказчиком: фото во всю карточку,
+ * заголовки широким жирным шрифтом поверх неба, под фото - строка о том, как
+ * получить билет, счётчик «Получено N из M» и карта билетов.
+ */
 function renderDriveEvent() {
   const box = document.getElementById('fmDrive');
   if (!box) return;
-  const cfg = state.config.raffle || { prize: 'Rolls-Royce Wraith', step: 1000, max: 100 };
+  const cfg = state.config.raffle || { prize: 'Rolls-Royce Wraith', step: 1000, max: 20 };
   const r = state.user?.raffle || { tickets: 0, max: cfg.max, step: cfg.step, progress: 0 };
   const left = Math.max(0, r.step - r.progress);
   const full = r.tickets >= r.max;
-  const tickets = Array.from({ length: r.max }, (_, i) => {
-    const got = i < r.tickets;
-    // Свежий билет - последний полученный: он один раз «пробивается».
-    return `<i class="dv-t${got ? ' got' : ''}${got && i === r.tickets - 1 ? ' fresh' : ''}" style="--i:${i}">${i + 1}</i>`;
-  }).join('');
+  const tickets = Array.from({ length: r.max }, (_, i) =>
+    `<i class="dv-t${i < r.tickets ? ' got' : ''}">${i + 1}</i>`).join('');
 
   box.innerHTML = `
-    <div class="fm-ev-head"><span class="fm-ev-no"></span><h2 class="fm-ev-title">Lucky Drive</h2>
-      <span class="fm-live"><i></i>идёт розыгрыш</span></div>
-    <div class="dv-card">
-      <div class="dv-sky"><i></i><i></i><i></i></div>
+    <div class="dv-photo">
+      <img src="/assets/ui/raffle-dubai.webp" alt="Rolls-Royce Wraith">
+      <span class="dv-live" title="Идёт розыгрыш" aria-label="Идёт розыгрыш">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="2.6" fill="#fff"/>
+          <path d="M7.8 7.8a6 6 0 0 0 0 8.4M16.2 7.8a6 6 0 0 1 0 8.4M5 5a10 10 0 0 0 0 14M19 5a10 10 0 0 1 0 14"
+            fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg></span>
       <div class="dv-head">
-        <div class="dv-kicker">Разыгрываем</div>
+        <div class="dv-kicker">Розыгрыш авто</div>
+        <div class="dv-give">Дарим</div>
         <div class="dv-brand">ROLLS-ROYCE</div>
-        <div class="dv-model">Wraith</div>
+        <div class="dv-model">WRAITH</div>
       </div>
-      <div class="dv-stage">
-        <div class="dv-spot"></div>
-        <img class="dv-car" src="/assets/ui/raffle-wraith.webp" alt="Rolls-Royce Wraith">
-        <div class="dv-floor"></div>
-        <div class="dv-sweep"></div>
-      </div>
-      <div class="dv-rules">
-        <div class="dv-rule"><b>1 билет</b><span>за каждые ${fmt(r.step)} ₽ ставок</span></div>
-        <div class="dv-rule"><b>до ${r.max}</b><span>билетов на игрока</span></div>
-        <div class="dv-rule"><b>больше билетов</b><span>выше шанс</span></div>
-      </div>
-      <div class="dv-mine">
-        <div class="dv-count"><span>Ваши билеты</span><b>${r.tickets}<small> из ${r.max}</small></b></div>
-        <div class="dv-next">${full ? 'Все билеты собраны' : state.guest ? 'Войдите, чтобы копить билеты'
-          : `До следующего билета <b>${money(left)}</b> ставок`}</div>
-        <div class="dv-bar" style="--p:${full ? 100 : Math.round((r.progress / r.step) * 100)}%"><i></i></div>
-      </div>
-      <div class="dv-tickets" style="--cols:${DRIVE_TICKET_COLS}" aria-label="Билеты: ${r.tickets} из ${r.max}">${tickets}</div>
-      <button class="dv-cta" id="dvGo">${state.guest ? 'Участвовать' : full ? 'Играть' : 'Получить билеты'}</button>
-      <p class="dv-fine">Дату розыгрыша и правила опубликуем в боте @${esc(state.config.projectBot || 'luckybox_bot')}. Билеты копятся автоматически: отдельно записываться не нужно.</p>
+    </div>
+    <div class="dv-body">
+      <p class="dv-lead">Копите билеты ставками и получите шанс выиграть Rolls-Royce Wraith от LUCKYBOX.
+        Билет - за каждые ${fmt(r.step)} ₽ ставок.</p>
+      <div class="dv-count">Получено <b>${r.tickets} из ${r.max}</b></div>
+      <div class="dv-tickets" aria-label="Билеты: ${r.tickets} из ${r.max}">${tickets}</div>
+      ${state.guest ? '<button class="fm-btn" id="dvGo">Войти и копить билеты</button>'
+        : `<div class="dv-next">${full ? 'Все билеты собраны' : `До следующего билета <b>${money(left)}</b> ставок`}</div>`}
     </div>`;
-  box.querySelector('#dvGo').onclick = () => {
+  box.querySelector('#dvGo')?.addEventListener('click', () => {
     haptic('light');
-    if (state.guest) return openAuth(authDefaultPane());
-    switchView('cases');
-  };
+    openAuth(authDefaultPane());
+  });
 }
 
 /* ---------- Кейс «Начало» ---------- */
@@ -9972,39 +9773,27 @@ function renderStartEvent() {
   if (!c) { box.hidden = true; return; }
   const st = state.user?.startCase || { ready: 0, needDeposit: true, minDeposit: 100, step: 1000, progress: 0 };
   const guest = !!state.guest;
-  const pct = st.needDeposit ? 0 : Math.round((st.progress / st.step) * 100);
+  const pct = st.ready > 0 ? 100 : st.needDeposit ? 0 : Math.round((st.progress / st.step) * 100);
   const cover = caseArtSrc(c);
   const top = Math.max(...c.items.map((i) => i.value));
   const status = st.ready > 0
-    ? { cls: 'is-ready', title: st.ready > 1 ? `Готово к открытию: ${st.ready}` : 'Кейс готов к открытию', cta: 'Открыть бесплатно' }
+    ? { cls: 'is-ready', line: 'Готов к открытию', cta: 'Открыть' }
     : guest || st.needDeposit
-      ? { cls: 'is-locked', title: `Пополните от ${money(st.minDeposit)} - первый кейс в подарок`, cta: guest ? 'Зарегистрироваться' : 'Пополнить' }
-      : { cls: 'is-progress', title: `Ещё ${money(st.step - st.progress)} ставок до следующего`, cta: 'Играть' };
+      ? { cls: 'is-locked', line: `Пополните от ${money(st.minDeposit)}`, cta: guest ? 'Войти' : 'Пополнить' }
+      : { cls: 'is-progress', line: `Ещё ${money(st.step - st.progress)} ставок`, cta: 'Играть' };
 
   box.innerHTML = `
-    <div class="fm-ev-head"><span class="fm-ev-no"></span><h2 class="fm-ev-title">Бесплатный кейс</h2>
-      <span class="fm-ev-note">до ${money(top)}</span></div>
-    <div class="st-card ${status.cls}">
-      <button class="st-cover" data-case="${c.id}" aria-label="Открыть кейс «${esc(c.name)}»">
+    <div class="st-glass ${status.cls}">
+      <button class="st-cover" aria-label="Кейс «${esc(c.name)}»">
         ${cover ? `<img src="${cover}" alt="">` : ''}
-        ${st.ready > 0 ? `<span class="st-badge">×${st.ready}</span>` : ''}
+        ${st.ready > 0 ? `<span class="st-badge">×${fmt(st.ready)}</span>` : ''}
       </button>
-      <div class="st-body">
-        <div class="st-name">«${esc(c.name)}»</div>
-        <div class="st-title">${status.title}</div>
-        <div class="st-meter" style="--p:${st.ready > 0 ? 100 : pct}%">
-          <div class="st-segs">${Array.from({ length: START_SEGMENTS }, (_, i) =>
-            `<i class="${(i + 1) * (100 / START_SEGMENTS) <= (st.ready > 0 ? 100 : pct) ? 'on' : ''}"></i>`).join('')}</div>
-          <div class="st-row"><span>${st.ready > 0 ? 'готов' : st.needDeposit ? 'после пополнения' : money(st.progress)}</span>
-            <span>${money(st.step)}</span></div>
-        </div>
-        <button class="st-cta">${status.cta}</button>
-      </div>
-    </div>
-    <div class="st-how">
-      <div><b>1</b><span>Первый кейс - за пополнение от ${money(st.minDeposit)}, один раз</span></div>
-      <div><b>2</b><span>Каждые ${fmt(st.step)} ₽ ставок - ещё один</span></div>
-      <div><b>3</b><span>Выигрыш - на бонусный счёт</span></div>
+      <div class="st-kicker">Бесплатный кейс</div>
+      <div class="st-name">${esc(c.name)} <small>до ${money(top)}</small></div>
+      <div class="st-segs" aria-hidden="true">${Array.from({ length: START_SEGMENTS }, (_, i) =>
+        `<i class="${(i + 1) * (100 / START_SEGMENTS) <= pct ? 'on' : ''}"></i>`).join('')}</div>
+      <div class="st-line">${status.line}</div>
+      <button class="fm-btn st-cta">${status.cta}</button>
     </div>`;
   const go = () => {
     haptic('light');
@@ -10020,12 +9809,39 @@ function renderStartEvent() {
 /* ---------- Колесо удачи: прокрут промокодом ---------- */
 
 const WHEEL_R = 150;          // радиус секторов в координатах SVG
-const WHEEL_HUB_R = 74;       // радиус ступицы с промокодом (41% колеса, см. .pw-hub)
+const WHEEL_HUB_R = 52;       // радиус ступицы: на ней кнопка SPIN
 const WHEEL_BULBS = 24;       // лампочек по ободу
+const WHEEL_GEMS = 8;         // самоцветов на ободе между лампочками
 const WHEEL_SPIN_MS = 5600;   // длительность прокрута
 const WHEEL_TURNS = 6;        // полных оборотов до остановки
 
-const wheelState = { rotation: 0, busy: false };
+/*
+ * Сундуки на секторах-кейсах рисуются цветом, а не подписью (решение
+ * заказчика: колесо - картинка, а не список). Цвет сундука выбран в пару к
+ * цвету сектора, чтобы сундук не сливался с фоном. Что за кейс, игрок узнаёт
+ * в окне приза.
+ */
+const WHEEL_CHESTS = {
+  dust: ['#3df0a6', '#16a46a'],
+  spark: ['#55e6ff', '#1792c2'],
+  copper: ['#c49bff', '#7244e6'],
+  warm: ['#ffd95e', '#d69a10'],
+  alley: ['#ff86dc', '#cf3aa6'],
+};
+
+/** Яркая палитра секторов: каждый свой цвет, соседние не сливаются. */
+const WHEEL_COLORS = {
+  dust: ['#2b1c9c', '#6a7bff'],
+  p10: ['#05795a', '#24f0ae'],
+  spark: ['#86106f', '#ff4fc1'],
+  p20: ['#075c94', '#2fd2ff'],
+  copper: ['#8c3307', '#ff9a2e'],
+  warm: ['#7c0b2a', '#ff4672'],
+  p30: ['#7a5a00', '#ffe23d'],
+  alley: ['#45138f', '#b067ff'],
+};
+
+const wheelState = { rotation: 0, busy: false, code: '' };
 
 /** Точка на окружности: угол от верхней точки по часовой стрелке. */
 function wheelPoint(r, turn) {
@@ -10033,105 +9849,184 @@ function wheelPoint(r, turn) {
   return [r * Math.cos(a), r * Math.sin(a)];
 }
 
+/** Сундук в своих координатах: центр в нуле, ширина около 36. */
+function wheelChest([body, dark], i) {
+  return `<g class="pw-chest">
+    <defs><linearGradient id="pwc${i}" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="${body}"/><stop offset="1" stop-color="${dark}"/></linearGradient></defs>
+    <path d="M-17 -5 Q-17 -19 0 -19 Q17 -19 17 -5 Z" fill="url(#pwc${i})" stroke="#1a0b2e" stroke-width="1.8"/>
+    <rect x="-17" y="-6" width="34" height="20" rx="3" fill="url(#pwc${i})" stroke="#1a0b2e" stroke-width="1.8"/>
+    <rect x="-17" y="-7.5" width="34" height="4" fill="#ffe7a0" stroke="#1a0b2e" stroke-width="1.2"/>
+    <rect x="-12" y="-18" width="4" height="31" fill="#ffe7a0" opacity=".85"/>
+    <rect x="8" y="-18" width="4" height="31" fill="#ffe7a0" opacity=".85"/>
+    <rect x="-4" y="-4" width="8" height="9" rx="1.6" fill="#fff4c8" stroke="#1a0b2e" stroke-width="1.2"/>
+    <circle cy="0" r="1.4" fill="#1a0b2e"/>
+    <path d="M-13 -15 Q-6 -18 2 -17" stroke="#fff" stroke-width="2" stroke-linecap="round" fill="none" opacity=".55"/>
+  </g>`;
+}
+
+/** Искорка-звезда для фона секторов. */
+function wheelStar(x, y, s) {
+  return `<path class="pw-star" d="M${x} ${y - s} L${x + s * 0.28} ${y - s * 0.28} L${x + s} ${y}
+    L${x + s * 0.28} ${y + s * 0.28} L${x} ${y + s} L${x - s * 0.28} ${y + s * 0.28} L${x - s} ${y}
+    L${x - s * 0.28} ${y - s * 0.28} Z"/>`;
+}
+
 function wheelSvg(sectors) {
+  const mid = (WHEEL_R + WHEEL_HUB_R) / 2 + 8;
   const paths = sectors.map((s, i) => {
     const [x0, y0] = wheelPoint(WHEEL_R, s.from);
     const [x1, y1] = wheelPoint(WHEEL_R, s.from + s.share);
     const large = s.share > 0.5 ? 1 : 0;
     const deg = (s.from + s.share / 2) * 360;
-    // Подпись идёт вдоль радиуса от обода к центру, как на настоящих колёсах:
-    // так в узкий сектор помещается и «Подворотня», а не только «+30%».
-    // Длина подписи ограничена ступицей: слово сжимается, а не уходит под
-    // поле промокода. На правой половине текст разворачивается, чтобы ни
-    // одна подпись не читалась вверх ногами.
-    const room = WHEEL_R - 12 - WHEEL_HUB_R;
-    const size = Math.min(s.type === 'pct' ? 17 : 12.5, room / (s.label.length * 0.62));
     const right = deg < 180;
+    let mark;
+    if (s.type === 'case') {
+      // Сундук стоит поперёк радиуса крышкой к ободу и мельчает в узком
+      // секторе, чтобы не залезать на соседа.
+      const arc = (s.share * Math.PI * 2 * mid);
+      const k = Math.min(1.25, Math.max(0.7, arc / 46));
+      mark = `<g transform="translate(0 ${-mid}) scale(${k.toFixed(2)})">${wheelChest(WHEEL_CHESTS[s.id] || ['#fff', '#aaa'], i)}</g>`;
+    } else {
+      // Процент - вдоль радиуса от обода к центру; на правой половине текст
+      // развёрнут, чтобы ни одна подпись не читалась вверх ногами.
+      mark = `<text class="pw-lbl" transform="translate(0 ${-WHEEL_R + 12}) rotate(${right ? -90 : 90})"
+        text-anchor="${right ? 'end' : 'start'}" dominant-baseline="central">${esc(s.label)}</text>`;
+    }
     return `<g class="pw-sec" data-sec="${s.id}">
       <path d="M0 0 L${x0.toFixed(2)} ${y0.toFixed(2)} A${WHEEL_R} ${WHEEL_R} 0 ${large} 1 ${x1.toFixed(2)} ${y1.toFixed(2)} Z"
-        fill="url(#pwg${i})" stroke="rgba(255,226,150,0.55)" stroke-width="1.4"/>
-      <g transform="rotate(${deg.toFixed(2)})">
-        <text class="pw-lbl${s.type === 'pct' ? ' is-pct' : ''}" transform="translate(0 ${-WHEEL_R + 10}) rotate(${right ? -90 : 90})"
-          text-anchor="${right ? 'end' : 'start'}" dominant-baseline="central" style="font-size:${size.toFixed(1)}px">${esc(s.label)}</text>
-      </g>
+        fill="url(#pwg${i})"/>
+      <g transform="rotate(${deg.toFixed(2)})">${mark}</g>
     </g>`;
   }).join('');
-  const grads = sectors.map((s, i) => `<radialGradient id="pwg${i}" cx="0" cy="0" r="${WHEEL_R}" gradientUnits="userSpaceOnUse">
-      <stop offset="0.25" stop-color="${s.color}" stop-opacity="0.55"/>
-      <stop offset="0.85" stop-color="${s.color}"/>
-      <stop offset="1" stop-color="#ffffff" stop-opacity="0.25"/></radialGradient>`).join('');
+  const seams = sectors.map((s) => {
+    const [x, y] = wheelPoint(WHEEL_R, s.from);
+    return `<line x1="0" y1="0" x2="${x.toFixed(2)}" y2="${y.toFixed(2)}"/>`;
+  }).join('');
+  const grads = sectors.map((s, i) => {
+    const [dark, bright] = WHEEL_COLORS[s.id] || [s.color, s.color];
+    return `<radialGradient id="pwg${i}" cx="0" cy="0" r="${WHEEL_R}" gradientUnits="userSpaceOnUse">
+      <stop offset="0.3" stop-color="${dark}"/>
+      <stop offset="0.9" stop-color="${bright}"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.75"/></radialGradient>`;
+  }).join('');
+  const stars = [[40, -96, 3], [-70, -60, 2.4], [96, 30, 2.8], [-30, 104, 2.2], [-108, 16, 3], [64, 92, 2.2], [20, -128, 2]]
+    .map(([x, y, s]) => wheelStar(x, y, s)).join('');
   const bulbs = Array.from({ length: WHEEL_BULBS }, (_, i) => {
     const [x, y] = wheelPoint(WHEEL_R + 13, i / WHEEL_BULBS);
-    return `<circle class="pw-bulb${i % 2 ? ' odd' : ''}" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3.6"/>`;
+    return `<circle class="pw-bulb${i % 2 ? ' odd' : ''}" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3.4"/>`;
+  }).join('');
+  const gems = Array.from({ length: WHEEL_GEMS }, (_, i) => {
+    const [x, y] = wheelPoint(WHEEL_R + 13, (i + 0.5) / WHEEL_GEMS);
+    const c = ['#ff4fc1', '#2fd2ff', '#24f0ae', '#ffe23d'][i % 4];
+    return `<g transform="translate(${x.toFixed(1)} ${y.toFixed(1)})"><path d="M0 -7 L6 0 L0 7 L-6 0 Z" fill="${c}"
+      stroke="#3a1500" stroke-width="1.2"/><path d="M0 -7 L6 0 L0 0 Z" fill="#fff" opacity=".45"/></g>`;
   }).join('');
   return `<svg class="pw-svg" viewBox="-180 -180 360 360" aria-hidden="true">
     <defs>${grads}
       <linearGradient id="pwRim" x1="0" y1="-1" x2="0" y2="1" gradientUnits="objectBoundingBox">
-        <stop offset="0" stop-color="#fff2c2"/><stop offset="0.45" stop-color="#d9a031"/>
-        <stop offset="0.55" stop-color="#8a5a12"/><stop offset="1" stop-color="#ffd46a"/></linearGradient>
+        <stop offset="0" stop-color="#fff4c9"/><stop offset="0.35" stop-color="#ffc83a"/>
+        <stop offset="0.6" stop-color="#b8650a"/><stop offset="1" stop-color="#ffd86a"/></linearGradient>
+      <radialGradient id="pwHalo" cx="0" cy="0" r="180" gradientUnits="userSpaceOnUse">
+        <stop offset="0.78" stop-color="#ff4fc1" stop-opacity="0.55"/>
+        <stop offset="0.9" stop-color="#7a4dff" stop-opacity="0.3"/>
+        <stop offset="1" stop-color="#2fd2ff" stop-opacity="0"/></radialGradient>
+      <radialGradient id="pwHub" cx="-0.25" cy="-0.3" r="1">
+        <stop offset="0" stop-color="#fff6d0"/><stop offset="0.45" stop-color="#ffb52e"/><stop offset="1" stop-color="#a34d00"/></radialGradient>
     </defs>
-    <circle r="${WHEEL_R + 22}" fill="#170d22"/>
-    <circle r="${WHEEL_R + 13}" fill="none" stroke="url(#pwRim)" stroke-width="16"/>
+    <circle r="180" fill="url(#pwHalo)"/>
+    <circle r="${WHEEL_R + 22}" fill="#1b0b33"/>
+    <circle r="${WHEEL_R + 13}" fill="none" stroke="url(#pwRim)" stroke-width="18"/>
+    <circle r="${WHEEL_R + 22}" fill="none" stroke="#ffe7a0" stroke-width="1.4" opacity=".7"/>
     <g class="pw-bulbs">${bulbs}</g>
+    <g>${gems}</g>
     <g class="pw-rotor" id="pwRotor" style="transform:rotate(${wheelState.rotation}deg)">${paths}
-      <circle r="${WHEEL_R}" fill="none" stroke="rgba(255,226,150,0.6)" stroke-width="2"/></g>
+      <g class="pw-seams">${seams}</g>
+      <g class="pw-stars">${stars}</g>
+      <circle r="${WHEEL_R}" fill="none" stroke="#fff3c4" stroke-width="2.5"/></g>
+    <circle r="${WHEEL_HUB_R + 6}" fill="#1b0b33" opacity=".55"/>
   </svg>`;
 }
 
+/*
+ * Колесо без легенды и без подписей кейсов (решение заказчика): само колесо и
+ * всё яркое внутри. Шансы не спрятаны - каждый сектор занимает ровно свою
+ * долю круга, и угол читается глазом (CLAUDE.md, «Колесо удачи»).
+ *
+ * Поле промокода крупное и лежит прямо поверх колеса. Код введён - поле
+ * уходит, в центре встаёт кнопка SPIN; под ней код, его можно поправить.
+ */
 function renderPromoWheel() {
   const box = document.getElementById('fmWheel');
   const cfg = state.config.promoWheel;
   if (!box || !cfg) return;
   // Колесо не пересобираем посреди прокрута: перерисовка сбросила бы угол.
   if (wheelState.busy && box.querySelector('.pw-svg')) return;
-  const bot = state.config.projectBot || 'luckybox_bot';
   box.innerHTML = `
-    <div class="fm-ev-head"><span class="fm-ev-no"></span><h2 class="fm-ev-title">Колесо удачи</h2>
-      <span class="fm-ev-note">кейсы до 150 ₽ и до +30% к пополнению</span></div>
+    <div class="fm-tile-head"><h2 class="fm-tile-title">Колесо удачи</h2>
+      <span class="fm-tile-note">промокоды - в нашем боте</span></div>
     <div class="pw-card">
       <div class="pw-wheel">
         <span class="pw-pin" aria-hidden="true"></span>
         ${wheelSvg(cfg.sectors)}
-        <form class="pw-hub" id="pwForm" autocomplete="off">
-          <label class="pw-hub-lbl" for="pwCode">промокод</label>
-          <input class="pw-code" id="pwCode" maxlength="32" placeholder="ВВЕДИТЕ КОД"
-            autocapitalize="characters" spellcheck="false">
-          <button class="pw-spin" id="pwSpin" type="submit">Крутить</button>
+        <form class="pw-code-box" id="pwForm" autocomplete="off">
+          <input class="pw-code" id="pwCode" maxlength="32" placeholder="ПРОМОКОД"
+            autocapitalize="characters" spellcheck="false" aria-label="Промокод колеса">
+          <button class="pw-ok" type="submit" aria-label="Готово">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6" fill="none" stroke="currentColor"
+              stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
         </form>
+        <button class="pw-spin" id="pwSpin" type="button" hidden>SPIN</button>
       </div>
-      <div class="pw-legend">${cfg.sectors.map((x) => {
-        const c = x.caseId ? state.config.cases.find((k) => k.id === x.caseId) : null;
-        const art = c ? caseArtSrc(c) : null;
-        return `<div class="pw-leg${x.type === 'pct' ? ' is-pct' : ''}" style="--c:${x.color}">
-          ${art ? `<img src="${art}" alt="">` : `<b>${esc(x.label)}</b>`}
-          <span>${c ? `${esc(c.name)} · ${money(c.price)}` : `${esc(x.label)} к пополнению`}</span>
-          <em>${(x.share * 100).toFixed(0)}%</em></div>`;
-      }).join('')}</div>
-      <div class="pw-where">
-        <span class="pw-tg" aria-hidden="true"></span>
-        <div>Промокоды для колеса - в нашем Telegram-боте <b>@${esc(bot)}</b></div>
-      </div>
+      <button class="pw-code-chip" id="pwChip" type="button" hidden></button>
       <div class="pw-err" id="pwErr" hidden></div>
-      <p class="pw-fine">Каждый сектор занимает на колесе ровно свою долю шанса. Кейс приходит подарком, процент срабатывает на следующем пополнении от ${money(cfg.pctMinDeposit)} (бонус до ${money(cfg.pctCap)}).</p>
     </div>`;
   const input = box.querySelector('#pwCode');
+  input.value = wheelState.code;
   input.addEventListener('input', () => { input.value = input.value.toUpperCase(); box.querySelector('#pwErr').hidden = true; });
-  box.querySelector('#pwForm').onsubmit = (e) => { e.preventDefault(); spinPromoWheel(); };
+  box.querySelector('#pwForm').onsubmit = (e) => { e.preventDefault(); takeWheelCode(); };
+  box.querySelector('#pwSpin').onclick = spinPromoWheel;
+  box.querySelector('#pwChip').onclick = () => setWheelCode('');
+  setWheelCode(wheelState.code, { quiet: true });
 }
 
-async function spinPromoWheel() {
-  if (wheelState.busy) return;
+/** Промокод принят полем: поле уходит, появляется SPIN. Пустой - обратно поле. */
+function setWheelCode(code, { quiet = false } = {}) {
+  wheelState.code = code;
+  const form = document.getElementById('pwForm');
+  const spin = document.getElementById('pwSpin');
+  const chip = document.getElementById('pwChip');
+  if (!form) return;
+  form.hidden = !!code;
+  spin.hidden = !code;
+  chip.hidden = !code;
+  chip.innerHTML = code ? `Код <b>${esc(code)}</b> · изменить` : '';
+  if (!code && !quiet) document.getElementById('pwCode')?.focus();
+}
+
+function takeWheelCode() {
   if (state.guest) return openAuth(authDefaultPane());
   const input = document.getElementById('pwCode');
-  const err = document.getElementById('pwErr');
-  const code = input.value.trim();
+  const code = input.value.trim().toUpperCase();
   if (!code) {
+    const err = document.getElementById('pwErr');
     err.textContent = 'Введите промокод из бота';
     err.hidden = false;
     input.focus();
     haptic('error');
     return;
   }
+  input.blur();
+  haptic('light');
+  setWheelCode(code);
+}
+
+async function spinPromoWheel() {
+  if (wheelState.busy) return;
+  if (state.guest) return openAuth(authDefaultPane());
+  const err = document.getElementById('pwErr');
+  const code = wheelState.code;
+  if (!code) return setWheelCode('');
   wheelState.busy = true;
   const btn = document.getElementById('pwSpin');
   btn.disabled = true;
@@ -10141,6 +10036,9 @@ async function spinPromoWheel() {
   } catch (e) {
     wheelState.busy = false;
     btn.disabled = false;
+    // Код не подошёл - возвращаем поле с ним же, чтобы поправить опечатку.
+    setWheelCode('', { quiet: true });
+    document.getElementById('pwCode').value = code;
     err.textContent = e.message;
     err.hidden = false;
     haptic('error');
@@ -10185,9 +10083,9 @@ async function spinPromoWheel() {
   card.classList.remove('is-spinning');
   document.querySelector(`.pw-sec[data-sec="${sec.id}"]`)?.classList.add('is-win');
   sndLand();
-  input.value = '';
   btn.disabled = false;
   wheelState.busy = false;
+  setWheelCode('', { quiet: true });
   if (data.user) applyUser(data.user);
   showWheelWin(data.result, sec);
 }
@@ -10237,6 +10135,7 @@ function showWheelWin(result, sec) {
   scene.querySelector('.sg-cta').onclick = () => { close(); if (c) openCase(c.id); else openCashier(); };
 }
 
+
 /* ---------- Telegram-бот ---------- */
 
 function renderBotEvent() {
@@ -10244,19 +10143,13 @@ function renderBotEvent() {
   if (!box) return;
   const bot = state.config.projectBot || 'luckybox_bot';
   box.innerHTML = `
-    <div class="fm-ev-head"><span class="fm-ev-no"></span><h2 class="fm-ev-title">Наш бот</h2></div>
-    <div class="bt-card">
-      <div class="bt-plane" aria-hidden="true"><svg viewBox="0 0 48 48"><path fill="#fff"
-        d="M40.6 9.4 6.9 22.4c-2.3.9-2.3 2.2-.4 2.8l8.6 2.7 3.3 10.2c.4 1.1.2 1.6 1.4 1.6.9 0 1.3-.4 1.8-.9l4.3-4.2 8.9 6.6c1.6.9 2.8.4 3.2-1.5l5.8-27.4c.6-2.4-.9-3.5-2.5-2.8zM17.2 27.6l19.4-12.2c.9-.6 1.8-.3 1.1.4L21.1 30.8l-.6 6.9z"/></svg></div>
-      <div class="bt-body">
-        <div class="bt-name" role="button" tabindex="0" title="Скопировать">@${esc(bot)}</div>
-        <ul class="bt-list">
-          <li>Промокоды для Колеса удачи</li>
-          <li>Напоминание, когда кейс «Начало» готов</li>
-          <li>Новости розыгрыша Rolls-Royce</li>
-        </ul>
-        <a class="bt-open" href="tg://resolve?domain=${encodeURIComponent(bot)}">Открыть в Telegram</a>
-      </div>
+    <div class="bt-tile">
+      <span class="bt-ico" aria-hidden="true"><svg viewBox="0 0 48 48"><path fill="#fff"
+        d="M40.6 9.4 6.9 22.4c-2.3.9-2.3 2.2-.4 2.8l8.6 2.7 3.3 10.2c.4 1.1.2 1.6 1.4 1.6.9 0 1.3-.4 1.8-.9l4.3-4.2 8.9 6.6c1.6.9 2.8.4 3.2-1.5l5.8-27.4c.6-2.4-.9-3.5-2.5-2.8zM17.2 27.6l19.4-12.2c.9-.6 1.8-.3 1.1.4L21.1 30.8l-.6 6.9z"/></svg></span>
+      <div class="bt-kicker">Наш бот</div>
+      <div class="bt-name" role="button" tabindex="0" title="Скопировать">@${esc(bot)}</div>
+      <div class="bt-sub">Промокоды для колеса, кейс «Начало» и новости розыгрыша</div>
+      <a class="fm-btn fm-btn-glass bt-open" href="tg://resolve?domain=${encodeURIComponent(bot)}">Открыть</a>
     </div>`;
   // Ник копируется нажатием: на компьютере кнопки «Открыть» нет, а
   // перепечатывать ник руками - лишний повод ошибиться.

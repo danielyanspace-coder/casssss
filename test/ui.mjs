@@ -198,40 +198,78 @@ if (newcomer) {
   check('баннер открывает Free Money',
     await page.evaluate(() => document.getElementById('view-freemoney').classList.contains('active')));
   check('у раздела есть заголовок',
-    /free\s*money/i.test(await page.textContent('#view-freemoney .fm-hero-title')));
+    /free\s*money/i.test(await page.textContent('#view-freemoney .fm-title')));
 
   /*
-   * Ивенты Free Money. Раздел «Бонусы» убран и живёт здесь целиком, поэтому
-   * проверяется, что на месте всё: розыгрыш с картой из ста билетов,
-   * бесплатный кейс, Колесо удачи с полем промокода прямо в ступице, бот,
-   * промокод и медали.
+   * Ивенты Free Money (октябрь 2026, бенто): розыгрыш по образцу 1Win с
+   * картой из двадцати билетов, «Начало» стеклом, бот, Колесо удачи без
+   * легенды и подписей кейсов - с крупным полем промокода поверх колеса.
+   * Промокода и медалей в разделе нет, нумерации ивентов тоже.
    */
   const fm = await page.evaluate(() => {
-    const sec = [...document.querySelectorAll('.pw-sec path')];
+    const sec = [...document.querySelectorAll('.pw-sec > path')];
     return {
       tickets: document.querySelectorAll('#fmDrive .dv-t').length,
-      car: !!document.querySelector('#fmDrive .dv-car'),
-      start: !!document.querySelector('#fmStart .st-card'),
-      hubInput: !!document.querySelector('.pw-hub #pwCode'),
+      car: document.querySelector('#fmDrive .dv-photo img')?.complete && document.querySelector('#fmDrive .dv-photo img')?.naturalWidth > 0,
+      brand: document.querySelector('#fmDrive .dv-brand')?.textContent || '',
+      fine: /правила опубликуем/i.test(document.getElementById('fmDrive')?.textContent || ''),
+      start: !!document.querySelector('#fmStart .st-glass'),
+      codeOverWheel: !!document.querySelector('.pw-wheel .pw-code-box #pwCode'),
+      spinHidden: document.getElementById('pwSpin')?.hidden === true,
       sectors: sec.length,
-      legend: [...document.querySelectorAll('.pw-leg em')].reduce((a, e) => a + parseFloat(e.textContent), 0),
+      legend: document.querySelectorAll('.pw-leg, .pw-legend').length,
+      caseNames: document.querySelectorAll('.pw-sec text').length,
+      chests: document.querySelectorAll('.pw-sec .pw-chest').length,
       bot: document.querySelector('#fmBot .bt-name')?.textContent || '',
-      promo: !!document.querySelector('#fmPromo #promoInput'),
-      medals: document.querySelectorAll('#fmMedals .medal-grid > *').length,
+      promo: !!document.querySelector('#view-freemoney #promoInput, #fmPromo'),
+      medals: document.querySelectorAll('#fmMedals, .medal, .medal-grid').length,
+      numbers: document.querySelectorAll('#view-freemoney .fm-ev-no').length,
       tabs: document.querySelectorAll('#fmTabs .fm-tab').length,
       bonusesView: !!document.getElementById('view-bonuses'),
     };
   });
-  check('Free Money: карта из ста билетов', fm.tickets === 100, String(fm.tickets));
-  check('Free Money: фото автомобиля', fm.car);
-  check('Free Money: бесплатный кейс', fm.start);
-  check('Free Money: поле промокода в ступице колеса', fm.hubInput);
+  check('Free Money: карта из двадцати билетов', fm.tickets === 20, String(fm.tickets));
+  check('Free Money: фото автомобиля загрузилось', fm.car);
+  check('Free Money: заголовок розыгрыша', /ROLLS-ROYCE/.test(fm.brand), fm.brand);
+  check('Free Money: без строки «правила опубликуем»', !fm.fine);
+  check('Free Money: бесплатный кейс стеклом', fm.start);
+  check('Free Money: поле промокода поверх колеса, SPIN спрятан', fm.codeOverWheel && fm.spinHidden);
   check('Free Money: у колеса восемь секторов', fm.sectors === 8, String(fm.sectors));
-  // Легенда - те же доли, что ширина секторов: в сумме сотня (с округлением).
-  check('Free Money: доли колеса в сумме 100%', Math.abs(fm.legend - 100) <= 2, String(fm.legend));
+  check('Free Money: у колеса нет легенды', fm.legend === 0, String(fm.legend));
+  // Кейсы на секторах - сундуки, подписи только у процентов (их три).
+  check('Free Money: кейсы на колесе нарисованы сундуками', fm.chests === 5 && fm.caseNames === 3,
+    `${fm.chests} сундуков, ${fm.caseNames} подписей`);
   check('Free Money: ник бота', fm.bot === '@luckybox_bot', fm.bot);
-  check('Free Money: промокод и медали переехали из «Бонусов»', fm.promo && fm.medals > 0);
-  check('Free Money: чипы-якоря ивентов', fm.tabs >= 6, String(fm.tabs));
+  check('Free Money: промокода в разделе нет', !fm.promo);
+  check('медалей нет нигде', fm.medals === 0, String(fm.medals));
+  check('Free Money: ивенты без номеров', fm.numbers === 0, String(fm.numbers));
+  check('Free Money: вкладки-якоря ивентов', fm.tabs >= 5, String(fm.tabs));
+
+  // Код введён - поле уходит, в центре кнопка SPIN; «изменить» возвращает поле.
+  await page.fill('#pwCode', 'проверка');
+  await page.click('.pw-ok');
+  await page.waitForTimeout(200);
+  const codeState = await page.evaluate(() => ({
+    form: document.getElementById('pwForm').hidden,
+    spin: !document.getElementById('pwSpin').hidden,
+    chip: document.getElementById('pwChip').textContent,
+  }));
+  check('Колесо удачи: после ввода кода поле уходит, появляется SPIN', codeState.form && codeState.spin,
+    JSON.stringify(codeState));
+  check('Колесо удачи: код показан под колесом', /ПРОВЕРКА/.test(codeState.chip), codeState.chip);
+  await page.click('#pwChip');
+  await page.waitForTimeout(150);
+  check('Колесо удачи: «изменить» возвращает поле', await page.isVisible('#pwCode'));
+
+  // Вкладки липнут вплотную к шапке: зазора, в котором видно контент, нет.
+  await page.evaluate(() => window.scrollTo(0, 900));
+  await page.waitForTimeout(300);
+  const stick = await page.evaluate(() => ({
+    bar: document.querySelector('.topbar').getBoundingClientRect().bottom,
+    tabs: document.getElementById('fmTabs').getBoundingClientRect().top,
+  }));
+  check('Free Money: вкладки прилегают к шапке', Math.abs(stick.tabs - stick.bar) <= 1, JSON.stringify(stick));
+  await page.evaluate(() => window.scrollTo(0, 0));
   check('раздела «Бонусы» больше нет', !fm.bonusesView);
   check('раздел открывается с обложки', await page.isVisible('#fortuneIntro'));
   check('колесо пока скрыто', !(await page.isVisible('#fortuneStage')));
@@ -2474,6 +2512,9 @@ slotChecks: {
   check('гость: попытка открыть кейс зовёт ко входу', await g.isVisible('#authBackdrop'));
   check('гость: первым предлагается регистрация',
     (await g.textContent('#authTitle')) === 'Регистрация');
+
+  // Промокод вводится только здесь: поле есть при регистрации, при входе - нет.
+  check('регистрация: есть поле промокода', await g.isVisible('#authPromo'));
 
   // Без галочки 18+ форма не уходит.
   await g.fill('#authNick', 'Гость');

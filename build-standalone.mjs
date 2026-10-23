@@ -126,7 +126,7 @@ const config = {
   // Free Money: те же описания, что отдаёт сервер.
   promoWheel: wheelConfig(),
   projectBot: 'luckybox_bot',
-  raffle: { prize: 'Rolls-Royce Wraith', step: 1000, max: 100 },
+  raffle: { prize: 'Rolls-Royce Wraith', step: 1000, max: 20 },
   startCase: { minDeposit: 100, turnover: 1000 },
   bonus: { enabled: false },
   maxBatch: 2,
@@ -345,7 +345,6 @@ const covers = read('./public/covers.js');
 const sounds = read('./public/sounds.js');
 // Показ выигрыша и фриспинов: всё внутри createMotion, наружу два имени.
 const motionFx = read('./public/motion.js');
-const medals = read('./public/medals.js');
 const itemArt = read('./public/item-art.js');
 // Крупные мотивы 64x64: отдельный файл, потому что старый набор рисовался
 // под значок в 34 точки и к карточке во всю высоту не годится.
@@ -720,13 +719,13 @@ function startCaseDemo(u) {
     u.vouchers.start_free = (u.vouchers.start_free || 0) + blocks - (u.startMark || 0);
     u.startMark = blocks;
   }
-  const tickets = Math.min(100, blocks);
+  const tickets = Math.min(20, blocks);
   return {
     startCase: {
       caseId: 'start_free', ready: u.vouchers.start_free || 0, needDeposit: false,
       minDeposit: 100, step: 1000, progress: turnover - (u.startMark || 0) * 1000,
     },
-    raffle: { tickets, max: 100, step: 1000, progress: tickets >= 100 ? 1000 : turnover % 1000 },
+    raffle: { tickets, max: 20, step: 1000, progress: tickets >= 20 ? 1000 : turnover % 1000 },
   };
 }
 
@@ -749,9 +748,6 @@ function publicUser() {
     // Ноль намеренно: демо-игрок сразу видит предложение первого пополнения,
     // ради которого его и показывают заказчику.
     depositsCount: u.depositsCount || 0,
-    // Медаль «Десятикратный»: те же поля, что у сервера (x10Rules в db.js).
-    caseOpens: u.caseOpens || 0,
-    x10: { need: X10_OPENS, state: ['none', 'ready', 'used'][u.x10State || 0], ceiling: u.x10Ceiling || 0 },
     // В демо партнёр - это сам игрок, если его завели в админке под id 1.
     isPartner: (store.partners || []).some((p) => p.tg_id === '1'),
     // Вход в демо условный: игрок один, и «вошёл» он любой почтой.
@@ -870,10 +866,6 @@ function consumeWager(bet) {
   }
 }
 
-/** Порог и потолок медали «Десятикратный» - как X10_MEDAL_* на сервере. */
-const X10_OPENS = 1000;
-const X10_CAP = 50;
-
 /** Одно открытие кейса. Общая часть для одиночного открытия и пачки. */
 function openOnce(table) {
     const u = store.user;
@@ -888,13 +880,9 @@ function openOnce(table) {
     // кейсе. Свой, привязанный к кейсу, тратится первым.
     const ownX2 = (u.x2Perks[table.id] || 0) > 0;
     const anyX2 = (u.x2Perks['*'] || 0) > 0;
-    // ×10 медали и ×2 не складываются: при ×10 удвоитель ждёт следующего раза.
-    const x10Active = !free && item.value > 0 && u.x10State === 1 && table.price <= (u.x10Ceiling || 0);
-    const x2Active = !x10Active && item.value > 0 && (ownX2 || anyX2);
-    const payout = x10Active ? item.value + Math.min(item.value * 9, X10_CAP * table.price)
-      : x2Active ? item.value * 2 : item.value;
+    const x2Active = item.value > 0 && (ownX2 || anyX2);
+    const payout = x2Active ? item.value * 2 : item.value;
     if (x2Active) { const key = ownX2 ? table.id : '*'; u.x2Perks[key]--; }
-    if (x10Active) u.x10State = 2;
 
     const granted = [];
     let freeSpinsPayout = 0;
@@ -938,28 +926,18 @@ function openOnce(table) {
 
     pushRound({
       game: 'case', caseId: table.id, title: table.name,
-      subtitle: item.name + (x10Active ? ' (×10)' : x2Active ? ' (×2)' : ''),
+      subtitle: item.name + (x2Active ? ' (×2)' : ''),
       bet: spent, payout: totalPayout, multiplier: free ? 0 : totalPayout / table.price,
       tier: item.tier, free: free ? 1 : 0,
     });
     consumeWager(spent);
-
-    if (!free) {
-      u.caseOpens = (u.caseOpens || 0) + 1;
-      u.caseSpent = (u.caseSpent || 0) + spent;
-      if (!u.x10State && u.caseOpens >= X10_OPENS) {
-        u.x10State = 1;
-        u.x10Ceiling = Math.round(u.caseSpent / u.caseOpens);
-        granted.push({ type: 'x10', ceiling: u.x10Ceiling });
-      }
-    }
 
 
     return {
       item: { id: item.id, name: item.name, kind: item.kind, value: payout,
               tier: item.tier, skin: item.skin, art: item.art, perkLabel: item.perkLabel,
               multiplier: Number((payout / table.price).toFixed(2)), baseValue: item.value },
-      granted, free, x2Applied: x2Active && item.value > 0, x10Applied: x10Active,
+      granted, free, x2Applied: x2Active && item.value > 0,
       net: totalPayout - spent,
       fair: { roll, nonce: u.nonce },
     };
@@ -2603,7 +2581,6 @@ ${strip(sounds)}
 
 ${strip(motionFx)}
 
-${strip(medals)}
 
 ${strip(itemArt)}
 
@@ -2656,7 +2633,7 @@ function topLevelNames(src) {
 const scopes = {
   icons: topLevelNames(icons), covers: topLevelNames(covers),
   sounds: topLevelNames(sounds), legal: topLevelNames(legal),
-  medals: topLevelNames(medals), casino: topLevelNames(casinoUi), providerLogos: topLevelNames(providerLogos),
+  casino: topLevelNames(casinoUi), providerLogos: topLevelNames(providerLogos),
   app: topLevelNames(app),
 };
 const clashes = [];

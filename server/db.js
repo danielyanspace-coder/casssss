@@ -599,9 +599,10 @@ ensureColumn('users', 'wager_required', 'INTEGER NOT NULL DEFAULT 0');
   }
 }
 
-// Медаль «Десятикратный» (см. x10Rules): счётчик платных открытий кейсов,
-// сколько на них потрачено, и состояние награды - 0 ещё нет, 1 ждёт выигрыша,
-// 2 использована. Потолок цены кейса для неё запоминается в момент выдачи.
+// Колонки бывшей медали «Десятикратный» (×10 после тысячи открытий). Медали
+// сняты по решению заказчика, награда больше не выдаётся и не применяется;
+// колонки остаются, потому что SQLite их не удаляет без пересборки таблицы, а
+// в meta старых раундов осталось x10 - проверка заявок пересчитывает и их.
 ensureColumn('users', 'case_opens', 'INTEGER NOT NULL DEFAULT 0');
 ensureColumn('users', 'case_spent', 'INTEGER NOT NULL DEFAULT 0');
 ensureColumn('users', 'x10_state', 'INTEGER NOT NULL DEFAULT 0');
@@ -1147,6 +1148,21 @@ export const createEmailUser = db.transaction(({ email, passwordHash, nick }) =>
     throw Object.assign(new Error('Эта почта уже зарегистрирована'), { code: 'EMAIL_TAKEN' });
   }
   return insertNewUser({ email, passwordHash, firstName: nick || null });
+});
+
+/**
+ * Регистрация с промокодом. Код вводится только здесь (решение заказчика:
+ * отдельного поля промокода в разделах больше нет), поэтому аккаунт и
+ * активация - одна транзакция: код не подошёл - аккаунта нет, и человек
+ * исправляет код в той же форме, а не узнаёт после входа, что подарок не
+ * пришёл. Активация та же redeemPromo, что и раньше: правила кода не меняются.
+ */
+export const createEmailUserWithPromo = db.transaction(({ email, passwordHash, nick, promo, resolveCase }) => {
+  const user = createEmailUser({ email, passwordHash, nick });
+  const code = String(promo || '').trim();
+  if (!code) return { user, promo: null };
+  const result = redeemPromo(user.id, code, resolveCase);
+  return { user: getUserById(user.id), promo: result };
 });
 
 /**
@@ -2034,39 +2050,6 @@ function runFreeSpinSeries(userId, caseData, startCount, resolveFree, bonusVouch
   return { spins, payout, count, capped: spins.length >= MAX_FREE_SPINS, x2Won };
 }
 
-/**
- * Медаль «Десятикратный»: после X10_MEDAL_OPENS платных открытий кейсов -
- * один раз ×10 к следующему денежному выигрышу.
- *
- * ПОЧЕМУ ТЫСЯЧА. Отдача кейсов 0.70, значит тысяча открытий по средней цене P
- * приносят кассе в среднем 300·P. Ожидаемая стоимость ×10 - девять лишних
- * матожиданий предмета, 9 · 0.7 · P = 6.3·P, то есть около 2% заработанного
- * на этом же игроке. Награда ощутимая и при этом не может окупить завод
- * аккаунта под неё: чтобы её получить, надо в среднем отдать в 48 раз больше.
- * Порог ниже ~420 открытий поднимает долю выше 5%, и это уже решение о
- * марже, а не о медали.
- *
- * ДВА ПОТОЛКА, без них расчёт выше неверен:
- * - цена кейса не выше средней цены открытий, на которых медаль заработана
- *   (x10_ceiling). Иначе тысяча открытий по 24 ₽ превращалась бы в ×10 на
- *   кейсе за 100 000 - то же, от чего удвоитель привязан к своему кейсу;
- * - доплата не больше X10_MEDAL_CAP цен кейса. ×10 на верхнем призе кейса с
- *   потолком ×180 стоил бы 1620 цен разом; с потолком 50 худший случай
- *   - шестая часть того, что игрок в среднем уже отдал.
- *
- * Награда одна на аккаунт и с ×2 не складывается: на том открытии, где
- * сработал ×10, удвоитель не тратится и ждёт следующего.
- *
- * Числа читаются из окружения при каждом вызове, как и бонус за пополнение:
- * их правят чаще, чем код.
- */
-export function x10Rules() {
-  return {
-    opens: Math.max(1, Number(process.env.X10_MEDAL_OPENS) || 1000),
-    cap: Math.max(1, Number(process.env.X10_MEDAL_CAP) || 50),
-  };
-}
-
 export const playCaseRound = moneyTx('case', (userId, caseData, resolve, resolveFree) => {
   const before = getUserById(userId);
 
@@ -2095,23 +2078,18 @@ export const playCaseRound = moneyTx('case', (userId, caseData, resolve, resolve
    * Иначе выигранный удвоитель сгорал бы на первом же прокруте, который
    * выдал фриспины, и игрок терял бы его, ничего не получив.
    */
-  const x10Rule = x10Rules();
-  const x10Active = !isFree && item.value > 0 && before.x10_state === 1
-    && caseData.price <= before.x10_ceiling;
   // Удвоитель - только на платном открытии (правило в CLAUDE.md): ваучер
   // уже подарок, и удвоенный подарок в отдачу кейса не заложен.
-  const x2Active = !isFree && !x10Active && item.value > 0 && x2Available(userId, caseData.id);
+  const x2Active = !isFree && item.value > 0 && x2Available(userId, caseData.id);
   // Потолок ограничивает ДОПЛАТУ, а не выигрыш, и только у удвоителя с
   // колеса (ключ ANY_CASE): свой удвоитель кейса заложен в его отдачу целиком,
   // и урезать его значило бы платить меньше объявленного. Ноль - без потолка.
   const fromWheel = x2Active && x2Count(userId, caseData.id) === 0;
   const cap = fromWheel ? fortuneX2Cap() : 0;
   let extra = 0;
-  if (x10Active) extra = Math.min(item.value * 9, x10Rule.cap * caseData.price);
-  else if (x2Active) extra = cap > 0 ? Math.min(item.value, cap) : item.value;
+  if (x2Active) extra = cap > 0 ? Math.min(item.value, cap) : item.value;
   const payout = item.value + extra;
   const x2Key = x2Active ? spendX2(userId, caseData.id) : null;
-  if (x10Active) db.prepare('UPDATE users SET x10_state = 2 WHERE id = ?').run(userId);
 
   // Списание до плюшек: от доли бонуса в ставке зависит, какими придут
   // ваучеры из этого открытия и куда ляжет выигрыш.
@@ -2214,14 +2192,13 @@ export const playCaseRound = moneyTx('case', (userId, caseData, resolve, resolve
                         bonus_bet, bonus_payout, meta)
     VALUES (?, 'case', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(userId, caseData.id, caseData.name,
-         item.name + (x10Active ? ' (×10)' : x2Active ? ' (×2)' : ''),
+         item.name + (x2Active ? ' (×2)' : ''),
          spent, totalPayout, multiplier, item.tier, isFree ? 1 : 0,
          roll, nonce, user.server_seed_hash, user.client_seed, Date.now(),
          paid.bonus, bonusPayout,
          JSON.stringify({
            item: item.id, value: item.value, extra,
            x2: x2Active ? (x2Key === ANY_CASE ? 'wheel' : 'case') : null,
-           x10: x10Active || undefined,
            fs: seriesCount || undefined,
            voucher: isFree ? (voucherBonus ? 'bonus' : 'real') : undefined,
            granted: viaGrant || undefined,
@@ -2229,19 +2206,6 @@ export const playCaseRound = moneyTx('case', (userId, caseData, resolve, resolve
   ledgerLink('rounds', info.lastInsertRowid);
 
   consumeWager(userId, { real: paid.real, bonus: paid.bonus });
-
-  // Счётчик для медали «Десятикратный»: только платные открытия, подарочные
-  // кейсы и купленные серии фриспинов его не двигают.
-  if (!isFree) {
-    db.prepare('UPDATE users SET case_opens = case_opens + 1, case_spent = case_spent + ? WHERE id = ?')
-      .run(spent, userId);
-    const after = getUserById(userId);
-    if (after.x10_state === 0 && after.case_opens >= x10Rule.opens) {
-      const ceiling = Math.round(after.case_spent / after.case_opens);
-      db.prepare('UPDATE users SET x10_state = 1, x10_ceiling = ? WHERE id = ?').run(ceiling, userId);
-      granted.push({ type: 'x10', ceiling });
-    }
-  }
 
   settleBonus(userId);
 
@@ -2251,7 +2215,6 @@ export const playCaseRound = moneyTx('case', (userId, caseData, resolve, resolve
     totalPayout,
     free: isFree,
     x2Applied: x2Active,
-    x10Applied: x10Active,
     balance: getUserById(userId).balance,
   };
 });
@@ -2720,7 +2683,9 @@ export function startCaseRules() {
   };
 }
 export const RAFFLE_TICKET_TURNOVER = 1000;
-export const RAFFLE_MAX_TICKETS = 100;
+// Двадцать билетов на игрока (решение заказчика, октябрь 2026; было сто):
+// карта билетов на карточке розыгрыша помещается в два ряда.
+export const RAFFLE_MAX_TICKETS = 20;
 
 function addRealTurnover(userId, rub) {
   db.prepare(`UPDATE users SET turnover_real = turnover_real + ?, raffle_turnover = raffle_turnover + ?
