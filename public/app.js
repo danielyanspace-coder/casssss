@@ -1051,19 +1051,25 @@ function renderBonuses() {
     return;
   }
 
-  // Здесь пары складываются из того, что выиграно, поэтому пропорция берётся
-  // по соседу так же, как на полках.
+  /*
+   * Подарок - простая плитка: обложка, название, кнопка. Не карточка полки.
+   * Карточка полки (caseCardHtml) здесь роняла раздел на iPhone: в просмотре
+   * Documents страница перезагружалась по кругу, даже когда блок был скрыт.
+   * Проверка на телефоне по одному блоку указала именно на подарки, а та же
+   * обложка простой картинкой в ивенте «Начало» открывалась. Эффекты полки
+   * (дыхание, блик, искры, свечение) подарку и не нужны.
+   */
   list.innerHTML = cards
-    .map((c, i) => {
-      const pair = i % 2 === 0 ? [cards[i], cards[i + 1]] : [cards[i - 1], cards[i]];
-      const arts = pair.map((x) => x?.artAspect).filter(Boolean);
-      return caseCardHtml(c, new Map([[c.id, 1]]), arts.length ? Math.min(...arts) : null);
+    .map((c) => {
+      const art = caseArtSrc(c);
+      return `<button type="button" class="fm-gift" data-case="${c.id}">
+        ${art ? `<img src="${art}" alt="">` : ''}
+        <span class="fm-gift-name">${esc(c.name)}</span>
+        <span class="fm-gift-go">Открыть бесплатно</span></button>`;
     })
     .join('');
-
-  wireCaseCardFx(list);
-  list.querySelectorAll('.case-card').forEach((card) => {
-    card.addEventListener('click', () => openCase(card.dataset.case));
+  list.querySelectorAll('.fm-gift').forEach((b) => {
+    b.onclick = () => { haptic('light'); openCase(b.dataset.case); };
   });
 }
 

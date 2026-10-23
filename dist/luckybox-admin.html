@@ -5397,6 +5397,25 @@ div.mini-row { cursor: default; }
   box-shadow: 0 4px 12px -4px rgba(255, 190, 56, 0.7);
 }
 .fm-gifts .fm-ev-no { background: linear-gradient(180deg, #d6ffe6, #3ee08a); }
+/* Подарки - простые плитки, не карточки полки (почему - в renderBonuses). */
+.fm-gift-row { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
+.fm-gift {
+  flex: 0 1 calc((100% - 10px) / 2); max-width: 220px;
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 12px 10px 12px; border-radius: 18px; cursor: pointer;
+  border: 1px solid rgba(120, 240, 170, 0.35);
+  background: radial-gradient(90% 70% at 50% 30%, rgba(255, 200, 90, 0.16), transparent 70%),
+    linear-gradient(180deg, rgba(40, 26, 60, 0.9), rgba(22, 14, 34, 0.95));
+  color: #fff; font: inherit; text-align: center;
+}
+.fm-gift img { width: 100%; max-width: 150px; aspect-ratio: 1; object-fit: contain; }
+.fm-gift-name { font: 800 15px/1.15 'Unbounded', 'Manrope', system-ui, sans-serif; }
+.fm-gift-go {
+  padding: 8px 14px; border-radius: 999px; color: #052414;
+  background: linear-gradient(180deg, #d6ffe6, #3ee08a 45%, #1b9e5c);
+  box-shadow: 0 3px 0 #0d5a33; font: 800 13px/1 'Manrope', system-ui, sans-serif; white-space: nowrap;
+}
+.fm-gift:active .fm-gift-go { transform: translateY(2px); box-shadow: 0 1px 0 #0d5a33; }
 .fm-ev-title { margin: 0; font: 800 19px/1.1 'Unbounded', 'Manrope', system-ui, sans-serif; color: #fff; }
 .fm-ev-note { margin-left: auto; color: var(--muted); font: 600 12px/1.2 'Manrope', system-ui, sans-serif; }
 .fm-live {
@@ -5674,13 +5693,12 @@ div.mini-row { cursor: default; }
  * Бесконечные украшения Free Money стоят. На iPhone (Safari и просмотр в
  * Documents) раздел падал и перезагружался по кругу: каждая вечная анимация
  * держит отдельный слой, а раздел длинный, и их было больше десятка - звёзды,
- * машина, блик, лампочки, билеты, самолёт, обложки подарков. Движется только
+ * машина, блик, лампочки, билеты, самолёт. Движется только
  * то, что отвечает на действие игрока: колесо и лампочки во время прокрута,
  * приезд машины и шкалы при открытии. По той же причине у билетов нет маски
  * с вырезами и «штампа» на каждом: это сто анимированных слоев с маской.
  */
-.fm-live i, .dv-sky i, .dv-sweep, .dv-t.fresh, .pw-bulb, .bt-plane, .st-cover img,
-#bonusList .case-card .cover-art, #bonusList .case-card .case-cover::after { animation: none; }
+.fm-live i, .dv-sky i, .dv-sweep, .dv-t.fresh, .pw-bulb, .bt-plane, .st-cover img { animation: none; }
 .dv-car { animation: dvArrive 1.1s cubic-bezier(0.2, 1, 0.3, 1) both; }
 .dv-t.fresh { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 0 8px #ffd04f; }
 .pw-card.is-spinning .pw-bulb { animation: pwBulb 0.24s steps(1) infinite; }
@@ -7795,18 +7813,6 @@ div.mini-row { cursor: default; }
   .shelf-row .case-price { font-size: 19px; }
   .shelf-row .case-max { font-size: 13px; }
 
-  /* Ряд бонусных кейсов - та же сетка. */
-  #bonusList {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
-    align-items: flex-start;
-    gap: 2px;
-  }
-  #bonusList > .case-card {
-    flex: 0 0 min(420px, calc((100% - 4px) / 3));
-    max-width: 420px;
-  }
 
   /*
    * Кейсы с вырезанным артом ставим в слот одной высоты.
@@ -8122,8 +8128,7 @@ div.mini-row { cursor: default; }
 /* Совсем широкие мониторы: шестой кейс в ряду вместо воздуха по краям. */
 /* Очень широкий монитор: четвёртый кейс в ряду, но не мельче. */
 @media (min-width: 1800px) {
-  .shelf-row > .case-card,
-  #bonusList > .case-card { flex-basis: min(420px, calc((100% - 6px) / 4)); }
+  .shelf-row > .case-card { flex-basis: min(420px, calc((100% - 6px) / 4)); }
   main { max-width: 1780px; }
 }
 
@@ -9866,12 +9871,6 @@ body.mo-receded .opener-scroll { filter: blur(4px) saturate(.55); transform: sca
   .shelf-row .case-card.has-art:hover .case-cover { transform: translateY(-8px) scale(1.04); }
 }
 .case-cover > .fx-burst { z-index: 3; }
-/* Подарки во Free Money не дышат и не бликуют. Анимация filter с drop-shadow
-   на этих обложках роняла вкладку Safari целиком (WebKit, проверено
-   бисекцией), а вечное дыхание держит лишний слой на iPhone (см. блок FREE
-   MONEY). Блик здесь и не нужен: подарок бесплатный. */
-#bonusList .case-card.has-art .cover-art,
-#bonusList .case-card.has-art.can-afford .cover-art { animation: none; }
 @media (prefers-reduced-motion: reduce) {
   .shelf-row .case-card.has-art .cover-art { animation: none; }
 }
@@ -11379,7 +11378,7 @@ body.cz-playing { overflow: hidden; }
       <section class="fm-ev fm-gifts" id="fmGifts" data-tab="Подарки" hidden>
         <div class="fm-ev-head"><span class="fm-ev-no">★</span><h2 class="fm-ev-title">Ваши подарки</h2></div>
         <div class="perk-bar" id="bonusPerks" hidden></div>
-        <div class="shelf-row" id="bonusList"></div>
+        <div class="fm-gift-row" id="bonusList"></div>
       </section>
 
       <section class="fm-ev fm-drive" id="fmDrive" data-tab="Lucky Drive"></section>
@@ -30766,19 +30765,25 @@ function renderBonuses() {
     return;
   }
 
-  // Здесь пары складываются из того, что выиграно, поэтому пропорция берётся
-  // по соседу так же, как на полках.
+  /*
+   * Подарок - простая плитка: обложка, название, кнопка. Не карточка полки.
+   * Карточка полки (caseCardHtml) здесь роняла раздел на iPhone: в просмотре
+   * Documents страница перезагружалась по кругу, даже когда блок был скрыт.
+   * Проверка на телефоне по одному блоку указала именно на подарки, а та же
+   * обложка простой картинкой в ивенте «Начало» открывалась. Эффекты полки
+   * (дыхание, блик, искры, свечение) подарку и не нужны.
+   */
   list.innerHTML = cards
-    .map((c, i) => {
-      const pair = i % 2 === 0 ? [cards[i], cards[i + 1]] : [cards[i - 1], cards[i]];
-      const arts = pair.map((x) => x?.artAspect).filter(Boolean);
-      return caseCardHtml(c, new Map([[c.id, 1]]), arts.length ? Math.min(...arts) : null);
+    .map((c) => {
+      const art = caseArtSrc(c);
+      return `<button type="button" class="fm-gift" data-case="${c.id}">
+        ${art ? `<img src="${art}" alt="">` : ''}
+        <span class="fm-gift-name">${esc(c.name)}</span>
+        <span class="fm-gift-go">Открыть бесплатно</span></button>`;
     })
     .join('');
-
-  wireCaseCardFx(list);
-  list.querySelectorAll('.case-card').forEach((card) => {
-    card.addEventListener('click', () => openCase(card.dataset.case));
+  list.querySelectorAll('.fm-gift').forEach((b) => {
+    b.onclick = () => { haptic('light'); openCase(b.dataset.case); };
   });
 }
 
