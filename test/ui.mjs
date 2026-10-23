@@ -2063,17 +2063,26 @@ check('честность: личная статистика убрана', fair
 
   await page.click('#czSeg [data-kind="fast"]');
   await page.waitForSelector('.cz-fast .cz-tile[data-game]', { timeout: 15000 });
+  // Плитки грузят обложки лениво (loading="lazy"), и в CI картинка за краем
+  // экрана к моменту проверки ещё не начинала грузиться. Переводим наши две
+  // в немедленную загрузку и ждём декодирования: проверяется, что файл
+  // доступен и это картинка, а не то, успела ли прокрутка.
+  const ownCovers = await page.evaluate(() => Promise.all(
+    [...document.querySelectorAll('.cz-fast .cz-tile[data-own] img')].map((i) => {
+      i.loading = 'eager';
+      const timeout = new Promise((done) => setTimeout(() => done(false), 8000));
+      return Promise.race([i.decode().then(() => i.naturalWidth > 0, () => false), timeout]);
+    })));
   const fast = await page.evaluate(() => ({
     names: [...document.querySelectorAll('.cz-fast .cz-tile[data-game] .cz-name')].map((n) => n.textContent),
     own: [...document.querySelectorAll('.cz-fast .cz-tile[data-own]')].map((t) => t.dataset.own),
     first: document.querySelector('.cz-fast .cz-tile')?.dataset.own || '',
     blocks: document.querySelectorAll('#czBody .cz-block[data-block]').length,
     chips: document.getElementById('czChips').hidden,
-    // Обложка обязана загрузиться, а не просто иметь верный путь: в
-    // автономной сборке путь не подставлялся, и плитки были битыми.
-    covers: [...document.querySelectorAll('.cz-fast .cz-tile[data-own] img')]
-      .every((i) => i.complete && i.naturalWidth > 0),
   }));
+  // Обложка обязана загрузиться, а не просто иметь верный путь: в
+  // автономной сборке путь не подставлялся, и плитки были битыми.
+  fast.covers = ownCovers.length === 2 && ownCovers.every(Boolean);
   check('казино: быстрые игры своей вкладкой', fast.names.some((n) => /aviator/i.test(n)), fast.names.slice(0, 4).join(' | '));
   // Решение заказчика: игр немного, поэтому одна сетка без категорий и лент.
   check('казино: быстрые игры одной сеткой, без категорий и чипов', fast.blocks === 0 && fast.chips,
