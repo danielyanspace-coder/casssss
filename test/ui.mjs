@@ -37,6 +37,10 @@ function findChromium() {
 const EXECUTABLE = process.argv[3] || process.env.CHROMIUM_PATH || findChromium();
 
 let passed = 0;
+/** Сколько ждать, пока бонус слота доиграет: серия из 10-15 прокрутов. */
+const SLOT_SETTLE_STEPS = 120;
+const SLOT_SETTLE_MS = 500;
+
 const failures = [];
 const check = (name, ok, detail = '') => {
   if (ok) { passed++; return true; }
@@ -2212,7 +2216,26 @@ slotChecks: {
    * Каждая игра проверяется отдельно: они отличаются таблицей, лентами и
    * оформлением, и половина ошибок вылезает именно там, где игры расходятся.
    */
+  /*
+   * Ждём, пока игра успокоится: прокрут изредка (раз на ~140) выдаёт бонус,
+   * серия фриспинов крутится сама, а в конце встаёт окно «БОНУС ЗАВЕРШЁН».
+   * Без ожидания следующая игра не принимала прокрут (идёт бонус), а окно
+   * итога потом перекрывало проверки окон - тест падал через раз.
+   */
+  const settleSlot = async () => {
+    for (let i = 0; i < SLOT_SETTLE_STEPS; i++) {
+      const st = await page.evaluate(() => ({
+        bonus: document.getElementById('slotStage')?.classList.contains('is-bonus'),
+        bigwin: Boolean(document.querySelector('#slotModalBody .sl-bigwin')),
+      }));
+      if (st.bigwin) await page.evaluate(() => document.querySelector('[data-act="modal-close"]')?.click());
+      else if (!st.bonus) return;
+      await page.waitForTimeout(SLOT_SETTLE_MS);
+    }
+  };
+
   for (const slotId of shelf.ids) {
+    await settleSlot();
     await page.evaluate((id) => {
       document.querySelector('[data-act="shelf"]')?.click();
       setTimeout(() => document.querySelector(`[data-slot="${id}"]`)?.click(), 60);
@@ -2347,6 +2370,7 @@ slotChecks: {
         `${buy.price} против ${conf ? conf.slot.buyBonusPrice * betMin : '?'}`);
   await page.evaluate(() => document.querySelector('[data-act="modal-close"]').click());
 
+  await settleSlot();
   // Меню, правила, настройки, история, выбор ставки, автоигра.
   for (const [act, needle] of [
     ['menu', 'Правила игры'],

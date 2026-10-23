@@ -1029,18 +1029,17 @@ function renderBonuses() {
   }
 
   /*
-   * Один выигранный кейс - одна карточка.
+   * Одна плитка на кейс, число подарков - крупной плашкой на ней.
    *
-   * Раньше повторы схлопывались в одну карточку с числом рядом, и три
-   * одинаковых подарка выглядели как один: приписка ×3 у карточки с артом не
-   * показывается вовсе. Теперь каждый экземпляр стоит отдельно и его видно
-   * пересчётом, а не чтением мелкой цифры.
+   * Раньше каждый экземпляр стоял отдельной карточкой, чтобы три подарка не
+   * читались как один. Но «Начало» выдаётся за каждую тысячу оборота, и у
+   * крупного игрока их тысячи: тысячи плиток с обложкой роняли страницу на
+   * iPhone (раздел перезагружался по кругу). Плашка ×N крупная, чтобы число
+   * читалось сразу, а не мелкой цифрой.
    */
   const cards = (state.user.vouchers || [])
-    .flatMap((v) => {
-      const c = state.config.cases.find((x) => x.id === v.case_id);
-      return c && v.count > 0 ? Array.from({ length: v.count }, () => c) : [];
-    });
+    .map((v) => ({ c: state.config.cases.find((x) => x.id === v.case_id), n: v.count }))
+    .filter((g) => g.c && g.n > 0);
 
   // Блок «Ваши подарки» во Free Money виден, только когда есть что открыть:
   // пустая полка с извинением сверху раздела - худшее начало витрины.
@@ -1051,19 +1050,22 @@ function renderBonuses() {
     return;
   }
 
-  // Здесь пары складываются из того, что выиграно, поэтому пропорция берётся
-  // по соседу так же, как на полках.
+  /*
+   * Подарок - простая плитка: обложка, название, кнопка. Эффекты карточки
+   * полки (дыхание, блик, искры, свечение) бесплатному кейсу не нужны.
+   */
   list.innerHTML = cards
-    .map((c, i) => {
-      const pair = i % 2 === 0 ? [cards[i], cards[i + 1]] : [cards[i - 1], cards[i]];
-      const arts = pair.map((x) => x?.artAspect).filter(Boolean);
-      return caseCardHtml(c, new Map([[c.id, 1]]), arts.length ? Math.min(...arts) : null);
+    .map(({ c, n }) => {
+      const art = caseArtSrc(c);
+      return `<button type="button" class="fm-gift" data-case="${c.id}">
+        ${art ? `<img src="${art}" alt="">` : ''}
+        ${n > 1 ? `<span class="fm-gift-n">×${fmt(n)}</span>` : ''}
+        <span class="fm-gift-name">${esc(c.name)}</span>
+        <span class="fm-gift-go">Открыть бесплатно</span></button>`;
     })
     .join('');
-
-  wireCaseCardFx(list);
-  list.querySelectorAll('.case-card').forEach((card) => {
-    card.addEventListener('click', () => openCase(card.dataset.case));
+  list.querySelectorAll('.fm-gift').forEach((b) => {
+    b.onclick = () => { haptic('light'); openCase(b.dataset.case); };
   });
 }
 
