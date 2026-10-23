@@ -40,6 +40,9 @@ let passed = 0;
 /** Сколько ждать, пока бонус слота доиграет: серия из 10-15 прокрутов. */
 const SLOT_SETTLE_STEPS = 120;
 const SLOT_SETTLE_MS = 500;
+/* Повторы нажатия «прокрут», пока занята фоновая серия прошлой игры. */
+const SLOT_SPIN_TRIES = 40;
+const SLOT_SPIN_RETRY_MS = 1000;
 
 const failures = [];
 const check = (name, ok, detail = '') => {
@@ -142,6 +145,10 @@ if (newcomer) {
     document.querySelector('.case-card[data-case="start_free"]')?.textContent || '');
   check('кейс «Начало» на главной подписан FREE, а не «Бесплатно»',
     /FREE/.test(freeLabel) && !/Бесплатно/.test(freeLabel), freeLabel.replace(/\s+/g, ' ').slice(0, 80));
+  // Число подарков - отдельной плашкой, в самой надписи только FREE.
+  const freePrice = await page.evaluate(() =>
+    document.querySelector('.case-card[data-case="start_free"] .case-price')?.textContent.trim());
+  check('кейс «Начало»: в надписи только FREE, число отдельно', freePrice === 'FREE', String(freePrice));
 }
 
 /* ---------- Баннеры первого экрана ---------- */
@@ -423,12 +430,12 @@ if (newcomer) {
 /**
  * Переход в раздел через меню.
  *
- * Меню собрано поверх присланной картинки: подписи и иконки нарисованы прямо
- * на ней, а кликабельные области лежат сверху прозрачными кнопками.
+ * Меню телефона - те же плитки, что боковая панель компьютера
+ * (navTilesHtml): одинаковые разделы, рисунки и порядок.
  */
 async function goto(view) {
   await page.click('#menuBtn');
-  const sel = `#menuPhoto .menu-hit[data-view="${view}"], #menuExtra .menu-tile[data-view="${view}"]`;
+  const sel = `#menuNav .side-item[data-view="${view}"]`;
   await page.waitForSelector(sel, { state: 'visible' });
   await page.click(sel);
   await page.waitForTimeout(400);
@@ -436,65 +443,49 @@ async function goto(view) {
 
 {
   await page.click('#menuBtn');
-  await page.waitForSelector('#menuPhoto .menu-hit', { state: 'visible' });
+  await page.waitForSelector('#menuNav .side-item', { state: 'visible' });
 
   const menu = await page.evaluate(() => {
-    const img = document.getElementById('menuPhotoImg');
-    const box = img.getBoundingClientRect();
-    const hits = [...document.querySelectorAll('#menuPhoto .menu-hit[data-view]')];
     const rect = (el) => el.getBoundingClientRect();
-
+    const tiles = [...document.querySelectorAll('#menuNav .side-item.is-sq[data-view]')];
+    const arts = [...document.querySelectorAll('#menuNav img.side-art')];
     return {
-      imgLoaded: img.complete && img.naturalWidth > 0,
-      views: hits.map((b) => b.dataset.view),
-      // Область обязана лежать внутри картинки, иначе нажатие уедет мимо
-      // нарисованной плитки.
-      inside: hits.every((b) => {
-        const r = rect(b);
-        return r.left >= box.left - 1 && r.right <= box.right + 1
-            && r.top >= box.top - 1 && r.bottom <= box.bottom + 1;
-      }),
-      // Перекрытие областей означало бы, что нажатие попадёт не в тот раздел.
-      overlap: hits.some((a, i) => hits.slice(i + 1).some((b) => {
+      views: tiles.map((b) => b.dataset.view),
+      wallet: !!document.querySelector('#menuNav .side-item.is-wide[data-view="wallet"]'),
+      artsLoaded: arts.length > 0 && arts.every((i) => i.complete && i.naturalWidth > 0),
+      overlap: tiles.some((a, i) => tiles.slice(i + 1).some((b) => {
         const ra = rect(a); const rb = rect(b);
-        return ra.left < rb.right && rb.left < ra.right
-            && ra.top < rb.bottom && rb.top < ra.bottom;
+        return ra.left < rb.right - 1 && rb.left < ra.right - 1
+            && ra.top < rb.bottom - 1 && rb.top < ra.bottom - 1;
       })),
-      // Плитки должны быть крупными: по картинке в них и целятся пальцем.
-      minSide: Math.min(...hits.map((b) => Math.min(rect(b).width, rect(b).height))),
-      hasBack: !!document.querySelector('#menuPhoto .menu-hit-back'),
+      // Плитки крупные: в них целятся пальцем.
+      minSide: Math.min(...tiles.map((b) => Math.min(rect(b).width, rect(b).height))),
+      // Три в ряд на телефоне.
+      firstRow: tiles.filter((b) => Math.abs(rect(b).top - rect(tiles[0]).top) < 2).length,
+      oldPhoto: !!document.getElementById('menuPhoto'),
+      hasClose: !!document.getElementById('menuClose'),
       bottomNav: document.querySelectorAll('.bottom-nav, .nav-btn').length,
-      // Поддержка ведёт наружу, поэтому data-view у неё нет и в hits она не
-      // попадает - проверяем отдельно, что область есть и лежит на картинке.
       support: (() => {
         const el = document.getElementById('menuSupport');
-        if (!el) return null;
-        const r = rect(el);
-        return {
-          inside: r.left >= box.left - 1 && r.right <= box.right + 1
-               && r.top >= box.top - 1 && r.bottom <= box.bottom + 1,
-          height: r.height,
-        };
+        return el ? rect(el).height : 0;
       })(),
     };
   });
 
-  check('меню: картинка загрузилась', menu.imgLoaded);
-  check('меню: шесть кликабельных разделов', menu.views.length === 6, menu.views.join(', '));
-  check('меню: порядок разделов совпадает с картинкой',
-        menu.views.join(',') === 'cases,upgrade,crash,roulette,wallet,freemoney',
+  check('меню: разделы те же, что в боковой панели компьютера',
+        menu.views.join(',') === 'cases,upgrade,crash,roulette,casino,freemoney',
         menu.views.join(','));
+  check('меню: касса отдельной полосой', menu.wallet);
+  check('меню: рисунки плиток загрузились', menu.artsLoaded);
+  check('меню: присланной картинки-меню больше нет', !menu.oldPhoto);
   check('меню: «Честности» в меню нет', !menu.views.includes('fair'));
   check('меню: «Истории» в меню нет', !menu.views.includes('history'));
-  check('меню: области лежат внутри картинки', menu.inside);
-  check('меню: области не перекрываются', !menu.overlap);
-  check('меню: области крупные', menu.minSide >= 44, `минимальная сторона ${Math.round(menu.minSide)}px`);
-  check('меню: кнопка возврата на месте', menu.hasBack);
+  check('меню: плитки не перекрываются', !menu.overlap);
+  check('меню: плитки крупные', menu.minSide >= 44, `минимальная сторона ${Math.round(menu.minSide)}px`);
+  check('меню: три плитки в ряд', menu.firstRow === 3, String(menu.firstRow));
+  check('меню: кнопка закрытия на месте', menu.hasClose);
   check('меню: нижняя панель убрана', menu.bottomNav === 0);
-  check('меню: полоса «Поддержка» на месте', !!menu.support);
-  check('меню: «Поддержка» лежит внутри картинки', menu.support?.inside);
-  check('меню: «Поддержка» крупная', (menu.support?.height || 0) >= 44,
-        `высота ${Math.round(menu.support?.height || 0)}px`);
+  check('меню: «Поддержка» крупная', menu.support >= 44, `высота ${Math.round(menu.support)}px`);
 
   // Поддержка уводит в телеграм. В браузере моста нет, остаётся window.open -
   // его и перехватываем, чтобы проверить адрес и не открывать вкладку.
@@ -511,11 +502,10 @@ async function goto(view) {
         await page.evaluate(() => document.getElementById('menuBackdrop').hidden));
 
   await page.click('#menuBtn');
-  await page.waitForSelector('#menuPhoto .menu-hit', { state: 'visible' });
-
-  await page.click('#menuPhoto .menu-hit-back');
+  await page.waitForSelector('#menuNav .side-item', { state: 'visible' });
+  await page.click('#menuClose');
   await page.waitForTimeout(300);
-  check('меню: кнопка на картинке закрывает меню',
+  check('меню: кнопка закрытия закрывает меню',
         await page.evaluate(() => document.getElementById('menuBackdrop').hidden));
 }
 
@@ -2076,14 +2066,26 @@ check('честность: личная статистика убрана', fair
 
   await page.click('#czSeg [data-kind="fast"]');
   await page.waitForSelector('.cz-fast .cz-tile[data-game]', { timeout: 15000 });
+  // Плитки грузят обложки лениво (loading="lazy"), и в CI картинка за краем
+  // экрана к моменту проверки ещё не начинала грузиться. Переводим наши две
+  // в немедленную загрузку и ждём декодирования: проверяется, что файл
+  // доступен и это картинка, а не то, успела ли прокрутка.
+  const ownCovers = await page.evaluate(() => Promise.all(
+    [...document.querySelectorAll('.cz-fast .cz-tile[data-own] img')].map((i) => {
+      i.loading = 'eager';
+      const timeout = new Promise((done) => setTimeout(() => done(false), 8000));
+      return Promise.race([i.decode().then(() => i.naturalWidth > 0, () => false), timeout]);
+    })));
   const fast = await page.evaluate(() => ({
     names: [...document.querySelectorAll('.cz-fast .cz-tile[data-game] .cz-name')].map((n) => n.textContent),
     own: [...document.querySelectorAll('.cz-fast .cz-tile[data-own]')].map((t) => t.dataset.own),
     first: document.querySelector('.cz-fast .cz-tile')?.dataset.own || '',
     blocks: document.querySelectorAll('#czBody .cz-block[data-block]').length,
     chips: document.getElementById('czChips').hidden,
-    covers: [...document.querySelectorAll('.cz-fast .cz-tile[data-own] img')].every((i) => /fast-(crash|upgrade)/.test(i.src)),
   }));
+  // Обложка обязана загрузиться, а не просто иметь верный путь: в
+  // автономной сборке путь не подставлялся, и плитки были битыми.
+  fast.covers = ownCovers.length === 2 && ownCovers.every(Boolean);
   check('казино: быстрые игры своей вкладкой', fast.names.some((n) => /aviator/i.test(n)), fast.names.slice(0, 4).join(' | '));
   // Решение заказчика: игр немного, поэтому одна сетка без категорий и лент.
   check('казино: быстрые игры одной сеткой, без категорий и чипов', fast.blocks === 0 && fast.chips,
@@ -2249,7 +2251,7 @@ check('честность: личная статистика убрана', fair
  */
 slotChecks: {
   const hidden = await page.evaluate(() => ({
-    menuTile: document.querySelectorAll('#menuExtra [data-view="slots"]').length,
+    menuTile: document.querySelectorAll('#menuNav [data-view="slots"]').length,
     sideNav: document.querySelectorAll('#sideNav [data-view="slots"]').length,
   }));
   check('слоты: выключенный раздел не показан в меню телефона', hidden.menuTile === 0,
@@ -2374,7 +2376,19 @@ slotChecks: {
         return res;
       };
     });
-    await page.evaluate(() => document.getElementById('slotSpin').click());
+    /*
+     * Нажатие повторяется, пока сервер не ответит. Прокрут прошлой игры мог
+     * выдать бонус, и его серия доигрывает в фоне уже после перехода к этой
+     * игре (признак is-bonus пропадает вместе с её экраном, settleSlot его не
+     * видит). Пока серия идёт, кнопка молча игнорирует нажатие: тест падал
+     * через раз, хотя сама игра исправна. Принятое нажатие одно - дальше
+     * кнопка занята своим прокрутом, а повторы прекращаются.
+     */
+    for (let i = 0; i < SLOT_SPIN_TRIES; i++) {
+      await page.evaluate(() => document.getElementById('slotSpin')?.click());
+      await page.waitForTimeout(SLOT_SPIN_RETRY_MS);
+      if (await page.evaluate(() => Boolean(window.__slotAnswer))) break;
+    }
     await page.waitForTimeout(3600);
     const answer = await page.evaluate(() => window.__slotAnswer);
     // Если ответа нет, говорим, почему кнопка промолчала: открытое окно,

@@ -715,8 +715,13 @@ function caseCardHtml(c, vouchers, artAspect = null) {
   const breath = `;--breath:${-((h % 5500) / 1000).toFixed(2)}s;--glint:${-((h % 9000) / 1000).toFixed(2)}s`;
   const afford = !locked && (freeCount > 0 || (!c.free && c.price <= (state.user?.balance || 0)));
   // Бесплатный кейс: вместо цены - «FREE», а готовый подарок светится.
-  const priceLabel = c.free ? (freeCount ? `FREE ×${freeCount}` : 'FREE')
+  // Число подарков - отдельной приклеенной плашкой, тише самой надписи
+  // (решение заказчика): главное на полке «FREE», а сколько их - справка.
+  const priceLabel = c.free ? 'FREE'
     : freeCount && !locked ? 'ПОДАРОК' : money(c.price);
+  const priceHtml = c.free && freeCount
+    ? `<span class="case-price-pair"><span class="case-price">${priceLabel}</span><span class="case-count">×${fmt(freeCount)}</span></span>`
+    : `<span class="case-price">${priceLabel}</span>`;
 
   return `<div class="case-card ${hasArt ? 'has-art' : ''} ${freeCount ? 'free-ready' : ''} ${c.free ? 'is-gift' : ''} ${locked ? 'locked' : ''} ${afford ? 'can-afford' : ''}"
       data-case="${c.id}" style="--cat-color:${color}${
@@ -728,7 +733,7 @@ function caseCardHtml(c, vouchers, artAspect = null) {
     </div>
     <div class="case-name">${esc(c.name)}</div>
     <div class="case-foot">
-      <span class="case-price">${priceLabel}</span>
+      ${priceHtml}
       ${hasArt ? '' : `<span class="case-max">${c.maxMultiplier}x</span>`}
     </div>
   </div>`;
@@ -6210,34 +6215,6 @@ function switchView(name) {
  * больше, чем в неё помещается. Вместо этого - кнопка-сетка в шапке и
  * плитки во весь экран.
  */
-/**
- * Меню собрано поверх присланной картинки.
- *
- * Раскладка, подписи и иконки нарисованы прямо на ней, поэтому здесь остались
- * только координаты кликабельных областей - в процентах от сторон картинки,
- * чтобы они не разъезжались ни на каком экране. Числа сняты с исходника
- * 788x998 по границам самих карточек.
- *
- * «Честности» в меню нет намеренно: ссылка на неё живёт в подвале.
- */
-const MENU_HITS = [
-  // Первый ряд: кейсы, апгрейд, краш.
-  { view: 'cases',    left: 4.82,  top: 14.63, width: 28.77, height: 29.56 },
-  { view: 'upgrade',  left: 35.62, top: 14.63, width: 28.77, height: 29.56 },
-  { view: 'crash',    left: 66.42, top: 14.63, width: 28.77, height: 29.56 },
-  // Второй ряд: рулетка, касса, бонусы.
-  { view: 'roulette', left: 4.82,  top: 46.59, width: 28.77, height: 29.76 },
-  { view: 'wallet',   left: 35.62, top: 46.59, width: 28.77, height: 29.76 },
-  // На картинке «Бонусы»: ведут во Free Money, отдельного раздела больше нет.
-  { view: 'freemoney', left: 66.42, top: 46.59, width: 28.77, height: 29.76 },
-];
-
-/** Кнопка возврата, нарисованная в правом верхнем углу картинки. */
-const MENU_BACK_HIT = { left: 85.20, top: 4.00, width: 10.00, height: 8.00 };
-
-/** Широкая полоса «Поддержка» внизу картинки. */
-const MENU_SUPPORT_HIT = { left: 4.82, top: 78.86, width: 90.36, height: 16.80 };
-
 /** Аккаунт поддержки в телеграме. Он же стоит ссылкой в подвале. */
 const SUPPORT_URL = COMPANY.support;
 
@@ -6246,91 +6223,40 @@ function openSupport() {
   window.open(SUPPORT_URL, '_blank', 'noopener');
 }
 
-/**
- * Разделы, которых на картинке нет.
+/*
+ * Меню телефона - те же плитки, что боковая панель компьютера (решение
+ * заказчика: «одинаково и пункты, и оформление»). Раньше это была присланная
+ * картинка с прозрачными кнопками поверх, и разделы, которых на ней не было
+ * (казино, партнёр, админ), висели под ней чужими кнопками.
  *
- * Дорисовывать их в чужой макет нельзя, поэтому они идут обычными кнопками
- * под картинкой и только тем, кому положены.
+ * АДМИНКА ЗДЕСЬ ЕСТЬ, а в боковой панели нет: заказчик убрал её из меню
+ * компьютера, но другого входа в панель пока нет (будет скрытая ссылка), и
+ * убрать его и отсюда значило бы отрезать администратора от панели.
  */
-const MENU_EXTRA = [
-  { view: 'casino', ico: 'slot', title: 'Казино', sub: 'Слоты провайдеров' },
-  { view: 'slots', ico: 'slot', title: 'Слоты', sub: 'TREASURE ISLAND' },
-  { view: 'partner', ico: 'people', title: 'Партнёру', sub: 'Ваши рефералы', partnerOnly: true },
-  { view: 'admin', ico: 'admin', title: 'Админ', sub: 'Панель управления', adminOnly: true },
-];
+const MENU_ADMIN = { view: 'admin', ico: 'admin', title: 'Админ', sub: 'Панель управления' };
 
 function renderMenu() {
-  const photo = document.getElementById('menuPhoto');
-  const extra = document.getElementById('menuExtra');
-  if (!photo) return;
+  const nav = document.getElementById('menuNav');
+  if (!nav) return;
+  nav.innerHTML = navTilesHtml({ admin: !!state.user?.isAdmin, supportId: 'menuSupport' });
+  mountIcons(nav);
 
-  // Старые области убираем, картинку оставляем на месте.
-  photo.querySelectorAll('.menu-hit').forEach((el) => el.remove());
-
-  const place = (el, hit) => {
-    el.style.left = `${hit.left}%`;
-    el.style.top = `${hit.top}%`;
-    el.style.width = `${hit.width}%`;
-    el.style.height = `${hit.height}%`;
-  };
-
-  for (const hit of MENU_HITS) {
-    const btn = document.createElement('button');
-    btn.className = 'menu-hit';
-    btn.dataset.view = hit.view;
-    btn.setAttribute('aria-label', hit.view);
-    place(btn, hit);
-    photo.appendChild(btn);
-  }
-
-  const back = document.createElement('button');
-  back.className = 'menu-hit menu-hit-back';
-  back.setAttribute('aria-label', 'Закрыть меню');
-  place(back, MENU_BACK_HIT);
-  back.addEventListener('click', closeMenu);
-  photo.appendChild(back);
-
-  const support = document.createElement('button');
-  support.className = 'menu-hit menu-hit-support';
-  support.id = 'menuSupport';
-  support.setAttribute('aria-label', 'Поддержка');
-  place(support, MENU_SUPPORT_HIT);
-  support.addEventListener('click', () => {
+  nav.querySelectorAll('[data-view]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      if (state.crash && !state.crash.finished && btn.dataset.view !== 'crash') {
+        toast('Сначала закончите раунд краша');
+        return;
+      }
+      closeMenu();
+      switchView(btn.dataset.view);
+      haptic('light');
+    });
+  });
+  nav.querySelector('#menuSupport').addEventListener('click', () => {
     closeMenu();
     haptic('light');
     openSupport();
   });
-  photo.appendChild(support);
-
-  /*
-   * Выключенный раздел не показывается и в меню-картинке. Раньше фильтр по
-   * выключателю стоял только у боковой панели компьютера, и на телефоне
-   * плитка оставалась: игрок нажимал и получал «Раздел временно недоступен»
-   * от кнопки, которая выглядела рабочей.
-   */
-  extra.innerHTML = MENU_EXTRA
-    .filter((m) => (!m.adminOnly || state.user?.isAdmin)
-                && (!m.partnerOnly || state.user?.isPartner)
-                && viewOpen(m.view))
-    .map((m) => `<button class="menu-tile" data-view="${m.view}">
-      <span class="menu-tile-ico" data-ico="${m.ico}"></span>
-      <span class="menu-tile-title">${m.title}</span>
-      <span class="menu-tile-sub">${m.sub}</span>
-    </button>`).join('');
-  mountIcons(extra);
-
-  document.querySelectorAll('#menuPhoto [data-view], #menuExtra [data-view]')
-    .forEach((btn) => {
-      btn.addEventListener('click', () => {
-        if (state.crash && !state.crash.finished && btn.dataset.view !== 'crash') {
-          toast('Сначала закончите раунд краша');
-          return;
-        }
-        closeMenu();
-        switchView(btn.dataset.view);
-        haptic('light');
-      });
-    });
 }
 
 /* ============================================================
@@ -6338,17 +6264,10 @@ function renderMenu() {
    ============================================================ */
 
 /*
- * На телефоне навигация - меню-картинка: шесть плиток, нарисованных на
- * присланном макете. На широком экране она не работает: картинка либо
- * растягивается на половину монитора, либо болтается посреди пустоты, и в
- * обоих случаях выглядит как телефонное приложение, открытое не там.
- *
- * Поэтому для компьютера навигация своя - постоянная боковая панель. Разделы
- * те же и в том же порядке, что на картинке: игрок, пришедший с телефона,
- * находит их на привычных местах.
+ * На компьютере меню - постоянная боковая панель, на телефоне те же плитки
+ * открываются листом по кнопке в шапке (renderMenu выше). Разметка у них
+ * одна (navTilesHtml), поэтому разделы, подписи и порядок совпадают.
  */
-/* Подписи те же, что нарисованы на картинке меню: игрок, пришедший с телефона,
-   читает на компьютере ровно то, к чему привык. */
 /*
  * Боковое меню компьютерной версии собрано по присланному макету: плитка с
  * рисунком слева, названием, подписью и стрелкой справа.
@@ -6361,7 +6280,7 @@ function renderMenu() {
  *
  * АДМИНКИ ЗДЕСЬ НЕТ НАМЕРЕННО. Заказчик просил убрать её из меню: вход в неё
  * будет отдельной скрытой ссылкой с паролем. Пока такой ссылки нет, вход
- * остаётся в меню-картинке на телефоне (MENU_EXTRA ниже) - убирать его тоже
+ * остаётся в меню телефона (MENU_ADMIN выше) - убирать его тоже
  * значило бы отрезать администратора от панели совсем.
  *
  * «Честности» здесь нет по другой причине: ссылка на неё стоит в подвале, и
@@ -6402,17 +6321,19 @@ const SIDE_NAV = [
     partnerOnly: true },
 ];
 
-function renderSideNav() {
-  const nav = document.getElementById('sideNav');
-  if (!nav) return;
-
+/**
+ * Плитки меню: разделы квадратами в сетке, касса и поддержка ниже
+ * прямоугольниками (решение заказчика): это два действия «вне игры», и
+ * отделены они так же. Одна разметка на боковую панель компьютера и лист
+ * меню телефона - иначе они разошлись бы с первой же правки.
+ */
+function navTilesHtml({ admin = false, supportId }) {
   const items = SIDE_NAV.filter((m) => (!m.adminOnly || state.user?.isAdmin)
                                     && (!m.partnerOnly || state.user?.isPartner)
                                     && viewOpen(m.view));
 
   // Рисунок плитки - вырезка из присланного макета. У разделов, которых в
-  // макете нет (партнёр), остаётся собственная иконка: дорисовывать их в
-  // чужой макет нельзя.
+  // макете нет (партнёр, слоты), остаётся собственная иконка.
   const icon = (m) => (m.art
     ? `<img class="side-art" src="${m.art}" alt="">`
     : `<span class="side-ico" data-ico="${m.ico}"></span>`);
@@ -6427,31 +6348,34 @@ function renderSideNav() {
       <span class="side-go" aria-hidden="true"></span>
     </button>`;
 
-  /*
-   * Разделы - квадратными плитками в сетке, касса и поддержка - особняком
-   * внизу прямоугольниками (решение заказчика): касса вытянутой строкой,
-   * поддержка повыше. Это два действия «вне игры», и отделены они так же.
-   */
   const wallet = items.find((m) => m.view === 'wallet');
   const grid = items.filter((m) => m !== wallet);
-  nav.innerHTML = `
-    <button class="side-brand" data-view="cases" aria-label="На главную">
-      <img src="/assets/ui/logo.webp" alt="LUCKYBOX" class="side-brand-logo">
-    </button>
+  return `
     <nav class="side-list">
       ${grid.map((m) => tile(m, ' is-sq')).join('')}
     </nav>
     <div class="side-bottom">
       ${wallet ? tile(wallet, ' is-wide') : ''}
-      ${tile({ id: 'sideSupport', art: '/assets/ui/nav-support.webp', title: 'Поддержка',
+      ${tile({ id: supportId, art: '/assets/ui/nav-support.webp', title: 'Поддержка',
                sub: 'Мы всегда на связи' }, ' is-tall')}
-    </div>
+      ${admin ? tile(MENU_ADMIN, ' is-wide is-admin') : ''}
+    </div>`;
+}
+
+function renderSideNav() {
+  const nav = document.getElementById('sideNav');
+  if (!nav) return;
+  nav.innerHTML = `
+    <button class="side-brand" data-view="cases" aria-label="На главную">
+      <img src="/assets/ui/logo.webp" alt="LUCKYBOX" class="side-brand-logo">
+    </button>
+    ${navTilesHtml({ supportId: 'sideSupport' })}
   `;
   mountIcons(nav);
 
   nav.querySelectorAll('[data-view]').forEach((btn) => {
     btn.addEventListener('click', () => {
-      // Тот же запрет, что в меню-картинке: уйти с недоигранного краша нельзя,
+      // Тот же запрет, что в меню телефона: уйти с недоигранного краша нельзя,
       // иначе ставка останется висеть, а игрок решит, что её съели.
       if (state.crash && !state.crash.finished && btn.dataset.view !== 'crash') {
         toast('Сначала закончите раунд краша');
@@ -6483,6 +6407,7 @@ function closeMenu() {
 }
 
 document.getElementById('menuBtn').addEventListener('click', openMenu);
+document.getElementById('menuClose').addEventListener('click', closeMenu);
 document.getElementById('menuBackdrop').addEventListener('click', (e) => {
   if (e.target.id === 'menuBackdrop') closeMenu();
 });

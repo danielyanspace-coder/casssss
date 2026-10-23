@@ -364,7 +364,9 @@ const legal = inlineUi(read('./public/legal.js'));
 // slots.js проходит через inlineUi: символы и доски рамки лежат в assets/ui/,
 // и без подстановки в автономной сборке весь слот был бы пустыми рамками.
 const slots = inlineUi(read('./public/slots.js'));
-const casinoUi = read('./public/casino.js');
+// Обложки наших быстрых игр (Краш, Апгрейд) лежат в assets/ui/: без
+// подстановки в автономной сборке они были битыми картинками.
+const casinoUi = inlineUi(read('./public/casino.js'));
 // Знаки провайдеров лежат в assets/ui/ и уезжают внутрь файла через inlineUi.
 const providerLogos = inlineUi(read('./public/provider-logos.js'));
 const app = inlineUi(read('./public/app.js'));
