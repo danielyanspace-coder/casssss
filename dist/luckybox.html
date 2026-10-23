@@ -4916,28 +4916,118 @@ div.mini-row { cursor: default; }
   .fortune-step-flag { justify-self: start; margin-top: 2px; }
 }
 
-/* ---------- Окно выигрыша ---------- */
+/* ---------- Окно выигрыша Lucky Fortune ---------- */
 
-.fortune-win { text-align: center; }
-.fortune-win-art {
-  display: grid; place-items: center;
-  width: 92px; height: 92px;
-  margin: 0 auto 12px;
-  border-radius: 26px;
-  border: 1px solid var(--line);
-  background: linear-gradient(160deg, rgba(160, 32, 255, 0.28), rgba(255, 46, 138, 0.16));
+.fortune-win-backdrop { background: radial-gradient(110% 80% at 50% 35%, rgba(70, 20, 110, 0.82), rgba(6, 1, 12, 0.92)); }
+.fortune-win {
+  position: relative; width: min(340px, 100%); text-align: center;
+  padding: 0 20px 18px; border-radius: 28px;
+  background: linear-gradient(180deg, rgba(52, 22, 84, 0.96), rgba(20, 9, 32, 0.98) 55%);
+  border: 1px solid rgba(220, 160, 255, 0.28);
+  box-shadow: 0 30px 80px -20px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 230, 255, 0.16);
 }
-.fortune-win-sign { font-size: 40px; font-weight: 900; }
-.fortune-win-ico { width: 46px; height: 46px; display: block; }
-.fortune-win-ico svg { width: 100%; height: 100%; }
+.fortune-win-backdrop.is-in .fortune-win { animation: fwIn 0.55s cubic-bezier(0.2, 1.4, 0.4, 1) both; }
+@keyframes fwIn { from { transform: translateY(30px) scale(0.9); opacity: 0; } }
+.fw-stage { position: relative; height: 190px; margin: -70px -10px 6px; display: grid; place-items: center; }
+.fw-rays {
+  position: absolute; inset: 0; margin: auto; width: 270px; height: 270px; border-radius: 50%;
+  background: repeating-conic-gradient(from 0deg, rgba(255, 215, 130, 0.22) 0 8deg, transparent 8deg 22deg);
+  -webkit-mask: radial-gradient(closest-side, #000 25%, transparent 100%);
+  mask: radial-gradient(closest-side, #000 25%, transparent 100%);
+  animation: sgSpin 24s linear infinite;
+}
+.fw-ring {
+  position: absolute; width: 150px; height: 150px; border-radius: 50%;
+  border: 2px solid rgba(255, 220, 140, 0.5); opacity: 0;
+}
+.fortune-win-backdrop.is-in .fw-ring { animation: fwRing 1s ease-out 0.35s; }
+@keyframes fwRing { 0% { opacity: 0.9; transform: scale(0.6); } 100% { opacity: 0; transform: scale(1.7); } }
+.fortune-win-art { position: relative; display: grid; place-items: center; }
+.fortune-win-backdrop.is-in .fortune-win-art { animation: fwPop 0.75s cubic-bezier(0.2, 1.6, 0.4, 1) 0.1s both; }
+@keyframes fwPop { from { transform: scale(0.2) rotate(-25deg); opacity: 0; } }
 .fortune-win-kind {
-  font-size: 12px; font-weight: 700; letter-spacing: 0.14em;
-  text-transform: uppercase; color: var(--muted);
+  font: 800 11px/1 'Manrope', system-ui, sans-serif; letter-spacing: 0.2em; text-transform: uppercase; color: #e2b8ff;
 }
-.fortune-win-value { margin-top: 6px; font-size: 32px; font-weight: 900; }
-.fortune-win-note {
-  margin-top: 10px;
-  font-size: 13.5px; line-height: 1.5; color: var(--muted);
+.fortune-win-value {
+  margin-top: 8px; font: 900 34px/1.05 'Unbounded', 'Manrope', system-ui, sans-serif;
+  background: linear-gradient(180deg, #fff6d6, #ffd04f 55%, #f08a1c);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.fortune-win-backdrop[data-kind="percent"] .fortune-win-value { background-image: linear-gradient(180deg, #d6ffe6, #3ee08a 55%, #1b9e5c); }
+.fortune-win-note { margin: 10px 0 16px; color: #cbb8de; font: 500 13px/1.45 'Manrope', system-ui, sans-serif; }
+.fw-take {
+  position: relative; overflow: hidden; width: 100%; padding: 15px; border: 0; border-radius: 16px; cursor: pointer;
+  color: #2a0d3a; font: 800 15px/1 'Unbounded', 'Manrope', system-ui, sans-serif;
+  background: linear-gradient(180deg, #fff3c4 0%, #ffd34d 40%, #e8a024 65%, #ffcf5a 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 4px 0 #8a4f08, 0 14px 30px -8px rgba(255, 170, 40, 0.5);
+}
+.fw-take::after {
+  content: ''; position: absolute; inset: 0; translate: -130% 0; pointer-events: none;
+  background: linear-gradient(105deg, transparent 35%, rgba(255, 255, 255, 0.75) 50%, transparent 65%);
+  animation: openSheen 3.2s cubic-bezier(0.65, 0, 0.35, 1) infinite 0.9s;
+}
+.fw-take:active { transform: translateY(3px); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 1px 0 #8a4f08; }
+
+/* Процент: изумрудный медальон, вокруг кружат мелкие проценты. */
+.fw-medal {
+  position: relative; width: 118px; height: 118px; border-radius: 50%; display: grid; place-items: center;
+  background: radial-gradient(circle at 35% 30%, #b8ffd6, #2fbf74 45%, #0d5a33 100%);
+  box-shadow: 0 0 0 6px rgba(255, 214, 110, 0.85), 0 0 0 10px rgba(120, 60, 0, 0.5), 0 18px 40px rgba(20, 200, 110, 0.45);
+}
+.fw-medal b { font: 900 64px/1 'Unbounded', system-ui, sans-serif; color: #f2fff7; text-shadow: 0 3px 0 rgba(0, 60, 30, 0.6); }
+.fw-medal i {
+  position: absolute; left: 50%; top: 50%; width: 0; height: 0;
+  animation: fwOrbit 6s linear infinite; animation-delay: calc(var(--k, 0) * -1s);
+}
+.fw-medal i::before { content: '%'; position: absolute; translate: 74px -8px; color: #8cf5b4; font: 900 15px/1 'Unbounded', system-ui, sans-serif; text-shadow: 0 0 8px #3ee08a; }
+.fw-medal i:nth-of-type(2) { --k: 1; } .fw-medal i:nth-of-type(3) { --k: 2; }
+.fw-medal i:nth-of-type(4) { --k: 3; } .fw-medal i:nth-of-type(5) { --k: 4; } .fw-medal i:nth-of-type(6) { --k: 5; }
+@keyframes fwOrbit { to { rotate: 360deg; } }
+
+/* ×2 и запасной приз: золотая монета, переворачивается вокруг оси. */
+.fw-coin {
+  width: 122px; height: 122px; border-radius: 50%; display: grid; place-items: center;
+  background: radial-gradient(circle at 35% 30%, #fff6c8, #ffcf45 40%, #c98612 75%, #7a4a06);
+  box-shadow: inset 0 0 0 7px rgba(255, 240, 190, 0.55), inset 0 -6px 12px rgba(90, 50, 0, 0.5), 0 18px 34px rgba(255, 170, 40, 0.45);
+  animation: fwFlip 3.4s ease-in-out 0.9s infinite;
+}
+.fw-coin b { font: 900 46px/1 'Unbounded', system-ui, sans-serif; color: #5a3200; text-shadow: 0 2px 0 rgba(255, 240, 190, 0.7); }
+@keyframes fwFlip { 0%, 70% { transform: rotateY(0); } 85% { transform: rotateY(180deg) scale(1.05); } 100% { transform: rotateY(360deg); } }
+
+/* Кейс: его обложка, крупно и с тенью. */
+.fw-case { width: 190px; height: 190px; object-fit: contain; filter: drop-shadow(0 16px 24px rgba(0, 0, 0, 0.6)) drop-shadow(0 0 20px rgba(255, 180, 70, 0.35)); animation: sgFloat 3.6s ease-in-out 1s infinite; }
+
+/* Ваучер: золотой билет с вырезами по бокам и перфорацией. */
+.fw-ticket {
+  position: relative; width: 196px; height: 98px; display: grid; place-items: center; align-content: center; gap: 4px;
+  rotate: -8deg; color: #4a2600;
+  background: linear-gradient(135deg, #fff4c6, #ffd04f 45%, #e7a42a 100%);
+  -webkit-mask: radial-gradient(circle 12px at 0 50%, #0000 98%, #000) left / 51% 100% no-repeat,
+          radial-gradient(circle 12px at 100% 50%, #0000 98%, #000) right / 51% 100% no-repeat;
+  mask: radial-gradient(circle 12px at 0 50%, #0000 98%, #000) left / 51% 100% no-repeat,
+        radial-gradient(circle 12px at 100% 50%, #0000 98%, #000) right / 51% 100% no-repeat;
+  filter: drop-shadow(0 14px 22px rgba(255, 170, 40, 0.45));
+}
+.fw-ticket::before { content: ''; position: absolute; inset: 10px 26px; border: 2px dashed rgba(120, 60, 0, 0.35); border-radius: 8px; }
+.fw-ticket span { font: 800 12px/1 'Manrope', system-ui, sans-serif; letter-spacing: 0.4em; }
+.fw-ticket b { font: 900 26px/1 'Unbounded', system-ui, sans-serif; }
+
+/* Деньги: стопка монет, каждая падает на свою высоту. */
+.fw-stack { position: relative; width: 120px; height: 120px; }
+.fw-stack i {
+  position: absolute; left: 50%; width: 92px; height: 26px; translate: -50% 0; border-radius: 50%;
+  background: radial-gradient(ellipse at 40% 35%, #fff6c8, #ffcf45 45%, #b97810);
+  box-shadow: 0 6px 0 #8a5608, 0 10px 14px rgba(0, 0, 0, 0.4);
+  animation: fwDrop 0.5s cubic-bezier(0.3, 1.6, 0.5, 1) both;
+}
+.fw-stack i:nth-child(1) { bottom: 6px; animation-delay: 0.2s; }
+.fw-stack i:nth-child(2) { bottom: 26px; animation-delay: 0.32s; }
+.fw-stack i:nth-child(3) { bottom: 46px; animation-delay: 0.44s; }
+.fw-stack i:nth-child(4) { bottom: 66px; animation-delay: 0.56s; }
+@keyframes fwDrop { from { transform: translateY(-120px); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .fw-rays, .fw-take::after, .fw-medal i, .fw-coin, .fw-case, .fw-stack i { animation: none; }
+  .fortune-win-backdrop.is-in .fortune-win, .fortune-win-backdrop.is-in .fortune-win-art, .fortune-win-backdrop.is-in .fw-ring { animation: none; }
 }
 
 /* ============================================================
@@ -11658,16 +11748,20 @@ body.cz-playing { overflow: hidden; }
     </div>
   </div>
 
-  <!-- Окно выигрыша на колесе. -->
+  <!-- Окно выигрыша Lucky Fortune: сцена, у каждого вида приза своя
+       композиция (showFortuneWin). Закрывается кнопкой, нажатием мимо и сама
+       через FORTUNE_WIN_MS: ничто не ждёт нажатия вечно. -->
   <div class="confirm-backdrop fortune-win-backdrop" id="fortuneWinBackdrop" hidden>
-    <div class="confirm-sheet fortune-win">
-      <div class="fortune-win-art" id="fortuneWinArt"></div>
+    <div class="fortune-win">
+      <div class="fw-stage">
+        <div class="fw-rays"></div>
+        <div class="fw-ring"></div>
+        <div class="fortune-win-art" id="fortuneWinArt"></div>
+      </div>
       <div class="fortune-win-kind" id="fortuneWinKind"></div>
       <div class="fortune-win-value" id="fortuneWinValue"></div>
       <div class="fortune-win-note" id="fortuneWinNote"></div>
-      <div class="confirm-actions">
-        <button class="btn btn-primary" id="fortuneWinClose">Забрать</button>
-      </div>
+      <button class="fw-take" id="fortuneWinClose">Забрать</button>
     </div>
   </div>
 
@@ -39134,30 +39228,44 @@ function fortuneHighlight(wheel, spinMs, winner) {
 }
 
 /** Окно выигрыша: крупно что выпало и одна строка о том, что с этим делать. */
+/** Через сколько окно выигрыша Lucky Fortune закрывается само. */
+const FORTUNE_WIN_MS = 12000;
+
+/**
+ * Окно выигрыша Lucky Fortune.
+ *
+ * Раньше все призы показывались одинаково: значок в квадрате и строка.
+ * Заказчик назвал это ужасным, и он прав: «+15%» и кейс выглядели одной
+ * карточкой. Теперь у каждого вида своя композиция и своё движение -
+ * медальон процента, переворачивающаяся монета ×2, обложка кейса, золотой
+ * билет ваучера, стопка монет денег, - а сумма досчитывается.
+ */
 function showFortuneWin(prize) {
   const wager = state.config?.firstDeposit?.wager ?? 3;
+  const giftCase = prize.caseId ? state.config.cases.find((c) => c.id === prize.caseId) : null;
+  const cover = giftCase ? (caseStageSrc(giftCase) || caseArtSrc(giftCase)) : null;
   const art = {
-    percent: '<span class="fortune-win-sign">%</span>',
-    x2: '<span class="fortune-win-sign">×2</span>',
-    case: '<span class="fortune-win-ico" data-ico="gift"></span>',
-    voucher: '<span class="fortune-win-ico" data-ico="gift"></span>',
-    cash: '<span class="fortune-win-ico" data-ico="coin"></span>',
+    percent: `<div class="fw-medal"><b>%</b>${'<i></i>'.repeat(6)}</div>`,
+    x2: '<div class="fw-coin"><b>×2</b></div>',
+    case: cover ? `<img class="fw-case" src="${cover}" alt="">` : '<div class="fw-coin"><b>★</b></div>',
+    voucher: `<div class="fw-ticket"><span>LUCKY</span><b>${fmt(prize.amount)} ₽</b></div>`,
+    cash: '<div class="fw-stack"><i></i><i></i><i></i><i></i></div>',
   }[prize.kind] || '';
 
   const value = {
-    percent: `+${prize.amount}%`,
+    percent: `+<span class="fw-num" data-to="${prize.amount}">0</span>%`,
     x2: '×2',
     case: prize.caseName ? `«${esc(prize.caseName)}»` : 'Кейс',
-    voucher: money(prize.amount),
-    cash: money(prize.amount),
+    voucher: `<span class="fw-num" data-to="${prize.amount}">0</span> ₽`,
+    cash: `<span class="fw-num" data-to="${prize.amount}">0</span> ₽`,
   }[prize.kind] || '';
 
   const note = {
     percent: `Придёт вместе со следующим пополнением от ${money(state.fortune.data.minDeposit)}.`,
     x2: 'Следующий денежный выигрыш в любом кейсе удвоится.',
-    case: 'Лежит в разделе «Бонусы», открывается бесплатно.',
-    voucher: `Уже на балансе. Отыграть: ${money(prize.amount * wager)} ставками.`,
-    cash: `Уже на балансе. Отыграть: ${money(prize.amount * wager)} ставками.`,
+    case: 'Лежит в ваших подарках во Free Money, открывается бесплатно.',
+    voucher: `На бонусном счёте. Отыграть: ${money(prize.amount * wager)} ставками.`,
+    cash: `На бонусном счёте. Отыграть: ${money(prize.amount * wager)} ставками.`,
   }[prize.kind] || '';
 
   const kind = {
@@ -39174,14 +39282,37 @@ function showFortuneWin(prize) {
   document.getElementById('fortuneWinValue').innerHTML = value;
   document.getElementById('fortuneWinNote').textContent = note;
   box.dataset.kind = prize.kind;
-  mountIcons(box);
+  box.classList.remove('is-in');
   box.hidden = false;
+  void box.offsetWidth;
+  box.classList.add('is-in');
+
+  // Сумма досчитывается к моменту, когда приз сел на место.
+  box.querySelectorAll('.fw-num').forEach((el) => {
+    const to = Number(el.dataset.to) || 0;
+    const t0 = performance.now() + 380;
+    const step = (t) => {
+      const k = Math.min(1, Math.max(0, (t - t0) / 900));
+      el.textContent = fmt(Math.round(to * (1 - Math.pow(1 - k, 3))));
+      if (k < 1 && box.isConnected && !box.hidden) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  });
 
   // Деньги и кейс празднуем громче процента: иначе каждый прокрут выглядит
   // одинаково, и редкий приз теряется среди частых.
   if (prize.kind === 'cash' || prize.kind === 'voucher') { sndBigWin(); celebrate('bigwin'); }
   else sndReveal('rare');
   haptic('medium');
+  setTimeout(() => {
+    if (box.hidden) return;
+    const r = box.querySelector('.fw-stage').getBoundingClientRect();
+    sparkBurst(box, r.left + r.width / 2, r.top + r.height / 2,
+      { n: 26, colors: ['#ffe58a', '#ffffff', '#d38bff'], dist: [70, 160], size: 6 });
+  }, 420);
+  clearTimeout(box._auto);
+  box._auto = setTimeout(() => { if (!box.hidden) document.getElementById('fortuneWinClose').click(); }, FORTUNE_WIN_MS);
+  box.onclick = (e) => { if (!e.target.closest('.fortune-win')) document.getElementById('fortuneWinClose').click(); };
 }
 
 /**

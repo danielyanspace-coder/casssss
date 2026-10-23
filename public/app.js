@@ -9737,30 +9737,44 @@ function fortuneHighlight(wheel, spinMs, winner) {
 }
 
 /** Окно выигрыша: крупно что выпало и одна строка о том, что с этим делать. */
+/** Через сколько окно выигрыша Lucky Fortune закрывается само. */
+const FORTUNE_WIN_MS = 12000;
+
+/**
+ * Окно выигрыша Lucky Fortune.
+ *
+ * Раньше все призы показывались одинаково: значок в квадрате и строка.
+ * Заказчик назвал это ужасным, и он прав: «+15%» и кейс выглядели одной
+ * карточкой. Теперь у каждого вида своя композиция и своё движение -
+ * медальон процента, переворачивающаяся монета ×2, обложка кейса, золотой
+ * билет ваучера, стопка монет денег, - а сумма досчитывается.
+ */
 function showFortuneWin(prize) {
   const wager = state.config?.firstDeposit?.wager ?? 3;
+  const giftCase = prize.caseId ? state.config.cases.find((c) => c.id === prize.caseId) : null;
+  const cover = giftCase ? (caseStageSrc(giftCase) || caseArtSrc(giftCase)) : null;
   const art = {
-    percent: '<span class="fortune-win-sign">%</span>',
-    x2: '<span class="fortune-win-sign">×2</span>',
-    case: '<span class="fortune-win-ico" data-ico="gift"></span>',
-    voucher: '<span class="fortune-win-ico" data-ico="gift"></span>',
-    cash: '<span class="fortune-win-ico" data-ico="coin"></span>',
+    percent: `<div class="fw-medal"><b>%</b>${'<i></i>'.repeat(6)}</div>`,
+    x2: '<div class="fw-coin"><b>×2</b></div>',
+    case: cover ? `<img class="fw-case" src="${cover}" alt="">` : '<div class="fw-coin"><b>★</b></div>',
+    voucher: `<div class="fw-ticket"><span>LUCKY</span><b>${fmt(prize.amount)} ₽</b></div>`,
+    cash: '<div class="fw-stack"><i></i><i></i><i></i><i></i></div>',
   }[prize.kind] || '';
 
   const value = {
-    percent: `+${prize.amount}%`,
+    percent: `+<span class="fw-num" data-to="${prize.amount}">0</span>%`,
     x2: '×2',
     case: prize.caseName ? `«${esc(prize.caseName)}»` : 'Кейс',
-    voucher: money(prize.amount),
-    cash: money(prize.amount),
+    voucher: `<span class="fw-num" data-to="${prize.amount}">0</span> ₽`,
+    cash: `<span class="fw-num" data-to="${prize.amount}">0</span> ₽`,
   }[prize.kind] || '';
 
   const note = {
     percent: `Придёт вместе со следующим пополнением от ${money(state.fortune.data.minDeposit)}.`,
     x2: 'Следующий денежный выигрыш в любом кейсе удвоится.',
-    case: 'Лежит в разделе «Бонусы», открывается бесплатно.',
-    voucher: `Уже на балансе. Отыграть: ${money(prize.amount * wager)} ставками.`,
-    cash: `Уже на балансе. Отыграть: ${money(prize.amount * wager)} ставками.`,
+    case: 'Лежит в ваших подарках во Free Money, открывается бесплатно.',
+    voucher: `На бонусном счёте. Отыграть: ${money(prize.amount * wager)} ставками.`,
+    cash: `На бонусном счёте. Отыграть: ${money(prize.amount * wager)} ставками.`,
   }[prize.kind] || '';
 
   const kind = {
@@ -9777,14 +9791,37 @@ function showFortuneWin(prize) {
   document.getElementById('fortuneWinValue').innerHTML = value;
   document.getElementById('fortuneWinNote').textContent = note;
   box.dataset.kind = prize.kind;
-  mountIcons(box);
+  box.classList.remove('is-in');
   box.hidden = false;
+  void box.offsetWidth;
+  box.classList.add('is-in');
+
+  // Сумма досчитывается к моменту, когда приз сел на место.
+  box.querySelectorAll('.fw-num').forEach((el) => {
+    const to = Number(el.dataset.to) || 0;
+    const t0 = performance.now() + 380;
+    const step = (t) => {
+      const k = Math.min(1, Math.max(0, (t - t0) / 900));
+      el.textContent = fmt(Math.round(to * (1 - Math.pow(1 - k, 3))));
+      if (k < 1 && box.isConnected && !box.hidden) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  });
 
   // Деньги и кейс празднуем громче процента: иначе каждый прокрут выглядит
   // одинаково, и редкий приз теряется среди частых.
   if (prize.kind === 'cash' || prize.kind === 'voucher') { sndBigWin(); celebrate('bigwin'); }
   else sndReveal('rare');
   haptic('medium');
+  setTimeout(() => {
+    if (box.hidden) return;
+    const r = box.querySelector('.fw-stage').getBoundingClientRect();
+    sparkBurst(box, r.left + r.width / 2, r.top + r.height / 2,
+      { n: 26, colors: ['#ffe58a', '#ffffff', '#d38bff'], dist: [70, 160], size: 6 });
+  }, 420);
+  clearTimeout(box._auto);
+  box._auto = setTimeout(() => { if (!box.hidden) document.getElementById('fortuneWinClose').click(); }, FORTUNE_WIN_MS);
+  box.onclick = (e) => { if (!e.target.closest('.fortune-win')) document.getElementById('fortuneWinClose').click(); };
 }
 
 /**

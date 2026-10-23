@@ -1226,16 +1226,20 @@
     </div>
   </div>
 
-  <!-- Окно выигрыша на колесе. -->
+  <!-- Окно выигрыша Lucky Fortune: сцена, у каждого вида приза своя
+       композиция (showFortuneWin). Закрывается кнопкой, нажатием мимо и сама
+       через FORTUNE_WIN_MS: ничто не ждёт нажатия вечно. -->
   <div class="confirm-backdrop fortune-win-backdrop" id="fortuneWinBackdrop" hidden>
-    <div class="confirm-sheet fortune-win">
-      <div class="fortune-win-art" id="fortuneWinArt"></div>
+    <div class="fortune-win">
+      <div class="fw-stage">
+        <div class="fw-rays"></div>
+        <div class="fw-ring"></div>
+        <div class="fortune-win-art" id="fortuneWinArt"></div>
+      </div>
       <div class="fortune-win-kind" id="fortuneWinKind"></div>
       <div class="fortune-win-value" id="fortuneWinValue"></div>
       <div class="fortune-win-note" id="fortuneWinNote"></div>
-      <div class="confirm-actions">
-        <button class="btn btn-primary" id="fortuneWinClose">Забрать</button>
-      </div>
+      <button class="fw-take" id="fortuneWinClose">Забрать</button>
     </div>
   </div>
 
