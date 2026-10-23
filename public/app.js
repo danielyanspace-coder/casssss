@@ -6537,15 +6537,25 @@ function renderSideNav() {
       <span class="side-go" aria-hidden="true"></span>
     </button>`;
 
+  /*
+   * Разделы - квадратными плитками в сетке, касса и поддержка - особняком
+   * внизу прямоугольниками (решение заказчика): касса вытянутой строкой,
+   * поддержка повыше. Это два действия «вне игры», и отделены они так же.
+   */
+  const wallet = items.find((m) => m.view === 'wallet');
+  const grid = items.filter((m) => m !== wallet);
   nav.innerHTML = `
     <button class="side-brand" data-view="cases" aria-label="На главную">
       <img src="/assets/ui/logo.webp" alt="LUCKYBOX" class="side-brand-logo">
     </button>
     <nav class="side-list">
-      ${items.map((m) => tile(m)).join('')}
-      ${tile({ id: 'sideSupport', art: '/assets/ui/nav-support.webp', title: 'Поддержка',
-               sub: 'Мы всегда на связи' })}
+      ${grid.map((m) => tile(m, ' is-sq')).join('')}
     </nav>
+    <div class="side-bottom">
+      ${wallet ? tile(wallet, ' is-wide') : ''}
+      ${tile({ id: 'sideSupport', art: '/assets/ui/nav-support.webp', title: 'Поддержка',
+               sub: 'Мы всегда на связи' }, ' is-tall')}
+    </div>
   `;
   mountIcons(nav);
 

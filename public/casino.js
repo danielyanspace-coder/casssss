@@ -501,6 +501,9 @@ export function createCasino(deps) {
   /* ---------- Переходы ---------- */
 
   function render() {
+    // Вкладка на корне: по ней стили делают плитки live крупнее (у живых
+    // столов обложка - картинка стола, мелкой она не читается).
+    root().dataset.kind = ui.kind;
     syncBanners();
     renderSeg();
     renderChips();
