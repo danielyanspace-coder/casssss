@@ -83,6 +83,11 @@ cp "$APP_DIR"/deploy/luckybox.service "$APP_DIR"/deploy/luckybox-bot.service \
 systemctl daemon-reload
 systemctl enable luckybox luckybox-bot luckybox-backup.timer luckybox-watchdog.timer
 
+echo "==> Команда смены домена"
+# sudo luckybox-domain новый-домен: сертификат, nginx, SITE_URL (deploy/domain.sh).
+ln -sf "$APP_DIR/deploy/domain.sh" /usr/local/bin/luckybox-domain
+chmod +x "$APP_DIR/deploy/domain.sh"
+
 echo "==> nginx и сертификат"
 # Два шага. Полный конфиг слушает 443 с сертификатом, и без сертификата nginx
 # его не примет вовсе. Поэтому сначала временный конфиг только на 80 порту,
@@ -156,5 +161,8 @@ cat <<EOF
 
 4. СОХРАНИТЬ PAYOUT_DATA_KEY из .env в другое место.
    Без него номера карт из резервной копии не расшифровать.
+
+5. Сменить домен потом - одной командой:
+     sudo luckybox-domain новый-домен.duckdns.org
 ======================================================================
 EOF

@@ -67,6 +67,9 @@ jobs:
       - name: Бесплатный кейс «Начало»
         run: npm run test:start-case
 
+      - name: Партнёрская программа и сверка с Sicilia
+        run: npm run test:partners
+
       - name: Проверка заявок на вывод
         run: npm run test:payout-check
 

@@ -7424,7 +7424,10 @@ div.mini-row { cursor: default; }
   }
   .top-deposit:hover::after { left: 130%; transition: left 0.8s ease-out; }
 
-  .side-item:hover {
+  /* Касса и поддержка залиты своим цветом: при наведении они светлеют, а
+     не перекрашиваются в общий фиолетовый. */
+  .side-item.is-wide:hover, .side-item.is-tall:hover { filter: brightness(1.12); }
+  .side-item:not(.is-wide):not(.is-tall):hover {
     border-color: rgba(168, 120, 255, 0.7);
     background:
       linear-gradient(145deg, rgba(168, 120, 255, 0.2), transparent 62%),
@@ -10195,21 +10198,33 @@ body.mo-receded .opener-scroll { filter: blur(4px) saturate(.55); transform: sca
 /* Касса и поддержка: внизу панели, отдельно от игр. */
 .side-bottom { margin-top: auto; padding-top: 14px; display: flex; flex-direction: column; gap: 10px; border-top: 1px solid var(--line); }
 .side-item.is-wide {
-  border-color: rgba(255, 200, 110, 0.35);
+  /* Касса и поддержка были бледными (заказчик), а золото и голубой - чужие
+     проекту. Цвета свои: касса - розово-фиолетовая, как кнопка
+     «Пополнить» (это то же действие), поддержка - глубокий фиолетовый, тише.
+     Глянец сверху и светлая кромка - как у остальных плиток. */
+  border-color: rgba(255, 92, 190, 0.6);
   background:
-    linear-gradient(145deg, rgba(255, 190, 80, 0.16), transparent 62%),
-    linear-gradient(180deg, #1f0f22, #120818);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.02) 48%, transparent 50%),
+    radial-gradient(120% 140% at 0% 0%, rgba(255, 79, 168, 0.45), transparent 62%),
+    linear-gradient(135deg, #5a1470, #3a0c58 55%, #1f0838);
+  box-shadow: inset 0 1px 0 rgba(255, 210, 240, 0.3), 0 8px 22px -12px rgba(255, 60, 170, 0.7);
 }
-.side-item.is-wide .side-title { color: #ffe3a3; }
+.side-item.is-wide .side-title { color: #fff; }
+.side-item.is-wide .side-sub { color: #f0c9ec; }
+.side-item.is-wide .side-go { border-color: #f6d4f0; }
 .side-item.is-tall {
   padding: 18px 16px 18px 12px; min-height: 92px; border-radius: 20px;
-  border-color: rgba(90, 190, 240, 0.32);
+  border-color: rgba(178, 120, 255, 0.55);
   background:
-    linear-gradient(145deg, rgba(55, 174, 226, 0.2), transparent 62%),
-    linear-gradient(180deg, #0f1a2e, #0b1020);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.02) 48%, transparent 50%),
+    radial-gradient(120% 140% at 0% 0%, rgba(160, 90, 255, 0.4), transparent 62%),
+    linear-gradient(135deg, #3b1880, #26105a 55%, #170a36);
+  box-shadow: inset 0 1px 0 rgba(225, 205, 255, 0.28), 0 8px 22px -12px rgba(150, 80, 255, 0.7);
 }
 .side-item.is-tall .side-art { width: 76px; height: 56px; }
-.side-item.is-tall .side-title { font-size: 16px; }
+.side-item.is-tall .side-title { font-size: 16px; color: #fff; }
+.side-item.is-tall .side-sub { color: #d6c6f5; }
+.side-item.is-tall .side-go { border-color: #e2d6ff; }
 
 /* ============================================================
    КАЗИНО: ЛОББИ ИГР ПРОВАЙДЕРОВ
@@ -12983,11 +12998,11 @@ const slotEngineById = (id) => SLOTS.find((s) => s.id === id) || null;
 /* Каталог прав и ролей берётся из server/staff.js на сборке: расходиться
    демо и настоящей панели нельзя, иначе заказчик увидит список ролей,
    которого в проекте нет. */
-const DEMO_PERMISSION_DEFS = [{"id":"players.view","group":"players","label":"Смотреть карточки игроков"},{"id":"players.notes","group":"players","label":"Вести заметки в карточке"},{"id":"players.balance","group":"players","label":"Править баланс","hint":"Размер правки ограничен лимитом роли"},{"id":"players.gift","group":"players","label":"Дарить кейсы и фриспины"},{"id":"players.block","group":"players","label":"Блокировать и разблокировать"},{"id":"players.limits","group":"players","label":"Лимиты ответственной игры"},{"id":"finance.payouts.view","group":"finance","label":"Видеть заявки на вывод"},{"id":"finance.payouts.resolve","group":"finance","label":"Проводить и отклонять выводы"},{"id":"promo.view","group":"promo","label":"Смотреть промокоды"},{"id":"promo.edit","group":"promo","label":"Создавать и выключать промокоды"},{"id":"partners.view","group":"promo","label":"Смотреть партнёров"},{"id":"partners.edit","group":"promo","label":"Заводить и править партнёров"},{"id":"partners.pay","group":"promo","label":"Выплачивать партнёрам"},{"id":"risk.view","group":"risk","label":"Сигналы риска и мультиаккаунты"},{"id":"journal.view","group":"risk","label":"Журнал действий сотрудников"},{"id":"reports.view","group":"system","label":"Отчёты и аналитика"},{"id":"games.manage","group":"system","label":"Включать и выключать игры"},{"id":"settings.manage","group":"system","label":"Общие настройки площадки"},{"id":"staff.manage","group":"system","label":"Управлять сотрудниками","hint":"Выдать можно только то, что есть у тебя самого"}];
+const DEMO_PERMISSION_DEFS = [{"id":"players.view","group":"players","label":"Смотреть карточки игроков"},{"id":"players.notes","group":"players","label":"Вести заметки в карточке"},{"id":"players.balance","group":"players","label":"Править баланс","hint":"Размер правки ограничен лимитом роли"},{"id":"players.gift","group":"players","label":"Дарить кейсы и фриспины"},{"id":"players.block","group":"players","label":"Блокировать и разблокировать"},{"id":"players.limits","group":"players","label":"Лимиты ответственной игры"},{"id":"finance.payouts.view","group":"finance","label":"Видеть заявки на вывод"},{"id":"finance.payouts.resolve","group":"finance","label":"Проводить и отклонять выводы"},{"id":"finance.reports","group":"finance","label":"Финансовый отдел: сверка со шлюзом и касса"},{"id":"finance.settle","group":"finance","label":"Вносить расчёты со шлюзом","hint":"Переводы шлюза нам и пополнения его баланса меняют долг шлюза"},{"id":"promo.view","group":"promo","label":"Смотреть промокоды"},{"id":"promo.edit","group":"promo","label":"Создавать и выключать промокоды"},{"id":"partners.view","group":"promo","label":"Смотреть партнёров"},{"id":"partners.edit","group":"promo","label":"Заводить и править партнёров"},{"id":"partners.pay","group":"promo","label":"Выплачивать партнёрам"},{"id":"risk.view","group":"risk","label":"Сигналы риска и мультиаккаунты"},{"id":"journal.view","group":"risk","label":"Журнал действий сотрудников"},{"id":"reports.view","group":"system","label":"Отчёты и аналитика"},{"id":"games.manage","group":"system","label":"Включать и выключать игры"},{"id":"settings.manage","group":"system","label":"Общие настройки площадки"},{"id":"staff.manage","group":"system","label":"Управлять сотрудниками","hint":"Выдать можно только то, что есть у тебя самого"}];
 const DEMO_PERMISSION_GROUPS = [{"id":"players","name":"Игроки"},{"id":"finance","name":"Финансы"},{"id":"promo","name":"Промо и партнёры"},{"id":"risk","name":"Риск и контроль"},{"id":"system","name":"Система"}];
-const DEMO_PERMISSIONS = ["players.view","players.notes","players.balance","players.gift","players.block","players.limits","finance.payouts.view","finance.payouts.resolve","promo.view","promo.edit","partners.view","partners.edit","partners.pay","risk.view","journal.view","reports.view","games.manage","settings.manage","staff.manage"];
-const DEMO_ROLES = [{"id":"owner","name":"Владелец","description":"Все права, включая сотрудников и реквизиты приёма платежей.","balanceCap":0,"permissions":["players.view","players.notes","players.balance","players.gift","players.block","players.limits","finance.payouts.view","finance.payouts.resolve","promo.view","promo.edit","partners.view","partners.edit","partners.pay","risk.view","journal.view","reports.view","games.manage","settings.manage","staff.manage"]},{"id":"admin","name":"Администратор","description":"Всё, кроме управления сотрудниками.","balanceCap":0,"permissions":["players.view","players.notes","players.balance","players.gift","players.block","players.limits","finance.payouts.view","finance.payouts.resolve","promo.view","promo.edit","partners.view","partners.edit","partners.pay","risk.view","journal.view","reports.view","games.manage","settings.manage"]},{"id":"finance","name":"Финансист","description":"Выводы, платежи, отчёты. Игроков видит, но не правит.","balanceCap":0,"permissions":["players.view","players.notes","finance.payouts.view","finance.payouts.resolve","partners.view","partners.pay","reports.view","journal.view"]},{"id":"support","name":"Поддержка","description":"Карточка игрока, заметки, мелкие компенсации до 5 000.","balanceCap":5000,"permissions":["players.view","players.notes","players.balance","players.gift","players.limits","promo.view"]},{"id":"risk","name":"Риск-менеджер","description":"Блокировки, лимиты, сигналы, проверка выводов до выплаты.","balanceCap":0,"permissions":["players.view","players.notes","players.block","players.limits","finance.payouts.view","risk.view","journal.view","reports.view"]},{"id":"marketing","name":"Маркетолог","description":"Промокоды, партнёры, воронка. К деньгам игроков не допущен.","balanceCap":0,"permissions":["players.view","promo.view","promo.edit","partners.view","partners.edit","reports.view"]},{"id":"analyst","name":"Аналитик","description":"Только чтение: отчёты, выводы, платежи, журнал.","balanceCap":0,"permissions":["players.view","finance.payouts.view","promo.view","partners.view","reports.view","journal.view"]}];
-const DEMO_SETTINGS = [{"key":"maintenance","type":"bool","value":"0","group":"Режим","label":"Технические работы","hint":"Игроки видят экран технических работ, сотрудники входят как обычно"},{"key":"registration_open","type":"bool","value":"1","group":"Режим","label":"Регистрация новых игроков"},{"key":"payouts_open","type":"bool","value":"1","group":"Касса","label":"Приём заявок на вывод"},{"key":"deposits_open","type":"bool","value":"1","group":"Касса","label":"Приём пополнений"},{"key":"min_payout","type":"int","value":"1000","group":"Касса","label":"Минимальная сумма вывода","hint":"Ноль вернёт значение из настроек сервера"},{"key":"games_cases","type":"bool","value":"1","group":"Игры","label":"Кейсы"},{"key":"games_crash","type":"bool","value":"1","group":"Игры","label":"Краш"},{"key":"games_roulette","type":"bool","value":"1","group":"Игры","label":"Рулетка"},{"key":"games_upgrade","type":"bool","value":"1","group":"Игры","label":"Апгрейд"},{"key":"games_fortune","type":"bool","value":"1","group":"Игры","label":"Колесо фортуны"},{"key":"games_casino","type":"bool","value":"1","group":"Игры","label":"Казино (игры провайдеров)"},{"key":"casino_rtp","type":"int","value":"70","group":"Игры","label":"Отдача слотов казино, %","hint":"Применяется при запуске и показывается игрокам в «Честности»"},{"key":"games_slots","type":"bool","value":"0","group":"Игры","label":"Слоты"}];
+const DEMO_PERMISSIONS = ["players.view","players.notes","players.balance","players.gift","players.block","players.limits","finance.payouts.view","finance.payouts.resolve","finance.reports","finance.settle","promo.view","promo.edit","partners.view","partners.edit","partners.pay","risk.view","journal.view","reports.view","games.manage","settings.manage","staff.manage"];
+const DEMO_ROLES = [{"id":"owner","name":"Владелец","description":"Все права, включая сотрудников и реквизиты приёма платежей.","balanceCap":0,"permissions":["players.view","players.notes","players.balance","players.gift","players.block","players.limits","finance.payouts.view","finance.payouts.resolve","finance.reports","finance.settle","promo.view","promo.edit","partners.view","partners.edit","partners.pay","risk.view","journal.view","reports.view","games.manage","settings.manage","staff.manage"]},{"id":"admin","name":"Администратор","description":"Всё, кроме управления сотрудниками.","balanceCap":0,"permissions":["players.view","players.notes","players.balance","players.gift","players.block","players.limits","finance.payouts.view","finance.payouts.resolve","finance.reports","finance.settle","promo.view","promo.edit","partners.view","partners.edit","partners.pay","risk.view","journal.view","reports.view","games.manage","settings.manage"]},{"id":"finance","name":"Финансист","description":"Выводы, платежи, отчёты. Игроков видит, но не правит.","balanceCap":0,"permissions":["players.view","players.notes","finance.payouts.view","finance.payouts.resolve","finance.reports","finance.settle","partners.view","partners.pay","reports.view","journal.view"]},{"id":"support","name":"Поддержка","description":"Карточка игрока, заметки, мелкие компенсации до 5 000.","balanceCap":5000,"permissions":["players.view","players.notes","players.balance","players.gift","players.limits","promo.view"]},{"id":"risk","name":"Риск-менеджер","description":"Блокировки, лимиты, сигналы, проверка выводов до выплаты.","balanceCap":0,"permissions":["players.view","players.notes","players.block","players.limits","finance.payouts.view","risk.view","journal.view","reports.view"]},{"id":"marketing","name":"Маркетолог","description":"Промокоды, партнёры, воронка. К деньгам игроков не допущен.","balanceCap":0,"permissions":["players.view","promo.view","promo.edit","partners.view","partners.edit","reports.view"]},{"id":"analyst","name":"Аналитик","description":"Только чтение: отчёты, выводы, платежи, журнал.","balanceCap":0,"permissions":["players.view","finance.payouts.view","finance.reports","promo.view","partners.view","reports.view","journal.view"]}];
+const DEMO_SETTINGS = [{"key":"maintenance","type":"bool","value":"0","group":"Режим","label":"Технические работы","hint":"Игроки видят экран технических работ, сотрудники входят как обычно"},{"key":"registration_open","type":"bool","value":"1","group":"Режим","label":"Регистрация новых игроков"},{"key":"payouts_open","type":"bool","value":"1","group":"Касса","label":"Приём заявок на вывод"},{"key":"deposits_open","type":"bool","value":"1","group":"Касса","label":"Приём пополнений"},{"key":"min_payout","type":"int","value":"1000","group":"Касса","label":"Минимальная сумма вывода","hint":"Ноль вернёт значение из настроек сервера"},{"key":"games_cases","type":"bool","value":"1","group":"Игры","label":"Кейсы"},{"key":"games_crash","type":"bool","value":"1","group":"Игры","label":"Краш"},{"key":"games_roulette","type":"bool","value":"1","group":"Игры","label":"Рулетка"},{"key":"games_upgrade","type":"bool","value":"1","group":"Игры","label":"Апгрейд"},{"key":"games_fortune","type":"bool","value":"1","group":"Игры","label":"Колесо фортуны"},{"key":"games_casino","type":"bool","value":"1","group":"Игры","label":"Казино (игры провайдеров)"},{"key":"casino_rtp","type":"int","value":"70","group":"Игры","label":"Отдача слотов казино, %","hint":"Применяется при запуске и показывается игрокам в «Честности»"},{"key":"games_slots","type":"bool","value":"0","group":"Игры","label":"Слоты"},{"key":"partner_signup_open","type":"bool","value":"1","group":"Партнёры","label":"Регистрация партнёров в /partners","hint":"Выключено - новые партнёры заводятся только админом"},{"key":"partner_default_share","type":"int","value":"50","group":"Партнёры","label":"Доля нового партнёра, % дохода"},{"key":"partner_promo_pct","type":"int","value":"50","group":"Партнёры","label":"Промокод партнёра: процент к первому пополнению"},{"key":"partner_promo_max","type":"int","value":"10000","group":"Партнёры","label":"Промокод партнёра: потолок бонуса, ₽","hint":"Ноль - без потолка; в деньги бонус всё равно переходит не больше доли от пополнений"},{"key":"partner_promo_min_deposit","type":"int","value":"100","group":"Партнёры","label":"Промокод партнёра: минимальное пополнение, ₽"},{"key":"partner_codes_max","type":"int","value":"20","group":"Партнёры","label":"Сколько промокодов может завести партнёр"},{"key":"partner_min_withdraw","type":"int","value":"2000","group":"Партнёры","label":"Минимальный вывод партнёра, ₽"},{"key":"partner_casino_cost_pct","type":"num","value":"0","group":"Партнёры","label":"Доля агрегатора с дохода казино, %","hint":"Вычитается из дохода по казино до расчёта доли партнёра"},{"key":"partner_deposit_cost_pct","type":"num","value":"0","group":"Партнёры","label":"Комиссия приёма платежей, % от пополнений рефералов","hint":"Вычитается из дохода до расчёта доли партнёра"},{"key":"sicilia_payin_fee_pct","type":"num","value":"0","group":"Sicilia","label":"Комиссия Sicilia на приём, %"},{"key":"sicilia_payout_fee_pct","type":"num","value":"0","group":"Sicilia","label":"Комиссия Sicilia на выплату, %"},{"key":"sicilia_payout_fee_fixed","type":"int","value":"0","group":"Sicilia","label":"Фиксированная комиссия за одну выплату, ₽"}];
 
 /* Довесок к карточке игрока: деньги, лимиты, заметки, сутки. */
 function demoPlayerExtra(id, balance, spent) {
@@ -13402,6 +13417,21 @@ function partnerStats(partnerId) {
     active: mine && u.stats.rounds > 0 ? 1 : 0,
     wagered, paid, bonuses, profit, accrued, paidOut,
     pending: accrued - paidOut,
+  };
+}
+
+/*
+ * Та же сводка в форме кабинета /partners (server/partners.js): деньги
+ * партнёра одной строкой. Своего кабинета у сборки нет, а экраны сайта
+ * читают именно эту форму.
+ */
+function partnerCabinetRow(s) {
+  const p = s.partner;
+  const available = Math.max(0, s.pending);
+  return {
+    id: p.id, name: p.name, email: null, status: p.is_active ? 'active' : 'blocked', share: p.share_pct,
+    balance: { accrued: s.accrued, accruedClosed: s.accrued, today: 0, paid: s.paidOut, pending: 0, available },
+    total: { signups: s.referrals, ftd: 0, deposits: 0, ngr: s.profit },
   };
 }
 
@@ -13903,20 +13933,8 @@ const routes = {
   'POST /api/partner/stats': () => {
     const partner = (store.partners || []).find((p) => p.tg_id === '1');
     if (!partner) return { status: 403, body: { error: 'Вы не партнёр' } };
-    const s = partnerStats(partner.id);
-    return {
-      ...s,
-      referrals: store.user.partnerId === partner.id ? [{
-        id: store.user.id, username: store.user.username, first_name: store.user.firstName,
-        created_at: Date.now(), total_rounds: store.user.stats.rounds,
-        total_spent: store.user.stats.spent, total_won: store.user.stats.won,
-        bonus_granted: store.user.bonusGranted,
-      }] : [],
-      referralCount: s.referrals,
-      payouts: (store.partnerPayouts || []).filter((x) => x.partner_id === partner.id),
-      promos: (store.promos || []).filter((p) => p.partner_id === partner.id)
-        .map((p) => ({ code: p.code, type: p.type, used: p.used_count })),
-    };
+    const row = partnerCabinetRow(partnerStats(partner.id));
+    return { ...row, share: partner.share_pct };
   },
 
   /* ---------- Админка: промокоды ---------- */
@@ -13977,14 +13995,14 @@ const routes = {
   /* ---------- Админка: партнёры ---------- */
 
   'POST /api/admin/partners': () => ({
-    rows: (store.partners || []).map((p) => partnerStats(p.id)),
+    rows: (store.partners || []).map((p) => partnerCabinetRow(partnerStats(p.id))),
   }),
 
   'POST /api/admin/partner/save': (body) => {
     const tg = String(body.userKey ?? body.tg_id ?? '').trim();
     if (!tg) return { status: 400, body: { error: 'Игрок не найден. Укажите почту, Telegram ID или номер игрока' } };
 
-    const share = Math.min(100, Math.max(0, Number(body.share_pct) || 0));
+    const share = Math.min(90, Math.max(0, Number(body.share_pct) || 0));
     store.partners = store.partners || [];
     const existing = store.partners.find((p) => p.tg_id === tg);
     if (existing) {
@@ -35272,28 +35290,34 @@ async function loadAdminPartners() {
   catch (err) { toast(err.message); return; }
 
   const box = document.getElementById('admin-partners');
-
+  // Управление программой - в кабинете /partners: доли, сетка, заявки на
+  // вывод и сверка со шлюзом. Здесь список для взгляда и заведение партнёра
+  // из существующего игрока.
   box.innerHTML = `
-    <div class="admin-form">
+    <a class="btn btn-primary btn-wide" href="/partners/" target="_blank" rel="noopener">Открыть кабинет партнёров</a>
+    <div class="admin-form" style="margin-top:14px">
       <div class="form-grid">
         <div><label>Игрок</label>
           <input class="seed-input" id="ptTg" placeholder="почта, Telegram ID или номер"></div>
         <div><label>Доля, %</label>
-          <input class="seed-input" id="ptShare" type="number" min="0" max="100" value="30"></div>
+          <input class="seed-input" id="ptShare" type="number" min="0" max="90" value="50"></div>
         <div class="wide"><label>Имя</label>
           <input class="seed-input" id="ptName" maxlength="80"></div>
-        <div class="wide"><label>Заметка</label>
-          <input class="seed-input" id="ptNote" maxlength="200"></div>
       </div>
-      <button class="btn btn-primary btn-wide" id="ptSave">Сохранить партнёра</button>
-      <div class="kpi-sub" style="margin-top:8px">
-        Партнёр видит свою статистику на сайте в своём аккаунте.
-        Игроки привязываются к нему промокодом: у промокода надо выбрать партнёра.
-      </div>
+      <button class="btn btn-outline btn-wide" id="ptSave">Сделать партнёром</button>
     </div>
 
     <h2 class="section-title">Партнёры</h2>
-    ${d.rows.length ? d.rows.map(partnerRowHtml).join('') : '<div class="empty">Пока пусто</div>'}
+    ${d.rows.length ? d.rows.map((r) => `<div class="promo-row ${r.status === 'active' ? '' : 'off'}">
+        <div>
+          <div class="promo-code">${esc(r.name || 'Партнёр')}</div>
+          <div class="promo-meta">#${r.id} · ${esc(r.email || '')} · доля ${r.share}% · игроков ${fmt(r.total.signups)}</div>
+        </div>
+        <div style="text-align:right">
+          <div class="promo-code">${money(r.balance.available)}</div>
+          <div class="promo-meta">к выводу</div>
+        </div>
+      </div>`).join('') : '<div class="empty">Пока пусто</div>'}
   `;
 
   document.getElementById('ptSave').addEventListener('click', async () => {
@@ -35302,53 +35326,12 @@ async function loadAdminPartners() {
         userKey: document.getElementById('ptTg').value,
         share_pct: document.getElementById('ptShare').value,
         name: document.getElementById('ptName').value,
-        note: document.getElementById('ptNote').value,
       });
       toast('Партнёр сохранён');
       haptic('success');
       loadAdminPartners();
     } catch (err) { toast(err.message); haptic('error'); }
   });
-
-  box.querySelectorAll('[data-pay-partner]').forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      const id = Number(btn.dataset.payPartner);
-      const input = box.querySelector(`[data-pay-amount="${id}"]`);
-      try {
-        await api('/api/admin/partner/pay', { partnerId: id, amount: Number(input.value) });
-        toast('Выплата записана');
-        haptic('success');
-        loadAdminPartners();
-      } catch (err) { toast(err.message); haptic('error'); }
-    });
-  });
-}
-
-function partnerRowHtml(s) {
-  const p = s.partner;
-  return `<div class="promo-row ${p.is_active ? '' : 'off'}" style="flex-direction:column;align-items:stretch">
-    <div style="display:flex;justify-content:space-between;gap:10px">
-      <div>
-        <div class="promo-code">${esc(p.name || 'Партнёр')}</div>
-        <div class="promo-meta">${esc([p.email, p.tg_id != null ? `TG ${p.tg_id}` : ''].filter(Boolean).join(' · ') || 'аккаунт не найден')} · доля ${p.share_pct}%
-          · рефералов ${fmt(s.referrals)} (играли ${fmt(s.active)})</div>
-      </div>
-      <div style="text-align:right">
-        <div class="promo-code">${money(Math.max(0, s.pending))}</div>
-        <div class="promo-meta">к выплате</div>
-      </div>
-    </div>
-    <div class="promo-meta" style="margin-top:8px">
-      ставки ${money(s.wagered)} · выигрыши ${money(s.paid)} · бонусы ${money(s.bonuses)}
-      · прибыль ${s.profit >= 0 ? '' : '-'}${money(Math.abs(s.profit))}
-      · начислено ${money(s.accrued)} · выплачено ${money(s.paidOut)}
-    </div>
-    <div class="amount-row" style="margin-top:10px">
-      <input class="seed-input" type="number" min="1" data-pay-amount="${p.id}"
-             value="${Math.max(0, s.pending)}" placeholder="сумма">
-      <button class="btn btn-primary btn-sm" data-pay-partner="${p.id}">Выплатить</button>
-    </div>
-  </div>`;
 }
 
 /* ---------- Админка: заявки на вывод ---------- */
@@ -37790,6 +37773,12 @@ function promoResultText(r) {
     if (r.maxBonus) parts.push(`не более ${money(r.maxBonus)}`);
     return parts.join(', ');
   }
+  if (r.type === 'partner') {
+    const parts = [`Кейс «${r.caseName}» в подарке и +${r.pct}% к первому пополнению`];
+    if (r.minDeposit) parts.push(`от ${money(r.minDeposit)}`);
+    if (r.maxBonus) parts.push(`не более ${money(r.maxBonus)}`);
+    return parts.join(', ');
+  }
   return 'Промокод применён';
 }
 
@@ -37868,53 +37857,16 @@ async function loadPartner() {
     ${sub ? `<div class="kpi-sub">${sub}</div>` : ''}
   </div>`;
 
+  // Партнёрская программа живёт в своём кабинете (/partners): здесь только
+  // сводка, а коды, статистика и вывод - там.
   box.innerHTML = `
     <div class="partner-kpis">
-      ${kpi('Рефералов', fmt(d.referralCount), '', `играли: ${fmt(d.active)}`)}
-      ${kpi('Их ставки', money(d.wagered))}
-      ${kpi('Их выигрыши', money(d.paid))}
-      ${kpi('Выдано бонусов', money(d.bonuses))}
-      ${kpi('Чистая прибыль', `${d.profit >= 0 ? '' : '-'}${money(Math.abs(d.profit))}`,
-            d.profit >= 0 ? 'plus' : 'minus',
-            'ставки минус выигрыши минус бонусы')}
-      ${kpi('Ваша доля', money(d.accrued), 'plus', `${d.partner.share_pct}% от прибыли`)}
-      ${kpi('Выплачено', money(d.paidOut))}
-      ${kpi('К выплате', money(Math.max(0, d.pending)), 'plus')}
+      ${kpi('К выводу', money(d.balance.available), 'plus')}
+      ${kpi('Начислено', money(d.balance.accrued), '', `доля ${d.share}%`)}
+      ${kpi('Игроков', fmt(d.total.signups), '', `пополнили: ${fmt(d.total.ftd)}`)}
+      ${kpi('Выплачено', money(d.balance.paid))}
     </div>
-
-    ${d.profit < 0 ? `<div class="wager-note">Сейчас рефералы в плюсе, и прибыли по ним нет.
-      Доля начнёт начисляться снова, когда прибыль вернётся в плюс: минус
-      переносится, а не обнуляется.</div>` : ''}
-
-    <h2 class="section-title">Ваши промокоды</h2>
-    ${d.promos.length
-      ? d.promos.map((p) => `<div class="log-row">
-          <span class="promo-code">${esc(p.code)}</span>
-          <b>${fmt(p.used)} ${plural(p.used, 'активация', 'активации', 'активаций')}</b>
-        </div>`).join('')
-      : '<div class="empty">Промокодов пока нет. Их заводит администратор.</div>'}
-
-    <h2 class="section-title">Рефералы</h2>
-    ${d.referrals.length
-      ? d.referrals.map((u) => {
-          const name = u.username ? '@' + u.username : (u.first_name || 'Без имени');
-          const profit = u.total_spent - u.total_won - u.bonus_granted;
-          return `<div class="log-row">
-            <span>${esc(name)}<br><small>раундов ${fmt(u.total_rounds)} ·
-              ставки ${money(u.total_spent)}</small></span>
-            <b class="${profit >= 0 ? 'plus' : 'minus'}">${profit >= 0 ? '' : '-'}${money(Math.abs(profit))}</b>
-          </div>`;
-        }).join('')
-      : '<div class="empty">Пока никто не пришёл</div>'}
-
-    <h2 class="section-title">Выплаты вам</h2>
-    ${d.payouts.length
-      ? d.payouts.map((p) => `<div class="log-row">
-          <span>${new Date(p.created_at).toLocaleString('ru-RU')}
-            ${p.comment ? '<br><small>' + esc(p.comment) + '</small>' : ''}</span>
-          <b class="plus">+${money(p.amount)}</b>
-        </div>`).join('')
-      : '<div class="empty">Выплат пока не было</div>'}
+    <a class="btn btn-primary btn-wide" href="/partners/" target="_blank" rel="noopener">Открыть кабинет партнёра</a>
   `;
 }
 
@@ -38585,6 +38537,9 @@ async function submitAuth(event) {
       // Подарок по коду показываем той же сценой, что была у поля промокода:
       // текст - ровно то, что начислено.
       if (res.promo) setTimeout(() => showGiftReveal(promo.toUpperCase(), promoResultText(res.promo)), 600);
+      // Код партнёра своё отработал: следующий аккаунт на этом устройстве
+      // по нему уже не придёт.
+      try { localStorage.removeItem(REF_PROMO_KEY); } catch { /* хранилище закрыто */ }
     } else if (pane === 'forgot') {
       if (!state.config?.auth?.mail) { openSupport(); return; }
       const res = await api('/api/auth/forgot', { email: v('authEmail') });
@@ -38675,6 +38630,35 @@ async function loadMe() {
    НАВИГАЦИЯ И СТАРТ
    ============================================================ */
 
+/*
+ * Ссылка партнёра: /?promo=КОД (кабинет /partners). Код запоминается на
+ * устройстве и подставляется в поле регистрации: гость мог сначала
+ * походить по сайту и зарегистрироваться позже. Из адресной строки код
+ * убирается, чтобы ссылку, скопированную игроком дальше, не приписали
+ * партнёру повторно. Хранилище - только удобство: без него код всё равно
+ * стоит в поле в этом заходе.
+ */
+const REF_PROMO_KEY = 'lb_ref_promo';
+function takeReferralPromo() {
+  let code = '';
+  let fresh = false;
+  try {
+    const url = new URL(location.href);
+    code = (url.searchParams.get('promo') || '').trim().slice(0, 32);
+    fresh = !!code;
+    if (code) {
+      url.searchParams.delete('promo');
+      history.replaceState(null, '', url.pathname + url.search + url.hash);
+    }
+  } catch { /* адрес без параметров */ }
+  try {
+    if (code) localStorage.setItem(REF_PROMO_KEY, code);
+    else code = localStorage.getItem(REF_PROMO_KEY) || '';
+  } catch { /* хранилище закрыто */ }
+  if (code) document.getElementById('authPromo').value = code;
+  return { code, fresh };
+}
+
 async function init() {
   mountIcons();
   buildMoneyRain();
@@ -38719,8 +38703,12 @@ async function init() {
 
     startFeed();
     authUi.resetToken = takeResetToken();
+    const refPromo = takeReferralPromo();
     if (authUi.resetToken) {
       openAuth('reset');
+    } else if (state.guest && refPromo.fresh) {
+      // Пришёл по ссылке партнёра - сразу регистрация с его кодом.
+      openAuth('register');
     } else if (!state.guest) {
       startPaymentEvents();
       loadFreeCase();

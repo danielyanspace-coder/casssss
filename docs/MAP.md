@@ -188,6 +188,20 @@ grep -nE "^app\.(get|post)\(" server/app.js                  # все ручки
 - `adminDeposits`, `depositsSummary`, `DEPOSITS_PAGE` - все пополнения с номерами.
 - `depositsCsvRows`, `payoutsCsvRows`, `toCsv` - выгрузка сделок.
 
+### server/partners.js - партнёрская программа (кабинет /partners)
+
+- `computeProgram` - доход рефералов по суткам МСК, перенос минуса (`carryForward`), начисления по `partner_shares`.
+- `balanceOf` - начислено, доступно (только закрытые сутки), выплачено, в заявке.
+- `registerPartner`, `joinAsPartner`, `createPromo` (тип `partner`), `dashboard`.
+- `requestPayout`, `cancelPayout`, `resolvePayout`, `manualPayout` - вывод USDT.
+- Админ: `adminOverview`, `setShare` (своя доля и сетка), `setStatus`, `shareHistory`, `findPartner`.
+
+### server/finance.js - финотдел
+
+- `siciliaLedger` (по дням или по часам), `siciliaOwed`, `siciliaIssues` - сверка с Sicilia.
+- `addSettlement`, `voidSettlement` - расчёты с шлюзом (`sicilia_settlements`).
+- `siciliaCsvRows` - выгрузка для сверки с выпиской, `cashSummary` - касса по дням.
+
 ### server/payout-check.js - проверка заявки на вывод
 
 - `checkPayout` - полная проверка, итог в `payout_checks`; `payoutCheck` - прочитать последнюю.
@@ -380,7 +394,8 @@ grep -nE "^app\.(get|post)\(" server/app.js                  # все ручки
 |---|---|
 | `/api/promo/redeem` | `redeemPromo` |
 | `/api/promo/state` | `pendingDepositBonus`, `myPromoRedemptions` |
-| `/api/partner/stats` | `getPartnerForUser`, `partnerStats`, `partnerReferrals`, `partnerPayoutHistory` |
+| `/api/partner/stats` | `partners.dashboard` (сводка на сайте) |
+| `/api/pc/*` | кабинет `/partners`: `partners.*`; `/api/pc/admin/*` - `need()`; `/api/pc/admin/finance/*` - `finance.*` |
 
 ### Касса, выводы, бонус
 
@@ -892,6 +907,7 @@ tools/case-covers.mjs` (и `--stage`); полка - `CATEGORIES` / `THEMED_SHELV
 | `README.md`, `LAUNCH.md`, `SECRETS.md` | развёртывание, чек-лист запуска, список ключей |
 | `install.sh` | первичная установка в `/srv/luckybox` |
 | `update.sh` | выкат: копия базы, код, перезапуск |
+| `domain.sh` | смена домена: `sudo luckybox-domain новый-домен` (сертификат, nginx, SITE_URL, переадресация со старых) |
 | `backup.mjs` | копия базы (WAL-безопасная, сжатая, проверенная), `RCLONE_REMOTE` |
 | `watchdog.mjs` | сторож: health изнутри и снаружи, сертификат, диск, свежесть копий |
 | `nginx.conf` | прокси; отдельные `location` для SSE, вебхуков и кошелька казино без `limit_req` |

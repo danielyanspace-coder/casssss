@@ -858,6 +858,21 @@ function partnerStats(partnerId) {
   };
 }
 
+/*
+ * Та же сводка в форме кабинета /partners (server/partners.js): деньги
+ * партнёра одной строкой. Своего кабинета у сборки нет, а экраны сайта
+ * читают именно эту форму.
+ */
+function partnerCabinetRow(s) {
+  const p = s.partner;
+  const available = Math.max(0, s.pending);
+  return {
+    id: p.id, name: p.name, email: null, status: p.is_active ? 'active' : 'blocked', share: p.share_pct,
+    balance: { accrued: s.accrued, accruedClosed: s.accrued, today: 0, paid: s.paidOut, pending: 0, available },
+    total: { signups: s.referrals, ftd: 0, deposits: 0, ngr: s.profit },
+  };
+}
+
 /** Гасит долг по обороту сделанной ставкой - как consumeWager на сервере. */
 function consumeWager(bet) {
   const u = store.user;
@@ -1356,20 +1371,8 @@ const routes = {
   'POST /api/partner/stats': () => {
     const partner = (store.partners || []).find((p) => p.tg_id === '1');
     if (!partner) return { status: 403, body: { error: 'Вы не партнёр' } };
-    const s = partnerStats(partner.id);
-    return {
-      ...s,
-      referrals: store.user.partnerId === partner.id ? [{
-        id: store.user.id, username: store.user.username, first_name: store.user.firstName,
-        created_at: Date.now(), total_rounds: store.user.stats.rounds,
-        total_spent: store.user.stats.spent, total_won: store.user.stats.won,
-        bonus_granted: store.user.bonusGranted,
-      }] : [],
-      referralCount: s.referrals,
-      payouts: (store.partnerPayouts || []).filter((x) => x.partner_id === partner.id),
-      promos: (store.promos || []).filter((p) => p.partner_id === partner.id)
-        .map((p) => ({ code: p.code, type: p.type, used: p.used_count })),
-    };
+    const row = partnerCabinetRow(partnerStats(partner.id));
+    return { ...row, share: partner.share_pct };
   },
 
   /* ---------- Админка: промокоды ---------- */
@@ -1430,14 +1433,14 @@ const routes = {
   /* ---------- Админка: партнёры ---------- */
 
   'POST /api/admin/partners': () => ({
-    rows: (store.partners || []).map((p) => partnerStats(p.id)),
+    rows: (store.partners || []).map((p) => partnerCabinetRow(partnerStats(p.id))),
   }),
 
   'POST /api/admin/partner/save': (body) => {
     const tg = String(body.userKey ?? body.tg_id ?? '').trim();
     if (!tg) return { status: 400, body: { error: 'Игрок не найден. Укажите почту, Telegram ID или номер игрока' } };
 
-    const share = Math.min(100, Math.max(0, Number(body.share_pct) || 0));
+    const share = Math.min(90, Math.max(0, Number(body.share_pct) || 0));
     store.partners = store.partners || [];
     const existing = store.partners.find((p) => p.tg_id === tg);
     if (existing) {

@@ -44,6 +44,9 @@ echo "==> Службы"
 cp "$APP_DIR"/deploy/luckybox*.service "$APP_DIR"/deploy/luckybox*.timer /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable --now luckybox-backup.timer luckybox-watchdog.timer
+# Команда смены домена (deploy/domain.sh) появляется и на старых серверах.
+ln -sf "$APP_DIR/deploy/domain.sh" /usr/local/bin/luckybox-domain
+chmod +x "$APP_DIR/deploy/domain.sh"
 
 echo "==> Перезапуск"
 systemctl restart luckybox

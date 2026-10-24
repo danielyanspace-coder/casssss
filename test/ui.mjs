@@ -221,6 +221,12 @@ if (newcomer) {
    * легенды и подписей кейсов - с крупным полем промокода поверх колеса.
    * Промокода и медалей в разделе нет, нумерации ивентов тоже.
    */
+  // Фото розыгрыша крупное и грузится не за полсекунды: ждём, пока
+  // загрузится, а не судим по первому кадру. Не загрузилось - проверка ниже упадёт.
+  await page.waitForFunction(() => {
+    const img = document.querySelector('#fmDrive .dv-photo img');
+    return img?.complete && img.naturalWidth > 0;
+  }, null, { timeout: 15_000 }).catch(() => {});
   const fm = await page.evaluate(() => {
     const sec = [...document.querySelectorAll('.pw-sec > path')];
     return {

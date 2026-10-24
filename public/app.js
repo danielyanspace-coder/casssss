@@ -5789,28 +5789,34 @@ async function loadAdminPartners() {
   catch (err) { toast(err.message); return; }
 
   const box = document.getElementById('admin-partners');
-
+  // Управление программой - в кабинете /partners: доли, сетка, заявки на
+  // вывод и сверка со шлюзом. Здесь список для взгляда и заведение партнёра
+  // из существующего игрока.
   box.innerHTML = `
-    <div class="admin-form">
+    <a class="btn btn-primary btn-wide" href="/partners/" target="_blank" rel="noopener">Открыть кабинет партнёров</a>
+    <div class="admin-form" style="margin-top:14px">
       <div class="form-grid">
         <div><label>Игрок</label>
           <input class="seed-input" id="ptTg" placeholder="почта, Telegram ID или номер"></div>
         <div><label>Доля, %</label>
-          <input class="seed-input" id="ptShare" type="number" min="0" max="100" value="30"></div>
+          <input class="seed-input" id="ptShare" type="number" min="0" max="90" value="50"></div>
         <div class="wide"><label>Имя</label>
           <input class="seed-input" id="ptName" maxlength="80"></div>
-        <div class="wide"><label>Заметка</label>
-          <input class="seed-input" id="ptNote" maxlength="200"></div>
       </div>
-      <button class="btn btn-primary btn-wide" id="ptSave">Сохранить партнёра</button>
-      <div class="kpi-sub" style="margin-top:8px">
-        Партнёр видит свою статистику на сайте в своём аккаунте.
-        Игроки привязываются к нему промокодом: у промокода надо выбрать партнёра.
-      </div>
+      <button class="btn btn-outline btn-wide" id="ptSave">Сделать партнёром</button>
     </div>
 
     <h2 class="section-title">Партнёры</h2>
-    ${d.rows.length ? d.rows.map(partnerRowHtml).join('') : '<div class="empty">Пока пусто</div>'}
+    ${d.rows.length ? d.rows.map((r) => `<div class="promo-row ${r.status === 'active' ? '' : 'off'}">
+        <div>
+          <div class="promo-code">${esc(r.name || 'Партнёр')}</div>
+          <div class="promo-meta">#${r.id} · ${esc(r.email || '')} · доля ${r.share}% · игроков ${fmt(r.total.signups)}</div>
+        </div>
+        <div style="text-align:right">
+          <div class="promo-code">${money(r.balance.available)}</div>
+          <div class="promo-meta">к выводу</div>
+        </div>
+      </div>`).join('') : '<div class="empty">Пока пусто</div>'}
   `;
 
   document.getElementById('ptSave').addEventListener('click', async () => {
@@ -5819,53 +5825,12 @@ async function loadAdminPartners() {
         userKey: document.getElementById('ptTg').value,
         share_pct: document.getElementById('ptShare').value,
         name: document.getElementById('ptName').value,
-        note: document.getElementById('ptNote').value,
       });
       toast('Партнёр сохранён');
       haptic('success');
       loadAdminPartners();
     } catch (err) { toast(err.message); haptic('error'); }
   });
-
-  box.querySelectorAll('[data-pay-partner]').forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      const id = Number(btn.dataset.payPartner);
-      const input = box.querySelector(`[data-pay-amount="${id}"]`);
-      try {
-        await api('/api/admin/partner/pay', { partnerId: id, amount: Number(input.value) });
-        toast('Выплата записана');
-        haptic('success');
-        loadAdminPartners();
-      } catch (err) { toast(err.message); haptic('error'); }
-    });
-  });
-}
-
-function partnerRowHtml(s) {
-  const p = s.partner;
-  return `<div class="promo-row ${p.is_active ? '' : 'off'}" style="flex-direction:column;align-items:stretch">
-    <div style="display:flex;justify-content:space-between;gap:10px">
-      <div>
-        <div class="promo-code">${esc(p.name || 'Партнёр')}</div>
-        <div class="promo-meta">${esc([p.email, p.tg_id != null ? `TG ${p.tg_id}` : ''].filter(Boolean).join(' · ') || 'аккаунт не найден')} · доля ${p.share_pct}%
-          · рефералов ${fmt(s.referrals)} (играли ${fmt(s.active)})</div>
-      </div>
-      <div style="text-align:right">
-        <div class="promo-code">${money(Math.max(0, s.pending))}</div>
-        <div class="promo-meta">к выплате</div>
-      </div>
-    </div>
-    <div class="promo-meta" style="margin-top:8px">
-      ставки ${money(s.wagered)} · выигрыши ${money(s.paid)} · бонусы ${money(s.bonuses)}
-      · прибыль ${s.profit >= 0 ? '' : '-'}${money(Math.abs(s.profit))}
-      · начислено ${money(s.accrued)} · выплачено ${money(s.paidOut)}
-    </div>
-    <div class="amount-row" style="margin-top:10px">
-      <input class="seed-input" type="number" min="1" data-pay-amount="${p.id}"
-             value="${Math.max(0, s.pending)}" placeholder="сумма">
-      <button class="btn btn-primary btn-sm" data-pay-partner="${p.id}">Выплатить</button>
-    </div>
-  </div>`;
 }
 
 /* ---------- Админка: заявки на вывод ---------- */
@@ -8307,6 +8272,12 @@ function promoResultText(r) {
     if (r.maxBonus) parts.push(`не более ${money(r.maxBonus)}`);
     return parts.join(', ');
   }
+  if (r.type === 'partner') {
+    const parts = [`Кейс «${r.caseName}» в подарке и +${r.pct}% к первому пополнению`];
+    if (r.minDeposit) parts.push(`от ${money(r.minDeposit)}`);
+    if (r.maxBonus) parts.push(`не более ${money(r.maxBonus)}`);
+    return parts.join(', ');
+  }
   return 'Промокод применён';
 }
 
@@ -8385,53 +8356,16 @@ async function loadPartner() {
     ${sub ? `<div class="kpi-sub">${sub}</div>` : ''}
   </div>`;
 
+  // Партнёрская программа живёт в своём кабинете (/partners): здесь только
+  // сводка, а коды, статистика и вывод - там.
   box.innerHTML = `
     <div class="partner-kpis">
-      ${kpi('Рефералов', fmt(d.referralCount), '', `играли: ${fmt(d.active)}`)}
-      ${kpi('Их ставки', money(d.wagered))}
-      ${kpi('Их выигрыши', money(d.paid))}
-      ${kpi('Выдано бонусов', money(d.bonuses))}
-      ${kpi('Чистая прибыль', `${d.profit >= 0 ? '' : '-'}${money(Math.abs(d.profit))}`,
-            d.profit >= 0 ? 'plus' : 'minus',
-            'ставки минус выигрыши минус бонусы')}
-      ${kpi('Ваша доля', money(d.accrued), 'plus', `${d.partner.share_pct}% от прибыли`)}
-      ${kpi('Выплачено', money(d.paidOut))}
-      ${kpi('К выплате', money(Math.max(0, d.pending)), 'plus')}
+      ${kpi('К выводу', money(d.balance.available), 'plus')}
+      ${kpi('Начислено', money(d.balance.accrued), '', `доля ${d.share}%`)}
+      ${kpi('Игроков', fmt(d.total.signups), '', `пополнили: ${fmt(d.total.ftd)}`)}
+      ${kpi('Выплачено', money(d.balance.paid))}
     </div>
-
-    ${d.profit < 0 ? `<div class="wager-note">Сейчас рефералы в плюсе, и прибыли по ним нет.
-      Доля начнёт начисляться снова, когда прибыль вернётся в плюс: минус
-      переносится, а не обнуляется.</div>` : ''}
-
-    <h2 class="section-title">Ваши промокоды</h2>
-    ${d.promos.length
-      ? d.promos.map((p) => `<div class="log-row">
-          <span class="promo-code">${esc(p.code)}</span>
-          <b>${fmt(p.used)} ${plural(p.used, 'активация', 'активации', 'активаций')}</b>
-        </div>`).join('')
-      : '<div class="empty">Промокодов пока нет. Их заводит администратор.</div>'}
-
-    <h2 class="section-title">Рефералы</h2>
-    ${d.referrals.length
-      ? d.referrals.map((u) => {
-          const name = u.username ? '@' + u.username : (u.first_name || 'Без имени');
-          const profit = u.total_spent - u.total_won - u.bonus_granted;
-          return `<div class="log-row">
-            <span>${esc(name)}<br><small>раундов ${fmt(u.total_rounds)} ·
-              ставки ${money(u.total_spent)}</small></span>
-            <b class="${profit >= 0 ? 'plus' : 'minus'}">${profit >= 0 ? '' : '-'}${money(Math.abs(profit))}</b>
-          </div>`;
-        }).join('')
-      : '<div class="empty">Пока никто не пришёл</div>'}
-
-    <h2 class="section-title">Выплаты вам</h2>
-    ${d.payouts.length
-      ? d.payouts.map((p) => `<div class="log-row">
-          <span>${new Date(p.created_at).toLocaleString('ru-RU')}
-            ${p.comment ? '<br><small>' + esc(p.comment) + '</small>' : ''}</span>
-          <b class="plus">+${money(p.amount)}</b>
-        </div>`).join('')
-      : '<div class="empty">Выплат пока не было</div>'}
+    <a class="btn btn-primary btn-wide" href="/partners/" target="_blank" rel="noopener">Открыть кабинет партнёра</a>
   `;
 }
 
@@ -9102,6 +9036,9 @@ async function submitAuth(event) {
       // Подарок по коду показываем той же сценой, что была у поля промокода:
       // текст - ровно то, что начислено.
       if (res.promo) setTimeout(() => showGiftReveal(promo.toUpperCase(), promoResultText(res.promo)), 600);
+      // Код партнёра своё отработал: следующий аккаунт на этом устройстве
+      // по нему уже не придёт.
+      try { localStorage.removeItem(REF_PROMO_KEY); } catch { /* хранилище закрыто */ }
     } else if (pane === 'forgot') {
       if (!state.config?.auth?.mail) { openSupport(); return; }
       const res = await api('/api/auth/forgot', { email: v('authEmail') });
@@ -9192,6 +9129,35 @@ async function loadMe() {
    НАВИГАЦИЯ И СТАРТ
    ============================================================ */
 
+/*
+ * Ссылка партнёра: /?promo=КОД (кабинет /partners). Код запоминается на
+ * устройстве и подставляется в поле регистрации: гость мог сначала
+ * походить по сайту и зарегистрироваться позже. Из адресной строки код
+ * убирается, чтобы ссылку, скопированную игроком дальше, не приписали
+ * партнёру повторно. Хранилище - только удобство: без него код всё равно
+ * стоит в поле в этом заходе.
+ */
+const REF_PROMO_KEY = 'lb_ref_promo';
+function takeReferralPromo() {
+  let code = '';
+  let fresh = false;
+  try {
+    const url = new URL(location.href);
+    code = (url.searchParams.get('promo') || '').trim().slice(0, 32);
+    fresh = !!code;
+    if (code) {
+      url.searchParams.delete('promo');
+      history.replaceState(null, '', url.pathname + url.search + url.hash);
+    }
+  } catch { /* адрес без параметров */ }
+  try {
+    if (code) localStorage.setItem(REF_PROMO_KEY, code);
+    else code = localStorage.getItem(REF_PROMO_KEY) || '';
+  } catch { /* хранилище закрыто */ }
+  if (code) document.getElementById('authPromo').value = code;
+  return { code, fresh };
+}
+
 async function init() {
   mountIcons();
   buildMoneyRain();
@@ -9236,8 +9202,12 @@ async function init() {
 
     startFeed();
     authUi.resetToken = takeResetToken();
+    const refPromo = takeReferralPromo();
     if (authUi.resetToken) {
       openAuth('reset');
+    } else if (state.guest && refPromo.fresh) {
+      // Пришёл по ссылке партнёра - сразу регистрация с его кодом.
+      openAuth('register');
     } else if (!state.guest) {
       startPaymentEvents();
       loadFreeCase();
