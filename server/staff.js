@@ -46,6 +46,9 @@ export const PERMISSIONS = [
 
   { id: 'finance.payouts.view', group: 'finance', label: 'Видеть заявки на вывод' },
   { id: 'finance.payouts.resolve', group: 'finance', label: 'Проводить и отклонять выводы' },
+  { id: 'finance.reports', group: 'finance', label: 'Финансовый отдел: сверка со шлюзом и касса' },
+  { id: 'finance.settle', group: 'finance', label: 'Вносить расчёты со шлюзом',
+    hint: 'Переводы шлюза нам и пополнения его баланса меняют долг шлюза' },
 
   { id: 'promo.view', group: 'promo', label: 'Смотреть промокоды' },
   { id: 'promo.edit', group: 'promo', label: 'Создавать и выключать промокоды' },
@@ -105,7 +108,7 @@ export const ROLES = [
     balanceCap: 0,
     permissions: [
       'players.view', 'players.notes',
-      'finance.payouts.view', 'finance.payouts.resolve',
+      'finance.payouts.view', 'finance.payouts.resolve', 'finance.reports', 'finance.settle',
       'partners.view', 'partners.pay',
       'reports.view', 'journal.view',
     ],
@@ -150,7 +153,7 @@ export const ROLES = [
     balanceCap: 0,
     permissions: [
       'players.view',
-      'finance.payouts.view',
+      'finance.payouts.view', 'finance.reports',
       'promo.view', 'partners.view',
       'reports.view', 'journal.view',
     ],

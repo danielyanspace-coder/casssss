@@ -44,4 +44,44 @@ export const SETTING_DEFS = [
    * ни в боковой панели, и сервер отвечает 503 на прямой вызов ручки.
    */
   { key: 'games_slots', type: 'bool', value: '0', group: 'Игры', label: 'Слоты' },
+
+  /*
+   * Партнёрская программа (server/partners.js, кабинет /partners). Доля и
+   * параметры промокода - значения для НОВЫХ партнёров и НОВЫХ кодов:
+   * у заведённых доля правится в кабинете админа, и смена умолчания задним
+   * числом ничьих начислений не трогает.
+   */
+  { key: 'partner_signup_open', type: 'bool', value: '1', group: 'Партнёры',
+    label: 'Регистрация партнёров в /partners',
+    hint: 'Выключено - новые партнёры заводятся только админом' },
+  { key: 'partner_default_share', type: 'int', value: '50', group: 'Партнёры',
+    label: 'Доля нового партнёра, % дохода' },
+  { key: 'partner_promo_pct', type: 'int', value: '50', group: 'Партнёры',
+    label: 'Промокод партнёра: процент к первому пополнению' },
+  { key: 'partner_promo_max', type: 'int', value: '10000', group: 'Партнёры',
+    label: 'Промокод партнёра: потолок бонуса, ₽',
+    hint: 'Ноль - без потолка; в деньги бонус всё равно переходит не больше доли от пополнений' },
+  { key: 'partner_promo_min_deposit', type: 'int', value: '100', group: 'Партнёры',
+    label: 'Промокод партнёра: минимальное пополнение, ₽' },
+  { key: 'partner_codes_max', type: 'int', value: '20', group: 'Партнёры',
+    label: 'Сколько промокодов может завести партнёр' },
+  { key: 'partner_min_withdraw', type: 'int', value: '2000', group: 'Партнёры',
+    label: 'Минимальный вывод партнёра, ₽' },
+  { key: 'partner_casino_cost_pct', type: 'num', value: '0', group: 'Партнёры',
+    label: 'Доля агрегатора с дохода казино, %',
+    hint: 'Вычитается из дохода по казино до расчёта доли партнёра' },
+  { key: 'partner_deposit_cost_pct', type: 'num', value: '0', group: 'Партнёры',
+    label: 'Комиссия приёма платежей, % от пополнений рефералов',
+    hint: 'Вычитается из дохода до расчёта доли партнёра' },
+  /*
+   * Условия Sicilia для сверки (server/finance.js): из них считается, сколько
+   * шлюз должен проекту. Пока не вписаны, отчёт показывает оборот без
+   * комиссий и честно пишет, что долг посчитан без них.
+   */
+  { key: 'sicilia_payin_fee_pct', type: 'num', value: '0', group: 'Sicilia',
+    label: 'Комиссия Sicilia на приём, %' },
+  { key: 'sicilia_payout_fee_pct', type: 'num', value: '0', group: 'Sicilia',
+    label: 'Комиссия Sicilia на выплату, %' },
+  { key: 'sicilia_payout_fee_fixed', type: 'int', value: '0', group: 'Sicilia',
+    label: 'Фиксированная комиссия за одну выплату, ₽' },
 ];

@@ -1021,16 +1021,29 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
   check('нечисловой Telegram ID отклонён', bad.status === 400);
 
   const list = await post('/api/admin/partners');
-  const row = list.data.rows.find((r) => r.partner.tg_id === tg);
-  check('партнёр виден в списке со статистикой', !!row);
-  check('прибыль считается как ставки минус выигрыши минус бонусы',
-        row.profit === row.wagered - row.paid - row.bonuses);
-  check('в минусе доля не начисляется',
-        row.profit > 0 ? row.accrued === Math.floor(row.profit * 0.3) : row.accrued === 0);
+  const row = list.data.rows.find((r) => String(r.id) === String(saved.data.id));
+  check('партнёр виден в списке со статистикой', !!row && row.balance && row.total);
+  check('доля нового партнёра сохранена', row.share === 30, `${row?.share}`);
+  check('без игры рефералов начислений нет', row.balance.accrued === 0 && row.balance.available === 0);
 
   const over = await post('/api/admin/partner/pay',
-                          { partnerId: row.partner.id, amount: row.pending + 1000 });
+                          { partnerId: row.id, amount: row.balance.available + 1000 });
   check('выплата сверх начисленного отклонена', over.status === 400);
+
+  const ov = await post('/api/pc/admin/overview');
+  check('кабинет: обзор программы отдаётся админу', ov.status === 200 && ov.data.rows.some((r) => r.id === row.id));
+  const fin = await post('/api/pc/admin/finance/sicilia', { days: 7 });
+  check('кабинет: сверка с Sicilia отдаётся', fin.status === 200 && fin.data.ledger.rows.length === 7 && typeof fin.data.owed === 'number');
+  const hourly = await post('/api/pc/admin/finance/sicilia', { day: new Date().toISOString().slice(0, 10) });
+  check('кабинет: сверка по часам', hourly.status === 200 && hourly.data.ledger.rows.length === 24);
+  const cashRes = await post('/api/pc/admin/finance/cash', { days: 7 });
+  check('кабинет: касса по дням', cashRes.status === 200 && cashRes.data.rows.length === 7);
+  const settle = await post('/api/pc/admin/finance/settle', { kind: 'adjust', amount: 10 });
+  check('кабинет: поправка без объяснения отклонена', settle.status === 400);
+  const pcMe = await post('/api/pc/me');
+  check('кабинет: сотрудник видит свои права', pcMe.status === 200 && pcMe.data.staff?.permissions.includes('finance.reports'));
+  const notPartner = await post('/api/pc/dashboard');
+  check('кабинет: не партнёр не видит кабинет', notPartner.status === 403);
 
   // Чужой аккаунт не должен видеть партнёрскую статистику.
   const mine = await post('/api/partner/stats');

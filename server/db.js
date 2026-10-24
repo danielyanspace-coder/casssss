@@ -3017,7 +3017,12 @@ export function markNoticeSent(userId, kind, tag) {
    ПРОМОКОДЫ
    ============================================================ */
 
-const PROMO_TYPES = new Set(['balance', 'deposit_pct', 'free_case', 'wheel']);
+/*
+ * partner - код партнёра из кабинета /partners (server/partners.js): кейс в
+ * подарок и процент к пополнению разом. Один код вместо двух, потому что
+ * вводится он один раз, при регистрации.
+ */
+const PROMO_TYPES = new Set(['balance', 'deposit_pct', 'free_case', 'wheel', 'partner']);
 
 /** Приводит код к каноническому виду: регистр и пробелы не должны мешать. */
 export function normalizePromoCode(raw) {
@@ -3109,6 +3114,31 @@ export const redeemPromo = moneyTx('promo', (userId, rawCode, resolveCase, { whe
            promo.wager_multiplier, now);
     result = { type: 'deposit_pct', pct: promo.pct, maxBonus: promo.max_bonus,
                minDeposit: promo.min_deposit };
+
+  } else if (promo.type === 'partner') {
+    /*
+     * Кейс и процент - те же два начисления, что у free_case и deposit_pct,
+     * с теми же правилами: ваучер подарочный (выигрыш на бонусный счёт),
+     * процент ждёт пополнения в общем слоте и с приветственным не складывается.
+     */
+    const target = resolveCase(promo.case_id);
+    if (!target || !(promo.pct > 0)) throw fail('Промокод настроен неверно');
+    const count = Math.max(1, promo.case_count);
+    addVoucher(userId, promo.case_id, count, true);
+    granted = Math.round(target.price * target.rtp * count);
+    db.prepare('UPDATE users SET bonus_granted = bonus_granted + ? WHERE id = ?').run(granted, userId);
+    db.prepare(`
+      INSERT INTO pending_deposit_bonus
+        (user_id, promo_id, pct, max_bonus, min_deposit, wager_multiplier, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(user_id) DO UPDATE SET
+        promo_id = excluded.promo_id, pct = excluded.pct,
+        max_bonus = excluded.max_bonus, min_deposit = excluded.min_deposit,
+        wager_multiplier = excluded.wager_multiplier, created_at = excluded.created_at
+    `).run(userId, promo.id, promo.pct, promo.max_bonus, promo.min_deposit,
+           promo.wager_multiplier, now);
+    result = { type: 'partner', caseId: promo.case_id, caseName: target.name, count,
+               pct: promo.pct, maxBonus: promo.max_bonus, minDeposit: promo.min_deposit };
 
   } else if (promo.type === 'wheel') {
     /*
@@ -3695,7 +3725,8 @@ export const adminSavePartner = db.transaction((adminId, data) => {
   const tgId = user ? (user.tg_id == null ? null : String(user.tg_id)) : key;
   const userId = user ? user.id : null;
 
-  const share = Math.min(100, Math.max(0, Number(data.share_pct) || 0));
+  // Не больше 90: остаток - минимальная доля заведения (SHARE_TOTAL_MAX в partners.js).
+  const share = Math.min(90, Math.max(0, Number(data.share_pct) || 0));
   const existing = db.prepare(`
     SELECT id FROM partners
      WHERE (? IS NOT NULL AND user_id = ?) OR (? IS NOT NULL AND tg_id = ?)
@@ -4422,7 +4453,7 @@ export function setting(key) {
   const row = db.prepare('SELECT value FROM app_settings WHERE key = ?').get(key);
   const raw = row ? row.value : def.value;
   return def.type === 'bool' ? raw === '1' || raw === 'true'
-       : def.type === 'int' ? Number(raw) || 0
+       : def.type === 'int' || def.type === 'num' ? Number(raw) || 0
        : raw;
 }
 
@@ -4434,6 +4465,8 @@ export const saveSettings = db.transaction((actorId, patch) => {
     if (!def) continue;
     const value = def.type === 'bool' ? (raw ? '1' : '0')
                 : def.type === 'int' ? String(Math.max(0, Math.trunc(Number(raw) || 0)))
+                // Дробное (комиссии шлюза): «7,5» с запятой тоже понимается.
+                : def.type === 'num' ? String(Math.max(0, Math.round(Number(String(raw).replace(',', '.')) * 1000) / 1000 || 0))
                 : String(raw).slice(0, 500);
     const before = setting(key);
     db.prepare(`INSERT INTO app_settings (key, value, updated_by, updated_at)

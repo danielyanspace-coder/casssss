@@ -54,6 +54,8 @@ import {
 import { limits } from './ratelimit.js';
 import * as crypto from './crypto.js';
 import * as sicilia from './sicilia.js';
+import * as partners from './partners.js';
+import * as finance from './finance.js';
 import { adminDeposits, depositsSummary, depositsCsvRows, payoutsCsvRows, toCsv } from './cashdesk.js';
 import {
   BONUS_CONFIG,
@@ -109,15 +111,10 @@ import {
   db, getPartnerForUser, isOwnerKeyed, createEmailUser, createEmailUserWithPromo, findUserByEmail, findUserByTgId,
   linkTelegram, setEmailLogin, setPasswordHash, deleteUserSessions, purgeExpiredSessions,
   createPasswordReset, usePasswordReset,
-  partnerStats,
-  partnerReferrals,
-  partnerPayoutHistory,
   adminSavePromo,
   adminListPromos,
   adminDeletePromo,
   adminSavePartner,
-  adminListPartners,
-  adminPayPartner,
   savePendingSpins,
   getPendingSpins,
   clearPendingSpins,
@@ -1232,25 +1229,200 @@ app.post('/api/promo/state', auth, (req, res) => {
    ПАРТНЁРУ
    ============================================================ */
 
-/**
- * Статистика партнёра для него самого.
- *
- * Партнёр опознаётся по своему аккаунту: отдельного входа нет, он заходит на
- * тот же сайт, что и игроки.
+/*
+ * Партнёрский кабинет живёт отдельным сайтом по адресу /partners
+ * (public/partners/, расчёты - server/partners.js). Вход тот же, что на сайте:
+ * та же сессия и та же почта, поэтому партнёр-игрок не заводит второй пароль,
+ * а владелец входит в кабинет тем же аккаунтом и с тем же подтверждением в
+ * Telegram (need() на каждой ручке /api/pc/admin/*).
  */
-app.post('/api/partner/stats', auth, limits.read, (req, res) => {
-  const partner = getPartnerForUser(req.player);
-  if (!partner) return res.status(403).json({ error: 'Вы не партнёр' });
+function partnerOnly(req, res, next) {
+  const p = partners.partnerOfUser(req.player.id);
+  if (!p) return res.status(403).json({ error: 'Вы не партнёр', code: 'NOT_PARTNER' });
+  req.partner = p;
+  next();
+}
 
-  const stats = partnerStats(partner.id);
+function pcError(res, err) {
+  const status = err.code === 'NOT_FOUND' ? 404 : err.code === 'EMAIL_TAKEN' || err.code === 'TAKEN' ? 409
+    : err.code === 'BLOCKED' || err.code === 'CLOSED' ? 403 : 400;
+  if (!err.code) throw err;
+  res.status(status).json({ error: err.message, code: err.code });
+}
+
+/* Старый экран партнёра на сайте: те же деньги, что и в кабинете. */
+app.post('/api/partner/stats', auth, limits.read, partnerOnly, (req, res) => {
+  res.json(partners.dashboard(req.partner.id, { days: 30 }));
+});
+
+app.post('/api/pc/me', auth, limits.read, (req, res) => {
+  const p = partners.partnerOfUser(req.player.id);
   res.json({
-    ...stats,
-    referrals: partnerReferrals(partner.id),
-    referralCount: stats.referrals,
-    payouts: partnerPayoutHistory(partner.id),
-    promos: adminListPromos().filter((p) => p.partner_id === partner.id)
-      .map((p) => ({ code: p.code, type: p.type, used: p.used_count })),
+    user: { id: req.player.id, email: req.player.email || null, nick: req.player.first_name || req.player.username || '' },
+    partner: partners.publicPartner(p && partners.partnerById(p.id)),
+    staff: req.perms.size ? { permissions: [...req.perms], twoFactor: twoFactorState(req.player.id, req.sessionHash) } : null,
+    rules: partners.rulesNow(),
   });
+});
+
+app.post('/api/pc/register', authGate, limits.auth, async (req, res) => {
+  try {
+    const email = normalizeEmail(req.body?.email);
+    const password = checkPassword(req.body?.password);
+    const { user } = partners.registerPartner({
+      email, passwordHash: await hashPassword(password), name: req.body?.name, contact: req.body?.contact,
+    });
+    trackEvent(user.id, 'signup');
+    startSession(req, res, user.id);
+    res.json({ ok: true });
+  } catch (err) { pcError(res, err); }
+});
+
+app.post('/api/pc/join', auth, limits.auth, (req, res) => {
+  try { res.json({ partner: partners.publicPartner(partners.joinAsPartner(req.player.id, req.body || {})) }); }
+  catch (err) { pcError(res, err); }
+});
+
+app.post('/api/pc/dashboard', auth, limits.read, partnerOnly, (req, res) => {
+  res.json(partners.dashboard(req.partner.id, { days: req.body?.days }));
+});
+
+app.post('/api/pc/profile', auth, limits.auth, partnerOnly, (req, res) => {
+  try { res.json({ partner: partners.publicPartner(partners.updateProfile(req.partner.id, req.body || {})) }); }
+  catch (err) { pcError(res, err); }
+});
+
+app.post('/api/pc/promo/create', auth, limits.auth, partnerOnly, (req, res) => {
+  try { res.json(partners.createPromo(req.partner.id, req.body?.code)); }
+  catch (err) { pcError(res, err); }
+});
+
+app.post('/api/pc/promo/toggle', auth, limits.auth, partnerOnly, (req, res) => {
+  try { res.json(partners.setPromoActive(req.partner.id, req.body?.id, !!req.body?.active)); }
+  catch (err) { pcError(res, err); }
+});
+
+/*
+ * Вывод партнёра - USDT по тому же курсу, что вывод игрока (Rapira плюс
+ * наценка, crypto.payoutRate): курс один на проект. Нет курса - заявку не
+ * принимаем, иначе монет посчитать не из чего.
+ */
+app.post('/api/pc/payout/quote', auth, limits.read, partnerOnly, async (req, res) => {
+  res.json({ rate: await crypto.payoutRate('USDT') });
+});
+
+app.post('/api/pc/payout', auth, limits.auth, partnerOnly, async (req, res) => {
+  const rate = await crypto.payoutRate('USDT');
+  if (!(rate > 0)) return res.status(503).json({ error: 'Курс USDT сейчас недоступен, попробуйте через минуту' });
+  try {
+    const r = partners.requestPayout(req.partner.id, req.body || {}, rate);
+    alert(`partner:payout:${r.id}`, `Запрос партнёра «${req.partner.name || req.partner.id}» на вывод ${r.amount} ₽`
+      + ` (${r.usdt} USDT). Кабинет /partners -> Заявки.`);
+    res.json(r);
+  } catch (err) { pcError(res, err); }
+});
+
+app.post('/api/pc/payout/cancel', auth, limits.auth, partnerOnly, (req, res) => {
+  try { res.json(partners.cancelPayout(req.partner.id, req.body?.id)); }
+  catch (err) { pcError(res, err); }
+});
+
+/* ---------- Кабинет: админ ---------- */
+
+app.post('/api/pc/admin/overview', auth, need('partners.view'), (req, res) => {
+  res.json(partners.adminOverview({ days: req.body?.days }));
+});
+
+app.post('/api/pc/admin/partner', auth, need('partners.view'), (req, res) => {
+  try {
+    const id = Number(req.body?.id);
+    res.json({ ...partners.dashboard(id, { days: req.body?.days }), shares: partners.shareHistory(id) });
+  } catch (err) { pcError(res, err); }
+});
+
+app.post('/api/pc/admin/share', auth, need('partners.edit'), (req, res) => {
+  try {
+    // Обе стороны - по номеру из списка или по ключу, который ввёл человек.
+    const pick = (key, id) => (key != null && key !== '' ? partners.findPartner(key) : partners.partnerById(id));
+    const source = pick(req.body?.sourceKey, req.body?.sourceId);
+    const benef = pick(req.body?.beneficiaryKey, req.body?.beneficiaryId);
+    if (!source || !benef) return res.status(404).json({ error: 'Партнёр не найден: номер, почта или имя' });
+    res.json(partners.setShare(req.player.id, benef.id, source.id, req.body?.pct));
+  } catch (err) { pcError(res, err); }
+});
+
+app.post('/api/pc/admin/status', auth, need('partners.edit'), (req, res) => {
+  try { res.json(partners.setStatus(req.player.id, Number(req.body?.id), String(req.body?.status || ''))); }
+  catch (err) { pcError(res, err); }
+});
+
+app.post('/api/pc/admin/payouts', auth, need('partners.view'), (req, res) => {
+  res.json({ rows: partners.adminPayouts({ status: String(req.body?.status || 'pending') }) });
+});
+
+app.post('/api/pc/admin/payout/resolve', auth, need('partners.pay'), (req, res) => {
+  try { res.json(partners.resolvePayout(req.player.id, Number(req.body?.id), req.body || {})); }
+  catch (err) { pcError(res, err); }
+});
+
+app.post('/api/pc/admin/payout/manual', auth, need('partners.pay'), (req, res) => {
+  try { res.json(partners.manualPayout(req.player.id, Number(req.body?.partnerId), req.body?.amount, req.body?.comment)); }
+  catch (err) { pcError(res, err); }
+});
+
+/*
+ * Сверка с Sicilia. Баланс, который показывает сам шлюз, спрашивается здесь
+ * же: рядом с нашим расчётом он и нужен. Шлюз не ответил - расчёт всё равно
+ * отдаётся, с текстом ошибки вместо их числа.
+ */
+app.post('/api/pc/admin/finance/sicilia', auth, need('finance.reports'), async (req, res) => {
+  let gateway = null;
+  let gatewayError = '';
+  if (sicilia.isConfigured()) {
+    try { gateway = await sicilia.merchantBalance(); } catch (err) { gatewayError = err.message; }
+  } else gatewayError = 'Ключи Sicilia не заданы';
+  try {
+    res.json({
+      ledger: finance.siciliaLedger({ days: req.body?.days, day: req.body?.day }),
+      owed: finance.siciliaOwed(),
+      issues: finance.siciliaIssues(),
+      gateway, gatewayError,
+      canSettle: req.perms.has('finance.settle'),
+    });
+  } catch (err) { pcError(res, err); }
+});
+
+app.post('/api/pc/admin/finance/cash', auth, need('finance.reports'), (req, res) => {
+  res.json(finance.cashSummary({ days: req.body?.days }));
+});
+
+app.post('/api/pc/admin/finance/settle', auth, need('finance.settle'), (req, res) => {
+  try { res.json(finance.addSettlement(req.player.id, req.body || {})); }
+  catch (err) { pcError(res, err); }
+});
+
+app.post('/api/pc/admin/finance/settle/void', auth, need('finance.settle'), (req, res) => {
+  try { res.json(finance.voidSettlement(req.player.id, req.body?.id)); }
+  catch (err) { pcError(res, err); }
+});
+
+app.post('/api/pc/admin/finance/export', auth, need('finance.reports'), (req, res) => {
+  const days = Math.min(366, Math.max(1, Number(req.body?.days) || 30));
+  const { head, rows } = finance.siciliaCsvRows(days);
+  logAdmin(req.player.id, 0, 'export', { note: 'sicilia-ledger', meta: { days, rows: rows.length } });
+  res.type('text/csv; charset=utf-8').send(toCsv(head, rows));
+});
+
+/* Настройки программы и комиссий шлюза - те же, что в панели, только свои группы. */
+const PC_SETTING_GROUPS = new Set(['Партнёры', 'Sicilia']);
+app.post('/api/pc/admin/settings', auth, need('settings.manage'), (req, res) => {
+  res.json({ rows: settingsAll().filter((r) => PC_SETTING_GROUPS.has(r.group)) });
+});
+
+app.post('/api/pc/admin/settings/save', auth, need('settings.manage'), (req, res) => {
+  const patch = Object.fromEntries(Object.entries(req.body?.patch || {})
+    .filter(([k]) => settingsAll().some((r) => r.key === k && PC_SETTING_GROUPS.has(r.group))));
+  res.json({ rows: saveSettings(req.player.id, patch).filter((r) => PC_SETTING_GROUPS.has(r.group)) });
 });
 
 /* ============================================================
@@ -1280,7 +1452,7 @@ app.post('/api/admin/promo/delete', auth, need('promo.edit'), (req, res) => {
 });
 
 app.post('/api/admin/partners', auth, need('partners.view'), (req, res) => {
-  res.json({ rows: adminListPartners() });
+  res.json({ rows: partners.adminOverview().rows });
 });
 
 app.post('/api/admin/partner/save', auth, need('partners.edit'), (req, res) => {
@@ -1294,12 +1466,9 @@ app.post('/api/admin/partner/save', auth, need('partners.edit'), (req, res) => {
 
 app.post('/api/admin/partner/pay', auth, need('partners.pay'), (req, res) => {
   try {
-    res.json(adminPayPartner(req.player.id, Number(req.body?.partnerId),
-                             req.body?.amount, req.body?.comment));
+    res.json(partners.manualPayout(req.player.id, Number(req.body?.partnerId), req.body?.amount, req.body?.comment));
   } catch (err) {
-    if (err.code === 'BAD' || err.code === 'NOT_FOUND') {
-      return res.status(400).json({ error: err.message });
-    }
+    if (err.code === 'BAD' || err.code === 'NOT_FOUND') return res.status(400).json({ error: err.message });
     throw err;
   }
 });

@@ -41,7 +41,7 @@ import { mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import {
   db, getUserById, registerDeposit, trackEvent, payoutForGateway, startPayout, completePayout,
-  completePayoutPartial, unstartPayout, moneyTx, ledgerLink, logAdmin, assertDepositAllowed,
+  completePayoutPartial, unstartPayout, moneyTx, ledgerLink, logAdmin, assertDepositAllowed, setting,
 } from './db.js';
 
 /* Журнал balance_transactions общий для шлюзов и создаётся в db.js. */
@@ -147,6 +147,13 @@ if (!orderCols.includes('late_checked_at')) db.exec('ALTER TABLE sicilia_orders 
 if (!orderCols.includes('requisite')) db.exec('ALTER TABLE sicilia_orders ADD COLUMN requisite TEXT');
 if (!orderCols.includes('pay_sum')) db.exec('ALTER TABLE sicilia_orders ADD COLUMN pay_sum TEXT');
 if (!orderCols.includes('expires_at')) db.exec('ALTER TABLE sicilia_orders ADD COLUMN expires_at INTEGER');
+/*
+ * Комиссия шлюза на момент сделки (настройки панели, группа Sicilia). Пишется
+ * при зачислении и при закрытии выплаты: сверка с шлюзом (finance.js) считает
+ * долг по условиям, действовавшим тогда, а не по сегодняшним.
+ */
+if (!orderCols.includes('fee_pct')) db.exec('ALTER TABLE sicilia_orders ADD COLUMN fee_pct REAL');
+if (!orderCols.includes('fee_fixed')) db.exec('ALTER TABLE sicilia_orders ADD COLUMN fee_fixed INTEGER');
 
 const txCols = db.prepare('PRAGMA table_info(balance_transactions)').all().map((c) => c.name);
 if (!txCols.includes('sicilia_order_id')) {
@@ -485,7 +492,8 @@ export const applyPayinStatus = moneyTx('deposit', (orderId, info) => {
               VALUES (?, 'DEPOSIT', ?, ?, ?, ?)`).run(row.user_id, credited, row.id, 'СБП / карта', now);
   db.prepare(`INSERT INTO deposits (user_id, amount, source, comment, created_at)
               VALUES (?, ?, 'sicilia', ?, ?)`).run(row.user_id, credited, 'СБП / карта', now);
-  db.prepare('UPDATE sicilia_orders SET credited_rub = ?, paid_at = ? WHERE id = ?').run(credited, now, row.id);
+  db.prepare('UPDATE sicilia_orders SET credited_rub = ?, paid_at = ?, fee_pct = ?, fee_fixed = 0 WHERE id = ?')
+    .run(credited, now, Number(setting('sicilia_payin_fee_pct')) || 0, row.id);
   // Общие последствия любого пополнения: бонус, отыгрыш, прокруты колеса.
   const { bonus } = registerDeposit(row.user_id, credited, 'sicilia');
   // Деньги пришли - открытый спор по этой оплате закрыт, каким бы путём ни
@@ -770,7 +778,8 @@ export const applyPayoutStatus = db.transaction((orderId, info) => {
       + 'Заявка в работе: отправьте заново или верните в ожидание.');
   }
   if (status !== 'completed' || row.paid_at) return { closed: false, status };
-  db.prepare('UPDATE sicilia_orders SET paid_at = ? WHERE id = ?').run(Date.now(), row.id);
+  db.prepare('UPDATE sicilia_orders SET paid_at = ?, fee_pct = ?, fee_fixed = ? WHERE id = ?')
+    .run(Date.now(), Number(setting('sicilia_payout_fee_pct')) || 0, Number(setting('sicilia_payout_fee_fixed')) || 0, row.id);
   const payout = db.prepare('SELECT status, amount FROM payouts WHERE id = ?').get(row.payout_id);
   // Заявку могли закрыть руками раньше колбэка - второй раз не закрываем.
   if (payout?.status !== 'processing') return { closed: true, status, payoutId: row.payout_id };
