@@ -176,26 +176,30 @@ order({ kind: 'payin', invid: 'lb-2', amount: 1000, credited: 900, fact: '900', 
 order({ kind: 'payout', invid: 'lbp-1', amount: 500, pct: 2, fixed: 10, t: at(today, 2), paid: at(today, 2) });
 order({ kind: 'payin', invid: 'lb-3', amount: 700, status: 'cancelled', t: NOW - 3600_000 });
 F.addSettlement(ADMIN, { kind: 'withdraw', amount: 200, txid: 'w1', at: at(today, 3) });
+// Отчёты считаются «на конец сегодняшних суток». Иначе тест зависел бы от
+// часа запуска: в 01:30 по Москве сделки 02:00 и 03:00 ещё в будущем, и в
+// долг не попадают (так он однажды упал в CI).
+const END = P.dayStart(today + 1) - 1;
 // 1000 - 50 + 900 - 45 - 500 - (10 + 10) - 200 = 1085.
-check('долг шлюза: принято минус комиссии, выплаты и переводы нам', F.siciliaOwed() === 1085, `${F.siciliaOwed()}`);
-const L = F.siciliaLedger({ days: 3 });
+check('долг шлюза: принято минус комиссии, выплаты и переводы нам', F.siciliaOwed(END) === 1085, `${F.siciliaOwed(END)}`);
+const L = F.siciliaLedger({ days: 3, now: END });
 check('по дням: три строки, новые сверху', L.rows.length === 3 && L.rows[0].label === P.dayLabel(today));
 check('по дням: нарастающий итог сходится с долгом', L.closing === 1085 && L.rows[0].balance === 1085 && L.rows[1].balance === 950);
 check('по дням: выставлено и подтверждено различаются', L.rows[0].payinOrdered === 1000 && L.rows[0].payin === 900);
-const H = F.siciliaLedger({ day: P.dayLabel(today) });
+const H = F.siciliaLedger({ day: P.dayLabel(today), now: END });
 check('по часам: 24 строки и тот же итог', H.rows.length === 24 && H.closing === 1085 && H.opening === 950);
 check('по часам: сделка в своём часе', H.rows.find((r) => r.label === '02:00').payoutCount === 1);
-const issues = F.siciliaIssues();
+const issues = F.siciliaIssues({ now: END });
 check('расхождение: шлюз подтвердил меньше выставленного', issues.short.rows.length === 1 && issues.short.sum === 100);
 check('отозванный ордер ещё перепроверяется', issues.watching.rows.some((r) => r.invid === 'lb-3'));
 check('поправка без объяснения не принимается', throwsCode(() => F.addSettlement(ADMIN, { kind: 'adjust', amount: -50 }), 'BAD'));
 const adj = F.addSettlement(ADMIN, { kind: 'adjust', amount: -85, note: 'сверка с выпиской' });
-check('поправка в пользу шлюза уменьшает долг', F.siciliaOwed() === 1000);
+check('поправка в пользу шлюза уменьшает долг', F.siciliaOwed(END) === 1000);
 F.voidSettlement(ADMIN, adj.id);
-check('погашенная запись не считается', F.siciliaOwed() === 1085);
-const csv = F.siciliaCsvRows(3);
+check('погашенная запись не считается', F.siciliaOwed(END) === 1085);
+const csv = F.siciliaCsvRows(3, END);
 check('выгрузка: сделки и расчёты построчно', csv.rows.length === 4 && csv.rows.some((r) => r[1] === 'lbp-1'));
-const cash = F.cashSummary({ days: 3 });
+const cash = F.cashSummary({ days: 3, now: END });
 check('касса: пополнения и доход по дням', cash.total.depSicilia === 2600 && cash.rows.length === 3);
 
 for (const t of ['', '-wal', '-shm']) rmSync(process.env.DB_PATH + t, { force: true });
