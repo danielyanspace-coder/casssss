@@ -907,6 +907,7 @@ tools/case-covers.mjs` (и `--stage`); полка - `CATEGORIES` / `THEMED_SHELV
 | `README.md`, `LAUNCH.md`, `SECRETS.md` | развёртывание, чек-лист запуска, список ключей |
 | `install.sh` | первичная установка в `/srv/luckybox` |
 | `update.sh` | выкат: копия базы, код, перезапуск |
+| `bootstrap.sh` | развёртывание одной командой с вопросами, проверками и откатом (LAUNCH.md, раздел 0) |
 | `domain.sh` | смена домена: `sudo luckybox-domain новый-домен` (сертификат, nginx, SITE_URL, переадресация со старых) |
 | `backup.mjs` | копия базы (WAL-безопасная, сжатая, проверенная), `RCLONE_REMOTE` |
 | `watchdog.mjs` | сторож: health изнутри и снаружи, сертификат, диск, свежесть копий |
