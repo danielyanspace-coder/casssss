@@ -301,12 +301,17 @@ main { position: relative; z-index: 2; padding: 18px; }
   width: 45%; height: 220%;
   background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.22), transparent);
   transform: rotate(22deg);
+  /* Едет transform, а не left: left перерисовывал обложку каждый кадр, и
+     полка из шестидесяти кейсов грузила телефон, даже пока на неё никто не
+     смотрит. Путь тот же: от -60% до 130% ширины карточки, в долях самого
+     блика (45%) это 190 / 45 = 422%. */
   animation: shine 4.5s ease-in-out infinite;
   pointer-events: none;
+  will-change: transform;
 }
 @keyframes shine {
-  0%, 65% { left: -60%; }
-  100%    { left: 130%; }
+  0%, 65% { transform: translateX(0) rotate(22deg); }
+  100%    { transform: translateX(422%) rotate(22deg); }
 }
 
 .case-top { display: flex; align-items: flex-start; gap: 16px; position: relative; z-index: 2; }
@@ -1640,16 +1645,35 @@ main { position: relative; z-index: 2; padding: 18px; }
   box-shadow: 0 0 0 1px rgba(255, 214, 10, 0.14),
               0 18px 60px -14px var(--pink),
               0 0 90px -30px var(--gold);
-  animation: featuredPulse 3.4s ease-in-out infinite;
 }
 .featured-card:active { transform: scale(0.985); }
 
-@keyframes featuredPulse {
-  0%, 100% { box-shadow: 0 0 0 1px rgba(255, 214, 10, 0.14),
-                         0 18px 60px -14px var(--pink), 0 0 90px -30px var(--gold); }
-  50%      { box-shadow: 0 0 0 1px rgba(255, 214, 10, 0.24),
-                         0 18px 74px -10px var(--pink), 0 0 120px -22px var(--gold); }
+/*
+ * Пульс свечения. Анимировать саму тень нельзя: тень с размытием в 120 точек
+ * браузер перерисовывает каждый кадр, и этот один постер грузил телефон
+ * сильнее всей остальной страницы (замер: в 12 раз больше работы отрисовки),
+ * причём и тогда, когда он спрятан под открытым кейсом. Поэтому сильная тень
+ * нарисована один раз на слое под карточкой, а дышит только его прозрачность.
+ * Слой на .featured, а не внутри карточки: у карточки overflow: hidden, и
+ * тень изнутри обрезалась бы по её краю.
+ */
+.featured { position: relative; isolation: isolate; }
+.featured::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  max-width: 560px;
+  margin: 0 auto;
+  border-radius: 24px;
+  z-index: -1;
+  box-shadow: 0 0 0 1px rgba(255, 214, 10, 0.24),
+              0 18px 74px -10px var(--pink), 0 0 120px -22px var(--gold);
+  opacity: 0;
+  animation: featuredPulse 3.4s ease-in-out infinite;
+  pointer-events: none;
+  will-change: opacity;
 }
+@keyframes featuredPulse { 50% { opacity: 1; } }
 
 .featured-cover {
   position: relative;
@@ -1822,10 +1846,11 @@ main { position: relative; z-index: 2; padding: 18px; }
   transform: skewX(-18deg);
   animation: featuredShine 4.2s ease-in-out infinite;
   pointer-events: none;
+  will-change: transform;
 }
 @keyframes featuredShine {
-  0%, 62% { left: -60%; }
-  100%    { left: 120%; }
+  0%, 62% { transform: translateX(0) skewX(-18deg); }
+  100%    { transform: translateX(400%) skewX(-18deg); }
 }
 
 /* Плашки отдельной полосой над обложкой: поверх картинки они закрывали
@@ -2296,7 +2321,7 @@ select.seed-input {
 }
 .shelf-title::before, .shelf-title::after {
   content: ''; flex: none; width: 34px; height: 10px;
-  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 34 10'%3E%3Cdefs%3E%3ClinearGradient id='a'%3E%3Cstop offset='0' stop-color='%23ffd34d' stop-opacity='0'/%3E%3Cstop offset='1' stop-color='%23ffd34d'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect y='4.5' width='26' height='1' fill='url(%23a)'/%3E%3Cpath d='M29.5 1.5 33 5l-3.5 3.5L26 5z' fill='%23ffd34d'/%3E%3C/svg%3E") center / contain no-repeat;
+  background: url("data:image/svg+xml,%3Csvg xmln'http://www.w3.org/2000/svg' viewBox='0 0 34 10'%3E%3Cdefs%3E%3ClinearGradient id='a'%3E%3Cstop offset='0' stop-color='%23ffd34d' stop-opacity='0'/%3E%3Cstop offset='1' stop-color='%23ffd34d'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect y='4.5' width='26' height='1' fill='url(%23a)'/%3E%3Cpath d='M29.5 1.5 33 5l-3.5 3.5L26 5z' fill='%23ffd34d'/%3E%3C/svg%3E") center / contain no-repeat;
 }
 .shelf-title::after { transform: scaleX(-1); }
 .shelf-hint {
@@ -6968,7 +6993,7 @@ div.mini-row { cursor: default; }
 #view-wallet .cash-field .seed-input:focus { border-color: var(--c-accent-line); box-shadow: 0 0 0 4px rgba(224, 81, 140, 0.12); }
 #view-wallet .cash-field select.seed-input {
   padding-right: 40px;
-  background: rgba(0, 0, 0, 0.3) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a698c0' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3C/svg%3E") right 14px center / 18px no-repeat;
+  background: rgba(0, 0, 0, 0.3) url("data:image/svg+xml,%3Csvg xmln'http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a698c0' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3C/svg%3E") right 14px center / 18px no-repeat;
 }
 #view-wallet .cash-field select.seed-input option { background: var(--bg-soft); color: #fff; }
 #view-wallet #coinNetwork { margin-top: 12px; }
@@ -7485,16 +7510,25 @@ div.mini-row { cursor: default; }
    * такт спокойного дыхания.
    */
   .online-dot {
+    position: relative;
     width: 9px; height: 9px; border-radius: 50%;
     background: var(--green);
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--green) 60%, transparent);
     animation: onlinePulse 1.6s ease-in-out infinite;
   }
-  @keyframes onlinePulse {
-    0%, 100% { opacity: 1; box-shadow: 0 0 0 0 color-mix(in srgb, var(--green) 55%, transparent); }
-    50%      { opacity: 0.55; box-shadow: 0 0 0 6px transparent; }
+  /* Расходящееся кольцо - отдельный слой с transform и opacity, а не тень:
+     точка стоит в шапке на каждом экране, и тень перерисовывалась бы всегда. */
+  .online-dot::after {
+    content: '';
+    position: absolute; inset: 0; border-radius: 50%;
+    background: color-mix(in srgb, var(--green) 55%, transparent);
+    animation: onlineRing 1.6s ease-out infinite;
   }
-  @media (prefers-reduced-motion: reduce) { .online-dot { animation: none; } }
+  @keyframes onlinePulse { 50% { opacity: 0.55; } }
+  @keyframes onlineRing {
+    0%   { transform: scale(1); opacity: 1; }
+    50%, 100% { transform: scale(2.35); opacity: 0; }
+  }
+  @media (prefers-reduced-motion: reduce) { .online-dot, .online-dot::after { animation: none; } }
   .menu-btn { display: none; }
 
   .top-right { gap: 14px; }
@@ -7744,6 +7778,7 @@ div.mini-row { cursor: default; }
    * широком экране столбик в 560 пикселей посреди пустой строки выглядит
    * забытым, поэтому витрина разворачивается в баннер во всю ширину.
    */
+  .featured::before { max-width: none; }
   .featured-card {
     max-width: none;
     display: grid;
@@ -9650,14 +9685,26 @@ body.mo-receded .opener-scroll { filter: blur(4px) saturate(.55); transform: sca
 .mo-hero[data-material="holo"] .mo-hero-foil,
 .mo-hero[data-material="crystal"] .mo-hero-foil,
 .mo-hero[data-material="neon"] .mo-hero-foil {
-  opacity: .5; mix-blend-mode: color-dodge;
-  background: conic-gradient(from var(--mo-fa, 0deg) at 50% 40%, #ff6ad5, #ffd34d, #7df9ff, #a07bff, #ff6ad5);
+  opacity: .5; mix-blend-mode: color-dodge; overflow: hidden;
   -webkit-mask: linear-gradient(115deg, transparent 20%, #000 45%, transparent 60%, #000 80%, transparent);
   mask: linear-gradient(115deg, transparent 20%, #000 45%, transparent 60%, #000 80%, transparent);
-  animation: moFoil 5s linear infinite;
 }
-@property --mo-fa { syntax: '<angle>'; inherits: false; initial-value: 0deg; }
-@keyframes moFoil { to { --mo-fa: 360deg; } }
+/*
+ * Перелив крутится поворотом слоя, а не углом градиента: угол в переменной
+ * (@property) заставлял перерисовывать фольгу каждый кадр, а поворот готового
+ * слоя делает видеокарта. Слой вдвое больше карточки, центр градиента на
+ * 45% его высоты - это те же 40% высоты карточки, что были.
+ */
+.mo-hero[data-material="holo"] .mo-hero-foil::before,
+.mo-hero[data-material="crystal"] .mo-hero-foil::before,
+.mo-hero[data-material="neon"] .mo-hero-foil::before {
+  content: '';
+  position: absolute; inset: -50%;
+  background: conic-gradient(at 50% 45%, #ff6ad5, #ffd34d, #7df9ff, #a07bff, #ff6ad5);
+  animation: moFoil 5s linear infinite;
+  will-change: transform;
+}
+@keyframes moFoil { to { transform: rotate(360deg); } }
 
 /* ---------- Просмотр предмета из состава ----------
    Тот же оборот и та же карточка, что у выигрыша, но тише: лучи цвета
@@ -10727,6 +10774,15 @@ body.cz-playing { overflow: hidden; }
 /* Промокод в регистрации: необязательное поле, приписка мельче подписи. */
 .auth-opt { margin-left: 6px; font-size: 11px; font-weight: 600; color: var(--muted); text-transform: none; letter-spacing: 0; }
 #authPromo { text-transform: uppercase; }
+
+/*
+ * Пока открыт кейс (body.case-open), всё, что под ним, стоит на паузе: полки
+ * с дыханием обложек и бликами, постер, дождь монет. Их не видно, а телефон
+ * продолжал их считать, и каждая карточка выигрыша поверх кейса открывалась
+ * рывками. Пауза, а не отключение: закрыли кейс - всё поехало с того же кадра.
+ */
+body.case-open #app > .view *, body.case-open #app > .view *::before,
+body.case-open #app > .view *::after, body.case-open .money-rain * { animation-play-state: paused !important; }
 
 
 /* ---------- Только для автономной версии ---------- */
