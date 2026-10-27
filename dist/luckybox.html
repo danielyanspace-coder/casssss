@@ -7166,6 +7166,41 @@ div.mini-row { cursor: default; }
 .top-auth { display: flex; gap: 6px; }
 .top-auth .btn { padding: 9px 12px; font-size: 13px; border-radius: 12px; white-space: nowrap; }
 .top-auth .btn-outline { border-width: 1px; }
+/*
+ * «Войти» и «Регистрация» - глянцевые, тем же языком, что «Пополнить»: блик
+ * по верхней половине, светлая кромка сверху, тень снизу (решение заказчика:
+ * прежние были бледными). Главная - регистрация, она в фирменной
+ * розово-фиолетовой заливке; вход - во фиолетовом стекле, заметный, но
+ * тише. Блик - фон и тени, без фильтров и вечных анимаций.
+ */
+.top-auth .top-register,
+.top-auth .top-login {
+  position: relative;
+  color: #fff;
+  font-weight: 800;
+  text-shadow: 0 1px 1px rgba(60, 0, 70, 0.45);
+}
+.top-auth .top-register {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.45), rgba(255, 255, 255, 0.1) 50%, transparent 51%),
+    linear-gradient(135deg, #ff4fa8, #b23cff);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.75),
+    inset 0 -2px 0 rgba(80, 0, 90, 0.35),
+    0 8px 22px -8px rgba(255, 46, 160, 0.75);
+}
+.top-auth .top-login {
+  border: 1px solid rgba(206, 176, 255, 0.55);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.3), rgba(255, 255, 255, 0.06) 50%, transparent 51%),
+    linear-gradient(135deg, #7b4dff, #4a23c9);
+  box-shadow:
+    inset 0 1px 0 rgba(235, 220, 255, 0.6),
+    inset 0 -2px 0 rgba(30, 0, 80, 0.35),
+    0 8px 20px -10px rgba(140, 90, 255, 0.8);
+}
+.top-auth .top-register:active,
+.top-auth .top-login:active { transform: translateY(1px); filter: brightness(0.95); }
 
 .account-btn {
   width: 36px; height: 36px;
@@ -30844,8 +30879,13 @@ function renderCaseStage(c, count = 1) {
   const row = document.getElementById('caseStageRow');
   const reels = document.getElementById('reels');
   // На сцене обложка крупная и одна: ей нужен свой, крупный файл, а не
-  // обложка полки, растянутая вдвое.
-  const src = caseStageSrc(c);
+  // обложка полки, растянутая вдвое. Но крупный файл в три раза тяжелее, и
+  // пока он едет, сцена стояла пустой. Поэтому сначала ставится обложка полки
+  // (она уже в кеше браузера: игрок только что нажал на неё), а крупная
+  // подменяет её, когда целиком загрузится и раскодируется.
+  const hi = caseStageSrc(c);
+  const low = caseArtSrc(c);
+  const src = low || hi;
 
   /*
    * От четырёх кейсов раскладываем в два ряда. В одну строку четыре широкие
@@ -30876,6 +30916,16 @@ function renderCaseStage(c, count = 1) {
     `<span class="case-stage-box"><img class="case-stage-art" src="${src}"
        alt="${esc(c.name)}" decoding="async"
        style="--float-delay:${(i * 260) % 1400}ms; --shake-delay:${i * 55}ms"></span>`).join('');
+
+  if (hi && hi !== src) {
+    const pic = new Image();
+    pic.src = hi;
+    pic.decode().then(() => {
+      row.querySelectorAll('.case-stage-art').forEach((img) => {
+        if (img.getAttribute('src') === src) img.src = hi;
+      });
+    }).catch(() => { /* крупной нет - остаётся обложка полки */ });
+  }
 
   document.getElementById('caseStageHint').textContent =
     count > 1 ? `запечатано · ×${count}` : 'кейс запечатан';
@@ -38715,6 +38765,27 @@ function takeReferralPromo() {
   return { code, fresh };
 }
 
+/*
+ * Обложки полок грузятся лениво, и при быстрой прокрутке плитки стояли
+ * пустыми: ленивая загрузка начинает тянуть картинку, только когда та
+ * подъезжает к экрану. Поэтому, когда первый экран уже показан, остальные
+ * обложки подгружаются фоном, по нескольку за раз, чтобы не отнимать канал у
+ * того, что игрок открывает прямо сейчас. С включённой экономией трафика
+ * не подгружаем: там ленивая загрузка и есть то, чего человек хочет.
+ */
+const COVER_WARM_DELAY_MS = 1500;
+const COVER_WARM_BATCH = 3;
+const COVER_WARM_STEP_MS = 350;
+function warmShelfCovers() {
+  if (navigator.connection?.saveData) return;
+  const step = () => {
+    const rest = [...document.querySelectorAll('.cover-art[loading="lazy"]')];
+    rest.slice(0, COVER_WARM_BATCH).forEach((img) => { img.loading = 'eager'; });
+    if (rest.length > COVER_WARM_BATCH) setTimeout(step, COVER_WARM_STEP_MS);
+  };
+  setTimeout(step, COVER_WARM_DELAY_MS);
+}
+
 async function init() {
   mountIcons();
   buildMoneyRain();
@@ -38758,6 +38829,7 @@ async function init() {
     renderUpgradeStage();
 
     startFeed();
+    warmShelfCovers();
     authUi.resetToken = takeResetToken();
     const refPromo = takeReferralPromo();
     if (authUi.resetToken) {
