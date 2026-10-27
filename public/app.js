@@ -1287,8 +1287,13 @@ function renderCaseStage(c, count = 1) {
   const row = document.getElementById('caseStageRow');
   const reels = document.getElementById('reels');
   // На сцене обложка крупная и одна: ей нужен свой, крупный файл, а не
-  // обложка полки, растянутая вдвое.
-  const src = caseStageSrc(c);
+  // обложка полки, растянутая вдвое. Но крупный файл в три раза тяжелее, и
+  // пока он едет, сцена стояла пустой. Поэтому сначала ставится обложка полки
+  // (она уже в кеше браузера: игрок только что нажал на неё), а крупная
+  // подменяет её, когда целиком загрузится и раскодируется.
+  const hi = caseStageSrc(c);
+  const low = caseArtSrc(c);
+  const src = low || hi;
 
   /*
    * От четырёх кейсов раскладываем в два ряда. В одну строку четыре широкие
@@ -1319,6 +1324,16 @@ function renderCaseStage(c, count = 1) {
     `<span class="case-stage-box"><img class="case-stage-art" src="${src}"
        alt="${esc(c.name)}" decoding="async"
        style="--float-delay:${(i * 260) % 1400}ms; --shake-delay:${i * 55}ms"></span>`).join('');
+
+  if (hi && hi !== src) {
+    const pic = new Image();
+    pic.src = hi;
+    pic.decode().then(() => {
+      row.querySelectorAll('.case-stage-art').forEach((img) => {
+        if (img.getAttribute('src') === src) img.src = hi;
+      });
+    }).catch(() => { /* крупной нет - остаётся обложка полки */ });
+  }
 
   document.getElementById('caseStageHint').textContent =
     count > 1 ? `запечатано · ×${count}` : 'кейс запечатан';
@@ -9158,6 +9173,27 @@ function takeReferralPromo() {
   return { code, fresh };
 }
 
+/*
+ * Обложки полок грузятся лениво, и при быстрой прокрутке плитки стояли
+ * пустыми: ленивая загрузка начинает тянуть картинку, только когда та
+ * подъезжает к экрану. Поэтому, когда первый экран уже показан, остальные
+ * обложки подгружаются фоном, по нескольку за раз, чтобы не отнимать канал у
+ * того, что игрок открывает прямо сейчас. С включённой экономией трафика
+ * не подгружаем: там ленивая загрузка и есть то, чего человек хочет.
+ */
+const COVER_WARM_DELAY_MS = 1500;
+const COVER_WARM_BATCH = 3;
+const COVER_WARM_STEP_MS = 350;
+function warmShelfCovers() {
+  if (navigator.connection?.saveData) return;
+  const step = () => {
+    const rest = [...document.querySelectorAll('.cover-art[loading="lazy"]')];
+    rest.slice(0, COVER_WARM_BATCH).forEach((img) => { img.loading = 'eager'; });
+    if (rest.length > COVER_WARM_BATCH) setTimeout(step, COVER_WARM_STEP_MS);
+  };
+  setTimeout(step, COVER_WARM_DELAY_MS);
+}
+
 async function init() {
   mountIcons();
   buildMoneyRain();
@@ -9201,6 +9237,7 @@ async function init() {
     renderUpgradeStage();
 
     startFeed();
+    warmShelfCovers();
     authUi.resetToken = takeResetToken();
     const refPromo = takeReferralPromo();
     if (authUi.resetToken) {

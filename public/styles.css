@@ -7158,6 +7158,41 @@ div.mini-row { cursor: default; }
 .top-auth { display: flex; gap: 6px; }
 .top-auth .btn { padding: 9px 12px; font-size: 13px; border-radius: 12px; white-space: nowrap; }
 .top-auth .btn-outline { border-width: 1px; }
+/*
+ * «Войти» и «Регистрация» - глянцевые, тем же языком, что «Пополнить»: блик
+ * по верхней половине, светлая кромка сверху, тень снизу (решение заказчика:
+ * прежние были бледными). Главная - регистрация, она в фирменной
+ * розово-фиолетовой заливке; вход - во фиолетовом стекле, заметный, но
+ * тише. Блик - фон и тени, без фильтров и вечных анимаций.
+ */
+.top-auth .top-register,
+.top-auth .top-login {
+  position: relative;
+  color: #fff;
+  font-weight: 800;
+  text-shadow: 0 1px 1px rgba(60, 0, 70, 0.45);
+}
+.top-auth .top-register {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.45), rgba(255, 255, 255, 0.1) 50%, transparent 51%),
+    linear-gradient(135deg, #ff4fa8, #b23cff);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.75),
+    inset 0 -2px 0 rgba(80, 0, 90, 0.35),
+    0 8px 22px -8px rgba(255, 46, 160, 0.75);
+}
+.top-auth .top-login {
+  border: 1px solid rgba(206, 176, 255, 0.55);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.3), rgba(255, 255, 255, 0.06) 50%, transparent 51%),
+    linear-gradient(135deg, #7b4dff, #4a23c9);
+  box-shadow:
+    inset 0 1px 0 rgba(235, 220, 255, 0.6),
+    inset 0 -2px 0 rgba(30, 0, 80, 0.35),
+    0 8px 20px -10px rgba(140, 90, 255, 0.8);
+}
+.top-auth .top-register:active,
+.top-auth .top-login:active { transform: translateY(1px); filter: brightness(0.95); }
 
 .account-btn {
   width: 36px; height: 36px;

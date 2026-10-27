@@ -225,6 +225,17 @@ for (const method of ['get', 'post', 'put', 'patch', 'delete']) {
 app.set('trust proxy', Number(process.env.TRUST_PROXY_HOPS || 1));
 
 app.use(express.json({ limit: '8mb', verify: (req, res, buffer) => { req.rawBody = buffer.toString('utf8'); } }));
+/*
+ * Картинки (/assets) браузер держит неделю и ещё месяц может показывать из
+ * кеша, проверяя свежесть в фоне: обложки кейсов весят мегабайты, и
+ * перекачивать их каждый час значило листать главную с пустыми плитками.
+ * Код и стили - по-прежнему час: их меняет каждый выкат, и неделя старого
+ * клиента после обновления сломала бы сайт у вернувшихся игроков.
+ */
+const ASSET_CACHE = 'public, max-age=604800, stale-while-revalidate=2592000';
+app.use('/assets', express.static(join(__dirname, '..', 'public', 'assets'), {
+  setHeaders: (res) => res.setHeader('Cache-Control', ASSET_CACHE),
+}));
 app.use(express.static(join(__dirname, '..', 'public'), { maxAge: '1h' }));
 // Часть браузеров и поисковых роботов просит /favicon.ico, не читая разметку.
 app.get('/favicon.ico', (req, res) => res.redirect(301, '/favicon.png'));
