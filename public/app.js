@@ -1001,7 +1001,24 @@ function applyCaseTheme(c) {
     + `<img class="opener-theme-mark" src="${src}" alt="" decoding="async">`;
 }
 
-function openCase(caseId) {
+/*
+ * Экран кейса собирается не мгновенно: состав с объёмными рисунками, лента,
+ * раскладка всей страницы. На слабом телефоне это секунда, и нажатие на
+ * кейс выглядело проигнорированным. Поэтому при входе снаружи сначала
+ * показывается загрузка, кадр уходит на экран, и только потом строится кейс.
+ * Загрузка проявляется с задержкой (CSS) и крутится на видеокарте: на
+ * быстром телефоне её не видно, на медленном она не замирает, пока главный
+ * поток занят сборкой.
+ */
+function openCase(caseId, { now = false } = {}) {
+  if (!now && document.getElementById('opener').hidden) {
+    const loader = document.getElementById('caseLoader');
+    loader.hidden = false;
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      try { openCase(caseId, { now: true }); } finally { loader.hidden = true; }
+    }));
+    return;
+  }
   const c = state.config.cases.find((x) => x.id === caseId);
   if (!c) return;
   haptic('light');
@@ -6586,8 +6603,62 @@ const cashIcon = (name) =>
   `<svg class="cash-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${CASH_ICONS[name] || ''}</svg>`;
 
+/*
+ * Рисунки способов пополнения (решение заказчика): у «СБП и карта» - знак
+ * СБП перед банковской картой, у криптовалюты - веер монет BTC, ETH, USDT.
+ * Знак СБП - отметка способа оплаты, как на кассе в магазине; банковской
+ * карте намеренно не дан ни один банк и ни одна платёжная система.
+ */
+const CASH_ART = {
+  sbp: `<svg viewBox="0 0 64 40" aria-hidden="true">
+    <defs>
+      <linearGradient id="caCard" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#8a5cff"/><stop offset="1" stop-color="#ff4fa8"/></linearGradient>
+      <linearGradient id="caChip" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff1b8"/><stop offset="1" stop-color="#d89a22"/></linearGradient>
+    </defs>
+    <g transform="rotate(-9 42 20)">
+      <rect x="22" y="6" width="40" height="27" rx="4.5" fill="url(#caCard)"/>
+      <rect x="22" y="12" width="40" height="5" fill="rgba(20,6,40,.45)"/>
+      <rect x="27" y="21" width="8" height="6" rx="1.4" fill="url(#caChip)"/>
+      <rect x="44" y="25.5" width="13" height="2" rx="1" fill="rgba(255,255,255,.55)"/>
+      <rect x="22.5" y="6.5" width="39" height="5" rx="4" fill="rgba(255,255,255,.18)"/>
+    </g>
+    <rect x="2" y="7" width="26" height="26" rx="7" fill="#fff"/>
+    <g transform="translate(6.2 9.25) scale(0.43)">
+      <path fill="#5b57a2" d="M0 10.39l6.13 10.95v6.68L.01 38.95z"/>
+      <path fill="#d90751" d="M23.53 17.35l5.74-3.52 11.75-.01-17.49 10.71z"/>
+      <path fill="#fab718" d="M23.5 10.33l.03 14.49-6.14-3.77V0z"/>
+      <path fill="#ed6f26" d="M41.02 13.83l-11.75.01-5.77-3.51L17.39 0z"/>
+      <path fill="#63b22f" d="M23.53 39.01V31.97l-6.14-3.69.01 21.66z"/>
+      <path fill="#1487c9" d="M23.53 32.3L29.25 35.53 41.01 35.52 23.53 24.82z"/>
+      <path fill="#017f36" d="M17.4 49.94l6.13-10.95 5.72-3.46 11.76-.01z"/>
+      <path fill="#984995" d="M.01 38.95l17.46-10.69-5.87-3.69-5.47 3.42z"/>
+    </g>
+  </svg>`,
+  crypto: `<svg viewBox="0 0 64 40" aria-hidden="true">
+    <g transform="rotate(-16 22 34)">
+      <circle cx="18" cy="20" r="12" fill="#f7931a"/><circle cx="18" cy="20" r="12" fill="none" stroke="rgba(255,255,255,.35)" stroke-width="1.2"/>
+      <path d="M15.3 13.6v12.8M17.6 13.6v1.6m0 9.6v1.6M14 14.6h5.2a2.5 2.5 0 0 1 0 5H14m0 0h5.8a2.6 2.6 0 0 1 0 5.2H14" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+    <g transform="rotate(16 42 34)">
+      <circle cx="46" cy="20" r="12" fill="#26a17b"/><circle cx="46" cy="20" r="12" fill="none" stroke="rgba(255,255,255,.35)" stroke-width="1.2"/>
+      <path d="M40 14.2h12M46 14.2v12.4" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/>
+      <ellipse cx="46" cy="18.4" rx="6.2" ry="1.9" fill="none" stroke="#fff" stroke-width="1.5"/>
+    </g>
+    <g>
+      <circle cx="32" cy="18" r="13" fill="#3c3c5c"/><circle cx="32" cy="18" r="13" fill="none" stroke="rgba(255,255,255,.4)" stroke-width="1.2"/>
+      <path d="M32 7.6 25.6 18.4 32 22.2 38.4 18.4Z" fill="#c7cdfa"/>
+      <path d="M32 7.6V22.2L38.4 18.4Z" fill="#8c95e6"/>
+      <path d="M25.6 19.7 32 28.6 38.4 19.7 32 23.5Z" fill="#c7cdfa"/>
+      <path d="M32 23.5V28.6L38.4 19.7Z" fill="#8c95e6"/>
+    </g>
+  </svg>`,
+};
+
 /** Подставляет иконки в разметку из index.html по data-cash-ico. */
 function hydrateCashIcons(root) {
+  root?.querySelectorAll('[data-cash-art]').forEach((el) => {
+    if (!el.firstElementChild) el.innerHTML = CASH_ART[el.dataset.cashArt] || '';
+  });
   root?.querySelectorAll('[data-cash-ico]').forEach((el) => {
     if (el.dataset.icoDone) return;
     el.insertAdjacentHTML('afterbegin', cashIcon(el.dataset.cashIco));
@@ -9206,6 +9277,7 @@ async function submitAuth(event) {
 }
 
 function wireAuth() {
+  document.getElementById('fmBack')?.addEventListener('click', () => { haptic('light'); switchView('cases'); });
   authEl('authForm').addEventListener('submit', submitAuth);
   authEl('authClose').addEventListener('click', closeAuth);
   authEl('authBackdrop').addEventListener('click', (e) => {

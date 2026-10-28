@@ -877,6 +877,27 @@ main { position: relative; z-index: 2; padding: 18px; }
 }
 .opener-inner { width: 100%; max-width: 580px; }
 
+/* Загрузка перед экраном кейса: лёгкая вуаль и кольцо посередине.
+   Проявляется через 0,15 с, чтобы быстрое открытие не мигало,
+   и движется только transform/opacity - это продолжает идти, даже когда
+   главный поток занят сборкой кейса. */
+.case-loader {
+  position: fixed; inset: 0; z-index: 85; display: grid; place-items: center; pointer-events: none;
+  background: radial-gradient(circle at 50% 50%, rgba(20, 6, 40, 0.55), rgba(6, 1, 14, 0.25) 60%);
+  opacity: 0; animation: caseLoaderIn 0.25s ease 0.15s forwards;
+}
+.case-loader[hidden] { display: none; }
+.case-loader i {
+  width: 46px; height: 46px; border-radius: 50%;
+  background: conic-gradient(from 0deg, rgba(255, 79, 168, 0), #ff4fa8 55%, #b23cff 85%, #ffd34d);
+  -webkit-mask: radial-gradient(circle, transparent 56%, #000 58%);
+  mask: radial-gradient(circle, transparent 56%, #000 58%);
+  animation: caseLoaderSpin 0.8s linear infinite;
+  will-change: transform;
+}
+@keyframes caseLoaderIn { to { opacity: 1; } }
+@keyframes caseLoaderSpin { to { transform: rotate(360deg); } }
+
 /* ---------- Тема кейса ---------- */
 
 /* Тона приходят из самой обложки (см. applyCaseTheme). Здесь из них
@@ -2462,7 +2483,10 @@ select.seed-input {
 /* Логотип и строка со зрителями под ним. Логотип не растягивается: у него
    свои прозрачные поля, и растянутый он перевешивал бы кнопку возврата. */
 .opener-brand { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
-.opener-logo { display: block; height: 30px; width: auto; }
+/* Тот же размер, что у логотипа главной (.brand-logo), и без растяжки:
+   колонка .opener-brand растягивает детей по ширине строки «крутят N
+   игроков», и картинка вытягивалась вбок (align-self это снимает). */
+.opener-logo { display: block; align-self: flex-start; height: 37px; width: auto; object-fit: contain; }
 .opener-viewers { font-size: 11px; color: var(--muted); }
 
 .opener-close {
@@ -3863,7 +3887,6 @@ div.mini-row { cursor: default; }
 .balance-value { font-size: 15px; white-space: nowrap; }
 
 @media (max-width: 400px) {
-  .opener-logo { height: 26px; }
   .balance-value { font-size: 13.5px; }
   .balance-ico[data-ico] { width: 16px; height: 16px; }
 }
@@ -4559,6 +4582,7 @@ div.mini-row { cursor: default; }
 /* На узком экране логотип сжимается первым: важнее уместить баланс и меню. */
 @media (max-width: 420px) {
   .brand-logo { height: 31px; }
+  .opener-logo { height: 31px; }
   .balance-value { font-size: 14px; }
 }
 
@@ -5352,8 +5376,10 @@ div.mini-row { cursor: default; }
   --fm-gold-3: #e3901a;
   --fm-radius: 24px;
 }
+.fm-head { display: flex; align-items: center; gap: 12px; margin: 18px 2px 12px; }
+.fm-head .fm-back { width: 40px; height: 40px; padding: 9px; border-radius: 13px; }
 .fm-title {
-  margin: 18px 2px 12px; text-align: left;
+  margin: 0; text-align: left;
   font: 800 21px/1.2 'Unbounded', 'Manrope', system-ui, sans-serif; color: #fff;
 }
 
@@ -5563,7 +5589,11 @@ div.mini-row { cursor: default; }
 }
 .bt-ico svg { width: 30px; height: 30px; }
 .bt-kicker { margin-top: 12px; color: rgba(255, 255, 255, 0.75); font: 700 10px/1 'Manrope', system-ui, sans-serif; letter-spacing: 0.12em; text-transform: uppercase; }
-.bt-name { margin-top: 5px; color: #fff; font: 800 14px/1.2 'Unbounded', 'Manrope', system-ui, sans-serif; cursor: pointer; word-break: break-all; }
+/* Ник бота - одной строкой (решение заказчика: перенос посреди ника читался
+   как два слова). Размер от ширины плитки (cqi), а не экрана: плитка бота
+   стоит в паре с «Началом» и уже половины экрана. */
+.bt-tile { container-type: inline-size; }
+.bt-name { margin-top: 5px; color: #fff; font: 800 min(14px, 6.6cqi)/1.2 'Unbounded', 'Manrope', system-ui, sans-serif; cursor: pointer; white-space: nowrap; }
 .bt-sub { margin: 8px 0 10px; color: rgba(255, 255, 255, 0.75); font: 600 12px/1.3 'Manrope', system-ui, sans-serif; }
 .bt-open { margin-top: auto; width: 100%; padding: 10px 12px; }
 /* Кнопка «Открыть» - только на телефоне: там Telegram стоит приложением, и
@@ -6448,6 +6478,10 @@ div.mini-row { cursor: default; }
   transition: background 0.2s, color 0.2s;
 }
 #view-wallet .payment-method.active .cash-method-ico { background: rgba(224, 81, 140, 0.18); color: var(--c-accent); }
+/* Рисунок способа (CASH_ART): крупнее значка, у карточки и монет есть
+   детали, которые в 34 точках сливались бы. */
+.cash-method-art { width: 64px; height: 40px; flex: none; display: block; }
+.cash-method-art svg { width: 100%; height: 100%; display: block; filter: drop-shadow(0 4px 8px rgba(0, 0, 0, .35)); }
 .cash-method-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .cash-method-text b { font-size: 14px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cash-method-text small { font-size: 11.5px; color: var(--c-text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -10849,7 +10883,8 @@ body.cz-playing { overflow: hidden; }
   #view-freemoney { max-width: 1240px; margin-left: auto; margin-right: auto; }
   .fm-bento { grid-template-columns: 1.15fr 1fr 1fr; gap: 34px; }
   /* Заголовок справа, по правому краю плиток, и с воздухом до вкладок. */
-  .fm-title { text-align: right; margin: 22px 0 22px; }
+  .fm-head { margin: 22px 0; }
+  .fm-title { text-align: right; margin: 0 0 0 auto; }
   /* Бот: надписи по центру плитки, а не прижаты к верху. */
   .bt-tile { justify-content: center; }
   /* Переход по вкладке: плитка на секунду приподнимается - «это я». Одна
