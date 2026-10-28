@@ -343,6 +343,125 @@ function player(balance = 0) {
   process.env.SICILIA_PAYIN = 'window';
 }
 
+/* ---------- Мобильная коммерция: запасной терминал ---------- */
+
+{
+  process.env.SICILIA_PAYIN = 'h2h';
+  const savedPay = process.env.SICILIA_PAY_URL;
+  process.env.SICILIA_PAY_URL = '';
+  Object.assign(process.env, { SICILIA_MK_MERCHANT: '149', SICILIA_MK_LOGIN: 'lucky_mk', SICILIA_MK_API_KEY: 'mkk3y' });
+  check('мк: терминал настроен своими ключами', s.mkReady());
+
+  // Ответ терминала мобильной коммерции: телефон и оператор вместо банка.
+  const mobcom = (body) => ({
+    id: 990, invid: body.invid, exist: 'new', status: 'processing', operation: 'Пополнение',
+    card: { number: null, telefon: '79031234567' }, currency: 'RUB', sum: `${body.sum}.0000`, fact_sum: null,
+    fio: null, bank: 'beeline', bank_data: { name: 'Билайн Мобильная Связь', code: 'beeline' },
+    sbp: false, account_transfer: false, is_mobcom: true,
+  });
+  // Основной терминал без реквизита, мобильная коммерция - с реквизитом.
+  const noMain = (mkReply) => (url, m, body) => {
+    if (!url.endsWith('/orders/create')) return { status: 200, body: { invid: body?.invid || body?.order_invid, status: 'processing' } };
+    return body.merchant === 149 ? mkReply(body) : { status: 412, body: { error: 'No available calls' } };
+  };
+
+  const u = player();
+  reply = noMain((body) => ({ status: 201, body: mobcom(body) }));
+  calls.length = 0;
+  const d = await s.createDeposit(u.id, 1500, { method: 'card', senderBank: 'sberbank' });
+  const creates = calls.filter((c) => c.url.endsWith('/orders/create'));
+  check('мк: сначала основной терминал, потом мобильная коммерция', creates.length === 2
+    && creates[0].body.merchant === 7 && creates[1].body.merchant === 149);
+  const mk = creates[1].body;
+  check('мк: метод mobcom, подпись ключами терминала МК', mk.bank === 'mobcom'
+    && mk.signature === sha(`lucky_mk:1500:${mk.invid}:mkk3y`) && !('sender_bank' in mk));
+  check('мк: игрок получает номер и оператора', d.requisite?.mobile === true && d.requisite.phone === '79031234567'
+    && d.requisite.bankCode === 'beeline' && d.paySum === 1500, JSON.stringify(d.requisite));
+  const rows = db.prepare("SELECT * FROM sicilia_orders WHERE user_id = ? ORDER BY id").all(u.id);
+  check('мк: строка основного терминала закрыта, у новой терминал mk', rows.length === 2
+    && rows[0].status === 'error' && rows[0].terminal === null && rows[1].terminal === 'mk');
+
+  // Статус и отзыв - ключами того терминала, где ордер заведён.
+  calls.length = 0;
+  await s.refreshDeposit(d.id, u.id);
+  const st = lastCall('/orders/check-status');
+  check('мк: статус спрашивается мерчантом и подписью МК', st.body.merchant === 149
+    && st.body.signature === sha(`lucky_mk:1500:${mk.invid}:mkk3y`));
+  const cancelled = await s.cancelDeposit(d.id, u.id);
+  const un = lastCall('/orders/unclaimed');
+  check('мк: отзыв подписан ключом МК', un.body.signature === sha(`lucky_mk:${mk.invid}:mkk3y`)
+    && cancelled.payment.status === 'unclaimed');
+
+  // Колбэк МК подписан её ключом и принимается; чужой ключ - нет.
+  check('мк: колбэк с подписью МК принимается', s.verifyCallback({ InvId: mk.invid, OutSum: '1500.0000',
+    SignatureValue: sha(`1500.0000:${mk.invid}:mkk3y`) }));
+  check('мк: колбэк с чужим ключом отвергается', !s.verifyCallback({ InvId: mk.invid, OutSum: '1500.0000',
+    SignatureValue: sha(`1500.0000:${mk.invid}:wrong`) }));
+
+  // Зачисление по МК: та же applyPayinStatus, своя подпись в истории.
+  const u2 = player();
+  reply = noMain((body) => ({ status: 201, body: mobcom(body) }));
+  const d2 = await s.createDeposit(u2.id, 1000, { method: 'sbp' });
+  reply = (url, m, body) => (url.endsWith('/orders/check-status')
+    ? { status: 200, body: { invid: body.invid, status: 'completed', sum: '1000.0000' } } : { status: 200, body: {} });
+  const paid = await s.refreshDeposit(d2.id, u2.id);
+  const tx = db.prepare('SELECT comment FROM balance_transactions WHERE user_id = ? ORDER BY id DESC').get(u2.id);
+  check('мк: оплата зачисляется, в истории «Мобильная коммерция»', paid.credited && siciliaPaid(u2.id) === 1000
+    && tx?.comment === 'Мобильная коммерция');
+
+  // Выше 15 000 мобильная коммерция не пробуется.
+  const u3 = player();
+  reply = noMain((body) => ({ status: 201, body: mobcom(body) }));
+  calls.length = 0;
+  let err = null;
+  try { await s.createDeposit(u3.id, 15_001, { method: 'sbp' }); } catch (e) { err = e; }
+  check('мк: выше 15 000 - только основной терминал', err?.code === 'NO_REQUISITE'
+    && calls.filter((c) => c.url.endsWith('/orders/create')).length === 1);
+  calls.length = 0;
+  const edge = await s.createDeposit(u3.id, 15_000, { method: 'sbp' });
+  check('мк: ровно 15 000 - мобильная коммерция пробуется', edge.requisite?.mobile === true);
+
+  // Нет реквизита и у МК - тот же понятный отказ.
+  const u4 = player();
+  reply = noMain(() => ({ status: 412, body: { error: 'No available calls' } }));
+  err = null;
+  try { await s.createDeposit(u4.id, 900, { method: 'sbp' }); } catch (e) { err = e; }
+  check('мк: нет реквизита нигде - «нет свободных реквизитов»', err?.code === 'NO_REQUISITE');
+
+  // Другой отказ основного терминала мобильной коммерцией не лечится.
+  reply = (url, m, body) => (url.endsWith('/orders/create') ? { status: 500, body: { message: 'boom' } } : { status: 200, body: {} });
+  calls.length = 0;
+  err = null;
+  try { await s.createDeposit(u4.id, 900, { method: 'sbp' }); } catch (e) { err = e; }
+  check('мк: поломка основного терминала - без запасного пути', err?.code === 'GATEWAY_ERROR'
+    && calls.filter((c) => c.url.endsWith('/orders/create')).length === 1);
+
+  // Без ключей МК её ордера сверка не трогает: спросить нечем.
+  const u5 = player();
+  reply = noMain((body) => ({ status: 201, body: mobcom(body) }));
+  const d5 = await s.createDeposit(u5.id, 700, { method: 'sbp' });
+  db.prepare('UPDATE sicilia_orders SET created_at = ? WHERE id = ?').run(Date.now() - 10 * 60_000, d5.id);
+  delete process.env.SICILIA_MK_API_KEY;
+  calls.length = 0;
+  await s.reconcile();
+  check('мк: без ключей МК её ордер ждёт, а не отзывается', !calls.some((c) => c.body?.invid === lastMk(u5.id)
+    || c.body?.order_invid === lastMk(u5.id)) && s.listDeposits(u5.id)[0].status === 'processing');
+  // Без МК пополнение ведёт себя как раньше.
+  const u6 = player();
+  reply = noMain((body) => ({ status: 201, body: mobcom(body) }));
+  err = null;
+  try { await s.createDeposit(u6.id, 900, { method: 'sbp' }); } catch (e) { err = e; }
+  check('мк: без ключей МК - прежний отказ', err?.code === 'NO_REQUISITE');
+
+  delete process.env.SICILIA_MK_MERCHANT; delete process.env.SICILIA_MK_LOGIN;
+  process.env.SICILIA_PAY_URL = savedPay;
+  process.env.SICILIA_PAYIN = 'window';
+}
+
+function lastMk(userId) {
+  return db.prepare("SELECT invid FROM sicilia_orders WHERE user_id = ? AND terminal = 'mk' ORDER BY id DESC").get(userId)?.invid;
+}
+
 /* ---------- Банки ---------- */
 
 {

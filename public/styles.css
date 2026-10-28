@@ -6724,6 +6724,19 @@ div.mini-row { cursor: default; }
 }
 #view-wallet .sic-card[data-kind="sbp"] { --card-a: #2a5f78; --card-b: #5b2b86; --card-c: #141a2c; }
 #view-wallet .sic-card[data-kind="account"] { --card-a: #6b5422; --card-b: #3d2a6e; --card-c: #18142a; }
+/* Мобильная коммерция: карточка остаётся тёмной и читаемой, цвет оператора
+   - только отсвет в углу и знак. Залить её цветом Билайна значило бы
+   нарисовать страницу оператора, а не наш экран оплаты. */
+#view-wallet .sic-card[data-kind="mobile"] {
+  --card-a: color-mix(in srgb, var(--op, #8b6cff) 46%, #1a1226);
+  --card-b: #3a2160; --card-c: #141020;
+}
+.sic-op-mark { width: 40px; height: 40px; flex: none; filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.45)); }
+.sic-op-what {
+  min-width: 0;
+  font: 700 11.5px/1.25 'Manrope', system-ui, sans-serif; letter-spacing: 0.02em;
+  color: rgba(255, 255, 255, 0.78);
+}
 #view-wallet .sic-card:active { transform: rotateX(var(--rx)) rotateY(var(--ry)) scale(0.985); }
 #view-wallet .sic-card.is-copied {
   box-shadow:

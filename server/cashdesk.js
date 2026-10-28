@@ -57,14 +57,14 @@ export function adminDeposits({ q = '', filter = 'all', limit = DEPOSITS_PAGE, b
     SELECT * FROM (
       SELECT 'sicilia' AS source, o.id, o.invid AS number, CAST(o.gateway_id AS TEXT) AS gateway_id,
              o.amount_rub AS amount, o.credited_rub AS credited, o.status, o.fact_sum,
-             o.created_at, o.paid_at, NULL AS currency,
+             o.created_at, o.paid_at, NULL AS currency, o.terminal,
              u.id AS user_id, u.email, u.username, u.first_name, u.tg_id
         FROM sicilia_orders o JOIN users u ON u.id = o.user_id
        WHERE o.kind = 'payin' AND ${sicWhere} ${search('o.invid', 'o.gateway_id')}
       UNION ALL
       SELECT 'crypto' AS source, c.id, c.order_id AS number, c.uuid AS gateway_id,
              c.amount_rub AS amount, c.credited_rub AS credited, c.status, c.payer_amount AS fact_sum,
-             c.created_at, c.paid_at, c.currency,
+             c.created_at, c.paid_at, c.currency, NULL AS terminal,
              u.id AS user_id, u.email, u.username, u.first_name, u.tg_id
         FROM crypto_payments c JOIN users u ON u.id = c.user_id
        WHERE ${cryWhere} ${search('c.order_id', 'c.uuid')}

@@ -32,6 +32,7 @@
 | `MAIL_FROM` | Отправитель писем | Адрес на подтверждённом в Resend домене | Пока `onboarding@resend.dev` |
 | `DATABETRIX_AGENT_NAME`, `DATABETRIX_AGENT_TOKEN` | Казино: запуск игр | Кабинет агрегатора, профиль агента | Нужно взять в кабинете |
 | `SICILIA_MERCHANT`, `SICILIA_LOGIN`, `SICILIA_API_KEY` | СБП и карта | merchant.sicilia.ink -> API | Нужно взять в кабинете |
+| `SICILIA_MK_MERCHANT`, `SICILIA_MK_LOGIN`, `SICILIA_MK_API_KEY` | Мобильная коммерция (запасной путь пополнения до 15 000 ₽) | Отдельный вход Sicilia для терминала мобильной коммерции | Логин проверяет `luckybox-report`: «Invalid signature» значит, что логин не тот |
 | `SICILIA_PAY_URL` | Адрес платёжного окна | Поддержка Sicilia | `https://payment.sicilia.ink`, уже в `.env.example`. Не нужен: реквизит показывает касса (`SICILIA_PAYIN=h2h`) |
 | `SICILIA_CALLBACK_IPS` | Адрес шлюза для колбэков | Поддержка Sicilia | `91.206.228.46`, уже в `.env.example` |
 | `HELEKET_MERCHANT`, `HELEKET_API_KEY` | Криптокасса | Кабинет Heleket | По желанию |

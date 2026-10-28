@@ -22,6 +22,7 @@
 #   MAIN_DOMAIN        главный домен сайта
 #   EXTRA_DOMAINS      дополнительные домены через пробел (переадресация)
 #   DUCKDNS_TOKEN  SICILIA_API_KEY  SICILIA_MERCHANT  SICILIA_LOGIN
+#   SICILIA_MK_MERCHANT  SICILIA_MK_LOGIN  SICILIA_MK_API_KEY   (мобильная коммерция)
 #   DATABETRIX_AGENT_NAME  DATABETRIX_AGENT_TOKEN  HELEKET_MERCHANT  HELEKET_API_KEY
 #   TELEGRAM_TOKEN     бот с промокодами (ник берётся у Telegram сам)
 #   SICILIA_IPS        адреса Sicilia для белого списка колбэков (дописываются)
@@ -93,7 +94,7 @@ env_set() {
 # ---------- 1. Ключи ----------
 step "ключи в .env"
 cp -p "$ENV_FILE" "$ENV_FILE.bak-$(date +%Y%m%d-%H%M%S)"
-for k in DUCKDNS_TOKEN SICILIA_API_KEY SICILIA_MERCHANT SICILIA_LOGIN DATABETRIX_AGENT_NAME DATABETRIX_AGENT_TOKEN HELEKET_MERCHANT HELEKET_API_KEY; do
+for k in DUCKDNS_TOKEN SICILIA_API_KEY SICILIA_MERCHANT SICILIA_LOGIN SICILIA_MK_MERCHANT SICILIA_MK_LOGIN SICILIA_MK_API_KEY DATABETRIX_AGENT_NAME DATABETRIX_AGENT_TOKEN HELEKET_MERCHANT HELEKET_API_KEY; do
   v="${!k:-}"
   if [ -n "$v" ]; then env_set "$k" "$v"; echo "    $k вписан"; fi
 done
@@ -223,6 +224,17 @@ if [ -n "$OPS" ]; then
   curl -fsS --max-time 15 "https://api.telegram.org/bot$OPS/getMe" | grep -q '"ok":true' && ok "служебный бот на месте" || bad "служебный бот: Telegram не принял OPS_BOT_TOKEN"
 fi
 
+# Подпись терминала: ордер на невозможный 1 ₽ (probeSignature в sicilia.js).
+# Баланс спрашивается без логина и неверный логин не ловит.
+sic_probe() {
+  local r
+  r="$(cd "$APP_DIR" && timeout 40 sudo -u luckybox node -e "
+    import('dotenv/config').then(() => import('./server/sicilia.js')).then(async (m) => {
+      const r = await m.probeSignature('$1'); console.log(r.ok ? 'ok' : 'err ' + r.reason); process.exit(0);
+    });" 2>&1 | tail -1)"
+  case "$r" in ok*) ok "$2: логин и ключ приняты" ;; *) bad "$2: ${r#err }" ;; esac
+}
+
 # Sicilia: настоящий запрос баланса мерчанта. Отказ 403 значит, что адрес
 # сервера не в их белом списке.
 SIC=""
@@ -234,6 +246,12 @@ if [ -n "$(env_get SICILIA_API_KEY)" ] && [ -n "$(env_get SICILIA_MERCHANT)" ] &
       process.exit(0);
     });" 2>&1 | tail -1)"
   case "$SIC" in ok*) ok "Sicilia отвечает: ${SIC#ok }" ;; *) bad "Sicilia: ${SIC:-нет ответа}" ;; esac
+  sic_probe main "Sicilia (СБП и карта)"
+  if [ -n "$(env_get SICILIA_MK_API_KEY)" ]; then
+    sic_probe mk "Sicilia, мобильная коммерция"
+  else
+    todo "Мобильная коммерция: вписать SICILIA_MK_MERCHANT, SICILIA_MK_LOGIN, SICILIA_MK_API_KEY - без них запасного пути нет"
+  fi
 else
   todo "Sicilia: вписать SICILIA_MERCHANT и SICILIA_LOGIN (из кабинета merchant.sicilia.ink) - без них касса СБП не включится"
 fi
@@ -272,6 +290,7 @@ todo "Databetrix: пополнить баланс агента в кабинет
   echo
   echo "Ключи в .env (только есть/нет, без значений):"
   for k in SITE_URL DUCKDNS_TOKEN TELEGRAM_TOKEN OPS_BOT_TOKEN OPS_OWNER_CHAT_ID ADMIN_EMAILS SICILIA_MERCHANT SICILIA_LOGIN SICILIA_API_KEY \
+           SICILIA_MK_MERCHANT SICILIA_MK_LOGIN SICILIA_MK_API_KEY \
            DATABETRIX_AGENT_NAME DATABETRIX_AGENT_TOKEN HELEKET_MERCHANT HELEKET_API_KEY PAYOUT_DATA_KEY RESEND_API_KEY; do
     [ -n "$(env_get "$k")" ] && echo "  $k: есть" || echo "  $k: НЕТ"
   done

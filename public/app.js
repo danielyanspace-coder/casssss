@@ -5185,7 +5185,7 @@ function depositRowHtml(r, meta) {
       <b>${money(r.amount)}${paid && r.credited !== r.amount ? ` <small class="dep-fact">зачислено ${money(r.credited)}</small>` : ''}</b>
       <span class="payout-status ${tone}">${esc(DEP_STATUS[r.status] || r.status)}</span>
     </div>
-    <div class="payout-date">${r.source === 'sicilia' ? 'СБП / карта · Sicilia' : `Криптовалюта${r.currency ? ' ' + esc(r.currency) : ''} · Heleket`} ·
+    <div class="payout-date">${r.source === 'sicilia' ? (r.terminal === 'mk' ? 'Мобильная коммерция · Sicilia' : 'СБП / карта · Sicilia') : `Криптовалюта${r.currency ? ' ' + esc(r.currency) : ''} · Heleket`} ·
       <a href="#" data-dep-user="${r.user_id}">${esc(name)}</a> · ${esc(playerIdent(r, r.user_id))}</div>
     <div class="payout-date">Создан ${new Date(r.created_at).toLocaleString('ru-RU')}${paid ? ` · зачислен ${new Date(r.paid_at).toLocaleString('ru-RU')}` : ''}</div>
     <div class="dep-ids">${idChip('Наш номер', r.number)}${idChip(r.source === 'sicilia' ? 'Номер Sicilia' : 'Номер Heleket', r.gateway_id)}</div>
@@ -7613,10 +7613,57 @@ const fmtLeft = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}
  * тогда показываем карту, а не пустое поле телефона.
  */
 function siciliaTarget(r) {
+  if (r.mobile && r.phone) {
+    return { kind: 'mobile', tag: 'Связь', label: 'Номер для пополнения', text: fmtPhone(r.phone), copy: `+${r.phone.replace(/^8/, '7')}` };
+  }
   if (r.account) return { kind: 'account', tag: 'Счёт', label: 'Номер счёта', text: r.account, copy: r.account };
   const phone = r.phone && { kind: 'sbp', tag: 'СБП', label: 'Номер телефона', text: fmtPhone(r.phone), copy: `+${r.phone.replace(/^8/, '7')}` };
   const card = r.card && { kind: 'card', tag: 'Карта', label: 'Номер карты', text: fmtCard(r.card), copy: r.card };
   return r.method === 'card' ? card || phone : phone || card;
+}
+
+/*
+ * Операторы мобильной коммерции: код шлюза -> название и знак. Знаки
+ * нарисованы нами и узнаются по цвету и форме (полосатый шар, яйцо, Т2), но
+ * это не официальные логотипы: экран говорит, кому пополнить баланс, и не
+ * выдаёт себя за страницу оператора. Рядом всегда текст «Пополнение баланса
+ * телефона». Незнакомый оператор показывается названием от шлюза и общим
+ * знаком телефона.
+ */
+const MOBILE_OPERATORS = {
+  beeline: { name: 'Билайн', color: '#ffc800', mark: `<circle cx="20" cy="20" r="17" fill="#ffc800"/>
+    <clipPath id="opBee"><circle cx="20" cy="20" r="17"/></clipPath>
+    <g clip-path="url(#opBee)" fill="#1b1b1b"><path d="M2 12q18 -6 36 0v4q-18 -6 -36 0z"/><path d="M2 21q18 -6 36 0v4q-18 -6 -36 0z"/><path d="M2 30q18 -6 36 0v4q-18 -6 -36 0z"/></g>` },
+  megafon: { name: 'МегаФон', color: '#00b956', mark: `<rect x="3" y="3" width="34" height="34" rx="10" fill="#00b956"/>
+    <path d="M11 28V13l9 8 9-8v15" fill="none" stroke="#fff" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="30" cy="10" r="3.2" fill="#731982"/>` },
+  'mts-phone': { name: 'МТС', color: '#e30611', mark: `<rect x="3" y="3" width="34" height="34" rx="9" fill="#e30611"/>
+    <ellipse cx="20" cy="21.5" rx="8" ry="10.5" fill="#fff"/>` },
+  tele2: { name: 'Т2', color: '#1f2229', mark: `<rect x="3" y="3" width="34" height="34" rx="10" fill="#1f2229"/>
+    <text x="20" y="26.5" text-anchor="middle" font-family="Manrope, system-ui, sans-serif" font-weight="800" font-size="15" fill="#fff">T2</text>
+    <circle cx="31" cy="10" r="2.6" fill="#ff3495"/>` },
+  yota: { name: 'Yota', color: '#00aeef', mark: `<circle cx="20" cy="20" r="17" fill="#00aeef"/>
+    <path d="M13 12l7 9 7-9M20 21v8" fill="none" stroke="#fff" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/>` },
+  'motiv-phone': { name: 'Мотив', color: '#7a2a8f', mark: `<rect x="3" y="3" width="34" height="34" rx="10" fill="#7a2a8f"/>
+    <path d="M11 28V13l9 8 9-8v15" fill="none" stroke="#ffb400" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/>` },
+  'sber-mobile': { name: 'СберМобайл', color: '#21a038', mark: `<circle cx="20" cy="20" r="17" fill="#21a038"/>
+    <path d="M12 20.5l5.5 5.5L29 14" fill="none" stroke="#fff" stroke-width="3.8" stroke-linecap="round" stroke-linejoin="round"/>` },
+  'tinkoff-mobile': { name: 'Т-Мобайл', color: '#ffdd2d', mark: `<path d="M8 5h24v15c0 8-5.5 13-12 15C13.5 33 8 28 8 20z" fill="#ffdd2d"/>
+    <path d="M14 13h12M20 13v14" stroke="#1b1b1b" stroke-width="3.6" stroke-linecap="round"/>` },
+};
+/* Названия, которыми шлюз может прислать оператора без нашего кода. */
+const OPERATOR_BY_NAME = [[/билайн|beeline/i, 'beeline'], [/мегафон|megafon/i, 'megafon'], [/мтс|mts/i, 'mts-phone'],
+  [/tele2|т2|теле2/i, 'tele2'], [/yota|йота/i, 'yota'], [/мотив|motiv/i, 'motiv-phone'],
+  [/сбер/i, 'sber-mobile'], [/т-мобайл|tinkoff/i, 'tinkoff-mobile']];
+const OPERATOR_FALLBACK = `<rect x="3" y="3" width="34" height="34" rx="10" fill="#3a2a55"/>
+  <rect x="13" y="8" width="14" height="24" rx="3" fill="none" stroke="#fff" stroke-width="2.4"/><circle cx="20" cy="27.5" r="1.6" fill="#fff"/>`;
+
+function mobileOperator(r) {
+  const code = String(r.bankCode || '').toLowerCase();
+  const key = MOBILE_OPERATORS[code] ? code : OPERATOR_BY_NAME.find(([re]) => re.test(`${r.bank || ''} ${code}`))?.[1];
+  const op = key && MOBILE_OPERATORS[key];
+  const name = op?.name || String(r.bank || '').replace(/\s*мобильная связь\s*/i, '').trim() || 'Оператор связи';
+  return { name, color: op?.color || '#8b6cff', mark: `<svg class="sic-op-mark" viewBox="0 0 40 40" aria-hidden="true">${op?.mark || OPERATOR_FALLBACK}</svg>` };
 }
 
 /* Маска вместо номера после срока: той же длины, чтобы карточка не прыгала. */
@@ -7653,9 +7700,13 @@ function showSiciliaRequisite(order) {
   const target = siciliaTarget(r);
   const sum = Number(order.paySum || order.amount);
   const sumCopy = Number.isInteger(sum) ? String(sum) : sum.toFixed(2).replace('.', ',');
-  const where = target?.kind === 'sbp'
-    ? `по СБП по номеру телефона${r.bank ? `, банк <b>${esc(r.bank)}</b>` : ''}`
-    : target?.kind === 'account' ? 'по реквизитам счёта' : 'на карту по номеру';
+  const mobile = target?.kind === 'mobile';
+  const op = mobile ? mobileOperator(r) : null;
+  const where = mobile
+    ? `Пополните баланс этого номера <b>${esc(op.name)}</b>: в приложении банка раздел «Мобильная связь»`
+    : target?.kind === 'sbp'
+      ? `по СБП по номеру телефона${r.bank ? `, банк <b>${esc(r.bank)}</b>` : ''}`
+      : target?.kind === 'account' ? 'по реквизитам счёта' : 'на карту по номеру';
   const lead = r.deeplink || r.payLink;
 
   box.innerHTML = `
@@ -7680,16 +7731,19 @@ function showSiciliaRequisite(order) {
       ${target ? `
       <div class="sic-card-stage">
         <button class="sic-card" id="sicCopyTarget" type="button" data-kind="${target.kind}"
-                aria-label="${esc(target.label)} получателя, скопировать">
+                ${op ? `style="--op: ${op.color}"` : ''}
+                aria-label="${esc(target.label)}${mobile ? ` ${esc(op.name)}` : ' получателя'}, скопировать">
           <span class="sic-card-fx" aria-hidden="true"><span class="sic-card-glow"></span><span class="sic-card-sheen"></span></span>
           <span class="sic-card-head">
-            <span class="sic-card-bank">${esc(r.bank || 'Банк получателя')}</span>
+            <span class="sic-card-bank">${mobile ? esc(op.name) : esc(r.bank || 'Банк получателя')}</span>
             <span class="cash-copy">${cashIcon('copy')}${cashIcon('check')}<span class="cash-copy-label">Скопировать</span></span>
           </span>
-          <span class="sic-card-mid">${SIC_CHIP}${target.kind === 'card' ? SIC_WAVES : ''}<span class="sic-card-tag">${target.tag}</span></span>
+          ${mobile
+            ? `<span class="sic-card-mid">${op.mark}<span class="sic-op-what">Пополнение баланса<br>телефона</span><span class="sic-card-tag">${target.tag}</span></span>`
+            : `<span class="sic-card-mid">${SIC_CHIP}${target.kind === 'card' ? SIC_WAVES : ''}<span class="sic-card-tag">${target.tag}</span></span>`}
           <span class="sic-card-label">${esc(target.label)}</span>
           <span class="sic-card-num" id="sicNum">${esc(target.text)}</span>
-          ${r.holder ? `<span class="sic-card-holder"><small>Получатель</small>${esc(r.holder)}</span>` : ''}
+          ${r.holder && !mobile ? `<span class="sic-card-holder"><small>Получатель</small>${esc(r.holder)}</span>` : ''}
           <span class="sic-card-stamp" aria-hidden="true">Срок истёк</span>
         </button>
       </div>` : ''}
@@ -7702,19 +7756,20 @@ function showSiciliaRequisite(order) {
 
       <ol class="sic-steps">
         <li><i>1</i><span>Скопируйте номер и сумму</span></li>
-        <li><i>2</i><span>Переведите ${where}</span></li>
+        <li><i>2</i><span>${mobile ? where : `Переведите ${where}`}</span></li>
         <li><i>3</i><span>Вернитесь сюда: деньги зачислятся сами</span></li>
       </ol>
 
       <div class="sic-actions">
         ${r.deeplink ? `<a class="cash-cta" id="sicOpenBank" href="${esc(r.deeplink)}" target="_blank" rel="noopener"><span>Открыть в банке</span>${cashIcon('open')}</a>` : ''}
         ${r.payLink ? `<a class="cash-cta" id="sicOpenBank" href="${esc(r.payLink)}" target="_blank" rel="noopener"><span>Перейти к оплате</span>${cashIcon('open')}</a>` : ''}
-        <button class="${lead ? 'cash-ghost' : 'cash-cta'} sic-paid" id="siciliaCheck">${lead ? cashIcon('check') : ''}<span>Я перевёл</span>${lead ? '' : cashIcon('check')}</button>
+        <button class="${lead ? 'cash-ghost' : 'cash-cta'} sic-paid" id="siciliaCheck">${lead ? cashIcon('check') : ''}<span>${mobile ? 'Я пополнил' : 'Я перевёл'}</span>${lead ? '' : cashIcon('check')}</button>
       </div>
       <div class="invoice-status" id="siciliaStatus" aria-live="polite"></div>
 
-      <p class="sic-note">${cashIcon('warn')}<span>Ровно ${money(sum)} одним переводом. Другая сумма задержит
-        зачисление. Реквизит одноразовый: в следующий раз получите новый.</span></p>
+      <p class="sic-note">${cashIcon('warn')}<span>${mobile
+        ? `Ровно ${money(sum)} одним платежом на этот номер. Другая сумма задержит зачисление. Номер одноразовый: в следующий раз получите новый.`
+        : `Ровно ${money(sum)} одним переводом. Другая сумма задержит зачисление. Реквизит одноразовый: в следующий раз получите новый.`}</span></p>
       <button class="sic-cancel" id="siciliaCancel" type="button">Отменить перевод</button>
     </div>`;
 
