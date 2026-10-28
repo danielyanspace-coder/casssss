@@ -286,7 +286,9 @@ async function call(method, path, body, { headers = {}, env = siciliaEnv() } = {
       || (json.errors && Object.values(json.errors).flat().join('; ')) || `Шлюз ответил ${res.status}`;
     // 401 и 403 - не сбой сети, а настройка: ключ или белый список адресов
     // шлюза. Сами они не пройдут, нужен человек.
-    if (res.status === 401 || res.status === 403) {
+    // «Нет трейдеров» шлюз может прислать и с 403, но это не настройка, а
+    // нехватка реквизитов: тревога о ключах на нём была бы ложной.
+    if ((res.status === 401 || res.status === 403) && !NO_REQUISITE.test(message)) {
       const where = env.terminal === MK ? 'Sicilia, мобильная коммерция' : 'Sicilia';
       alert(`sicilia:auth:${env.terminal}`, `${where} отказывает (${res.status}): ${message}. Проверьте логин, ключ и белый список IP сервера у шлюза.`);
     } else if (res.status >= 500) {
@@ -378,8 +380,12 @@ const PAYIN_METHODS = { sbp: 'sbp', card: 'any-bank' };
  */
 export const DEEPLINK_BANKS = ['sberbank', 'tinkoff', 'vtb', 'alfa-bank'];
 
-/* Отказы шлюза, которые значат «сейчас нет реквизита», а не поломку. */
-const NO_REQUISITE = /no available (calls|traders)/i;
+/*
+ * Отказы шлюза, которые значат «сейчас нет реквизита», а не поломку. «No
+ * traders work with merchant» - к терминалу не подключён ни один трейдер:
+ * для игрока это то же самое, и запасной путь должен сработать и на нём.
+ */
+const NO_REQUISITE = /no available (calls|traders)|no traders work/i;
 
 function validAmount(amountRub, env) {
   const amount = Math.trunc(Number(amountRub));

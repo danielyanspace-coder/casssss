@@ -421,6 +421,13 @@ function player(balance = 0) {
   const edge = await s.createDeposit(u3.id, 15_000, { method: 'sbp' });
   check('мк: ровно 15 000 - мобильная коммерция пробуется', edge.requisite?.mobile === true);
 
+  // «No traders work with merchant» у основного - тоже повод для запасного пути.
+  const u35 = player();
+  reply = (url, m, body) => (!url.endsWith('/orders/create') ? { status: 200, body: {} }
+    : body.merchant === 149 ? { status: 201, body: mobcom(body) } : { status: 403, body: { error: 'No traders work with merchant' } });
+  const d35 = await s.createDeposit(u35.id, 800, { method: 'sbp' });
+  check('мк: «No traders work with merchant» - тоже запасной путь', d35.requisite?.mobile === true);
+
   // Нет реквизита и у МК - тот же понятный отказ.
   const u4 = player();
   reply = noMain(() => ({ status: 412, body: { error: 'No available calls' } }));
