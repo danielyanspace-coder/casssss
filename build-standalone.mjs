@@ -125,7 +125,7 @@ const config = {
   freeCase: { enabled: false },
   // Free Money: те же описания, что отдаёт сервер.
   promoWheel: wheelConfig(),
-  projectBot: 'luckybox_bot',
+  projectBot: 'Luckyboxbonus_bot',
   raffle: { prize: 'Rolls-Royce Wraith', step: 1000, max: 20 },
   startCase: { minDeposit: 100, turnover: 1000 },
   bonus: { enabled: false },

@@ -396,6 +396,7 @@ grep -nE "^app\.(get|post)\(" server/app.js                  # все ручки
 | `/api/promo/state` | `pendingDepositBonus`, `myPromoRedemptions` |
 | `/api/partner/stats` | `partners.dashboard` (сводка на сайте) |
 | `/api/pc/*` | кабинет `/partners`: `partners.*`; `/api/pc/admin/*` - `need()`; `/api/pc/admin/finance/*` - `finance.*`; `/api/pc/admin/wheel*` - коды Колеса удачи (`wheelPromoList`, `createWheelPromo`, `setWheelPromoActive` в `db.js`) |
+| `/api/pc/admin/wheel/broadcast` | рассылка дневного кода ботом: `server/broadcast.js` (`startDailyPromo`, `resumeBroadcasts`), подписчики - `bot_subscribers` |
 | `GET /admin` | та же страница сайта, клиент открывает панель (`openAdminEntry`) |
 
 ### Касса, выводы, бонус
@@ -909,6 +910,7 @@ tools/case-covers.mjs` (и `--stage`); полка - `CATEGORIES` / `THEMED_SHELV
 | `install.sh` | первичная установка в `/srv/luckybox` |
 | `update.sh` | выкат: копия базы, код, перезапуск |
 | `bootstrap.sh` | развёртывание одной командой с вопросами, проверками и откатом (LAUNCH.md, раздел 0) |
+| `setup.sh` | ключи, выкат, домены и сертификаты одной командой в фоне; итог - `luckybox-report` |
 | `domain.sh` | смена домена: `sudo luckybox-domain новый-домен` (сертификат, nginx, SITE_URL, переадресация со старых) |
 | `backup.mjs` | копия базы (WAL-безопасная, сжатая, проверенная), `RCLONE_REMOTE` |
 | `watchdog.mjs` | сторож: health изнутри и снаружи, сертификат, диск, свежесть копий |

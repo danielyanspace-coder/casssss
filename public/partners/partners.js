@@ -931,6 +931,9 @@ async function renderSettings() {
  * до какого дня. Что выпадает, решает колесо (server/promo-wheel.js), и
  * доли секторов показаны рядом, чтобы раздающий знал, что дарит.
  */
+/** Как часто вкладка обновляет счётчик идущей рассылки. */
+const WHEEL_POLL_MS = 4000;
+
 async function renderWheel() {
   let d;
   try { d = await api('/api/pc/admin/wheel'); }
@@ -944,6 +947,10 @@ async function renderWheel() {
     return '<span class="tag ok">работает</span>';
   };
   const prize = (s) => (s.type === 'pct' ? `${s.label} к пополнению` : `Кейс «${s.label}»`);
+  const live = (p) => p.is_active && !(p.expires_at && p.expires_at < now) && !(p.max_uses && p.used_count >= p.max_uses);
+  const bot = d.bot || {};
+  const bState = (b) => (b.status === 'running' ? `<span class="tag wait">идёт ${fmt(b.sent + b.failed)} из ${fmt(b.total)}</span>`
+    : b.status === 'failed' ? `<span class="tag bad">ошибка</span>` : '<span class="tag ok">отправлено</span>');
   app.innerHTML = `<div class="bento">
     ${edit ? `<section class="tile span-5">
       <h3>Новый код</h3>
@@ -974,10 +981,24 @@ async function renderWheel() {
               ${p.expires_at ? ` · до ${date(p.expires_at)}` : ' · бессрочно'}${p.new_players_only ? ' · только новым' : ''}
               ${p.note ? `<br>${esc(p.note)}` : ''}</span></div>
           <div class="r row" style="flex-wrap:nowrap;margin-left:auto">
+            ${edit && live(p) ? `<button class="btn sm" data-post="${p.id}" data-code="${esc(p.code)}" type="button">Разместить</button>` : ''}
             <button class="btn alt sm" data-copy="${esc(p.code)}" type="button">Копировать</button>
             ${edit ? `<button class="btn alt sm" data-wtoggle="${p.id}" data-on="${p.is_active ? 0 : 1}" type="button">${p.is_active ? 'Выкл' : 'Вкл'}</button>` : ''}
           </div>
         </div>`).join('') : '<div class="empty">Кодов пока нет</div>'}</div>
+    </section>
+
+    <section class="tile span-12">
+      <h3>Рассылка в бот${bot.username ? ` @${esc(bot.username)}` : ''}</h3>
+      ${bot.configured
+        ? `<p class="note">«Разместить» у кода отправляет его с картинкой «Дневной промокод» всем, кто нажал «Старт» в боте
+            и вошёл на сайт через Telegram: сейчас это ${fmt(bot.audience)} ${plural(bot.audience, 'человек', 'человека', 'человек')}.
+            Под сообщением кнопка «Крутить колесо» - сразу на колесо с подставленным кодом.</p>`
+        : '<p class="note">Бот с промокодами не подключён: на сервере нет TELEGRAM_TOKEN.</p>'}
+      ${(bot.recent || []).length ? `<div class="list" style="margin-top:10px">${bot.recent.map((b) => `
+        <div class="li"><div class="l"><b class="code">${esc(b.promo_code || '')}</b>
+          <span>${dateTime(b.created_at)} · доставлено ${fmt(b.sent)}${b.failed ? `, не дошло ${fmt(b.failed)}` : ''}${b.error ? ` · ${esc(b.error)}` : ''}</span></div>
+          <div class="r">${bState(b)}</div></div>`).join('')}</div>` : ''}
     </section>
 
     <section class="tile span-12">
@@ -995,6 +1016,28 @@ async function renderWheel() {
       catch (err) { toast(err.message); }
     };
   });
+  app.querySelectorAll('[data-post]').forEach((el) => {
+    el.onclick = () => {
+      if (!bot.configured) { toast('Бот с промокодами не подключён'); return; }
+      const sheet = openSheet(`
+        <div class="sheet-head"><div><h2>Разместить код ${esc(el.dataset.code)}?</h2></div></div>
+        <p class="note">Сообщение с картинкой уйдёт ${fmt(bot.audience)} ${plural(bot.audience, 'человеку', 'людям', 'людям')}. Отменить рассылку после начала нельзя.</p>
+        <div class="row" style="margin-top:14px;flex-wrap:nowrap">
+          <button class="btn alt" id="bcNo" type="button">Отмена</button>
+          <button class="btn" id="bcYes" type="button">Отправить</button>
+        </div>`);
+      sheet.querySelector('#bcNo').onclick = closeSheet;
+      sheet.querySelector('#bcYes').onclick = async () => {
+        try { await api('/api/pc/admin/wheel/broadcast', { id: Number(el.dataset.post) }); closeSheet(); toast('Рассылка началась'); renderWheel(); }
+        catch (err) { closeSheet(); toast(err.message); }
+      };
+    };
+  });
+  // Пока рассылка идёт, вкладка сама обновляет счётчик.
+  clearTimeout(S.wheelPoll);
+  if ((bot.recent || []).some((b) => b.status === 'running')) {
+    S.wheelPoll = setTimeout(() => { if (S.tab === 'wheel') renderWheel(); }, WHEEL_POLL_MS);
+  }
   const f = $('wheelForm');
   if (f) {
     f.onsubmit = async (e) => {

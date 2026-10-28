@@ -334,6 +334,39 @@ db.exec(`
     PRIMARY KEY (user_id, kind, tag)
   );
 
+  -- Кто нажал «Старт» в боте с промокодами. Писать в Telegram можно только
+  -- тем, кто сам начал разговор, поэтому рассылка идёт по этому списку (и по
+  -- вошедшим через Telegram). Заблокировавшие бота помечаются, а не
+  -- удаляются: вернутся - пометка снимется сама.
+  CREATE TABLE IF NOT EXISTS bot_subscribers (
+    chat_id     INTEGER PRIMARY KEY,
+    username    TEXT,
+    first_name  TEXT,
+    started_at  INTEGER NOT NULL,
+    seen_at     INTEGER NOT NULL,
+    blocked_at  INTEGER
+  );
+
+  -- Рассылки бота из кабинета (дневной код колеса). cursor - последний
+  -- chat_id, которому ушло: перезапуск сервера посреди рассылки продолжает
+  -- с него, а не шлёт всем второй раз.
+  CREATE TABLE IF NOT EXISTS bot_broadcasts (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind        TEXT    NOT NULL,
+    promo_code  TEXT,
+    text        TEXT    NOT NULL,
+    admin_id    INTEGER,
+    created_at  INTEGER NOT NULL,
+    total       INTEGER NOT NULL DEFAULT 0,
+    sent        INTEGER NOT NULL DEFAULT 0,
+    failed      INTEGER NOT NULL DEFAULT 0,
+    cursor      INTEGER NOT NULL DEFAULT 0,
+    photo_id    TEXT,
+    status      TEXT    NOT NULL DEFAULT 'running',
+    error       TEXT,
+    finished_at INTEGER
+  );
+
   -- Журнал действий администратора: любое изменение баланса извне видно.
   CREATE TABLE IF NOT EXISTS admin_log (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -3011,6 +3044,90 @@ export function markNoticeSent(userId, kind, tag) {
   db.prepare(`INSERT OR IGNORE INTO bot_notices (user_id, kind, tag, sent_at)
               VALUES (?, ?, ?, ?)`).run(userId, kind, String(tag), Date.now());
   trackEvent(userId, 'bot_reminder', { kind });
+}
+
+/* ---------- Подписчики бота и рассылки ---------- */
+
+/** Отметка «этот чат пишет боту»: из процесса бота на любое личное сообщение. */
+export function touchBotSubscriber(chatId, { username = null, firstName = null } = {}) {
+  const now = Date.now();
+  db.prepare(`
+    INSERT INTO bot_subscribers (chat_id, username, first_name, started_at, seen_at)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(chat_id) DO UPDATE SET username = excluded.username,
+      first_name = excluded.first_name, seen_at = excluded.seen_at, blocked_at = NULL
+  `).run(chatId, username, firstName, now, now);
+}
+
+/** Бот заблокирован: Telegram ответил 403 или пришёл my_chat_member «kicked». */
+export function markBotBlocked(chatId) {
+  const now = Date.now();
+  db.prepare(`
+    INSERT INTO bot_subscribers (chat_id, started_at, seen_at, blocked_at) VALUES (?, ?, ?, ?)
+    ON CONFLICT(chat_id) DO UPDATE SET blocked_at = excluded.blocked_at
+  `).run(chatId, now, now, now);
+}
+
+/*
+ * Получатели рассылки: нажавшие «Старт» и вошедшие на сайт через Telegram
+ * (виджет входа даёт боту право писать). Без заблокировавших и без
+ * заблокированных на сайте. По возрастанию chat_id - по нему идёт курсор.
+ */
+const BROADCAST_RECIPIENTS_SQL = `
+  SELECT chat_id FROM (
+    SELECT chat_id FROM bot_subscribers WHERE blocked_at IS NULL
+    UNION
+    -- tg_id хранится строкой: без приведения UNION не узнаёт в '101' и 101
+    -- одного человека, и подписчик, вошедший через Telegram, получал бы дважды.
+    SELECT CAST(tg_id AS INTEGER) AS chat_id FROM users
+     WHERE tg_id IS NOT NULL AND is_blocked = 0
+       AND CAST(tg_id AS INTEGER) NOT IN (SELECT chat_id FROM bot_subscribers WHERE blocked_at IS NOT NULL)
+  )`;
+
+export function broadcastAudience() {
+  return db.prepare(`SELECT COUNT(*) AS n FROM (${BROADCAST_RECIPIENTS_SQL})`).get().n;
+}
+
+export function nextBroadcastRecipients(afterChatId, limit) {
+  return db.prepare(`${BROADCAST_RECIPIENTS_SQL} WHERE chat_id > ? ORDER BY chat_id LIMIT ?`)
+    .all(afterChatId, limit).map((r) => r.chat_id);
+}
+
+export function createBroadcast({ kind, promoCode = null, text, adminId = null }) {
+  const info = db.prepare(`
+    INSERT INTO bot_broadcasts (kind, promo_code, text, admin_id, created_at, total, cursor)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(kind, promoCode, text, adminId, Date.now(), broadcastAudience(), 0);
+  if (adminId) {
+    db.prepare(`INSERT INTO admin_log (admin_id, target_id, action, amount, note, created_at)
+                VALUES (?, 0, 'broadcast', NULL, ?, ?)`).run(adminId, promoCode || kind, Date.now());
+  }
+  return getBroadcast(info.lastInsertRowid);
+}
+
+export function getBroadcast(id) {
+  return db.prepare('SELECT * FROM bot_broadcasts WHERE id = ?').get(id);
+}
+
+export function runningBroadcasts() {
+  return db.prepare("SELECT * FROM bot_broadcasts WHERE status = 'running' ORDER BY id").all();
+}
+
+export function recentBroadcasts(limit = 10) {
+  return db.prepare('SELECT id, kind, promo_code, created_at, total, sent, failed, status, error, finished_at FROM bot_broadcasts ORDER BY id DESC LIMIT ?').all(limit);
+}
+
+/** Шаг рассылки: курсор и счётчики пишутся после каждого сообщения. */
+export function advanceBroadcast(id, { cursor, ok, photoId = null }) {
+  db.prepare(`
+    UPDATE bot_broadcasts SET cursor = ?, sent = sent + ?, failed = failed + ?,
+      photo_id = COALESCE(?, photo_id) WHERE id = ?
+  `).run(cursor, ok ? 1 : 0, ok ? 0 : 1, photoId, id);
+}
+
+export function finishBroadcast(id, { status = 'done', error = null } = {}) {
+  db.prepare('UPDATE bot_broadcasts SET status = ?, error = ?, finished_at = ? WHERE id = ?')
+    .run(status, error, Date.now(), id);
 }
 
 /* ============================================================

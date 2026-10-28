@@ -16,6 +16,7 @@ import 'dotenv/config';
 import { Bot, InlineKeyboard } from 'grammy';
 import {
   pendingSpinReminders, freeCaseReminders, markNoticeSent,
+  touchBotSubscriber, markBotBlocked,
 } from './db.js';
 import { getCase } from './cases.js';
 import { isConfigured as freeCaseConfigured, FREE_CASE_COOLDOWN_MS } from './subscription.js';
@@ -41,9 +42,32 @@ const bot = new Bot(token);
 
 const keyboard = new InlineKeyboard().url('Открыть LUCKYBOX', webAppUrl);
 
+/*
+ * Каждый, кто пишет боту в личке, попадает в список рассылки дневного кода
+ * (server/broadcast.js). Писать первым Telegram боту не даёт, поэтому список
+ * собирается только так. Ошибка базы не должна мешать ответу на сообщение.
+ */
+bot.use(async (ctx, next) => {
+  if (ctx.chat?.type === 'private' && ctx.from) {
+    try { touchBotSubscriber(ctx.chat.id, { username: ctx.from.username || null, firstName: ctx.from.first_name || null }); }
+    catch (err) { console.error('[bot] подписчик', err.message); }
+  }
+  return next();
+});
+
+// Заблокировал бота - из рассылки выпадает; разблокировал - вернётся
+// первым же сообщением (touchBotSubscriber снимает пометку).
+bot.on('my_chat_member', (ctx) => {
+  const st = ctx.myChatMember?.new_chat_member?.status;
+  if (ctx.chat?.type === 'private' && (st === 'kicked' || st === 'left')) {
+    try { markBotBlocked(ctx.chat.id); } catch { /* не критично */ }
+  }
+});
+
 bot.command('start', (ctx) =>
   ctx.reply(
     'LUCKYBOX - кейсы, апгрейд, краш и рулетка.\n\n' +
+      'Сюда каждый день приходит промокод на прокрут Колеса удачи.\n\n' +
       'Содержимое каждого кейса показано целиком до открытия, ' +
       'а результат любого раунда можно перепроверить самостоятельно ' +
       'через provably fair.\n\n' +

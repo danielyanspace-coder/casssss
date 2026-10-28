@@ -73,11 +73,12 @@
       <button class="balance-chip" id="balanceChip">
         <span class="balance-value" id="balanceValue">-</span>
       </button>
-      <!-- Гостю вместо баланса две кнопки. Сайт открыт без входа: кейсы,
-           казино и правила видны сразу, а вход нужен в момент первой ставки. -->
+      <!-- Гостю вместо баланса - тот же значок человечка, что у игрока
+           (решение заказчика: две кнопки «Войти» и «Регистрация» теснили
+           шапку). Нажатие открывает регистрацию, вход - строкой внизу окна. -->
       <div class="top-auth" id="topAuth" hidden>
-        <button class="btn btn-outline top-login" data-auth-open="login">Войти</button>
-        <button class="btn btn-primary top-register" data-auth-open="register">Регистрация</button>
+        <button class="account-btn top-guest" data-auth-open="register" aria-label="Войти или зарегистрироваться"
+                data-ico="people"></button>
       </div>
       <button class="account-btn" id="accountBtn" aria-label="Профиль" data-ico="people" hidden></button>
       <button class="menu-btn" id="menuBtn" aria-label="Меню" data-ico="grid"></button>
@@ -1152,6 +1153,8 @@
       <div class="auth-or" id="authOr" hidden><span>или</span></div>
       <!-- Сюда app.js вставляет официальный виджет Telegram Login. -->
       <div class="auth-tg" id="authTelegram" hidden></div>
+      <!-- «Уже зарегистрированы? Войти» и обратно: вместо вкладок сверху. -->
+      <div class="auth-switch" id="authSwitch" hidden></div>
 
       <!-- Профиль: как игрок входит и что ещё можно привязать. -->
       <div class="auth-account" id="authAccount" hidden>
