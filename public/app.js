@@ -7080,7 +7080,10 @@ async function loadCryptoOptions() {
   try {
     const data = await api('/api/crypto/options');
     Object.assign(cryptoState, {
-      loaded: true,
+      // Запоминается только рабочая касса. Отказ (шлюз моргнул, сервер
+      // перезапускался с новыми ключами) раньше запоминался до перезагрузки
+      // страницы, и игрок видел «недоступна», когда касса уже работала.
+      loaded: !!data.enabled,
       enabled: !!data.enabled,
       coins: data.coins || [],
       rates: data.rates || {},
@@ -7089,7 +7092,6 @@ async function loadCryptoOptions() {
       max: data.max ?? 500000,
     });
   } catch {
-    cryptoState.loaded = true;
     cryptoState.enabled = false;
   }
   return cryptoState;
