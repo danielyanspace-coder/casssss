@@ -2632,9 +2632,25 @@ async function runFreeSpins(grant, caseData, { auto = false, replay = false, cos
   }
 
   await new Promise((done) => {
-    collectBtn.addEventListener('click', () => { finish(); done(); }, { once: true });
+    const take = () => {
+      collectBtn.removeEventListener('click', take);
+      fsCollectPending = null;
+      finish();
+      done();
+    };
+    fsCollectPending = take;
+    collectBtn.addEventListener('click', take);
   });
 }
+
+/*
+ * Серия, ждущая «Забрать». Кейс могут закрыть, не нажав её (крестик, пункт
+ * меню): тогда closeOpener забирает сам. Иначе открытие так и висело бы
+ * незавершённым, state.busy не снимался, и ни один кейс больше не
+ * открывался до перезагрузки страницы. Деньги серии начислены сервером
+ * заранее, «Забрать» только закрывает показ.
+ */
+let fsCollectPending = null;
 
 /** Множитель итога серии: ×1,4 или ×12. */
 function seriesRatio(r) {
@@ -3076,6 +3092,7 @@ async function loadCaseHistory(caseTitle) {
 }
 
 function closeOpener() {
+  fsCollectPending?.();
   // Показ, оставшийся висеть поверх закрытого кейса, перекрыл бы весь экран.
   motion().reset();
   endBonusMode();

@@ -1189,6 +1189,47 @@ async function openCaseAndVerify(caseId) {
   await ensureOpenerClosed();
 }
 
+/* ---------- Кейс закрыли, не нажав «Забрать» ---------- */
+
+/*
+ * Серия фриспинов ждёт «Забрать». Закрыли кейс крестиком или пунктом меню,
+ * не нажав её, - следующий кейс обязан открываться. Раньше открытие так и
+ * висело незавершённым, и ни один кейс больше не открывался до перезагрузки.
+ */
+{
+  await ensureOpenerClosed();
+  await page.evaluate(() => {
+    const card = [...document.querySelectorAll('.case-card')].find((c) => c.dataset.case === 'warmup_100');
+    card.scrollIntoView({ block: 'center' });
+    card.click();
+  });
+  await page.waitForSelector('#fsBuyRow [data-fs="10"]', { state: 'visible' });
+  await page.click('#fsBuyRow [data-fs="10"]');
+  await page.waitForTimeout(1200);
+  await page.click('#buyConfirm');
+  await page.waitForFunction(() => !document.getElementById('freespins').hidden
+    && !document.getElementById('fsCollect').hidden, null, { timeout: 180000 });
+  await page.click('#closeOpenerTop');
+  await page.waitForFunction(() => document.getElementById('opener').hidden, null, { timeout: 5000 });
+  await page.evaluate(() => {
+    const card = [...document.querySelectorAll('.case-card')].find((c) => c.dataset.case === 'neon_500');
+    card.scrollIntoView({ block: 'center' });
+    card.click();
+  });
+  await page.waitForSelector('#doOpenBtn', { state: 'visible' });
+  await page.click('#doOpenBtn');
+  const reopened = await page.waitForFunction(() => !document.getElementById('result').hidden
+    || (!document.getElementById('freespins').hidden && !document.getElementById('fsCollect').hidden),
+  null, { timeout: 60000 }).then(() => true, () => false);
+  check('кейс, закрытый без «Забрать», не запирает следующие', reopened);
+  while (await page.evaluate(() => !document.getElementById('freespins').hidden
+      && !document.getElementById('fsCollect').hidden)) {
+    await page.click('#fsCollect');
+    await page.waitForTimeout(800);
+  }
+  await ensureOpenerClosed();
+}
+
 /* ---------- Совпадение ленты и результата ---------- */
 
 const cases = ['warmup_100', 'vault_1000', 'neon_500', 'allin_500', 'deck_400', 'frost_300'];
