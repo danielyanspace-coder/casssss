@@ -3307,6 +3307,21 @@ div.mini-row { cursor: default; }
   animation: openSheen 4s cubic-bezier(0.65, 0, 0.35, 1) infinite 1.2s;
 }
 .open-cta:disabled::after { animation: none; }
+/* «Забрать» после серии фриспинов - та же золотая кнопка, что «Открыть»:
+   это деньги игрока, и бледная розовая плашка терялась на ярком итоге
+   серии. Глянец сверху лежит отдельным слоем, блик бежит общий. */
+.fs-collect {
+  flex: none; width: 100%; margin-top: 16px;
+  justify-content: center; padding: 17px 16px;
+  font: 800 17px/1 'Unbounded', 'Manrope', system-ui, sans-serif; letter-spacing: 0.1em;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+.fs-collect[hidden] { display: none; }
+.fs-collect::before {
+  content: ''; position: absolute; left: 0; right: 0; top: 0; height: 50%; pointer-events: none;
+  border-radius: 18px 18px 40% 40% / 18px 18px 14px 14px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.75), rgba(255, 255, 255, 0.08));
+}
 @keyframes openSheen { 0%, 70% { translate: -130% 0; } 100% { translate: 130% 0; } }
 .open-act {
   min-width: 0;
@@ -9494,15 +9509,20 @@ div.mini-row { cursor: default; }
 .mo-canvas { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; }
 
 /* Сцена уходит назад классом: так у неё одно состояние, и оно снимается
-   наверняка (см. recede в motion.js). */
-.opener-scroll { transition: filter .7s cubic-bezier(.16,1,.3,1), transform .7s cubic-bezier(.16,1,.3,1); }
-body.mo-receded .opener-scroll { filter: blur(4px) saturate(.55); transform: scale(.94); }
+   наверняка (см. recede в motion.js).
+   Затемнением, а не размытием. blur на всём экране кейса пересчитывался на
+   каждом кадре, пока под ним что-то двигалось (точки серии, качающийся знак
+   фриспинов, сама лента), и на телефоне показ выигрыша и пролог серии шли
+   рывками. Прозрачность и масштаб - работа видеокарты, перерисовки нет. */
+.opener-scroll { transition: opacity .7s cubic-bezier(.16,1,.3,1), transform .7s cubic-bezier(.16,1,.3,1); }
+body.mo-receded .opener-scroll { opacity: .42; transform: scale(.94); }
 .reel-tile.mo-lifted { visibility: hidden; }
 
 .mo-flash { position: absolute; inset: 0; mix-blend-mode: screen; }
 .mo-ring {
   position: absolute; width: 120px; height: 120px; margin: -60px 0 0 -60px; border-radius: 50%;
-  border: 3px solid var(--c); box-shadow: 0 0 22px var(--c), inset 0 0 22px var(--c);
+  border: 2px solid var(--c); box-shadow: 0 0 22px var(--c), inset 0 0 22px var(--c);
+  will-change: transform, opacity;
 }
 .mo-slash {
   position: absolute; left: -20%; width: 140%; height: 3px; transform-origin: 0 50%;
@@ -9570,15 +9590,14 @@ body.mo-receded .opener-scroll { filter: blur(4px) saturate(.55); transform: sca
 .mo-fs-emblem {
   position: absolute; left: 50%; top: 29%; width: 150px; height: 150px; margin: -75px 0 0 -75px;
   filter: drop-shadow(0 14px 22px rgba(0,0,0,.6));
+  /* Свой слой с самого начала: рисунок с тенью растрируется один раз, а
+     разворот и масштаб дальше делает видеокарта. */
+  will-change: transform;
 }
 .mo-fs-emblem svg { width: 100%; height: 100%; display: block; }
 .mo-fs-title {
   position: absolute; left: 0; right: 0; top: 46%; display: flex; justify-content: center; gap: 12px;
   font: 800 34px/1 'Unbounded', 'Arial Black', system-ui, sans-serif; letter-spacing: .01em;
-}
-.mo-fs-title .mo-metal {
-  background-image: linear-gradient(180deg, #fff6cf 0%, #ffd34d 18%, #c8781a 26%, #ffe9a0 38%, #ffffff 50%, #ffe9a0 62%, #ffd34d 78%, #c8781a 90%, #ffe9a0 100%);
-  background-size: 100% 300%;
 }
 .mo-fs-count { position: absolute; left: 0; right: 0; top: 52.5%; text-align: center; font: 800 92px/1 'Unbounded', 'Arial Black', system-ui, sans-serif; }
 .mo-fs-sub {
@@ -9593,6 +9612,38 @@ body.mo-receded .opener-scroll { filter: blur(4px) saturate(.55); transform: sca
   display: grid; place-items: center;
 }
 .mo-tok svg { width: 62%; height: 62%; }
+
+/* ---------- Итог серии крупно (seriesTotal) ----------
+   Число - тот же металл, что надписи показа; движется только transform и
+   opacity. Свечение - отдельный слой с радиальной заливкой, без фильтра. */
+.mo-st { position: absolute; inset: 0; }
+/* Плотная середина: под числом стоит кнопка «Забрать» с той же суммой, и
+   проступая сквозь затемнение, она двоила надпись. */
+.mo-st-dim { position: absolute; inset: 0; background: radial-gradient(circle at 50% 42%, rgba(14, 5, 30, 0.88), rgba(4, 1, 10, 0.96) 70%); }
+.mo-st-glow {
+  position: absolute; left: 50%; top: 42%; width: 520px; height: 520px; margin: -260px 0 0 -260px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 196, 70, 0.42), rgba(168, 85, 247, 0.16) 42%, transparent 66%);
+  opacity: 0;
+}
+.mo-st:not(.is-paid) .mo-st-glow { background: radial-gradient(circle, rgba(196, 170, 255, 0.28), transparent 62%); }
+.mo-st-box {
+  position: absolute; left: 0; right: 0; top: 42%; transform: translateY(-50%);
+  display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; padding: 0 16px;
+}
+.mo-st-eyebrow {
+  font: 800 12px/1 'Manrope', system-ui, sans-serif; letter-spacing: .22em; text-transform: uppercase; color: #d9c8ff;
+  opacity: 0;
+}
+.mo-st-num { font: 800 clamp(40px, 13vw, 76px)/1.05 'Unbounded', 'Arial Black', system-ui, sans-serif; white-space: nowrap; will-change: transform; }
+.mo-st:not(.is-paid) .mo-st-num .mo-metal { --m1: #ffffff; --m2: #e9e2f7; --m3: #a99cc4; --m4: #f4efff; --glow: rgba(200, 180, 255, .25); }
+.mo-st-pill {
+  padding: 7px 14px; border-radius: 999px; opacity: 0;
+  font: 800 13px/1 'Manrope', system-ui, sans-serif; letter-spacing: .04em; color: #3a1d00;
+  background: linear-gradient(180deg, #fff3c4, #ffd34d 55%, #e8a024);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .8), 0 6px 18px -6px rgba(255, 170, 40, .7);
+}
+/* Кнопка «Забрать» вспыхивает, когда в неё упала сумма: блик проходит раз. */
+.fs-collect.is-glint::after { animation: openSheen 0.7s cubic-bezier(0.65, 0, 0.35, 1) 1; }
 
 /* ---------- Окно крупного выигрыша ---------- */
 .mo-wl {
@@ -9916,8 +9967,10 @@ body.mo-receded .opener-scroll { filter: blur(4px) saturate(.55); transform: sca
 .buy-scene[hidden] { display: none; }
 .bs-dim {
   position: absolute; inset: 0;
-  background: radial-gradient(120% 80% at 50% 35%, rgba(40, 12, 70, 0.75), rgba(4, 0, 10, 0.94));
-  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  /* Без backdrop-filter: под сценой живёт экран кейса с бегущим бликом
+     кнопки, и размытие пересчитывалось бы на каждом кадре. Плотнее
+     затемнение - тот же эффект отделения от фона. */
+  background: radial-gradient(120% 80% at 50% 35%, rgba(40, 12, 70, 0.86), rgba(4, 0, 10, 0.97));
   opacity: 0; transition: opacity 0.4s;
 }
 .bs-rays {

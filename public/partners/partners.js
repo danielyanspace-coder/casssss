@@ -106,6 +106,7 @@ function tabsFor(me) {
   if (me.staff) {
     if (can('partners.view')) t.push(['overview', 'Обзор'], ['partners', 'Партнёры'], ['requests', 'Заявки']);
     if (can('finance.reports')) t.push(['finance', 'Финансы']);
+    if (can('promo.view')) t.push(['wheel', 'Колесо удачи']);
     if (can('settings.manage')) t.push(['settings', 'Настройки']);
   }
   return t;
@@ -136,6 +137,7 @@ function renderTab() {
     partners: renderPartners,
     requests: renderRequests,
     finance: renderFinance,
+    wheel: renderWheel,
     settings: renderSettings,
   }[S.tab] || (() => {}))();
   if (admin && can('partners.view')) refreshReqDot();
@@ -917,6 +919,97 @@ async function renderSettings() {
     try { await api('/api/pc/admin/settings/save', { patch }); toast('Сохранено'); renderSettings(); }
     catch (err) { toast(err.message); }
   };
+}
+
+/* ============================================================
+   АДМИН: ПРОМОКОДЫ КОЛЕСА УДАЧИ
+   ============================================================ */
+
+/*
+ * Код крутит Колесо удачи во Free Money: один прокрут на игрока. Поэтому в
+ * форме нет «сколько прокрутов» - только сколько игроков могут его ввести и
+ * до какого дня. Что выпадает, решает колесо (server/promo-wheel.js), и
+ * доли секторов показаны рядом, чтобы раздающий знал, что дарит.
+ */
+async function renderWheel() {
+  let d;
+  try { d = await api('/api/pc/admin/wheel'); }
+  catch (err) { app.innerHTML = `<div class="empty">${esc(err.message)}</div>`; return; }
+  const edit = can('promo.edit');
+  const now = Date.now();
+  const state = (p) => {
+    if (!p.is_active) return '<span class="tag">выключен</span>';
+    if (p.expires_at && p.expires_at < now) return '<span class="tag bad">истёк</span>';
+    if (p.max_uses && p.used_count >= p.max_uses) return '<span class="tag wait">израсходован</span>';
+    return '<span class="tag ok">работает</span>';
+  };
+  const prize = (s) => (s.type === 'pct' ? `${s.label} к пополнению` : `Кейс «${s.label}»`);
+  app.innerHTML = `<div class="bento">
+    ${edit ? `<section class="tile span-5">
+      <h3>Новый код</h3>
+      <form id="wheelForm">
+        <label class="field"><span>Код · пусто - придумаем сами</span>
+          <input class="input code" name="code" maxlength="32" placeholder="SPIN…" autocomplete="off" style="text-transform:uppercase"></label>
+        <label class="field"><span>Сколько игроков могут ввести · 0 - без ограничения</span>
+          <input class="input" name="maxUses" inputmode="numeric" value="100"></label>
+        <label class="field"><span>Действует дней · 0 - бессрочно</span>
+          <input class="input" name="days" inputmode="numeric" value="7"></label>
+        <label class="row" style="flex-wrap:nowrap;margin-bottom:12px"><input type="checkbox" name="newOnly">
+          <span>Только игрокам без пополнений</span></label>
+        <label class="field"><span>Заметка для себя</span>
+          <input class="input" name="note" maxlength="200" placeholder="Например: розыгрыш в канале"></label>
+        <button class="btn" type="submit">Создать код</button>
+        <div class="form-err" id="wheelErr"></div>
+      </form>
+      <p class="note" style="margin-top:10px">Каждый игрок вводит код один раз и получает один прокрут.
+        Код вводится в центре колеса во Free Money, в поле промокода при регистрации он не работает.</p>
+    </section>` : ''}
+
+    <section class="tile ${edit ? 'span-7' : 'span-12'}">
+      <h3>Коды колеса</h3>
+      <div class="list">${d.rows.length ? d.rows.map((p) => `
+        <div class="li" style="flex-wrap:wrap">
+          <div class="l" style="flex:1 1 220px"><b class="code">${esc(p.code)}</b>
+            <span>${state(p)} · введён ${fmt(p.used_count)}${p.max_uses ? ` из ${fmt(p.max_uses)}` : ''}
+              ${p.expires_at ? ` · до ${date(p.expires_at)}` : ' · бессрочно'}${p.new_players_only ? ' · только новым' : ''}
+              ${p.note ? `<br>${esc(p.note)}` : ''}</span></div>
+          <div class="r row" style="flex-wrap:nowrap;margin-left:auto">
+            <button class="btn alt sm" data-copy="${esc(p.code)}" type="button">Копировать</button>
+            ${edit ? `<button class="btn alt sm" data-wtoggle="${p.id}" data-on="${p.is_active ? 0 : 1}" type="button">${p.is_active ? 'Выкл' : 'Вкл'}</button>` : ''}
+          </div>
+        </div>`).join('') : '<div class="empty">Кодов пока нет</div>'}</div>
+    </section>
+
+    <section class="tile span-12">
+      <h3>Что выпадает на колесе</h3>
+      <div class="kv">${d.wheel.sectors.map((s) => `<span>${esc(prize(s))}</span><b>${fmt(Math.round(s.share * 1000) / 10)}%</b>`).join('')}</div>
+      <p class="note" style="margin-top:10px">Процент к пополнению - от ${rub(d.wheel.pctMinDeposit)}, бонус не больше ${rub(d.wheel.pctCap)}.
+        Всё выигранное приходит бонусом и отыгрывается по правилам сайта.</p>
+    </section>
+  </div>`;
+
+  app.querySelectorAll('[data-copy]').forEach((el) => { el.onclick = () => copy(el.dataset.copy); });
+  app.querySelectorAll('[data-wtoggle]').forEach((el) => {
+    el.onclick = async () => {
+      try { await api('/api/pc/admin/wheel/toggle', { id: Number(el.dataset.wtoggle), active: el.dataset.on === '1' }); renderWheel(); }
+      catch (err) { toast(err.message); }
+    };
+  });
+  const f = $('wheelForm');
+  if (f) {
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      const t = e.target;
+      try {
+        const r = await api('/api/pc/admin/wheel/create', {
+          code: t.code.value, maxUses: t.maxUses.value, days: t.days.value,
+          newOnly: t.newOnly.checked, note: t.note.value,
+        });
+        toast(`Код ${r.code} создан`);
+        renderWheel();
+      } catch (err) { $('wheelErr').textContent = err.message; }
+    };
+  }
 }
 
 boot();

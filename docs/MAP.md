@@ -395,7 +395,8 @@ grep -nE "^app\.(get|post)\(" server/app.js                  # все ручки
 | `/api/promo/redeem` | `redeemPromo` |
 | `/api/promo/state` | `pendingDepositBonus`, `myPromoRedemptions` |
 | `/api/partner/stats` | `partners.dashboard` (сводка на сайте) |
-| `/api/pc/*` | кабинет `/partners`: `partners.*`; `/api/pc/admin/*` - `need()`; `/api/pc/admin/finance/*` - `finance.*` |
+| `/api/pc/*` | кабинет `/partners`: `partners.*`; `/api/pc/admin/*` - `need()`; `/api/pc/admin/finance/*` - `finance.*`; `/api/pc/admin/wheel*` - коды Колеса удачи (`wheelPromoList`, `createWheelPromo`, `setWheelPromoActive` в `db.js`) |
+| `GET /admin` | та же страница сайта, клиент открывает панель (`openAdminEntry`) |
 
 ### Касса, выводы, бонус
 
@@ -536,7 +537,7 @@ grep -nE "^app\.(get|post)\(" server/app.js                  # все ручки
 ### public/motion.js - показ выигрыша и фриспинов
 
 - `MOTION_LEVELS` (пороги ×4, ×12, ×50, ×150), `MOTION_NICE_AT`.
-- `createMotion()` -> `{ win, purchase, retrigger, payout, seriesEnd, reset, recede, levelOf, inspect, closeInspect, doubler }`.
+- `createMotion()` -> `{ win, purchase, retrigger, payout, seriesEnd, seriesTotal, reset, recede, levelOf, inspect, closeInspect, doubler }`. `seriesTotal` (итог серии крупно) ждёт решения заказчика, демо - `npm run demo:fs-total`.
 - Внутри: `ACCENTS` (акцент темы), `heroCard`, `bigWin`, `levelUp`, `shower`, `coins`, `sparks`, `flash`, `ring`, `slash`, `shake`, `stampLabel`, `floatText`.
 - В `app.js` создаётся лениво: `motion()`.
 
