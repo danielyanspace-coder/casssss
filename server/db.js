@@ -2251,7 +2251,10 @@ export const playCaseRound = moneyTx('case', (userId, caseData, resolve, resolve
          }));
   ledgerLink('rounds', info.lastInsertRowid);
 
-  consumeWager(userId, { real: paid.real, bonus: paid.bonus });
+  // Отдача кейса (0.80) выше прочих наших игр, и рубль открытия засчитывается
+  // в отыгрыш по своей доле заведения, а не по 0.70: иначе пополнение
+  // прокручивалось бы в кейсах дешевле, чем в краше.
+  consumeWager(userId, { real: paid.real, bonus: paid.bonus, rtp: caseData.rtp });
 
   settleBonus(userId);
 
@@ -2318,7 +2321,10 @@ export const buyFreeSpins = moneyTx('freespins', (userId, caseData, count, cost,
          paid.bonus, credited.bonus, JSON.stringify({ bought: count, fs: series.count }));
   ledgerLink('rounds', info.lastInsertRowid);
 
-  consumeWager(userId, { real: paid.real, bonus: paid.bonus });
+  // Купленная серия отдаёт больше кейса (отдача серии плюс скидка пачки), и
+  // засчитывается по своей отдаче: матожидание серии к цене пачки.
+  const packRtp = cost > 0 ? (count * caseData.price * caseData.fsRtp) / cost : HOUSE_RTP;
+  consumeWager(userId, { real: paid.real, bonus: paid.bonus, rtp: packRtp });
   settleBonus(userId);
 
   return {
@@ -2409,8 +2415,8 @@ const MAX_SAFE_CASHOUT_PCT = 28;
  * останавливает. В проекте есть ставки на любой множитель (краш до ×1000,
  * апгрейд), и бонус ставится одной ставкой на большой множитель: в редком
  * выигрыше сумма огромная, и остаток отыгрыша почти ничего не стоит. Каждый
- * поставленный рубль приносит в среднем 70 копеек при любом множителе, и
- * бонус B стоит фармеру около 0.7·B при отыгрыше хоть ×3, хоть ×30. Поэтому
+ * поставленный рубль приносит в среднем 70-80 копеек при любом множителе, и
+ * бонус B стоит фармеру около 0.8·B при отыгрыше хоть ×3, хоть ×30. Поэтому
  * защищает потолок: в настоящие деньги переходит не больше cashoutPct от
  * суммы всех пополнений, а пополнение D стоит фармеру 0.3·D. Пока
  * cashoutPct < 30%, второй аккаунт ради бонуса невыгоден по построению.

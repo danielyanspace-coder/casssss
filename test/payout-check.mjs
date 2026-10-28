@@ -25,7 +25,7 @@ for (const t of ['', '-wal', '-shm']) rmSync(process.env.DB_PATH + t, { force: t
 const dbm = await import('../server/db.js');
 const {
   db, getOrCreateUser, getUserById, createPayout, consumeWager, playCaseRound, playGamble,
-  adminAdjustBalance, settleRound, grantBonus, refuseBonus, recordAccess, bonusRules,
+  adminAdjustBalance, settleRound, grantBonus, refuseBonus, recordAccess, bonusRules, wagerWeight,
 } = dbm;
 const sicilia = await import('../server/sicilia.js');
 const { checkPayout, payoutCleared, overridePayoutCheck, canonicalEmail } = await import('../server/payout-check.js');
@@ -72,7 +72,9 @@ check('пополнение на свой счёт, бонус 25% на бону
   h1.balance === 4000 && h1.bonus_balance === 1000, JSON.stringify({ b: h1.balance, bb: h1.bonus_balance }));
 check('отыгрыш бонуса ×3', h1.wager_required === 3000, String(h1.wager_required));
 
-for (let i = 0; i < 60 && getUserById(honest.id).deposit_debt > 0; i++) openCase(honest.id);
+// Кейс засчитывается в отыгрыш на две трети (отдача 0.80), поэтому открытий
+// до нулевого долга нужно в полтора раза больше суммы пополнения в ценах.
+for (let i = 0; i < 120 && getUserById(honest.id).deposit_debt > 0; i++) openCase(honest.id);
 const hb = getUserById(honest.id).balance;
 if (hb >= 1000 && getUserById(honest.id).deposit_debt === 0) {
   const p = createPayout(honest.id, 1000, sbp());
@@ -118,7 +120,7 @@ db.prepare('UPDATE users SET balance = balance + 50000 WHERE id = ?').run(forger
 
 const cheat = getOrCreateUser({ id: 'pc-cheat', username: 'cheat' });
 gatewayDeposit(cheat.id, 3000);
-for (let i = 0; i < 40 && getUserById(cheat.id).deposit_debt > 0; i++) openCase(cheat.id);
+for (let i = 0; i < 120 && getUserById(cheat.id).deposit_debt > 0; i++) openCase(cheat.id);
 {
   const last = db.prepare("SELECT * FROM rounds WHERE user_id = ? AND game = 'case' ORDER BY id DESC LIMIT 1").get(cheat.id);
   db.prepare('UPDATE rounds SET payout = payout + 900 WHERE id = ?').run(last.id);
@@ -178,7 +180,9 @@ check('бонуса хватает на ставку', bonusBefore >= CASE.price
 if (bonusBefore >= CASE.price) {
   openCase(b.id);
   const after = getUserById(b.id);
-  check('без своих ставка идёт с бонусного счёта', after.wager_required === beforeWager - CASE.price,
+  // Отыгрыш бонуса считается с весом по отдаче кейса, как и долг пополнения.
+  const counted = Math.floor(CASE.price * wagerWeight(CASE.rtp) + 1e-9);
+  check('без своих ставка идёт с бонусного счёта', after.wager_required === beforeWager - counted,
     `${beforeWager} -> ${after.wager_required}`);
   const r = db.prepare("SELECT * FROM rounds WHERE user_id = ? ORDER BY id DESC LIMIT 1").get(b.id);
   check('раунд помнит бонусную часть ставки', r.bonus_bet === CASE.price, String(r.bonus_bet));

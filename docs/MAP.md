@@ -538,7 +538,7 @@ grep -nE "^app\.(get|post)\(" server/app.js                  # все ручки
 ### public/motion.js - показ выигрыша и фриспинов
 
 - `MOTION_LEVELS` (пороги ×4, ×12, ×50, ×150), `MOTION_NICE_AT`.
-- `createMotion()` -> `{ win, purchase, retrigger, payout, seriesEnd, seriesTotal, reset, recede, levelOf, inspect, closeInspect, doubler }`. `seriesTotal` (итог серии крупно) ждёт решения заказчика, демо - `npm run demo:fs-total`.
+- `createMotion()` -> `{ win, purchase, retrigger, payout, seriesEnd, seriesTotal, reset, recede, levelOf, inspect, closeInspect, doubler }`. `seriesTotal` (итог серии крупно) включён в конце `runFreeSpins`, демо - `npm run demo:fs-total`.
 - Внутри: `ACCENTS` (акцент темы), `heroCard`, `bigWin`, `levelUp`, `shower`, `coins`, `sparks`, `flash`, `ring`, `slash`, `shake`, `stampLabel`, `floatText`.
 - В `app.js` создаётся лениво: `motion()`.
 
