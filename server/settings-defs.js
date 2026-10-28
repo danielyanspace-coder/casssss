@@ -80,6 +80,8 @@ export const SETTING_DEFS = [
    */
   { key: 'sicilia_payin_fee_pct', type: 'num', value: '0', group: 'Sicilia',
     label: 'Комиссия Sicilia на приём, %' },
+  { key: 'sicilia_mk_fee_pct', type: 'num', value: '0', group: 'Sicilia',
+    label: 'Комиссия Sicilia на приём через мобильную коммерцию, %' },
   { key: 'sicilia_payout_fee_pct', type: 'num', value: '0', group: 'Sicilia',
     label: 'Комиссия Sicilia на выплату, %' },
   { key: 'sicilia_payout_fee_fixed', type: 'int', value: '0', group: 'Sicilia',

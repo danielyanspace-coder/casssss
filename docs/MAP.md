@@ -176,6 +176,7 @@ grep -nE "^app\.(get|post)\(" server/app.js                  # все ручки
 
 ### server/sicilia.js - СБП и карта, шлюз Sicilia
 
+- Мобильная коммерция (запасной терминал, до 15 000 ₽): `MK`, `siciliaEnv('mk')`, `mkReady`, `envFor(row)`, `placeOrder`, `probeSignature` (проверка логина для `setup.sh`), `gatewayBalance` (оба терминала). Клиент: `MOBILE_OPERATORS`, `mobileOperator` в `public/app.js`.
 - Окружение и подписи: `siciliaEnv`, `isConfigured`, `payinReady`, `signPayin`, `signInvid`, `signPayout`, `verifyCallback`, `isAppealCallback`, `callbackIpAllowed`, `DEEPLINK_BANKS`.
 - Пополнение: `createDeposit` (подписанная ссылка окна), `applyPayinStatus`, `confirmPayin` (зачисление через `check-status`), `refreshDeposit`, `reopenDeposit`, `cancelDeposit`, `staffCancelDeposit`, `listDeposits`, `recheckDeposit`.
 - Выплаты: `banks`, `matchBank` (только точное совпадение), `sendPayout`, `applyPayoutStatus`, `confirmPayout`, `recallPayout`, `releasePayout`, `gatewayPayout`, `gatewayPayouts`, `merchantBalance`.

@@ -73,7 +73,8 @@ const payoutPaid = (r) => (validNum(r.fact_sum) ? Math.floor(Number(r.fact_sum))
 
 function feeOf(r, amount, kind) {
   const pct = r.fee_pct != null ? Number(r.fee_pct)
-    : Number(setting(kind === 'payin' ? 'sicilia_payin_fee_pct' : 'sicilia_payout_fee_pct')) || 0;
+    : Number(setting(kind !== 'payin' ? 'sicilia_payout_fee_pct'
+      : r.terminal === 'mk' ? 'sicilia_mk_fee_pct' : 'sicilia_payin_fee_pct')) || 0;
   const fixed = kind === 'payin' ? 0
     : r.fee_fixed != null ? Number(r.fee_fixed) : Number(setting('sicilia_payout_fee_fixed')) || 0;
   return Math.round((amount * pct / 100 + fixed) * 100) / 100;

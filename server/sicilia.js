@@ -47,12 +47,17 @@ import {
 /* Журнал balance_transactions общий для шлюзов и создаётся в db.js. */
 import { alert, countError } from './ops.js';
 
+/* Терминал мобильной коммерции и её предел суммы (см. ниже, у mkReady). */
+export const MK = 'mk';
+const MK_MAX_RUB = 15_000;
+
 /*
  * Настройки читаются при каждом вызове, а не при загрузке модуля: их правят в
  * .env чаще, чем код, а тестам нужно подставлять свои.
  */
-export function siciliaEnv() {
-  return {
+export function siciliaEnv(terminal = 'main') {
+  const env = {
+    terminal: terminal === MK ? MK : 'main',
     api: (process.env.SICILIA_API_URL || 'https://api.sicilia.ink/api').replace(/\/+$/, ''),
     payUrl: (process.env.SICILIA_PAY_URL || '').replace(/\/+$/, ''),
     payin: String(process.env.SICILIA_PAYIN || 'h2h').trim().toLowerCase() === 'window' ? 'window' : 'h2h',
@@ -65,7 +70,36 @@ export function siciliaEnv() {
     ttlMs: Number(process.env.SICILIA_ORDER_TTL_MIN || 10) * 60_000,
     callbackIps: String(process.env.SICILIA_CALLBACK_IPS || '').split(',').map((s) => s.trim()).filter(Boolean),
     webapp: String(process.env.SITE_URL || process.env.WEBAPP_URL || '').replace(/\/+$/, ''),
+    mkMax: Number(process.env.SICILIA_MK_MAX || MK_MAX_RUB),
+    mkBank: String(process.env.SICILIA_MK_BANK || 'mobcom').trim(),
   };
+  /*
+   * Мобильная коммерция - отдельный терминал того же шлюза: свой мерчант,
+   * логин и ключ, адрес API и всё остальное общие. Подписи считаются так же,
+   * просто его ключами.
+   */
+  if (env.terminal === MK) {
+    env.merchant = String(process.env.SICILIA_MK_MERCHANT || '').trim();
+    env.login = String(process.env.SICILIA_MK_LOGIN || '').trim();
+    env.key = String(process.env.SICILIA_MK_API_KEY || '').trim();
+  }
+  return env;
+}
+
+/*
+ * МОБИЛЬНАЯ КОММЕРЦИЯ - ЗАПАСНОЙ ПУТЬ, А НЕ ТРЕТИЙ СПОСОБ (решение заказчика,
+ * октябрь 2026). Игрок по-прежнему выбирает «СБП» или «Карта», и ордер сначала
+ * уходит в основной терминал. Только если у того нет свободного реквизита,
+ * тот же платёж заводится в терминале мобильной коммерции: игрок пополняет
+ * баланс телефона у оператора связи. Выше MK_MAX_RUB этот путь не пробуется:
+ * у мобильной коммерции такой предел.
+ */
+/** Окружение терминала, через который заведён ордер. */
+const envFor = (row) => siciliaEnv(row?.terminal === MK ? MK : 'main');
+
+/** Мобильная коммерция настроена: свои мерчант, логин и ключ. */
+export function mkReady() {
+  return isConfigured(siciliaEnv(MK));
 }
 
 /** Ключи есть - можно говорить с API (проверка статуса, выплаты, баланс). */
@@ -154,6 +188,12 @@ if (!orderCols.includes('expires_at')) db.exec('ALTER TABLE sicilia_orders ADD C
  */
 if (!orderCols.includes('fee_pct')) db.exec('ALTER TABLE sicilia_orders ADD COLUMN fee_pct REAL');
 if (!orderCols.includes('fee_fixed')) db.exec('ALTER TABLE sicilia_orders ADD COLUMN fee_fixed INTEGER');
+/*
+ * Терминал шлюза: NULL - основной, 'mk' - мобильная коммерция. У терминалов
+ * разные ключи, и статус, отзыв и апелляция ордера идут ключами того
+ * терминала, где ордер заведён: чужой подписи шлюз не примет.
+ */
+if (!orderCols.includes('terminal')) db.exec('ALTER TABLE sicilia_orders ADD COLUMN terminal TEXT');
 
 const txCols = db.prepare('PRAGMA table_info(balance_transactions)').all().map((c) => c.name);
 if (!txCols.includes('sicilia_order_id')) {
@@ -186,7 +226,14 @@ function sameHex(a, b) {
  * берётся строкой ровно как пришёл («100.0000», а не 100). У выплаты -
  * sha256('login:sum:invid:apiKey').
  */
-export function verifyCallback(body, env = siciliaEnv()) {
+export function verifyCallback(body, env = null) {
+  if (env) return verifyWith(body, env);
+  // Колбэк сам не говорит, с какого он терминала: подходит подпись любого
+  // из наших. Выплаты идут только через основной.
+  return verifyWith(body, siciliaEnv()) || (body?.order_type !== 'payout' && verifyWith(body, siciliaEnv(MK)));
+}
+
+function verifyWith(body, env) {
   if (!body || typeof body !== 'object' || !env.key) return false;
   if (body.order_type === 'payout') {
     return sameHex(body.signature, sha256(env.login, body.sum, body.invid, env.key));
@@ -217,8 +264,7 @@ export function callbackIpAllowed(ip, env = siciliaEnv()) {
 
 const TIMEOUT_MS = 20_000;
 
-async function call(method, path, body, { headers = {} } = {}) {
-  const env = siciliaEnv();
+async function call(method, path, body, { headers = {}, env = siciliaEnv() } = {}) {
   if (!isConfigured(env)) {
     throw Object.assign(new Error('Платёжный шлюз не настроен'), { code: 'NOT_CONFIGURED' });
   }
@@ -240,8 +286,11 @@ async function call(method, path, body, { headers = {} } = {}) {
       || (json.errors && Object.values(json.errors).flat().join('; ')) || `Шлюз ответил ${res.status}`;
     // 401 и 403 - не сбой сети, а настройка: ключ или белый список адресов
     // шлюза. Сами они не пройдут, нужен человек.
-    if (res.status === 401 || res.status === 403) {
-      alert('sicilia:auth', `Sicilia отказывает (${res.status}): ${message}. Проверьте ключ и белый список IP сервера у шлюза.`);
+    // «Нет трейдеров» шлюз может прислать и с 403, но это не настройка, а
+    // нехватка реквизитов: тревога о ключах на нём была бы ложной.
+    if ((res.status === 401 || res.status === 403) && !NO_REQUISITE.test(message)) {
+      const where = env.terminal === MK ? 'Sicilia, мобильная коммерция' : 'Sicilia';
+      alert(`sicilia:auth:${env.terminal}`, `${where} отказывает (${res.status}): ${message}. Проверьте логин, ключ и белый список IP сервера у шлюза.`);
     } else if (res.status >= 500) {
       countError('sicilia:5xx', `Sicilia отвечает ошибкой ${res.status}: ${message}`, { threshold: 3 });
     }
@@ -331,8 +380,12 @@ const PAYIN_METHODS = { sbp: 'sbp', card: 'any-bank' };
  */
 export const DEEPLINK_BANKS = ['sberbank', 'tinkoff', 'vtb', 'alfa-bank'];
 
-/* Отказы шлюза, которые значат «сейчас нет реквизита», а не поломку. */
-const NO_REQUISITE = /no available (calls|traders)/i;
+/*
+ * Отказы шлюза, которые значат «сейчас нет реквизита», а не поломку. «No
+ * traders work with merchant» - к терминалу не подключён ни один трейдер:
+ * для игрока это то же самое, и запасной путь должен сработать и на нём.
+ */
+const NO_REQUISITE = /no available (calls|traders)|no traders work/i;
 
 function validAmount(amountRub, env) {
   const amount = Math.trunc(Number(amountRub));
@@ -348,17 +401,23 @@ function validAmount(amountRub, env) {
 function insertPayin(userId, amount, method, env) {
   assertDepositAllowed(userId, amount);
   const now = Date.now();
-  const info = db.prepare(`INSERT INTO sicilia_orders (kind, user_id, invid, amount_rub, method, expires_at, created_at, updated_at)
-                           VALUES ('payin', ?, ?, ?, ?, ?, ?, ?)`)
-    .run(userId, `tmp-${now}-${Math.random()}`, amount, method, now + env.ttlMs, now, now);
+  const info = db.prepare(`INSERT INTO sicilia_orders (kind, user_id, invid, amount_rub, method, terminal, expires_at, created_at, updated_at)
+                           VALUES ('payin', ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(userId, `tmp-${now}-${Math.random()}`, amount, method, env.terminal === MK ? MK : null, now + env.ttlMs, now, now);
   const invid = makeInvid('lb', info.lastInsertRowid);
   db.prepare('UPDATE sicilia_orders SET invid = ? WHERE id = ?').run(invid, info.lastInsertRowid);
   return db.prepare('SELECT * FROM sicilia_orders WHERE id = ?').get(info.lastInsertRowid);
 }
 
 /** Из ответа orders/create - только то, что нужно игроку для перевода. */
-function requisiteFrom(info, method) {
+function requisiteFrom(info, method, env = siciliaEnv()) {
   const card = info.card || {};
+  /*
+   * Мобильная коммерция: реквизит - номер телефона, а «банк» - оператор
+   * связи (beeline, megafon, mts-phone...). Игрок пополняет баланс этого
+   * номера, и экран кассы рисует оператора вместо банковской карты.
+   */
+  const mobile = env.terminal === MK || info.is_mobcom === true;
   const digits = (v) => String(v || '').replace(/\D/g, '');
   const req = {
     method,
@@ -372,7 +431,9 @@ function requisiteFrom(info, method) {
     deeplink: /^https?:\/\//i.test(String(info.deeplink || '')) ? String(info.deeplink) : null,
     payLink: /^https?:\/\//i.test(String(card.payment_link || '')) ? String(card.payment_link) : null,
     abroad: info.trans_gov ? String(info.trans_gov_country || '').trim() || 'да' : null,
+    mobile: mobile || undefined,
   };
+  if (mobile) return req.phone ? req : null;
   // Куда переводить, решает шлюз: на СБП он может выдать и карту, и телефон.
   // Показываем то, что подходит выбранному способу, а при его отсутствии - что есть.
   const target = method === 'sbp' ? req.phone || req.card : req.card || req.phone;
@@ -409,6 +470,24 @@ export async function createDeposit(userId, amountRub, { method = 'sbp', senderB
       { code: 'OPEN_ORDER', order: publicOrder(open) });
   }
 
+  try {
+    return await placeOrder(userId, amount, method, env, { bank: PAYIN_METHODS[method], senderBank });
+  } catch (err) {
+    // Запасной путь - только когда у основного терминала нет реквизита. Другие
+    // отказы (шлюз лёг, ключ не принят) мобильная коммерция не лечит.
+    if (err.code !== 'NO_REQUISITE' || amount > env.mkMax || !mkReady()) throw err;
+    try {
+      return await placeOrder(userId, amount, method, siciliaEnv(MK), { bank: env.mkBank });
+    } catch {
+      // Игроку важно одно: реквизита сейчас нет. Почему его не дала мобильная
+      // коммерция, видно в строке ордера и в оповещениях служебного бота.
+      throw err;
+    }
+  }
+}
+
+/** Заводит ордер в одном терминале и отдаёт игроку реквизит. */
+async function placeOrder(userId, amount, method, env, { bank, senderBank = '' }) {
   const row = insertPayin(userId, amount, method, env);
   const sum = String(amount);
   const body = {
@@ -416,7 +495,7 @@ export async function createDeposit(userId, amountRub, { method = 'sbp', senderB
     merchant: Number(env.merchant) || env.merchant,
     invid: row.invid,
     sum: amount,
-    bank: PAYIN_METHODS[method],
+    bank,
     signature: signPayin(sum, row.invid, env),
     operation: 'Пополнение',
     external_user_id: String(userId),
@@ -428,7 +507,7 @@ export async function createDeposit(userId, amountRub, { method = 'sbp', senderB
     .run(status, String(error).slice(0, 500), Date.now(), row.id);
   let info;
   try {
-    info = await call('POST', '/orders/create', body);
+    info = await call('POST', '/orders/create', body, { env });
   } catch (err) {
     if (err.code === 'GATEWAY_UNREACHABLE') {
       // Ответа не было: ордер у шлюза мог и создаться. Строку не закрываем,
@@ -444,7 +523,7 @@ export async function createDeposit(userId, amountRub, { method = 'sbp', senderB
     throw Object.assign(new Error('Не удалось создать платёж. Попробуйте ещё раз чуть позже.'), { code: 'GATEWAY_ERROR' });
   }
   // Ответ обязан быть про наш ордер, а реквизит - настоящим.
-  const requisite = info.invid && String(info.invid) !== row.invid ? null : requisiteFrom(info, method);
+  const requisite = info.invid && String(info.invid) !== row.invid ? null : requisiteFrom(info, method, env);
   if (!requisite) {
     fail('error', 'Шлюз не выдал реквизит');
     try { await unclaimPayin(row, env); } catch { /* нечего отзывать */ }
@@ -455,7 +534,7 @@ export async function createDeposit(userId, amountRub, { method = 'sbp', senderB
                WHERE id = ?`)
     .run(String(info.status || 'processing'), info.id ?? null, requisite.bankCode, JSON.stringify(requisite),
       Number.isFinite(paySum) && paySum > 0 ? String(paySum) : sum, Date.now(), row.id);
-  trackEvent(userId, 'deposit_created', { amount, method: 'sicilia' });
+  trackEvent(userId, 'deposit_created', { amount, method: env.terminal === MK ? 'mobcom' : 'sicilia' });
   return publicOrder(db.prepare('SELECT * FROM sicilia_orders WHERE id = ?').get(row.id));
 }
 
@@ -485,15 +564,19 @@ export const applyPayinStatus = moneyTx('deposit', (orderId, info) => {
   const fact = info.fact_sum != null && info.fact_sum !== '' ? Number(info.fact_sum) : NaN;
   const credited = Math.floor(Number.isFinite(fact) && fact > 0 ? fact : Number(info.sum ?? row.amount_rub));
   if (!(credited > 0)) return { credited: false, status, empty: true };
+  const mk = row.terminal === MK;
+  const label = mk ? 'Мобильная коммерция' : 'СБП / карта';
 
   db.prepare('UPDATE users SET balance = balance + ? WHERE id = ?').run(credited, row.user_id);
   ledgerLink('sicilia_orders', row.id);
   db.prepare(`INSERT INTO balance_transactions (user_id, type, amount, sicilia_order_id, comment, created_at)
-              VALUES (?, 'DEPOSIT', ?, ?, ?, ?)`).run(row.user_id, credited, row.id, 'СБП / карта', now);
+              VALUES (?, 'DEPOSIT', ?, ?, ?, ?)`).run(row.user_id, credited, row.id, label, now);
   db.prepare(`INSERT INTO deposits (user_id, amount, source, comment, created_at)
-              VALUES (?, ?, 'sicilia', ?, ?)`).run(row.user_id, credited, 'СБП / карта', now);
+              VALUES (?, ?, 'sicilia', ?, ?)`).run(row.user_id, credited, label, now);
+  // У мобильной коммерции своя комиссия: оператор связи берёт больше банка.
+  const feeKey = mk ? 'sicilia_mk_fee_pct' : 'sicilia_payin_fee_pct';
   db.prepare('UPDATE sicilia_orders SET credited_rub = ?, paid_at = ?, fee_pct = ?, fee_fixed = 0 WHERE id = ?')
-    .run(credited, now, Number(setting('sicilia_payin_fee_pct')) || 0, row.id);
+    .run(credited, now, Number(setting(feeKey)) || 0, row.id);
   // Общие последствия любого пополнения: бонус, отыгрыш, прокруты колеса.
   const { bonus } = registerDeposit(row.user_id, credited, 'sicilia');
   // Деньги пришли - открытый спор по этой оплате закрыт, каким бы путём ни
@@ -507,10 +590,10 @@ export const applyPayinStatus = moneyTx('deposit', (orderId, info) => {
 /** Спрашивает шлюз о пополнении. */
 async function askPayin(row) {
   const sum = String(row.amount_rub);
-  const env = siciliaEnv();
+  const env = envFor(row);
   const info = await call('POST', '/orders/check-status', {
     merchant: Number(env.merchant) || env.merchant, invid: row.invid, signature: signPayin(sum, row.invid, env),
-  });
+  }, { env });
   // Ответ обязан быть про наш ордер: иначе чужой статус лёг бы на нашу строку.
   if (info.invid && String(info.invid) !== row.invid) {
     throw Object.assign(new Error('Шлюз ответил про другой ордер'), { code: 'MISMATCH' });
@@ -542,13 +625,13 @@ const validSum = (v) => v != null && v !== '' && Number.isFinite(Number(v)) && N
  * двух верен на их сервере, станет ясно только живьём, поэтому пробуем оба:
  * 404 на первом значит «не тот путь», а не «нет ордера».
  */
-async function unclaimPayin(row, env = siciliaEnv()) {
+async function unclaimPayin(row, env = envFor(row)) {
   const body = { order_invid: row.invid, signature: signInvid(row.invid, env) };
   try {
-    return await call('PUT', '/orders/unclaimed', body);
+    return await call('PUT', '/orders/unclaimed', body, { env });
   } catch (err) {
     if (err.code !== 'GATEWAY_ERROR' || (err.status !== 404 && err.status !== 405)) throw err;
-    return call('PUT', '/api/orders/unclaimed', body);
+    return call('PUT', '/api/orders/unclaimed', body, { env });
   }
 }
 
@@ -565,7 +648,7 @@ export async function staffCancelDeposit(staffId, orderId) {
   if (!row) throw Object.assign(new Error('Платёж не найден'), { code: 'NOT_FOUND' });
   if (row.paid_at) throw Object.assign(new Error('Платёж уже зачислен'), { code: 'PAID' });
   let error = null;
-  try { await unclaimPayin(row, env); } catch (err) {
+  try { await unclaimPayin(row); } catch (err) {
     if (err.code === 'GATEWAY_UNREACHABLE') throw err;
     error = err.message;
   }
@@ -632,7 +715,7 @@ export async function cancelDeposit(id, userId) {
     // Шлюз недоступен - не отменяем вслепую: перевод мог уже уйти.
     if (err.code === 'GATEWAY_UNREACHABLE' || err.status >= 500) throw err;
   }
-  try { await unclaimPayin(row, env); } catch { /* ордер шлюз уже закрыл сам или не заводил */ }
+  try { await unclaimPayin(row); } catch { /* ордер шлюз уже закрыл сам или не заводил */ }
   db.prepare("UPDATE sicilia_orders SET status = 'unclaimed', updated_at = ? WHERE id = ? AND paid_at IS NULL")
     .run(Date.now(), row.id);
   return { payment: publicOrder(db.prepare('SELECT * FROM sicilia_orders WHERE id = ?').get(row.id)), credited: false };
@@ -881,12 +964,53 @@ export function gatewayPayouts(ids) {
 }
 
 /** Баланс мерчанта: из него уходят выплаты. */
-export async function merchantBalance() {
-  const env = siciliaEnv();
+export async function merchantBalance(env = siciliaEnv()) {
   const ts = String(Math.floor(Date.now() / 1000));
   return call('GET', `/external/merchants/${encodeURIComponent(env.merchant)}/balance`, undefined, {
-    headers: { timestamp: ts, signature: sha256(ts, env.merchant, env.key) },
+    headers: { timestamp: ts, signature: sha256(ts, env.merchant, env.key) }, env,
   });
+}
+
+/*
+ * Проверка логина терминала для отчёта настройки (deploy/setup.sh). Баланс
+ * спрашивается без логина, поэтому неверный логин он не ловит: так и вышло
+ * с почтой вместо логина мерчанта, и каждое пополнение падало с «Invalid
+ * signature». Здесь заводится ордер на заведомо невозможный 1 ₽: шлюз
+ * проверяет подпись первой, и ответ «Invalid signature» значит неверный
+ * логин, а отказ по сумме или «нет реквизитов» - что подпись принята.
+ */
+export async function probeSignature(terminal = 'main') {
+  const env = siciliaEnv(terminal);
+  if (!isConfigured(env)) return { ok: false, reason: 'ключи не заданы' };
+  const invid = `lb-probe-${Date.now().toString(36)}`;
+  try {
+    await call('POST', '/orders/create', {
+      currency: 'RUB', merchant: Number(env.merchant) || env.merchant, invid, sum: 1,
+      bank: terminal === MK ? env.mkBank : 'sbp', signature: signPayin('1', invid, env), operation: 'Пополнение',
+    }, { env });
+    // Ордер на 1 ₽ всё же создан - подпись верна; отзываем, чтобы не висел.
+    try { await call('PUT', '/orders/unclaimed', { order_invid: invid, signature: signInvid(invid, env) }, { env }); } catch { /* сам истечёт */ }
+    return { ok: true };
+  } catch (err) {
+    if (/signature/i.test(err.message)) return { ok: false, reason: 'логин или ключ не подходят (Invalid signature)' };
+    if (/offline/i.test(err.message)) return { ok: false, reason: 'терминал выключен у шлюза (Merchant is offline)' };
+    if (err.code === 'GATEWAY_UNREACHABLE') return { ok: false, reason: 'шлюз не отвечает' };
+    return { ok: true, note: err.message };
+  }
+}
+
+/*
+ * Что шлюз должен нам по всем терминалам. Сверка финотдела считает долг по
+ * всем ордерам Sicilia, и сравнивать его с балансом одного основного
+ * терминала значило бы видеть «расхождение» ровно на сумму мобильной
+ * коммерции.
+ */
+export async function gatewayBalance() {
+  const main = await merchantBalance();
+  if (!mkReady()) return main;
+  const mk = await merchantBalance(siciliaEnv(MK));
+  const add = (k) => Math.round(((Number(main?.[k]) || 0) + (Number(mk?.[k]) || 0)) * 100) / 100;
+  return { balance: add('balance'), frozen_balance: add('frozen_balance'), terminals: { main, mk } };
 }
 
 /* ============================================================
@@ -928,7 +1052,11 @@ export async function reconcile(now = Date.now()) {
   const open = db.prepare(`SELECT * FROM sicilia_orders WHERE kind = 'payin' AND paid_at IS NULL
                             AND status NOT IN ('cancelled', 'error', 'unclaimed', 'expired') AND created_at < ?`)
     .all(now - RECONCILE_GRACE_MS);
+  const mkOn = mkReady();
   for (const row of open) {
+    // Ордер мобильной коммерции без её ключей спросить нечем: ждёт, пока
+    // ключи вернут, а не отзывается вслепую.
+    if (row.terminal === MK && !mkOn) continue;
     checked++;
     let status = null;
     try { status = (await confirmPayin(row)).status; } catch (err) {
@@ -936,7 +1064,7 @@ export async function reconcile(now = Date.now()) {
     }
     if (status !== 'completed' && now > (row.expires_at || row.created_at + env.ttlMs)) {
       // Не оплачен за отведённое время - отзываем, если окно его завело.
-      try { await unclaimPayin(row, env); } catch { /* ордера могло и не быть: окно не открывали */ }
+      try { await unclaimPayin(row); } catch { /* ордера могло и не быть: окно не открывали */ }
       db.prepare("UPDATE sicilia_orders SET status = 'expired', updated_at = ? WHERE id = ? AND paid_at IS NULL")
         .run(Date.now(), row.id);
     }
@@ -955,6 +1083,7 @@ export async function reconcile(now = Date.now()) {
                                 OR EXISTS (SELECT 1 FROM sicilia_disputes d WHERE d.order_id = o.id AND d.status = 'sent'))`)
     .all({ window: now - LATE_WINDOW_MS, every: now - LATE_EVERY_MS });
   for (const row of late) {
+    if (row.terminal === MK && !mkOn) continue;
     checked++;
     db.prepare('UPDATE sicilia_orders SET late_checked_at = ? WHERE id = ?').run(now, row.id);
     // Применяем только зачисление: «ещё ждёт» от шлюза не должно оживлять
@@ -1071,7 +1200,7 @@ export async function reportDeposit(userId, orderId, { comment, image } = {}) {
   const text = String(comment || '').trim().slice(0, 500);
   if (!image) throw Object.assign(new Error('Приложите чек или скриншот перевода'), { code: 'NO_RECEIPT' });
 
-  if (isConfigured()) {
+  if (isConfigured(envFor(row))) {
     try {
       const r = await confirmPayin(row);
       if (r.credited) return { credited: true, payment: publicOrder(db.prepare('SELECT * FROM sicilia_orders WHERE id = ?').get(row.id)) };
@@ -1110,7 +1239,7 @@ async function uploadClientReceipt(row, receipt, env) {
  * ссылкой в апелляции - второе обязательно, первое помогает трейдеру.
  */
 export async function openAppeal(staffId, { orderId, disputeId, reason, image } = {}) {
-  const env = siciliaEnv();
+  let env = siciliaEnv();
   if (!isConfigured(env)) throw Object.assign(new Error('Шлюз не настроен'), { code: 'NOT_CONFIGURED' });
   if (!env.webapp) {
     throw Object.assign(new Error('Не задан SITE_URL: шлюзу не по чему открыть чек'), { code: 'NO_SITE_URL' });
@@ -1121,6 +1250,9 @@ export async function openAppeal(staffId, { orderId, disputeId, reason, image } 
   const row = db.prepare("SELECT * FROM sicilia_orders WHERE id = ? AND kind = 'payin'")
     .get(dispute ? dispute.order_id : Number(orderId));
   if (!row) throw Object.assign(new Error('Платёж не найден'), { code: 'NOT_FOUND' });
+  // Апелляция подписывается ключом терминала, где заведён ордер.
+  env = envFor(row);
+  if (!isConfigured(env)) throw Object.assign(new Error('Терминал этого платежа не настроен'), { code: 'NOT_CONFIGURED' });
   if (row.paid_at) throw Object.assign(new Error('Платёж уже зачислен'), { code: 'PAID' });
   if (dispute && dispute.status === 'sent') throw Object.assign(new Error('Апелляция уже открыта'), { code: 'ALREADY' });
   const text = String(reason || dispute?.comment || '').trim().slice(0, 500);
@@ -1151,7 +1283,7 @@ export async function openAppeal(staffId, { orderId, disputeId, reason, image } 
       // Так поле названо в их API, с двумя n.
       openning_reason: text,
       signature: signInvid(row.invid, env),
-    });
+    }, { env });
     db.prepare(`UPDATE sicilia_disputes SET status = 'sent', appeal_id = ?, appeal_status = ?, staff_id = ?, comment = COALESCE(comment, ?),
                        error = NULL, sent_at = ?, updated_at = ? WHERE id = ?`)
       .run(res.id ?? null, res.status || 'created', staffId, text, now, now, dispute.id);

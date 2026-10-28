@@ -1402,7 +1402,7 @@ app.post('/api/pc/admin/finance/sicilia', auth, need('finance.reports'), async (
   let gateway = null;
   let gatewayError = '';
   if (sicilia.isConfigured()) {
-    try { gateway = await sicilia.merchantBalance(); } catch (err) { gatewayError = err.message; }
+    try { gateway = await sicilia.gatewayBalance(); } catch (err) { gatewayError = err.message; }
   } else gatewayError = 'Ключи Sicilia не заданы';
   try {
     res.json({
