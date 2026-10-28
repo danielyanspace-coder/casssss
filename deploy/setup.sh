@@ -22,7 +22,7 @@
 #   MAIN_DOMAIN        главный домен сайта
 #   EXTRA_DOMAINS      дополнительные домены через пробел (переадресация)
 #   DUCKDNS_TOKEN  SICILIA_API_KEY  SICILIA_MERCHANT  SICILIA_LOGIN
-#   DATABETRIX_AGENT_NAME  DATABETRIX_AGENT_TOKEN
+#   DATABETRIX_AGENT_NAME  DATABETRIX_AGENT_TOKEN  HELEKET_MERCHANT  HELEKET_API_KEY
 #   TELEGRAM_TOKEN     бот с промокодами (ник берётся у Telegram сам)
 #   SICILIA_IPS        адреса Sicilia для белого списка колбэков (дописываются)
 set -uo pipefail
@@ -93,7 +93,7 @@ env_set() {
 # ---------- 1. Ключи ----------
 step "ключи в .env"
 cp -p "$ENV_FILE" "$ENV_FILE.bak-$(date +%Y%m%d-%H%M%S)"
-for k in DUCKDNS_TOKEN SICILIA_API_KEY SICILIA_MERCHANT SICILIA_LOGIN DATABETRIX_AGENT_NAME DATABETRIX_AGENT_TOKEN; do
+for k in DUCKDNS_TOKEN SICILIA_API_KEY SICILIA_MERCHANT SICILIA_LOGIN DATABETRIX_AGENT_NAME DATABETRIX_AGENT_TOKEN HELEKET_MERCHANT HELEKET_API_KEY; do
   v="${!k:-}"
   if [ -n "$v" ]; then env_set "$k" "$v"; echo "    $k вписан"; fi
 done

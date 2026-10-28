@@ -65,10 +65,11 @@ page.on('console', (m) => {
   const t = m.text();
   if (expectRefusal && /status of 503/.test(t)) return;
   // Внешние ресурсы (скрипт Telegram, favicon, шрифты Google, обложки с CDN
-  // агрегатора) в тесте могут быть недоступны - не считаем. CERT_AUTHORITY -
+  // агрегатора) в тесте могут быть недоступны - не считаем: обрыв (RESET,
+  // CLOSED) на раннере GitHub случается у чужого хоста. CERT_AUTHORITY -
   // это песочница, которая перехватывает TLS чужим сертификатом: к коду
   // приложения отношения не имеет.
-  if (m.type() === 'error' && !/ERR_(FILE_NOT_FOUND|CONNECTION_RESET|NAME_NOT_RESOLVED|CERT_AUTHORITY_INVALID)|404/.test(t)) {
+  if (m.type() === 'error' && !/ERR_(FILE_NOT_FOUND|CONNECTION_RESET|CONNECTION_CLOSED|NAME_NOT_RESOLVED|CERT_AUTHORITY_INVALID)|404/.test(t)) {
     consoleErrors.push(t);
   }
 });
@@ -214,6 +215,12 @@ if (newcomer) {
     await page.evaluate(() => document.getElementById('view-freemoney').classList.contains('active')));
   check('у раздела есть заголовок',
     /free\s*money/i.test(await page.textContent('#view-freemoney .fm-title')));
+  await page.click('#fmBack');
+  await page.waitForTimeout(300);
+  check('Free Money: стрелка ведёт на главную', await page.evaluate(() =>
+    document.getElementById('view-cases').classList.contains('active')));
+  await page.evaluate(() => document.getElementById('promoFortune').click());
+  await page.waitForTimeout(600);
 
   /*
    * Ивенты Free Money (октябрь 2026, бенто): розыгрыш по образцу 1Win с
@@ -2691,9 +2698,32 @@ slotChecks: {
   await g.evaluate(() => document.getElementById('closeOpenerTop')?.click());
   await g.waitForTimeout(400);
 
+  // Слот гостю: «Играть» открывает регистрацию, а превью игры уходит, а не
+  // остаётся висеть поверх окна входа.
+  if (!isFile) {
+    await g.evaluate(() => document.getElementById('promoCasino').scrollIntoView({ block: 'center' }));
+    await g.click('#promoCasino');
+    await g.waitForSelector('.cz-block[data-block="popular"] .cz-tile[data-game]', { timeout: 15000 });
+    await g.evaluate(() => document.querySelector('.cz-block[data-block="popular"] .cz-tile[data-game]').click());
+    await g.waitForSelector('#czSheet:not([hidden])', { timeout: 5000 });
+    await g.click('#czPlay');
+    await g.waitForTimeout(800);
+    check('гость: слот зовёт к регистрации, превью закрыто',
+      await g.isVisible('#authBackdrop') && !(await g.isVisible('#czSheet')));
+    await g.click('#authClose');
+    await g.waitForTimeout(200);
+    await g.evaluate(() => document.querySelector('.brand')?.click());
+    await g.waitForTimeout(400);
+  }
+
   await g.evaluate(() => document.querySelector('.case-card:not(.is-gift)').click());
   await g.waitForTimeout(800);
   check('гость: просмотр кейса не зовёт ко входу', !(await g.isVisible('#authBackdrop')));
+  check('кейс: логотип в шапке без растяжки', await g.evaluate(() => {
+    const img = document.querySelector('.opener-logo');
+    if (!img || !img.getClientRects().length) return true;
+    return Math.abs(img.width / img.height - img.naturalWidth / img.naturalHeight) < 0.05;
+  }));
   await g.evaluate(() => document.getElementById('doOpenBtn')?.click());
   await g.waitForTimeout(500);
   check('гость: попытка открыть кейс зовёт ко входу', await g.isVisible('#authBackdrop'));

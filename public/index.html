@@ -537,11 +537,11 @@
           <div class="cash-step">Способ пополнения</div>
           <div class="deposit-methods">
             <button class="payment-method" data-payment-method="sicilia" hidden>
-              <span class="cash-method-ico" data-cash-ico="card"></span>
+              <span class="cash-method-art" data-cash-art="sbp" aria-hidden="true"></span>
               <span class="cash-method-text"><b>СБП и карта</b><small>Любой банк России</small></span>
             </button>
             <button class="payment-method" data-payment-method="crypto">
-              <span class="cash-method-ico" data-cash-ico="crypto"></span>
+              <span class="cash-method-art" data-cash-art="crypto" aria-hidden="true"></span>
               <span class="cash-method-text"><b>Криптовалюта</b><small>USDT, BTC, ETH и другие</small></span>
             </button>
           </div>
@@ -680,7 +680,12 @@
          витрина, а не сохранённая игра (openFreeMoney). -->
     <section class="view" id="view-freemoney">
 
-      <h1 class="fm-title">Free money</h1>
+      <!-- Стрелка назад ведёт на главную (решение заказчика): из раздела,
+           открытого с баннера или из бота, иначе выходили только через меню. -->
+      <div class="fm-head">
+        <button class="opener-close fm-back" id="fmBack" data-ico="back" aria-label="На главную"></button>
+        <h1 class="fm-title">Free money</h1>
+      </div>
 
       <!-- Вкладки-якоря: быстрый переход к ивенту. Список собирается кодом из
            тех ивентов, что сейчас на странице; липнут прямо под шапкой. -->
@@ -914,6 +919,8 @@
          он становится обычной частью страницы, чтобы вокруг остались шапка,
          боковое меню и подвал: страница кейса без них выглядела пустым полем.
          Снаружи <main> так сделать нельзя - подвал стоит после него. -->
+    <!-- Загрузка между нажатием на кейс и его экраном (openCase). -->
+    <div class="case-loader" id="caseLoader" hidden aria-hidden="true"><i></i></div>
     <div class="opener" id="opener" hidden>
     <!-- Тематический фон кейса: сюда уезжает его же обложка. -->
     <div class="opener-theme" id="openerTheme" aria-hidden="true"></div>

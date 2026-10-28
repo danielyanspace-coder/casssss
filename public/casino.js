@@ -671,6 +671,9 @@ export function createCasino(deps) {
       closeSheet();
       openFrame(g, data, demo);
     } catch (err) {
+      // Гость: api() уже открыл окно регистрации. Превью игры убираем, иначе
+      // оно оставалось поверх окна входа, и регистрация шла «под» слотом.
+      if (err.status === 401) { closeSheet(); return; }
       toast(err.message);
       haptic('error');
     } finally {
