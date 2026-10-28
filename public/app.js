@@ -2617,16 +2617,20 @@ async function runFreeSpins(grant, caseData, { auto = false, replay = false, cos
   // заказчика), сумма и так стоит на счётчике. Доигрывание итог не
   // сравнивает - цена той покупки здесь неизвестна.
   const ratio = cost > 0 ? grant.total / cost : 0;
-  if (cost > 0 && !replay) {
+  const compare = cost > 0 && !replay;
+  if (compare) {
     verdictEl.className = 'fs-verdict';
     verdictEl.innerHTML = ratio >= 1 ? `<em>${seriesRatio(ratio)}</em> к цене ${esc(money(cost))}` : '';
-    if (!auto) motion().seriesEnd(totalEl, ratio);
-  } else {
-    sndCollect();
   }
   haptic(ratio >= 1 ? 'success' : 'light');
+  // Кнопка показывается ДО вылета суммы: сумма улетает именно в неё.
   collectBtn.hidden = false;
   collectBtn.textContent = `ЗАБРАТЬ ${money(grant.total)}`;
+  // Вылет итога крупно (решение заказчика, октябрь 2026). В автооткрытии -
+  // прежний короткий салют: там смысл в том, чтобы не задерживать серию.
+  const showTotal = !auto && grant.total > 0;
+  if (auto && compare) motion().seriesEnd(totalEl, ratio);
+  else if (!showTotal) sndCollect();
 
   // Серию досмотрели - сервер может её забыть.
   const ack = () => { api('/api/freespins/ack').catch(() => {}); };
@@ -2655,8 +2659,15 @@ async function runFreeSpins(grant, caseData, { auto = false, replay = false, cos
       finish();
       done();
     };
+    // Ожидание «Забрать» ставится до показа итога, а не после: закрытие кейса
+    // посреди показа обязано забрать за игрока (fsCollectPending в
+    // closeOpener), иначе state.busy остался бы висеть.
     fsCollectPending = take;
     collectBtn.addEventListener('click', take);
+    if (showTotal) {
+      motion().seriesTotal(totalEl, { total: grant.total, cost: compare ? cost : 0, text: money(grant.total), button: collectBtn })
+        .catch(() => {});
+    }
   });
 }
 
