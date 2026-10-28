@@ -7330,6 +7330,26 @@ div.mini-row { cursor: default; }
 }
 .auth-link:hover { color: var(--text); }
 
+/* Переход между входом и регистрацией: внизу окна, тихой строкой с одной
+   яркой ссылкой. */
+.auth-switch {
+  margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line);
+  text-align: center; font-size: 14px; color: var(--muted);
+}
+.auth-switch-go {
+  border: 0; background: none; padding: 0 2px; cursor: pointer;
+  font: inherit; font-weight: 800;
+  color: #ff7ac0; text-decoration: underline; text-underline-offset: 3px;
+}
+.auth-switch-go:hover { color: #ffa3d4; }
+
+/* Значок гостя - тот же, что у игрока, но с розовой точкой: «войдите». */
+.top-auth .top-guest { position: relative; }
+.top-auth .top-guest::after {
+  content: ''; position: absolute; top: -3px; right: -3px; width: 9px; height: 9px; border-radius: 50%;
+  background: #ff4fa8; box-shadow: 0 0 0 2px #0d0418;
+}
+
 .auth-or {
   display: flex; align-items: center; gap: 12px;
   margin: 16px 0 12px;

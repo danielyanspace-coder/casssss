@@ -2632,9 +2632,25 @@ async function runFreeSpins(grant, caseData, { auto = false, replay = false, cos
   }
 
   await new Promise((done) => {
-    collectBtn.addEventListener('click', () => { finish(); done(); }, { once: true });
+    const take = () => {
+      collectBtn.removeEventListener('click', take);
+      fsCollectPending = null;
+      finish();
+      done();
+    };
+    fsCollectPending = take;
+    collectBtn.addEventListener('click', take);
   });
 }
+
+/*
+ * Серия, ждущая «Забрать». Кейс могут закрыть, не нажав её (крестик, пункт
+ * меню): тогда closeOpener забирает сам. Иначе открытие так и висело бы
+ * незавершённым, state.busy не снимался, и ни один кейс больше не
+ * открывался до перезагрузки страницы. Деньги серии начислены сервером
+ * заранее, «Забрать» только закрывает показ.
+ */
+let fsCollectPending = null;
 
 /** Множитель итога серии: ×1,4 или ×12. */
 function seriesRatio(r) {
@@ -3076,6 +3092,7 @@ async function loadCaseHistory(caseTitle) {
 }
 
 function closeOpener() {
+  fsCollectPending?.();
   // Показ, оставшийся висеть поверх закрытого кейса, перекрыл бы весь экран.
   motion().reset();
   endBonusMode();
@@ -8927,9 +8944,14 @@ function authDefaultPane() {
 }
 
 const AUTH_PANES = {
-  login: { title: 'Вход', submit: 'Войти', fields: ['email', 'password'], tabs: true, forgot: true, telegram: true },
-  register: { title: 'Регистрация', submit: 'Создать аккаунт', fields: ['nick', 'email', 'password', 'promo', 'adult'], tabs: true, telegram: true },
-  forgot: { title: 'Восстановление пароля', submit: 'Прислать ссылку', fields: ['email'] },
+  // Вкладок сверху нет: переход между входом и регистрацией - строкой внизу
+  // окна (switchTo), как привыкли по другим сайтам.
+  login: { title: 'Вход', submit: 'Войти', fields: ['email', 'password'], forgot: true, telegram: true,
+    switchTo: ['Нет аккаунта?', 'Зарегистрироваться', 'register'] },
+  register: { title: 'Регистрация', submit: 'Создать аккаунт', fields: ['nick', 'email', 'password', 'promo', 'adult'], telegram: true,
+    switchTo: ['Уже зарегистрированы?', 'Войти', 'login'] },
+  forgot: { title: 'Восстановление пароля', submit: 'Прислать ссылку', fields: ['email'],
+    switchTo: ['Вспомнили пароль?', 'Войти', 'login'] },
   reset: { title: 'Новый пароль', submit: 'Сохранить и войти', fields: ['password'] },
   password: { title: 'Пароль', submit: 'Сохранить', fields: ['password'] },
   account: { title: 'Профиль' },
@@ -8986,6 +9008,13 @@ function showAuthPane(pane) {
   authEl('authPassword').autocomplete = pane === 'login' ? 'current-password' : 'new-password';
   authEl('authSubmit').textContent = pane === 'password' && !user?.hasPassword ? 'Сохранить' : (def.submit || '');
   authEl('authForgot').hidden = !def.forgot;
+  const sw = authEl('authSwitch');
+  sw.hidden = !def.switchTo;
+  if (def.switchTo) {
+    const [text, action, target] = def.switchTo;
+    sw.innerHTML = `${esc(text)} <button type="button" class="auth-switch-go">${esc(action)}</button>`;
+    sw.querySelector('button').onclick = () => showAuthPane(target);
+  }
   authFail('');
 
   const note = authEl('authNote');
@@ -9246,6 +9275,40 @@ async function loadMe() {
  * стоит в поле в этом заходе.
  */
 const REF_PROMO_KEY = 'lb_ref_promo';
+/*
+ * Ссылка из бота с дневным кодом: /?wheel=КОД. Открывает Free Money на
+ * Колесе удачи с уже подставленным кодом: из рассылки в один шаг до SPIN.
+ * Код убирается из адреса сразу, как и промокод партнёра.
+ */
+function takeWheelLink() {
+  let code = '';
+  try {
+    const url = new URL(location.href);
+    code = (url.searchParams.get('wheel') || '').trim().toUpperCase().replace(/[^A-Z0-9_-]/g, '').slice(0, 32);
+    if (url.searchParams.has('wheel')) {
+      url.searchParams.delete('wheel');
+      history.replaceState(null, '', url.pathname + url.search + url.hash);
+    }
+  } catch { /* адрес без параметров */ }
+  return code;
+}
+
+function openWheelWithCode(code) {
+  if (!code || !viewOpen('freemoney')) return;
+  switchView('freemoney');
+  // Раздел дорисовывается после переключения: ждём, пока поле появится.
+  requestAnimationFrame(() => setTimeout(() => {
+    const input = document.getElementById('pwCode');
+    if (input) input.value = code;
+    setWheelCode(code, { quiet: true });
+    const el = document.getElementById('fmWheel');
+    if (el) window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY - fmStickyBottom() - FM_TAB_GAP });
+  }, WHEEL_LINK_DELAY_MS));
+}
+
+/** Сколько ждать отрисовки Free Money перед подстановкой кода из ссылки. */
+const WHEEL_LINK_DELAY_MS = 350;
+
 function takeReferralPromo() {
   let code = '';
   let fresh = false;
@@ -9346,6 +9409,8 @@ async function init() {
       startOnboarding();
       openAdminEntry();
     }
+    // Гостю тоже: колесо он увидит с кодом, а вход спросят на SPIN.
+    openWheelWithCode(takeWheelLink());
   } catch (err) {
     document.getElementById('app').innerHTML =
       `<div class="empty">Не удалось загрузить приложение.<br>${esc(err.message)}</div>`;
@@ -10459,7 +10524,7 @@ function showWheelWin(result, sec) {
 function renderBotEvent() {
   const box = document.getElementById('fmBot');
   if (!box) return;
-  const bot = state.config.projectBot || 'luckybox_bot';
+  const bot = state.config.projectBot || 'Luckyboxbonus_bot';
   box.innerHTML = `
     <div class="bt-tile">
       <span class="bt-ico" aria-hidden="true"><svg viewBox="0 0 48 48"><path fill="#fff"

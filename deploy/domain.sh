@@ -4,6 +4,7 @@
 #
 #   sudo luckybox-domain новый-домен.duckdns.org
 #   (то же самое: sudo bash /srv/luckybox/deploy/domain.sh новый-домен)
+#   sudo luckybox-domain тот-же-домен --rebuild   - собрать заново
 #
 # Что делает, по порядку:
 #   1. Для поддомена DuckDNS направляет его на этот сервер (нужен
@@ -44,7 +45,10 @@ NEW="$(echo "$NEW" | tr 'A-Z' 'a-z' | sed -e 's#^https\?://##' -e 's#/.*$##')"
 [ -f "$ENV_FILE" ] || { echo "Нет $ENV_FILE: сначала установка (deploy/install.sh)"; exit 1; }
 
 OLD="$(grep '^SITE_URL=' "$ENV_FILE" | cut -d= -f2- | sed -e 's#^https\?://##' -e 's#/.*$##')"
-if [ "$OLD" = "$NEW" ]; then echo "Сайт уже работает на $NEW"; exit 0; fi
+# --rebuild: тот же домен, но собрать заново (сертификат, nginx, прежние
+# домены). Нужен, когда SITE_URL уже вписан, а сертификата ещё нет, и когда
+# добавился домен-переадресация (deploy/setup.sh).
+if [ "$OLD" = "$NEW" ] && [ "$FORCE" != "--rebuild" ]; then echo "Сайт уже работает на $NEW"; exit 0; fi
 echo "==> Смена домена: ${OLD:-нет} -> $NEW"
 
 env_get() { grep "^$1=" "$ENV_FILE" | cut -d= -f2- || true; }
@@ -106,7 +110,7 @@ fi
 # --- 4. nginx ---
 echo "==> Конфиг nginx"
 touch "$OLD_LIST"
-if [ -n "$OLD" ] && ! grep -qx "$OLD" "$OLD_LIST"; then echo "$OLD" >> "$OLD_LIST"; fi
+if [ -n "$OLD" ] && [ "$OLD" != "$NEW" ] && ! grep -qx "$OLD" "$OLD_LIST"; then echo "$OLD" >> "$OLD_LIST"; fi
 cp "$CONF" "$CONF.bak" 2>/dev/null || true
 sed "s/ваш-домен\.ru/$NEW/g" "$APP_DIR/deploy/nginx.conf" > "$CONF"
 OLD_WITH_CERT=""

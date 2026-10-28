@@ -112,7 +112,7 @@ import {
   linkTelegram, setEmailLogin, setPasswordHash, deleteUserSessions, purgeExpiredSessions,
   createPasswordReset, usePasswordReset,
   adminSavePromo,
-  wheelPromoList, createWheelPromo, setWheelPromoActive,
+  wheelPromoList, createWheelPromo, setWheelPromoActive, broadcastAudience, recentBroadcasts,
   adminListPromos,
   adminDeletePromo,
   adminSavePartner,
@@ -154,6 +154,7 @@ import {
   FREE_CASE_COOLDOWN_MS,
 } from './subscription.js';
 import { wheelConfig } from './promo-wheel.js';
+import * as broadcast from './broadcast.js';
 // Если математика поехала - падаем на старте, до первого игрока.
 const caseReport = validateCases();
 const gameReport = validateGames();
@@ -513,7 +514,7 @@ app.get('/api/config', (req, res) => {
     // Колесо удачи за промокод: сектора и их доли круга (угол = вероятность).
     promoWheel: wheelConfig(),
     // Телеграм-бот проекта: ивент в Free Money и откуда берутся коды колеса.
-    projectBot: (process.env.PROJECT_BOT_USERNAME || 'luckybox_bot').replace(/^@/, ''),
+    projectBot: (process.env.PROJECT_BOT_USERNAME || 'Luckyboxbonus_bot').replace(/^@/, ''),
     // Розыгрыш автомобиля: условие билетов (startCaseState считает сами билеты).
     raffle: { prize: 'Rolls-Royce Wraith', step: RAFFLE_TICKET_TURNOVER, max: RAFFLE_MAX_TICKETS },
     // Кейс «Начало»: за какое пополнение и за какой оборот.
@@ -1442,7 +1443,32 @@ const PC_SETTING_GROUPS = new Set(['Партнёры', 'Sicilia']);
  * Права те же, что у промокодов в панели сайта.
  */
 app.post('/api/pc/admin/wheel', auth, need('promo.view'), (req, res) => {
-  res.json({ rows: wheelPromoList(), wheel: wheelConfig() });
+  res.json({
+    rows: wheelPromoList(),
+    wheel: wheelConfig(),
+    bot: {
+      configured: broadcast.isConfigured(),
+      username: (process.env.PROJECT_BOT_USERNAME || process.env.TELEGRAM_BOT_USERNAME || '').replace(/^@/, ''),
+      audience: broadcastAudience(),
+      recent: recentBroadcasts(5),
+    },
+  });
+});
+
+/*
+ * «Разместить промокод»: дневной код уходит ботом всем подписчикам. Только
+ * живой код колеса - разосланный выключенный или израсходованный код
+ * собрал бы тысячу жалоб «не работает».
+ */
+app.post('/api/pc/admin/wheel/broadcast', auth, need('promo.edit'), (req, res) => {
+  const row = wheelPromoList().find((r) => r.id === Number(req.body?.id));
+  if (!row) return res.status(404).json({ error: 'Код не найден' });
+  const now = Date.now();
+  if (!row.is_active || (row.expires_at && row.expires_at < now) || (row.max_uses && row.used_count >= row.max_uses)) {
+    return res.status(400).json({ error: 'Код не работает: включите его или заведите новый' });
+  }
+  try { res.json({ broadcast: broadcast.startDailyPromo(req.player.id, row.code) }); }
+  catch (err) { pcError(res, err); }
 });
 
 app.post('/api/pc/admin/wheel/create', auth, need('promo.edit'), (req, res) => {
@@ -3190,6 +3216,7 @@ app.listen(PORT, process.env.HOST || undefined, () => {
   startFeed();
   startCatalogSync();
   sicilia.startReconcile((userId) => emitPayment(userId, 'payment.completed', { source: 'sicilia' }));
+  broadcast.resumeBroadcasts();
 
   console.log(`\n  LUCKYBOX запущен на http://localhost:${PORT}`);
   if (process.env.DEV_MODE === 'true') {

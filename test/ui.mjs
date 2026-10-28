@@ -260,7 +260,7 @@ if (newcomer) {
   // Кейсы на секторах - сундуки, подписи только у процентов (их три).
   check('Free Money: кейсы на колесе нарисованы сундуками', fm.chests === 5 && fm.caseNames === 3,
     `${fm.chests} сундуков, ${fm.caseNames} подписей`);
-  check('Free Money: ник бота', fm.bot === '@luckybox_bot', fm.bot);
+  check('Free Money: ник бота', fm.bot === '@Luckyboxbonus_bot', fm.bot);
   check('Free Money: промокода в разделе нет', !fm.promo);
   check('медалей нет нигде', fm.medals === 0, String(fm.medals));
   check('Free Money: ивенты без номеров', fm.numbers === 0, String(fm.numbers));
@@ -1186,6 +1186,47 @@ async function openCaseAndVerify(caseId) {
   check('обряд: у кейса без вырезанной обложки остаётся лента',
         !porsche.сцена && porsche.лента, JSON.stringify(porsche));
 
+  await ensureOpenerClosed();
+}
+
+/* ---------- Кейс закрыли, не нажав «Забрать» ---------- */
+
+/*
+ * Серия фриспинов ждёт «Забрать». Закрыли кейс крестиком или пунктом меню,
+ * не нажав её, - следующий кейс обязан открываться. Раньше открытие так и
+ * висело незавершённым, и ни один кейс больше не открывался до перезагрузки.
+ */
+{
+  await ensureOpenerClosed();
+  await page.evaluate(() => {
+    const card = [...document.querySelectorAll('.case-card')].find((c) => c.dataset.case === 'warmup_100');
+    card.scrollIntoView({ block: 'center' });
+    card.click();
+  });
+  await page.waitForSelector('#fsBuyRow [data-fs="10"]', { state: 'visible' });
+  await page.click('#fsBuyRow [data-fs="10"]');
+  await page.waitForTimeout(1200);
+  await page.click('#buyConfirm');
+  await page.waitForFunction(() => !document.getElementById('freespins').hidden
+    && !document.getElementById('fsCollect').hidden, null, { timeout: 180000 });
+  await page.click('#closeOpenerTop');
+  await page.waitForFunction(() => document.getElementById('opener').hidden, null, { timeout: 5000 });
+  await page.evaluate(() => {
+    const card = [...document.querySelectorAll('.case-card')].find((c) => c.dataset.case === 'neon_500');
+    card.scrollIntoView({ block: 'center' });
+    card.click();
+  });
+  await page.waitForSelector('#doOpenBtn', { state: 'visible' });
+  await page.click('#doOpenBtn');
+  const reopened = await page.waitForFunction(() => !document.getElementById('result').hidden
+    || (!document.getElementById('freespins').hidden && !document.getElementById('fsCollect').hidden),
+  null, { timeout: 60000 }).then(() => true, () => false);
+  check('кейс, закрытый без «Забрать», не запирает следующие', reopened);
+  while (await page.evaluate(() => !document.getElementById('freespins').hidden
+      && !document.getElementById('fsCollect').hidden)) {
+    await page.click('#fsCollect');
+    await page.waitForTimeout(800);
+  }
   await ensureOpenerClosed();
 }
 
@@ -2624,7 +2665,15 @@ slotChecks: {
   }
   await g.waitForTimeout(400);
 
-  check('гость: в шапке «Войти» и «Регистрация»', await g.isVisible('#topAuth'));
+  check('гость: в шапке значок входа', await g.isVisible('#topAuth .top-guest'));
+  await g.click('#topAuth .top-guest');
+  await g.waitForTimeout(300);
+  check('гость: значок открывает регистрацию', (await g.textContent('#authTitle')) === 'Регистрация');
+  await g.click('#authSwitch .auth-switch-go');
+  await g.waitForTimeout(200);
+  check('гость: «Уже зарегистрированы? Войти» ведёт ко входу', (await g.textContent('#authTitle')) === 'Вход');
+  await g.click('#authClose');
+  await g.waitForTimeout(200);
   check('гость: баланса в шапке нет', !(await g.isVisible('#balanceChip')));
   check('гость: окно входа само не открывается', !(await g.isVisible('#authBackdrop')));
 

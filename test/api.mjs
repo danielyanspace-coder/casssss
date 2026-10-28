@@ -1065,6 +1065,12 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
   await post('/api/pc/admin/wheel/toggle', { id: wRow?.id, active: false });
   const wOff = (await post('/api/pc/admin/wheel')).data.rows.find((r) => r.id === wRow?.id);
   check('колесо: код выключается', wOff?.is_active === 0);
+  const offPost = await post('/api/pc/admin/wheel/broadcast', { id: wRow?.id });
+  check('рассылка: выключенный код не рассылается', offPost.status === 400, offPost.status);
+  const live = await post('/api/pc/admin/wheel/create', {});
+  const livePost = await post('/api/pc/admin/wheel/broadcast', { id: live.data.id });
+  const botOn = (await post('/api/pc/admin/wheel')).data.bot?.configured;
+  check('рассылка: без бота честный отказ', botOn ? livePost.status === 200 : livePost.status === 403, livePost.status);
 
   // Чужой аккаунт не должен видеть партнёрскую статистику.
   const mine = await post('/api/partner/stats');

@@ -67,6 +67,9 @@ jobs:
       - name: Бесплатный кейс «Начало»
         run: npm run test:start-case
 
+      - name: Рассылка бота
+        run: npm run test:broadcast
+
       - name: Партнёрская программа и сверка с Sicilia
         run: npm run test:partners
 
