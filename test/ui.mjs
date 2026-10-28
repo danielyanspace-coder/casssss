@@ -65,10 +65,11 @@ page.on('console', (m) => {
   const t = m.text();
   if (expectRefusal && /status of 503/.test(t)) return;
   // Внешние ресурсы (скрипт Telegram, favicon, шрифты Google, обложки с CDN
-  // агрегатора) в тесте могут быть недоступны - не считаем. CERT_AUTHORITY -
+  // агрегатора) в тесте могут быть недоступны - не считаем: обрыв (RESET,
+  // CLOSED) на раннере GitHub случается у чужого хоста. CERT_AUTHORITY -
   // это песочница, которая перехватывает TLS чужим сертификатом: к коду
   // приложения отношения не имеет.
-  if (m.type() === 'error' && !/ERR_(FILE_NOT_FOUND|CONNECTION_RESET|NAME_NOT_RESOLVED|CERT_AUTHORITY_INVALID)|404/.test(t)) {
+  if (m.type() === 'error' && !/ERR_(FILE_NOT_FOUND|CONNECTION_RESET|CONNECTION_CLOSED|NAME_NOT_RESOLVED|CERT_AUTHORITY_INVALID)|404/.test(t)) {
     consoleErrors.push(t);
   }
 });
