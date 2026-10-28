@@ -24,6 +24,7 @@
 #   DUCKDNS_TOKEN  SICILIA_API_KEY  SICILIA_MERCHANT  SICILIA_LOGIN
 #   DATABETRIX_AGENT_NAME  DATABETRIX_AGENT_TOKEN
 #   TELEGRAM_TOKEN     бот с промокодами (ник берётся у Telegram сам)
+#   SICILIA_IPS        адреса Sicilia для белого списка колбэков (дописываются)
 set -uo pipefail
 
 APP_DIR=/srv/luckybox
@@ -112,6 +113,16 @@ if [ -n "${TELEGRAM_TOKEN:-}" ]; then
     fi
   fi
 fi
+# Адрес Sicilia в белом списке колбэков: дописываем, прежние адреса не
+# трогаем. С чужого адреса колбэк получает 403 (деньги всё равно зачислит
+# сверка раз в 5 минут, но с задержкой).
+SICILIA_IPS="${SICILIA_IPS:-91.206.228.46}"
+cur="$(env_get SICILIA_CALLBACK_IPS)"
+for ip in ${SICILIA_IPS//,/ }; do
+  case ",$cur," in *",$ip,"*) ;; *) cur="${cur:+$cur,}$ip" ;; esac
+done
+env_set SICILIA_CALLBACK_IPS "$cur"
+echo "    SICILIA_CALLBACK_IPS=$cur"
 [ "$(env_get DEV_MODE)" = "true" ] && { env_set DEV_MODE false; echo "    DEV_MODE выключен"; }
 
 # ---------- 2. Код ----------
@@ -242,6 +253,7 @@ todo "Databetrix: пополнить баланс агента в кабинет
   echo
   echo "ВПИСАТЬ В ЧУЖИЕ КАБИНЕТЫ"
   echo "  Sicilia      колбэк (callback URL):  $SITE/api/webhooks/sicilia"
+  echo "               их адреса у нас в белом списке: $(env_get SICILIA_CALLBACK_IPS)"
   echo "               IP для белого списка:   ${MY_IP:-?}"
   echo "  Databetrix   кошелёк:                $SITE/api/casino/wallet"
   echo "  Heleket      вебхук:                 $SITE/api/webhooks/heleket"
