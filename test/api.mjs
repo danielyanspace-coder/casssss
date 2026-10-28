@@ -60,6 +60,9 @@ const config = await get('/api/config');
   const res = await fetch(BASE + '/api/health');
   const data = await res.json().catch(() => ({}));
   check('health: сервер и база отвечают', res.status === 200 && data.ok === true, JSON.stringify(data));
+  // Скрытый вход в панель с компьютера - та же страница сайта.
+  const admin = await fetch(BASE + '/admin');
+  check('/admin отдаёт страницу сайта', admin.status === 200 && /<div class="opener"/.test(await admin.text()));
 }
 const me = (await post('/api/me')).data.user;
 
@@ -1044,6 +1047,24 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
   check('кабинет: сотрудник видит свои права', pcMe.status === 200 && pcMe.data.staff?.permissions.includes('finance.reports'));
   const notPartner = await post('/api/pc/dashboard');
   check('кабинет: не партнёр не видит кабинет', notPartner.status === 403);
+
+  // Коды Колеса удачи из кабинета: один код - один прокрут на игрока.
+  const wNew = await post('/api/pc/admin/wheel/create', { maxUses: 5, days: 3, note: 'тест' });
+  check('колесо: код заводится и придумывается сам', wNew.status === 200 && /^SPIN[A-Z0-9]{6}$/.test(wNew.data.code), JSON.stringify(wNew.data));
+  const wDup = await post('/api/pc/admin/wheel/create', { code: wNew.data.code });
+  check('колесо: занятый код второй раз не заводится', wDup.status === 400);
+  const wList = await post('/api/pc/admin/wheel');
+  const wRow = wList.data.rows?.find((r) => r.code === wNew.data.code);
+  check('колесо: код в списке с лимитом и сроком', !!wRow && wRow.max_uses === 5 && wRow.expires_at > Date.now(),
+    JSON.stringify(wRow));
+  check('колесо: описание секторов отдаётся', wList.data.wheel?.sectors?.length > 0);
+  const wSpin = await post('/api/wheel/spin', { code: wNew.data.code });
+  check('колесо: код крутит колесо', wSpin.status === 200 && wSpin.data.result?.type === 'wheel', JSON.stringify(wSpin.data));
+  const wAgain = await post('/api/wheel/spin', { code: wNew.data.code });
+  check('колесо: второй прокрут тем же кодом не даётся', wAgain.status === 400);
+  await post('/api/pc/admin/wheel/toggle', { id: wRow?.id, active: false });
+  const wOff = (await post('/api/pc/admin/wheel')).data.rows.find((r) => r.id === wRow?.id);
+  check('колесо: код выключается', wOff?.is_active === 0);
 
   // Чужой аккаунт не должен видеть партнёрскую статистику.
   const mine = await post('/api/partner/stats');

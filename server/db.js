@@ -3707,6 +3707,65 @@ export const adminDeletePromo = db.transaction((adminId, id) => {
   return { disabled: promo.used_count > 0 };
 });
 
+/* ---------- Кабинет /partners: промокоды Колеса удачи ----------
+ *
+ * Код колеса - обычный промокод типа wheel (redeemPromo), но заводится из
+ * кабинета отдельной формой: один код - один прокрут на игрока, и больше
+ * ничего настраивать не надо. Общая adminSavePromo здесь не годится как
+ * есть: с кодом, который уже занят другим типом, она переписала бы его.
+ */
+
+/** Буквы без похожих пар (O и 0, I и 1): код диктуют голосом и пишут в чате. */
+const WHEEL_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const WHEEL_CODE_LEN = 6;
+const WHEEL_CODE_PREFIX = 'SPIN';
+const DAY_MS = 24 * 3600 * 1000;
+
+function randomWheelCode() {
+  const bytes = randomBytes(WHEEL_CODE_LEN);
+  let tail = '';
+  for (const b of bytes) tail += WHEEL_CODE_ALPHABET[b % WHEEL_CODE_ALPHABET.length];
+  return WHEEL_CODE_PREFIX + tail;
+}
+
+export function wheelPromoList() {
+  return db.prepare(`
+    SELECT id, code, max_uses, used_count, new_players_only, expires_at, is_active, note, created_at
+      FROM promocodes WHERE type = 'wheel' ORDER BY id DESC
+  `).all();
+}
+
+export const createWheelPromo = db.transaction((adminId, data = {}) => {
+  const bad = (m) => Object.assign(new Error(m), { code: 'BAD' });
+  let code = normalizePromoCode(data.code);
+  if (code && !/^[A-Z0-9_-]{4,32}$/.test(code)) throw bad('Код: от 4 до 32 латинских букв и цифр');
+  if (!code) {
+    do code = randomWheelCode();
+    while (db.prepare('SELECT 1 FROM promocodes WHERE code = ?').get(code));
+  } else if (db.prepare('SELECT 1 FROM promocodes WHERE code = ?').get(code)) {
+    throw bad('Такой код уже есть');
+  }
+  const maxUses = Math.max(0, Math.trunc(Number(data.maxUses) || 0));
+  const days = Math.max(0, Math.trunc(Number(data.days) || 0));
+  return adminSavePromo(adminId, {
+    code, type: 'wheel',
+    max_uses: maxUses,
+    per_user_limit: 1,
+    new_players_only: !!data.newOnly,
+    expires_at: days ? Date.now() + days * DAY_MS : null,
+    note: String(data.note || '').trim().slice(0, 200) || null,
+  });
+});
+
+export const setWheelPromoActive = db.transaction((adminId, id, active) => {
+  const promo = db.prepare("SELECT code FROM promocodes WHERE id = ? AND type = 'wheel'").get(Number(id));
+  if (!promo) throw Object.assign(new Error('Код не найден'), { code: 'NOT_FOUND' });
+  db.prepare('UPDATE promocodes SET is_active = ? WHERE id = ?').run(active ? 1 : 0, Number(id));
+  db.prepare(`INSERT INTO admin_log (admin_id, target_id, action, amount, note, created_at)
+              VALUES (?, 0, 'promo_edit', NULL, ?, ?)`).run(adminId, promo.code, Date.now());
+  return { ok: true };
+});
+
 /* ---------- Админка: партнёры ---------- */
 
 export const adminSavePartner = db.transaction((adminId, data) => {

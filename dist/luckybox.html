@@ -3315,6 +3315,21 @@ div.mini-row { cursor: default; }
   animation: openSheen 4s cubic-bezier(0.65, 0, 0.35, 1) infinite 1.2s;
 }
 .open-cta:disabled::after { animation: none; }
+/* «Забрать» после серии фриспинов - та же золотая кнопка, что «Открыть»:
+   это деньги игрока, и бледная розовая плашка терялась на ярком итоге
+   серии. Глянец сверху лежит отдельным слоем, блик бежит общий. */
+.fs-collect {
+  flex: none; width: 100%; margin-top: 16px;
+  justify-content: center; padding: 17px 16px;
+  font: 800 17px/1 'Unbounded', 'Manrope', system-ui, sans-serif; letter-spacing: 0.1em;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+.fs-collect[hidden] { display: none; }
+.fs-collect::before {
+  content: ''; position: absolute; left: 0; right: 0; top: 0; height: 50%; pointer-events: none;
+  border-radius: 18px 18px 40% 40% / 18px 18px 14px 14px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.75), rgba(255, 255, 255, 0.08));
+}
 @keyframes openSheen { 0%, 70% { translate: -130% 0; } 100% { translate: 130% 0; } }
 .open-act {
   min-width: 0;
@@ -9502,15 +9517,20 @@ div.mini-row { cursor: default; }
 .mo-canvas { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; }
 
 /* Сцена уходит назад классом: так у неё одно состояние, и оно снимается
-   наверняка (см. recede в motion.js). */
-.opener-scroll { transition: filter .7s cubic-bezier(.16,1,.3,1), transform .7s cubic-bezier(.16,1,.3,1); }
-body.mo-receded .opener-scroll { filter: blur(4px) saturate(.55); transform: scale(.94); }
+   наверняка (см. recede в motion.js).
+   Затемнением, а не размытием. blur на всём экране кейса пересчитывался на
+   каждом кадре, пока под ним что-то двигалось (точки серии, качающийся знак
+   фриспинов, сама лента), и на телефоне показ выигрыша и пролог серии шли
+   рывками. Прозрачность и масштаб - работа видеокарты, перерисовки нет. */
+.opener-scroll { transition: opacity .7s cubic-bezier(.16,1,.3,1), transform .7s cubic-bezier(.16,1,.3,1); }
+body.mo-receded .opener-scroll { opacity: .42; transform: scale(.94); }
 .reel-tile.mo-lifted { visibility: hidden; }
 
 .mo-flash { position: absolute; inset: 0; mix-blend-mode: screen; }
 .mo-ring {
   position: absolute; width: 120px; height: 120px; margin: -60px 0 0 -60px; border-radius: 50%;
-  border: 3px solid var(--c); box-shadow: 0 0 22px var(--c), inset 0 0 22px var(--c);
+  border: 2px solid var(--c); box-shadow: 0 0 22px var(--c), inset 0 0 22px var(--c);
+  will-change: transform, opacity;
 }
 .mo-slash {
   position: absolute; left: -20%; width: 140%; height: 3px; transform-origin: 0 50%;
@@ -9578,15 +9598,14 @@ body.mo-receded .opener-scroll { filter: blur(4px) saturate(.55); transform: sca
 .mo-fs-emblem {
   position: absolute; left: 50%; top: 29%; width: 150px; height: 150px; margin: -75px 0 0 -75px;
   filter: drop-shadow(0 14px 22px rgba(0,0,0,.6));
+  /* Свой слой с самого начала: рисунок с тенью растрируется один раз, а
+     разворот и масштаб дальше делает видеокарта. */
+  will-change: transform;
 }
 .mo-fs-emblem svg { width: 100%; height: 100%; display: block; }
 .mo-fs-title {
   position: absolute; left: 0; right: 0; top: 46%; display: flex; justify-content: center; gap: 12px;
   font: 800 34px/1 'Unbounded', 'Arial Black', system-ui, sans-serif; letter-spacing: .01em;
-}
-.mo-fs-title .mo-metal {
-  background-image: linear-gradient(180deg, #fff6cf 0%, #ffd34d 18%, #c8781a 26%, #ffe9a0 38%, #ffffff 50%, #ffe9a0 62%, #ffd34d 78%, #c8781a 90%, #ffe9a0 100%);
-  background-size: 100% 300%;
 }
 .mo-fs-count { position: absolute; left: 0; right: 0; top: 52.5%; text-align: center; font: 800 92px/1 'Unbounded', 'Arial Black', system-ui, sans-serif; }
 .mo-fs-sub {
@@ -9601,6 +9620,38 @@ body.mo-receded .opener-scroll { filter: blur(4px) saturate(.55); transform: sca
   display: grid; place-items: center;
 }
 .mo-tok svg { width: 62%; height: 62%; }
+
+/* ---------- Итог серии крупно (seriesTotal) ----------
+   Число - тот же металл, что надписи показа; движется только transform и
+   opacity. Свечение - отдельный слой с радиальной заливкой, без фильтра. */
+.mo-st { position: absolute; inset: 0; }
+/* Плотная середина: под числом стоит кнопка «Забрать» с той же суммой, и
+   проступая сквозь затемнение, она двоила надпись. */
+.mo-st-dim { position: absolute; inset: 0; background: radial-gradient(circle at 50% 42%, rgba(14, 5, 30, 0.88), rgba(4, 1, 10, 0.96) 70%); }
+.mo-st-glow {
+  position: absolute; left: 50%; top: 42%; width: 520px; height: 520px; margin: -260px 0 0 -260px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 196, 70, 0.42), rgba(168, 85, 247, 0.16) 42%, transparent 66%);
+  opacity: 0;
+}
+.mo-st:not(.is-paid) .mo-st-glow { background: radial-gradient(circle, rgba(196, 170, 255, 0.28), transparent 62%); }
+.mo-st-box {
+  position: absolute; left: 0; right: 0; top: 42%; transform: translateY(-50%);
+  display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; padding: 0 16px;
+}
+.mo-st-eyebrow {
+  font: 800 12px/1 'Manrope', system-ui, sans-serif; letter-spacing: .22em; text-transform: uppercase; color: #d9c8ff;
+  opacity: 0;
+}
+.mo-st-num { font: 800 clamp(40px, 13vw, 76px)/1.05 'Unbounded', 'Arial Black', system-ui, sans-serif; white-space: nowrap; will-change: transform; }
+.mo-st:not(.is-paid) .mo-st-num .mo-metal { --m1: #ffffff; --m2: #e9e2f7; --m3: #a99cc4; --m4: #f4efff; --glow: rgba(200, 180, 255, .25); }
+.mo-st-pill {
+  padding: 7px 14px; border-radius: 999px; opacity: 0;
+  font: 800 13px/1 'Manrope', system-ui, sans-serif; letter-spacing: .04em; color: #3a1d00;
+  background: linear-gradient(180deg, #fff3c4, #ffd34d 55%, #e8a024);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .8), 0 6px 18px -6px rgba(255, 170, 40, .7);
+}
+/* Кнопка «Забрать» вспыхивает, когда в неё упала сумма: блик проходит раз. */
+.fs-collect.is-glint::after { animation: openSheen 0.7s cubic-bezier(0.65, 0, 0.35, 1) 1; }
 
 /* ---------- Окно крупного выигрыша ---------- */
 .mo-wl {
@@ -9924,8 +9975,10 @@ body.mo-receded .opener-scroll { filter: blur(4px) saturate(.55); transform: sca
 .buy-scene[hidden] { display: none; }
 .bs-dim {
   position: absolute; inset: 0;
-  background: radial-gradient(120% 80% at 50% 35%, rgba(40, 12, 70, 0.75), rgba(4, 0, 10, 0.94));
-  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  /* Без backdrop-filter: под сценой живёт экран кейса с бегущим бликом
+     кнопки, и размытие пересчитывалось бы на каждом кадре. Плотнее
+     затемнение - тот же эффект отделения от фона. */
+  background: radial-gradient(120% 80% at 50% 35%, rgba(40, 12, 70, 0.86), rgba(4, 0, 10, 0.97));
   opacity: 0; transition: opacity 0.4s;
 }
 .bs-rays {
@@ -11815,7 +11868,7 @@ body.case-open #app > .view *::after, body.case-open .money-rain * { animation-p
           </div>
           <div class="fs-log" id="fsLog"></div>
           <div class="fs-verdict" id="fsVerdict"></div>
-          <button class="btn btn-primary btn-wide" id="fsCollect" hidden>ЗАБРАТЬ</button>
+          <button class="open-cta fs-collect" id="fsCollect" hidden>ЗАБРАТЬ</button>
         </div>
 
         <div class="result" id="result" hidden>
@@ -16663,7 +16716,9 @@ function createMotion({ money, artFor, tierColor, snd, haptic = () => {} }) {
     mount();
     const r = el('div', 'mo-ring', top);
     r.style.left = `${x}px`; r.style.top = `${y}px`; r.style.setProperty('--c', color);
-    anim(r, [{ transform: 'scale(.1)', opacity: 1, borderWidth: '8px' }, { transform: `scale(${scale})`, opacity: 0, borderWidth: '1px' }], { duration: dur, delay, easing: E.out }).onfinish = () => r.remove();
+    // Без border-width в кадрах: толщина рамки не анимируется видеокартой, и
+    // кольцо перерисовывалось на каждом кадре. Тонеет оно само, растягиваясь.
+    anim(r, [{ transform: 'scale(.1)', opacity: 1 }, { transform: `scale(${scale})`, opacity: 0 }], { duration: dur, delay, easing: E.out }).onfinish = () => r.remove();
   }
   function slash(y, color = '#ffd34d', angle = -22) {
     if (!accent.slash) return;
@@ -16741,12 +16796,12 @@ function createMotion({ money, artFor, tierColor, snd, haptic = () => {} }) {
     w.innerHTML = [...word].map((ch) => `<span class="mo-metal">${ch === ' ' ? NB : ch}</span>`).join('');
     label.append(w);
     [...w.children].forEach((sp, i) => {
-      // fill: backwards - после входа фильтр возвращается к теням металла из
-      // CSS. С forwards на буквах навсегда остался бы blur(0), и объём надписи
-      // пропадал бы ровно в момент, когда её читают.
+      // Только transform и opacity, без размытия: у металлической буквы пять
+      // теней фильтра, и анимированный blur перерисовывал бы её с ними на
+      // каждом кадре. Тени из CSS остаются на месте всё время.
       anim(sp, [
-        { transform: 'translateY(30px) scale(2.2) rotateX(-80deg)', opacity: 0, filter: 'blur(6px)' },
-        { transform: 'none', opacity: 1, filter: 'blur(0)' },
+        { transform: 'translateY(30px) scale(2.2) rotateX(-80deg)', opacity: 0 },
+        { transform: 'none', opacity: 1 },
       ], { duration: 560, delay: i * 38, easing: E.back, fill: 'backwards' });
     });
   }
@@ -16961,7 +17016,7 @@ function createMotion({ money, artFor, tierColor, snd, haptic = () => {} }) {
     const old = label.querySelector('.mo-word:not(.out)');
     if (old) {
       old.classList.add('out');
-      anim(old, [{ transform: 'scale(1)', opacity: 1, filter: 'blur(0)' }, { transform: 'scale(1.6)', opacity: 0, filter: 'blur(10px)' }], { duration: 420, easing: E.out }).onfinish = () => old.remove();
+      anim(old, [{ transform: 'scale(1)', opacity: 1 }, { transform: 'scale(1.6)', opacity: 0 }], { duration: 420, easing: E.out }).onfinish = () => old.remove();
     }
     wl.dataset.tier = L.key;
     stampLabel(label, L.word);
@@ -17097,23 +17152,25 @@ function createMotion({ money, artFor, tierColor, snd, haptic = () => {} }) {
       [...holder.children].forEach((sp, i) => {
         const order = dir < 0 ? word.length - 1 - i : i;
         anim(sp, [
-          { transform: `translateX(${dir * 160}px) skewX(${-dir * 24}deg) scale(1.3)`, opacity: 0, filter: 'blur(8px)' },
-          { transform: 'none', opacity: 1, filter: 'blur(0)' },
+          { transform: `translateX(${dir * 160}px) skewX(${-dir * 24}deg) scale(1.3)`, opacity: 0 },
+          { transform: 'none', opacity: 1 },
         ], { duration: 620, delay: 120 + order * 45, easing: E.out, fill: 'backwards' });
-        // Блик пробегает по буквам волной, а не одним пятном.
-        anim(sp, [{ backgroundPosition: '0 0%' }, { backgroundPosition: '0 100%' }], { duration: 1400, delay: 900 + i * 60, easing: E.inout, iterations: 2, direction: 'alternate' });
       });
     });
+    // Бегущего блика по буквам больше нет: его гоняли background-position,
+    // а это перерисовка буквы с пятью тенями на каждом кадре, около пятисот
+    // перерисовок за пролог, и на телефоне пролог шёл рывками. Блик
+    // отдельным слоем поверх ложился серой полосой на тёмный фон.
     play('sndWhoosh');
     await sleep(420);
 
     const num = show.querySelector('.mo-fs-count');
     anim(num, [
-      { transform: 'translateY(-40px) scale(3)', opacity: 0, filter: 'blur(14px)' },
-      { transform: 'translateY(4px) scale(.94)', opacity: 1, filter: 'blur(0)', offset: 0.7 },
-      { transform: 'none', opacity: 1, filter: 'blur(0)' },
-      // Анимируется обёртка, а металл - на числе внутри: blur(0) с
-      // заполнением на самом числе стёр бы его тени объёма.
+      { transform: 'translateY(-40px) scale(3)', opacity: 0 },
+      { transform: 'translateY(4px) scale(.94)', opacity: 1, offset: 0.7 },
+      { transform: 'none', opacity: 1 },
+      // Без размытия по той же причине, что у букв: под обёрткой число с
+      // тенями металла, и blur перерисовывал бы его каждый кадр.
     ], { duration: 520, easing: E.out });
     await sleep(360);
     const nb = box(num);
@@ -17239,9 +17296,9 @@ function createMotion({ money, artFor, tierColor, snd, haptic = () => {} }) {
 
     // 1. Печать падает с высоты и бьёт в плитку.
     anim(stamp, [
-      { transform: 'translate(-50%, -50%) translateY(-120px) scale(3.4) rotate(-24deg)', opacity: 0, filter: 'blur(6px)' },
-      { transform: 'translate(-50%, -50%) scale(.92) rotate(-10deg)', opacity: 1, filter: 'blur(0)', offset: 0.7 },
-      { transform: 'translate(-50%, -50%) scale(1) rotate(-10deg)', opacity: 1, filter: 'blur(0)' },
+      { transform: 'translate(-50%, -50%) translateY(-120px) scale(3.4) rotate(-24deg)', opacity: 0 },
+      { transform: 'translate(-50%, -50%) scale(.92) rotate(-10deg)', opacity: 1, offset: 0.7 },
+      { transform: 'translate(-50%, -50%) scale(1) rotate(-10deg)', opacity: 1 },
     ], { duration: 420, easing: E.in });
     play('sndWhoosh', false);
     await sleep(300);
@@ -17307,6 +17364,104 @@ function createMotion({ money, artFor, tierColor, snd, haptic = () => {} }) {
     coins(tb.cx, tb.cy, big ? 40 : 18, { speed: 820, spread: Math.PI * 0.7 });
     shower(big ? 80 : 36, ['#ffd34d', '#ff9a1f', '#ffffff']);
     play('sndFanfare', big ? 1.26 : 1);
+  }
+
+  /**
+   * Итог серии крупно: сумма срывается со счётчика серии, встаёт посреди
+   * экрана и улетает в кнопку «Забрать». Счёт не повторяется - счётчик уже
+   * досчитал, и пересчёт с нуля выглядел бы как второе начисление.
+   *
+   * Сила показа - отношение к цене, как везде: окупившаяся серия получает
+   * кольцо, монеты и плашку «×N к цене», неокупившаяся - ту же сумму тихо,
+   * без искр и фанфар (возврат меньше ставки не празднуется). Нулевой итог
+   * не показывается вовсе.
+   *
+   * Только transform и opacity: число с металлом не перерисовывается, пока
+   * летит. Закрывается само, нажатие ускоряет уход.
+   */
+  async function seriesTotal(totalEl, { total, cost = 0, text, button = null }) {
+    if (!(total > 0) || !totalEl) return;
+    mount();
+    const ratio = cost > 0 ? total / cost : 0;
+    const paid = ratio >= 1;
+    const big = ratio >= 2.5;
+
+    const st = el('div', `mo-st${paid ? ' is-paid' : ''}`, top);
+    st.innerHTML = `
+      <div class="mo-st-dim"></div>
+      <div class="mo-st-glow"></div>
+      <div class="mo-st-box">
+        <div class="mo-st-eyebrow">Фриспины принесли</div>
+        <div class="mo-st-num"><span class="mo-metal">${text}</span></div>
+        ${paid ? `<div class="mo-st-pill">${xFmt(ratio)} к цене серии</div>` : ''}
+      </div>`;
+    st.style.pointerEvents = 'auto';
+    const num = st.querySelector('.mo-st-num');
+    const dim = st.querySelector('.mo-st-dim');
+    const glow = st.querySelector('.mo-st-glow');
+    const eyebrow = st.querySelector('.mo-st-eyebrow');
+    const pill = st.querySelector('.mo-st-pill');
+
+    let skip = null;
+    const skipped = new Promise((r) => { skip = r; });
+    st.onclick = () => skip();
+    const hold = (ms) => Promise.race([sleep(ms), skipped]);
+
+    // Взлёт со счётчика: число стартует ровно с его места и его размера.
+    const from = box(totalEl);
+    const to = box(num);
+    const s0 = Math.max(0.2, from.h / Math.max(1, to.h));
+    totalEl.style.opacity = '0.25';
+    recede(true);
+    anim(dim, [{ opacity: 0 }, { opacity: 1 }], { duration: 420, easing: E.out });
+    anim(num, [
+      { transform: `translate(${from.cx - to.cx}px, ${from.cy - to.cy}px) scale(${s0})`, opacity: 0.6 },
+      { transform: `translate(0, -18px) scale(${paid ? 1.12 : 1.04})`, opacity: 1, offset: 0.7 },
+      { transform: 'none', opacity: 1 },
+    ], { duration: 720, easing: E.out });
+    play('sndWhoosh', true);
+    await sleep(520);
+
+    const nb = box(num);
+    anim(glow, [{ opacity: 0, transform: 'scale(.5)' }, { opacity: paid ? 1 : 0.45, transform: 'scale(1)' }], { duration: 700, easing: E.out });
+    anim(eyebrow, [{ opacity: 0, transform: 'translateY(8px)', letterSpacing: '.5em' }, { opacity: 1, transform: 'none', letterSpacing: '.22em' }], { duration: 600, easing: E.out });
+    if (paid) {
+      ring(nb.cx, nb.cy, '#ffd34d', big ? 4.2 : 3.2, 700);
+      ring(nb.cx, nb.cy, '#ffffff', 2.4, 600, 90);
+      coins(nb.cx, nb.cy, big ? 34 : 16, { speed: 760, spread: Math.PI * 0.75 });
+      if (big) shower(60, ['#ffd34d', '#ff9a1f', '#ffffff']);
+      shake(big ? 8 : 5, 420);
+      play('sndFanfare', big ? 1.26 : 1);
+      haptic('success');
+      if (pill) anim(pill, [{ opacity: 0, transform: 'scale(.6)' }, { opacity: 1, transform: 'scale(1.08)', offset: 0.6 }, { opacity: 1, transform: 'none' }], { duration: 520, delay: 220, easing: E.back });
+    } else {
+      play('sndSoft');
+      haptic('light');
+    }
+
+    await hold(paid ? 2000 : 1300);
+
+    // Уход: сумма падает в кнопку «Забрать», кнопка вспыхивает. Без кнопки
+    // (она ещё не показана) - просто тает на месте.
+    const tb = button && !button.hidden ? box(button) : null;
+    const cb = box(num);
+    const away = tb
+      ? [{ transform: 'none', opacity: 1 }, { transform: `translate(${tb.cx - cb.cx}px, ${tb.cy - cb.cy}px) scale(.28)`, opacity: 0.2 }]
+      : [{ transform: 'none', opacity: 1 }, { transform: 'scale(.9)', opacity: 0 }];
+    anim(num, away, { duration: 520, easing: E.in });
+    [eyebrow, pill, glow].forEach((n) => n && anim(n, [{ opacity: 1 }, { opacity: 0 }], { duration: 260, easing: E.out }));
+    anim(dim, [{ opacity: 1 }, { opacity: 0 }], { duration: 520, delay: 120, easing: E.out });
+    await sleep(500);
+    totalEl.style.opacity = '';
+    recede(false);
+    if (tb) {
+      button.classList.remove('is-glint');
+      void button.offsetWidth;
+      button.classList.add('is-glint');
+      play('sndCoin');
+    }
+    await sleep(150);
+    st.remove();
   }
 
   /* ---------- Просмотр предмета из состава ---------- */
@@ -17478,7 +17633,7 @@ function createMotion({ money, artFor, tierColor, snd, haptic = () => {} }) {
     document.querySelectorAll('.mo-x2-tile').forEach((t) => t.classList.remove('mo-x2-tile'));
   }
 
-  return { win, purchase, retrigger, payout, seriesEnd, reset, recede, levelOf, inspect, closeInspect, doubler };
+  return { win, purchase, retrigger, payout, seriesEnd, seriesTotal, reset, recede, levelOf, inspect, closeInspect, doubler };
 }
 
 
@@ -30637,6 +30792,7 @@ function openCase(caseId) {
     }).join('');
 
   document.getElementById('dropsGrid').innerHTML = showcaseCard + cards;
+  requestAnimationFrame(() => fitNames(document.getElementById('dropsGrid')));
 
   /*
    * Нажатие на предмет в составе показывает его крупно: та же карточка, что
@@ -31016,6 +31172,8 @@ function renderIdleReel(c, count = 1) {
     const strip = [];
     for (let i = 0; i < 24; i++) strip.push(weightedSample(c.items));
     reel.innerHTML = strip.map(tileHtml).join('');
+    // Экран кейса в этот момент ещё может быть скрыт: меряем после показа.
+    requestAnimationFrame(() => fitNames(reel));
 
     reel.style.transition = 'none';
     requestAnimationFrame(() => {
@@ -31108,6 +31266,54 @@ function tileArt(item, color) {
   const small = itemArtMaterial(item.name) || itemArt(item.name, color) || iconTier(item.tier, color);
   return `<span class="art-medal">${small}</span>`;
 }
+
+/*
+ * Длинное слово в подписи не переносится и уезжает под край плитки: «10
+ * ФРИСПИНО» вместо «10 ФРИСПИНОВ». С ценой то же: «Подарочный кейс» и
+ * «26 240 000 ₽» на телефоне получали многоточие. Ширина плитки зависит от экрана, шрифт и
+ * разрядка - от семейства, поэтому заранее стилями это не решить. Подпись,
+ * которая не влезла, ужимается по факту замера. Сначала все чтения, потом все
+ * записи: иначе каждая плитка заново пересчитывала бы раскладку.
+ */
+const NAME_FIT_SEL = '.tile-name > span, .drop-name > span, .tile-value, .drop-value';
+/** Мельче этой доли подпись не становится: дальше её уже не прочитать. */
+const NAME_MIN_SCALE = 0.55;
+/** Запас на сглаживание: замер в целых точках, а шрифт сжимается дробно. */
+const NAME_FIT_SLACK = 0.97;
+
+function fitNames(root, reset = false) {
+  if (!root) return;
+  const spans = [...root.querySelectorAll(NAME_FIT_SEL)];
+  if (reset) for (const s of spans) s.style.fontSize = '';
+  const fixes = [];
+  for (const s of spans) {
+    const w = s.clientWidth;
+    if (w && s.scrollWidth > w + 1) {
+      // Поля в обеих ширинах одинаковы и в масштаб не входят: у цены они
+      // заметные, и без вычета она оставалась бы с многоточием.
+      const cs = getComputedStyle(s);
+      const pad = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
+      const k = (w - pad) / (s.scrollWidth - pad);
+      // В точках от своего размера, а не в em: em считается от родителя, и у
+      // цены, чей размер задан ей самой, сжатие выходило меньше нужного.
+      fixes.push([s, parseFloat(cs.fontSize) * Math.max(NAME_MIN_SCALE, k * NAME_FIT_SLACK)]);
+    }
+  }
+  for (const [s, px] of fixes) s.style.fontSize = `${px.toFixed(2)}px`;
+}
+
+// Сетка состава и выпадений тянется по ширине окна: после поворота телефона
+// или смены размера окна подписи меряются заново. И после загрузки шрифтов:
+// замер, сделанный запасным шрифтом, дисплейному мал, он шире.
+let nameFitTimer = 0;
+function refitOpenerNames() {
+  clearTimeout(nameFitTimer);
+  nameFitTimer = setTimeout(() => {
+    if (!document.getElementById('opener').hidden) fitNames(document.getElementById('opener'), true);
+  }, 200);
+}
+addEventListener('resize', refitOpenerNames);
+document.fonts?.addEventListener?.('loadingdone', refitOpenerNames);
 
 function tileHtml(item, visual) {
   // Скин принадлежит предмету. visual остаётся запасным: витринная плитка и
@@ -31407,6 +31613,7 @@ function spinReels(c, opened, duration) {
       strip.push(null);
       guard++;
     }
+    fitNames(reel);
 
     const settle = duration >= SETTLE_MIN_DURATION;
     const overshoot = settle ? step * OVERSHOOT : 0;
@@ -32063,6 +32270,7 @@ async function runFreeSpins(grant, caseData, { auto = false, replay = false, cos
       reel.insertAdjacentHTML('beforeend', tileHtml(pickFiller(), caseData.visual));
       guard++;
     }
+    fitNames(reel);
 
     requestAnimationFrame(() => {
       reel.style.transition = `transform ${SPIN_MS / 1000}s ${SPIN_EASE}`;
@@ -32602,6 +32810,7 @@ async function loadCaseHistory(caseTitle) {
     grid.insertAdjacentHTML('beforeend', next.map((it, k) => card(it, shown + k)).join(''));
     // Новые карточки въезжают по одной: видно, что добавилось именно они.
     [...grid.children].slice(shown).forEach((el, k) => el.style.setProperty('--k', k));
+    fitNames(grid);
     shown += next.length;
     more.hidden = shown >= items.length;
   };
@@ -35743,12 +35952,23 @@ function switchView(name) {
     toast('Раздел временно недоступен');
     return;
   }
+  // Открытый кейс лежит поверх разделов: без закрытия меню переключало бы
+  // раздел под ним, и игрок видел бы всё тот же кейс. Серия авто
+  // останавливается, как по «СТОП»: начатый прокрут уже посчитан сервером,
+  // следующий не начнётся.
+  if (!document.getElementById('opener').hidden) {
+    state.autoStop = true;
+    closeOpener();
+  }
   document.querySelectorAll('.view').forEach((v) => v.classList.remove('active'));
   document.getElementById(`view-${name}`).classList.add('active');
   window.scrollTo({ top: 0 });
 
   state.view = name;
   markSideNav(name);
+  // Ушли из панели - адрес снова главная, иначе обновление страницы
+  // вернуло бы в панель, откуда уже ушли.
+  if (name !== 'admin' && wantsAdmin()) history.replaceState(null, '', '/' + location.search);
 
   if (name === 'fair') renderFair();
   if (name === 'wallet') {
@@ -37673,6 +37893,7 @@ function openFeedDrop(drop, fromEl = null) {
       <div class="drop-name"><span>${esc(drop.name)}</span></div>
       <div class="drop-value">${money(drop.value)}</div>
     </div>`;
+  requestAnimationFrame(() => fitNames(card));
 
   const cover = document.getElementById('feedSheetCover');
   cover.innerHTML = c ? caseCover(c) : '';
@@ -37782,6 +38003,9 @@ async function pollFeed() {
     feedSeen.add(d.id);
     feedQueue.push(d);
   }
+  // Пока лента стоит (открыт кейс), очередь растёт: держим только свежие,
+  // старее того, что поместится в ленту, показывать всё равно незачем.
+  if (feedQueue.length > FEED_MAX_CARDS) feedQueue.splice(0, feedQueue.length - FEED_MAX_CARDS);
 
   // Множество не должно расти бесконечно: помним только последнюю партию.
   if (feedSeen.size > 400) {
@@ -37796,6 +38020,10 @@ function startFeed() {
   state.feedTimers = [
     setInterval(pollFeed, FEED_POLL_MS),
     setInterval(() => {
+      // Пока открыт кейс, лента стоит: на телефоне она живёт под ним, и
+      // каждая новая плитка - раскладка и перерисовка посреди прокрута, из-за
+      // которых лента кейса подвисала на остановке. Очередь ждёт.
+      if (document.body.classList.contains('case-open')) return;
       const next = feedQueue.shift();
       if (next) pushFeedCard(next);
     }, FEED_STEP_MS),
@@ -38614,6 +38842,26 @@ function signedIn(user, created = false) {
     loadFreeCase();
     startOnboarding();
   }
+  openAdminEntry();
+}
+
+/*
+ * Скрытый вход в панель: адрес /admin. В боковом меню компьютера админки нет
+ * по решению заказчика, а меню телефона там не открыть, поэтому вход с
+ * компьютера - только по адресу. Сайт под ним тот же, панель открывается
+ * поверх. Не сотруднику адрес ничего не показывает: возвращаем на главную.
+ */
+const ADMIN_PATH = '/admin';
+
+function wantsAdmin() {
+  return location.pathname.replace(/\/+$/, '') === ADMIN_PATH;
+}
+
+function openAdminEntry() {
+  if (!wantsAdmin() || state.guest) return;
+  if (state.user?.isAdmin) { switchView('admin'); return; }
+  history.replaceState(null, '', '/' + location.search);
+  toast('Нет доступа к панели');
 }
 
 async function submitAuth(event) {
@@ -38837,10 +39085,13 @@ async function init() {
     } else if (state.guest && refPromo.fresh) {
       // Пришёл по ссылке партнёра - сразу регистрация с его кодом.
       openAuth('register');
+    } else if (state.guest && wantsAdmin()) {
+      openAuth('login');
     } else if (!state.guest) {
       startPaymentEvents();
       loadFreeCase();
       startOnboarding();
+      openAdminEntry();
     }
   } catch (err) {
     document.getElementById('app').innerHTML =
@@ -40079,7 +40330,13 @@ function runHeroSlider(heroId = 'hero', dotsId = 'heroDots') {
   // разная длительность, и setInterval с одним шагом её бы не учёл.
   const start = () => {
     if (timer !== null) return;
-    timer = setTimeout(() => { timer = null; show(at + 1); start(); }, durationOf(slides[at]));
+    // Под открытым кейсом слайд не меняется: смена кадра - перерисовка
+    // баннера под лентой, которую игрок в этот момент смотрит.
+    timer = setTimeout(() => {
+      timer = null;
+      if (!document.body.classList.contains('case-open')) show(at + 1);
+      start();
+    }, durationOf(slides[at]));
   };
   const stop = () => { clearTimeout(timer); timer = null; };
 

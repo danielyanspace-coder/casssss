@@ -351,7 +351,9 @@ export function createMotion({ money, artFor, tierColor, snd, haptic = () => {} 
     mount();
     const r = el('div', 'mo-ring', top);
     r.style.left = `${x}px`; r.style.top = `${y}px`; r.style.setProperty('--c', color);
-    anim(r, [{ transform: 'scale(.1)', opacity: 1, borderWidth: '8px' }, { transform: `scale(${scale})`, opacity: 0, borderWidth: '1px' }], { duration: dur, delay, easing: E.out }).onfinish = () => r.remove();
+    // Без border-width в кадрах: толщина рамки не анимируется видеокартой, и
+    // кольцо перерисовывалось на каждом кадре. Тонеет оно само, растягиваясь.
+    anim(r, [{ transform: 'scale(.1)', opacity: 1 }, { transform: `scale(${scale})`, opacity: 0 }], { duration: dur, delay, easing: E.out }).onfinish = () => r.remove();
   }
   function slash(y, color = '#ffd34d', angle = -22) {
     if (!accent.slash) return;
@@ -429,12 +431,12 @@ export function createMotion({ money, artFor, tierColor, snd, haptic = () => {} 
     w.innerHTML = [...word].map((ch) => `<span class="mo-metal">${ch === ' ' ? NB : ch}</span>`).join('');
     label.append(w);
     [...w.children].forEach((sp, i) => {
-      // fill: backwards - после входа фильтр возвращается к теням металла из
-      // CSS. С forwards на буквах навсегда остался бы blur(0), и объём надписи
-      // пропадал бы ровно в момент, когда её читают.
+      // Только transform и opacity, без размытия: у металлической буквы пять
+      // теней фильтра, и анимированный blur перерисовывал бы её с ними на
+      // каждом кадре. Тени из CSS остаются на месте всё время.
       anim(sp, [
-        { transform: 'translateY(30px) scale(2.2) rotateX(-80deg)', opacity: 0, filter: 'blur(6px)' },
-        { transform: 'none', opacity: 1, filter: 'blur(0)' },
+        { transform: 'translateY(30px) scale(2.2) rotateX(-80deg)', opacity: 0 },
+        { transform: 'none', opacity: 1 },
       ], { duration: 560, delay: i * 38, easing: E.back, fill: 'backwards' });
     });
   }
@@ -649,7 +651,7 @@ export function createMotion({ money, artFor, tierColor, snd, haptic = () => {} 
     const old = label.querySelector('.mo-word:not(.out)');
     if (old) {
       old.classList.add('out');
-      anim(old, [{ transform: 'scale(1)', opacity: 1, filter: 'blur(0)' }, { transform: 'scale(1.6)', opacity: 0, filter: 'blur(10px)' }], { duration: 420, easing: E.out }).onfinish = () => old.remove();
+      anim(old, [{ transform: 'scale(1)', opacity: 1 }, { transform: 'scale(1.6)', opacity: 0 }], { duration: 420, easing: E.out }).onfinish = () => old.remove();
     }
     wl.dataset.tier = L.key;
     stampLabel(label, L.word);
@@ -785,23 +787,25 @@ export function createMotion({ money, artFor, tierColor, snd, haptic = () => {} 
       [...holder.children].forEach((sp, i) => {
         const order = dir < 0 ? word.length - 1 - i : i;
         anim(sp, [
-          { transform: `translateX(${dir * 160}px) skewX(${-dir * 24}deg) scale(1.3)`, opacity: 0, filter: 'blur(8px)' },
-          { transform: 'none', opacity: 1, filter: 'blur(0)' },
+          { transform: `translateX(${dir * 160}px) skewX(${-dir * 24}deg) scale(1.3)`, opacity: 0 },
+          { transform: 'none', opacity: 1 },
         ], { duration: 620, delay: 120 + order * 45, easing: E.out, fill: 'backwards' });
-        // Блик пробегает по буквам волной, а не одним пятном.
-        anim(sp, [{ backgroundPosition: '0 0%' }, { backgroundPosition: '0 100%' }], { duration: 1400, delay: 900 + i * 60, easing: E.inout, iterations: 2, direction: 'alternate' });
       });
     });
+    // Бегущего блика по буквам больше нет: его гоняли background-position,
+    // а это перерисовка буквы с пятью тенями на каждом кадре, около пятисот
+    // перерисовок за пролог, и на телефоне пролог шёл рывками. Блик
+    // отдельным слоем поверх ложился серой полосой на тёмный фон.
     play('sndWhoosh');
     await sleep(420);
 
     const num = show.querySelector('.mo-fs-count');
     anim(num, [
-      { transform: 'translateY(-40px) scale(3)', opacity: 0, filter: 'blur(14px)' },
-      { transform: 'translateY(4px) scale(.94)', opacity: 1, filter: 'blur(0)', offset: 0.7 },
-      { transform: 'none', opacity: 1, filter: 'blur(0)' },
-      // Анимируется обёртка, а металл - на числе внутри: blur(0) с
-      // заполнением на самом числе стёр бы его тени объёма.
+      { transform: 'translateY(-40px) scale(3)', opacity: 0 },
+      { transform: 'translateY(4px) scale(.94)', opacity: 1, offset: 0.7 },
+      { transform: 'none', opacity: 1 },
+      // Без размытия по той же причине, что у букв: под обёрткой число с
+      // тенями металла, и blur перерисовывал бы его каждый кадр.
     ], { duration: 520, easing: E.out });
     await sleep(360);
     const nb = box(num);
@@ -927,9 +931,9 @@ export function createMotion({ money, artFor, tierColor, snd, haptic = () => {} 
 
     // 1. Печать падает с высоты и бьёт в плитку.
     anim(stamp, [
-      { transform: 'translate(-50%, -50%) translateY(-120px) scale(3.4) rotate(-24deg)', opacity: 0, filter: 'blur(6px)' },
-      { transform: 'translate(-50%, -50%) scale(.92) rotate(-10deg)', opacity: 1, filter: 'blur(0)', offset: 0.7 },
-      { transform: 'translate(-50%, -50%) scale(1) rotate(-10deg)', opacity: 1, filter: 'blur(0)' },
+      { transform: 'translate(-50%, -50%) translateY(-120px) scale(3.4) rotate(-24deg)', opacity: 0 },
+      { transform: 'translate(-50%, -50%) scale(.92) rotate(-10deg)', opacity: 1, offset: 0.7 },
+      { transform: 'translate(-50%, -50%) scale(1) rotate(-10deg)', opacity: 1 },
     ], { duration: 420, easing: E.in });
     play('sndWhoosh', false);
     await sleep(300);
@@ -995,6 +999,104 @@ export function createMotion({ money, artFor, tierColor, snd, haptic = () => {} 
     coins(tb.cx, tb.cy, big ? 40 : 18, { speed: 820, spread: Math.PI * 0.7 });
     shower(big ? 80 : 36, ['#ffd34d', '#ff9a1f', '#ffffff']);
     play('sndFanfare', big ? 1.26 : 1);
+  }
+
+  /**
+   * Итог серии крупно: сумма срывается со счётчика серии, встаёт посреди
+   * экрана и улетает в кнопку «Забрать». Счёт не повторяется - счётчик уже
+   * досчитал, и пересчёт с нуля выглядел бы как второе начисление.
+   *
+   * Сила показа - отношение к цене, как везде: окупившаяся серия получает
+   * кольцо, монеты и плашку «×N к цене», неокупившаяся - ту же сумму тихо,
+   * без искр и фанфар (возврат меньше ставки не празднуется). Нулевой итог
+   * не показывается вовсе.
+   *
+   * Только transform и opacity: число с металлом не перерисовывается, пока
+   * летит. Закрывается само, нажатие ускоряет уход.
+   */
+  async function seriesTotal(totalEl, { total, cost = 0, text, button = null }) {
+    if (!(total > 0) || !totalEl) return;
+    mount();
+    const ratio = cost > 0 ? total / cost : 0;
+    const paid = ratio >= 1;
+    const big = ratio >= 2.5;
+
+    const st = el('div', `mo-st${paid ? ' is-paid' : ''}`, top);
+    st.innerHTML = `
+      <div class="mo-st-dim"></div>
+      <div class="mo-st-glow"></div>
+      <div class="mo-st-box">
+        <div class="mo-st-eyebrow">Фриспины принесли</div>
+        <div class="mo-st-num"><span class="mo-metal">${text}</span></div>
+        ${paid ? `<div class="mo-st-pill">${xFmt(ratio)} к цене серии</div>` : ''}
+      </div>`;
+    st.style.pointerEvents = 'auto';
+    const num = st.querySelector('.mo-st-num');
+    const dim = st.querySelector('.mo-st-dim');
+    const glow = st.querySelector('.mo-st-glow');
+    const eyebrow = st.querySelector('.mo-st-eyebrow');
+    const pill = st.querySelector('.mo-st-pill');
+
+    let skip = null;
+    const skipped = new Promise((r) => { skip = r; });
+    st.onclick = () => skip();
+    const hold = (ms) => Promise.race([sleep(ms), skipped]);
+
+    // Взлёт со счётчика: число стартует ровно с его места и его размера.
+    const from = box(totalEl);
+    const to = box(num);
+    const s0 = Math.max(0.2, from.h / Math.max(1, to.h));
+    totalEl.style.opacity = '0.25';
+    recede(true);
+    anim(dim, [{ opacity: 0 }, { opacity: 1 }], { duration: 420, easing: E.out });
+    anim(num, [
+      { transform: `translate(${from.cx - to.cx}px, ${from.cy - to.cy}px) scale(${s0})`, opacity: 0.6 },
+      { transform: `translate(0, -18px) scale(${paid ? 1.12 : 1.04})`, opacity: 1, offset: 0.7 },
+      { transform: 'none', opacity: 1 },
+    ], { duration: 720, easing: E.out });
+    play('sndWhoosh', true);
+    await sleep(520);
+
+    const nb = box(num);
+    anim(glow, [{ opacity: 0, transform: 'scale(.5)' }, { opacity: paid ? 1 : 0.45, transform: 'scale(1)' }], { duration: 700, easing: E.out });
+    anim(eyebrow, [{ opacity: 0, transform: 'translateY(8px)', letterSpacing: '.5em' }, { opacity: 1, transform: 'none', letterSpacing: '.22em' }], { duration: 600, easing: E.out });
+    if (paid) {
+      ring(nb.cx, nb.cy, '#ffd34d', big ? 4.2 : 3.2, 700);
+      ring(nb.cx, nb.cy, '#ffffff', 2.4, 600, 90);
+      coins(nb.cx, nb.cy, big ? 34 : 16, { speed: 760, spread: Math.PI * 0.75 });
+      if (big) shower(60, ['#ffd34d', '#ff9a1f', '#ffffff']);
+      shake(big ? 8 : 5, 420);
+      play('sndFanfare', big ? 1.26 : 1);
+      haptic('success');
+      if (pill) anim(pill, [{ opacity: 0, transform: 'scale(.6)' }, { opacity: 1, transform: 'scale(1.08)', offset: 0.6 }, { opacity: 1, transform: 'none' }], { duration: 520, delay: 220, easing: E.back });
+    } else {
+      play('sndSoft');
+      haptic('light');
+    }
+
+    await hold(paid ? 2000 : 1300);
+
+    // Уход: сумма падает в кнопку «Забрать», кнопка вспыхивает. Без кнопки
+    // (она ещё не показана) - просто тает на месте.
+    const tb = button && !button.hidden ? box(button) : null;
+    const cb = box(num);
+    const away = tb
+      ? [{ transform: 'none', opacity: 1 }, { transform: `translate(${tb.cx - cb.cx}px, ${tb.cy - cb.cy}px) scale(.28)`, opacity: 0.2 }]
+      : [{ transform: 'none', opacity: 1 }, { transform: 'scale(.9)', opacity: 0 }];
+    anim(num, away, { duration: 520, easing: E.in });
+    [eyebrow, pill, glow].forEach((n) => n && anim(n, [{ opacity: 1 }, { opacity: 0 }], { duration: 260, easing: E.out }));
+    anim(dim, [{ opacity: 1 }, { opacity: 0 }], { duration: 520, delay: 120, easing: E.out });
+    await sleep(500);
+    totalEl.style.opacity = '';
+    recede(false);
+    if (tb) {
+      button.classList.remove('is-glint');
+      void button.offsetWidth;
+      button.classList.add('is-glint');
+      play('sndCoin');
+    }
+    await sleep(150);
+    st.remove();
   }
 
   /* ---------- Просмотр предмета из состава ---------- */
@@ -1166,5 +1268,5 @@ export function createMotion({ money, artFor, tierColor, snd, haptic = () => {} 
     document.querySelectorAll('.mo-x2-tile').forEach((t) => t.classList.remove('mo-x2-tile'));
   }
 
-  return { win, purchase, retrigger, payout, seriesEnd, reset, recede, levelOf, inspect, closeInspect, doubler };
+  return { win, purchase, retrigger, payout, seriesEnd, seriesTotal, reset, recede, levelOf, inspect, closeInspect, doubler };
 }

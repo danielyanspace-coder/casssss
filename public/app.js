@@ -1045,6 +1045,7 @@ function openCase(caseId) {
     }).join('');
 
   document.getElementById('dropsGrid').innerHTML = showcaseCard + cards;
+  requestAnimationFrame(() => fitNames(document.getElementById('dropsGrid')));
 
   /*
    * Нажатие на предмет в составе показывает его крупно: та же карточка, что
@@ -1424,6 +1425,8 @@ function renderIdleReel(c, count = 1) {
     const strip = [];
     for (let i = 0; i < 24; i++) strip.push(weightedSample(c.items));
     reel.innerHTML = strip.map(tileHtml).join('');
+    // Экран кейса в этот момент ещё может быть скрыт: меряем после показа.
+    requestAnimationFrame(() => fitNames(reel));
 
     reel.style.transition = 'none';
     requestAnimationFrame(() => {
@@ -1516,6 +1519,54 @@ function tileArt(item, color) {
   const small = itemArtMaterial(item.name) || itemArt(item.name, color) || iconTier(item.tier, color);
   return `<span class="art-medal">${small}</span>`;
 }
+
+/*
+ * Длинное слово в подписи не переносится и уезжает под край плитки: «10
+ * ФРИСПИНО» вместо «10 ФРИСПИНОВ». С ценой то же: «Подарочный кейс» и
+ * «26 240 000 ₽» на телефоне получали многоточие. Ширина плитки зависит от экрана, шрифт и
+ * разрядка - от семейства, поэтому заранее стилями это не решить. Подпись,
+ * которая не влезла, ужимается по факту замера. Сначала все чтения, потом все
+ * записи: иначе каждая плитка заново пересчитывала бы раскладку.
+ */
+const NAME_FIT_SEL = '.tile-name > span, .drop-name > span, .tile-value, .drop-value';
+/** Мельче этой доли подпись не становится: дальше её уже не прочитать. */
+const NAME_MIN_SCALE = 0.55;
+/** Запас на сглаживание: замер в целых точках, а шрифт сжимается дробно. */
+const NAME_FIT_SLACK = 0.97;
+
+function fitNames(root, reset = false) {
+  if (!root) return;
+  const spans = [...root.querySelectorAll(NAME_FIT_SEL)];
+  if (reset) for (const s of spans) s.style.fontSize = '';
+  const fixes = [];
+  for (const s of spans) {
+    const w = s.clientWidth;
+    if (w && s.scrollWidth > w + 1) {
+      // Поля в обеих ширинах одинаковы и в масштаб не входят: у цены они
+      // заметные, и без вычета она оставалась бы с многоточием.
+      const cs = getComputedStyle(s);
+      const pad = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
+      const k = (w - pad) / (s.scrollWidth - pad);
+      // В точках от своего размера, а не в em: em считается от родителя, и у
+      // цены, чей размер задан ей самой, сжатие выходило меньше нужного.
+      fixes.push([s, parseFloat(cs.fontSize) * Math.max(NAME_MIN_SCALE, k * NAME_FIT_SLACK)]);
+    }
+  }
+  for (const [s, px] of fixes) s.style.fontSize = `${px.toFixed(2)}px`;
+}
+
+// Сетка состава и выпадений тянется по ширине окна: после поворота телефона
+// или смены размера окна подписи меряются заново. И после загрузки шрифтов:
+// замер, сделанный запасным шрифтом, дисплейному мал, он шире.
+let nameFitTimer = 0;
+function refitOpenerNames() {
+  clearTimeout(nameFitTimer);
+  nameFitTimer = setTimeout(() => {
+    if (!document.getElementById('opener').hidden) fitNames(document.getElementById('opener'), true);
+  }, 200);
+}
+addEventListener('resize', refitOpenerNames);
+document.fonts?.addEventListener?.('loadingdone', refitOpenerNames);
 
 function tileHtml(item, visual) {
   // Скин принадлежит предмету. visual остаётся запасным: витринная плитка и
@@ -1815,6 +1866,7 @@ function spinReels(c, opened, duration) {
       strip.push(null);
       guard++;
     }
+    fitNames(reel);
 
     const settle = duration >= SETTLE_MIN_DURATION;
     const overshoot = settle ? step * OVERSHOOT : 0;
@@ -2471,6 +2523,7 @@ async function runFreeSpins(grant, caseData, { auto = false, replay = false, cos
       reel.insertAdjacentHTML('beforeend', tileHtml(pickFiller(), caseData.visual));
       guard++;
     }
+    fitNames(reel);
 
     requestAnimationFrame(() => {
       reel.style.transition = `transform ${SPIN_MS / 1000}s ${SPIN_EASE}`;
@@ -3010,6 +3063,7 @@ async function loadCaseHistory(caseTitle) {
     grid.insertAdjacentHTML('beforeend', next.map((it, k) => card(it, shown + k)).join(''));
     // Новые карточки въезжают по одной: видно, что добавилось именно они.
     [...grid.children].slice(shown).forEach((el, k) => el.style.setProperty('--k', k));
+    fitNames(grid);
     shown += next.length;
     more.hidden = shown >= items.length;
   };
@@ -6151,12 +6205,23 @@ function switchView(name) {
     toast('Раздел временно недоступен');
     return;
   }
+  // Открытый кейс лежит поверх разделов: без закрытия меню переключало бы
+  // раздел под ним, и игрок видел бы всё тот же кейс. Серия авто
+  // останавливается, как по «СТОП»: начатый прокрут уже посчитан сервером,
+  // следующий не начнётся.
+  if (!document.getElementById('opener').hidden) {
+    state.autoStop = true;
+    closeOpener();
+  }
   document.querySelectorAll('.view').forEach((v) => v.classList.remove('active'));
   document.getElementById(`view-${name}`).classList.add('active');
   window.scrollTo({ top: 0 });
 
   state.view = name;
   markSideNav(name);
+  // Ушли из панели - адрес снова главная, иначе обновление страницы
+  // вернуло бы в панель, откуда уже ушли.
+  if (name !== 'admin' && wantsAdmin()) history.replaceState(null, '', '/' + location.search);
 
   if (name === 'fair') renderFair();
   if (name === 'wallet') {
@@ -8081,6 +8146,7 @@ function openFeedDrop(drop, fromEl = null) {
       <div class="drop-name"><span>${esc(drop.name)}</span></div>
       <div class="drop-value">${money(drop.value)}</div>
     </div>`;
+  requestAnimationFrame(() => fitNames(card));
 
   const cover = document.getElementById('feedSheetCover');
   cover.innerHTML = c ? caseCover(c) : '';
@@ -8190,6 +8256,9 @@ async function pollFeed() {
     feedSeen.add(d.id);
     feedQueue.push(d);
   }
+  // Пока лента стоит (открыт кейс), очередь растёт: держим только свежие,
+  // старее того, что поместится в ленту, показывать всё равно незачем.
+  if (feedQueue.length > FEED_MAX_CARDS) feedQueue.splice(0, feedQueue.length - FEED_MAX_CARDS);
 
   // Множество не должно расти бесконечно: помним только последнюю партию.
   if (feedSeen.size > 400) {
@@ -8204,6 +8273,10 @@ function startFeed() {
   state.feedTimers = [
     setInterval(pollFeed, FEED_POLL_MS),
     setInterval(() => {
+      // Пока открыт кейс, лента стоит: на телефоне она живёт под ним, и
+      // каждая новая плитка - раскладка и перерисовка посреди прокрута, из-за
+      // которых лента кейса подвисала на остановке. Очередь ждёт.
+      if (document.body.classList.contains('case-open')) return;
       const next = feedQueue.shift();
       if (next) pushFeedCard(next);
     }, FEED_STEP_MS),
@@ -9022,6 +9095,26 @@ function signedIn(user, created = false) {
     loadFreeCase();
     startOnboarding();
   }
+  openAdminEntry();
+}
+
+/*
+ * Скрытый вход в панель: адрес /admin. В боковом меню компьютера админки нет
+ * по решению заказчика, а меню телефона там не открыть, поэтому вход с
+ * компьютера - только по адресу. Сайт под ним тот же, панель открывается
+ * поверх. Не сотруднику адрес ничего не показывает: возвращаем на главную.
+ */
+const ADMIN_PATH = '/admin';
+
+function wantsAdmin() {
+  return location.pathname.replace(/\/+$/, '') === ADMIN_PATH;
+}
+
+function openAdminEntry() {
+  if (!wantsAdmin() || state.guest) return;
+  if (state.user?.isAdmin) { switchView('admin'); return; }
+  history.replaceState(null, '', '/' + location.search);
+  toast('Нет доступа к панели');
 }
 
 async function submitAuth(event) {
@@ -9245,10 +9338,13 @@ async function init() {
     } else if (state.guest && refPromo.fresh) {
       // Пришёл по ссылке партнёра - сразу регистрация с его кодом.
       openAuth('register');
+    } else if (state.guest && wantsAdmin()) {
+      openAuth('login');
     } else if (!state.guest) {
       startPaymentEvents();
       loadFreeCase();
       startOnboarding();
+      openAdminEntry();
     }
   } catch (err) {
     document.getElementById('app').innerHTML =
@@ -10487,7 +10583,13 @@ function runHeroSlider(heroId = 'hero', dotsId = 'heroDots') {
   // разная длительность, и setInterval с одним шагом её бы не учёл.
   const start = () => {
     if (timer !== null) return;
-    timer = setTimeout(() => { timer = null; show(at + 1); start(); }, durationOf(slides[at]));
+    // Под открытым кейсом слайд не меняется: смена кадра - перерисовка
+    // баннера под лентой, которую игрок в этот момент смотрит.
+    timer = setTimeout(() => {
+      timer = null;
+      if (!document.body.classList.contains('case-open')) show(at + 1);
+      start();
+    }, durationOf(slides[at]));
   };
   const stop = () => { clearTimeout(timer); timer = null; };
 

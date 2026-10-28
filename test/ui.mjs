@@ -1888,11 +1888,34 @@ check('честность: личная статистика убрана', fair
   check('компьютер: на экране кейса есть подвал', await desk.isVisible('#siteFooter'));
   check('компьютер: остальные разделы на экране кейса скрыты', await desk.evaluate(
     () => [...document.querySelectorAll('main > .view')].every((v) => !v.offsetParent)));
+  // Пункт бокового меню из открытого кейса ведёт в раздел, а не меняет его
+  // где-то под кейсом. Нажатие через обработчик - по той же причине, что
+  // ниже у закрытия: прокрутка «к кнопке» уводит её под липкую шапку.
+  await desk.evaluate(() => document.querySelector('#sideNav [data-view="cases"]').click());
+  await desk.waitForTimeout(500);
+  check('компьютер: пункт меню из кейса закрывает кейс', await desk.evaluate(() =>
+    document.getElementById('opener').hidden && document.getElementById('view-cases').classList.contains('active')));
   // Закрываем через сам обработчик: тут проверяется вёрстка страницы, а не
   // попадание указателя, а браузерная прокрутка «к кнопке» заводит её под
   // липкую шапку и ломает клик на ровном месте.
   await desk.evaluate(() => document.getElementById('closeOpenerTop').click());
   await desk.waitForTimeout(500);
+
+  // Скрытый вход в панель: /admin открывает её сразу, меню о ней молчит.
+  if (/^https?:/.test(URL_TARGET)) {
+    const adm = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    adm.on('pageerror', (e) => consoleErrors.push('ADMIN PAGEERROR: ' + e.message));
+    await adm.goto(URL_TARGET.replace(/\/$/, '') + '/admin', { waitUntil: 'domcontentloaded' });
+    await adm.waitForSelector('.case-card', { state: 'attached', timeout: 15000 });
+    await adm.waitForTimeout(900);
+    check('компьютер: /admin открывает панель', await adm.evaluate(() =>
+      document.getElementById('view-admin')?.classList.contains('active')));
+    check('компьютер: в боковом меню входа в панель нет', !(await adm.isVisible('#sideNav .is-admin')));
+    await adm.evaluate(() => document.querySelector('#sideNav [data-view="cases"]').click());
+    await adm.waitForTimeout(300);
+    check('компьютер: уход из панели возвращает адрес главной', await adm.evaluate(() => location.pathname === '/'));
+    await adm.close();
+  }
 
   // Боковое меню собрано по мотивам мобильного: у разделов с картинки стоят
   // вырезанные из неё же рисунки.

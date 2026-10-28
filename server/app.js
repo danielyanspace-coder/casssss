@@ -112,6 +112,7 @@ import {
   linkTelegram, setEmailLogin, setPasswordHash, deleteUserSessions, purgeExpiredSessions,
   createPasswordReset, usePasswordReset,
   adminSavePromo,
+  wheelPromoList, createWheelPromo, setWheelPromoActive,
   adminListPromos,
   adminDeletePromo,
   adminSavePartner,
@@ -237,6 +238,16 @@ app.use('/assets', express.static(join(__dirname, '..', 'public', 'assets'), {
   setHeaders: (res) => res.setHeader('Cache-Control', ASSET_CACHE),
 }));
 app.use(express.static(join(__dirname, '..', 'public'), { maxAge: '1h' }));
+/*
+ * Скрытый вход в панель с компьютера: в боковом меню админки нет (решение
+ * заказчика), а меню телефона на широком экране не открыть. Это та же
+ * страница сайта, клиент по адресу сам открывает панель. Защита не здесь:
+ * без прав и подтверждения в боте /api/admin/* всё равно откажет.
+ */
+app.get(['/admin', '/admin/'], (req, res) => {
+  res.setHeader('Cache-Control', 'no-cache');
+  res.sendFile(join(__dirname, '..', 'public', 'index.html'));
+});
 // Часть браузеров и поисковых роботов просит /favicon.ico, не читая разметку.
 app.get('/favicon.ico', (req, res) => res.redirect(301, '/favicon.png'));
 
@@ -1426,6 +1437,24 @@ app.post('/api/pc/admin/finance/export', auth, need('finance.reports'), (req, re
 
 /* Настройки программы и комиссий шлюза - те же, что в панели, только свои группы. */
 const PC_SETTING_GROUPS = new Set(['Партнёры', 'Sicilia']);
+/*
+ * Промокоды Колеса удачи в кабинете: один код - один прокрут на игрока.
+ * Права те же, что у промокодов в панели сайта.
+ */
+app.post('/api/pc/admin/wheel', auth, need('promo.view'), (req, res) => {
+  res.json({ rows: wheelPromoList(), wheel: wheelConfig() });
+});
+
+app.post('/api/pc/admin/wheel/create', auth, need('promo.edit'), (req, res) => {
+  try { res.json(createWheelPromo(req.player.id, req.body || {})); }
+  catch (err) { pcError(res, err); }
+});
+
+app.post('/api/pc/admin/wheel/toggle', auth, need('promo.edit'), (req, res) => {
+  try { res.json(setWheelPromoActive(req.player.id, req.body?.id, !!req.body?.active)); }
+  catch (err) { pcError(res, err); }
+});
+
 app.post('/api/pc/admin/settings', auth, need('settings.manage'), (req, res) => {
   res.json({ rows: settingsAll().filter((r) => PC_SETTING_GROUPS.has(r.group)) });
 });
