@@ -73,6 +73,9 @@ jobs:
       - name: Партнёрская программа и сверка с Sicilia
         run: npm run test:partners
 
+      - name: Безопасное открытие CSV в таблицах
+        run: node test/csv-security.mjs
+
       - name: Проверка заявок на вывод
         run: npm run test:payout-check
 

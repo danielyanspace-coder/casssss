@@ -3186,11 +3186,7 @@ app.post('/api/admin/export', auth, need('reports.view'), (req, res) => {
       r.deposits, r.payouts, r.net, r.signups]);
   }
 
-  const escape = (v) => {
-    const text = String(v ?? '');
-    return /[";\n]/.test(text) ? '"' + text.replace(/"/g, '""') + '"' : text;
-  };
-  const csv = '\ufeff' + [head, ...rows].map((r) => r.map(escape).join(';')).join('\r\n');
+  const csv = toCsv(head, rows);
   logAdmin(req.player.id, 0, 'export', { note: kind, meta: { days, rows: rows.length } });
   res.type('text/csv; charset=utf-8').send(csv);
 });
