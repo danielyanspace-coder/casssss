@@ -15,7 +15,7 @@
     "test:cashier-ui": "node test/cashier-ui.mjs",
     "test:startup-ui": "node test/startup-ui.mjs",
     "test:x2": "node test/x2.mjs",
-    "test:casino": "node test/casino.mjs && node test/casino-home-cache.mjs",
+    "test:casino": "node test/casino.mjs && node test/casino-home-cache.mjs && node test/casino-navigation.mjs",
     "test": "npm run verify && npm run test:modules && npm run test:ratelimit && npm run test:x2 && npm run test:wager && npm run test:payout-check && npm run test:crypto && npm run test:sicilia && npm run test:auth && npm run test:ops && npm run test:analytics && npm run test:fortune && npm run test:slots && npm run test:casino && npm run test:api && npm run test:ui",
     "test:ratelimit": "node test/ratelimit.mjs",
     "backup": "node deploy/backup.mjs",

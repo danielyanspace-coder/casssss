@@ -225,6 +225,13 @@ for (const method of ['get', 'post', 'put', 'patch', 'delete']) {
  * всей цепочке (`true`) нельзя, заголовок подделывается кем угодно.
  */
 app.set('trust proxy', Number(process.env.TRUST_PROXY_HOPS || 1));
+app.disable('x-powered-by');
+app.use('/api', (req, res, next) => {
+  // Ответы с балансом, сессией и данными сотрудников не сохраняются в кеше.
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  next();
+});
 
 app.use(express.json({ limit: '8mb', verify: (req, res, buffer) => { req.rawBody = buffer.toString('utf8'); } }));
 /*

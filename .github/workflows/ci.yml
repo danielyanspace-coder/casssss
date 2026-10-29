@@ -91,6 +91,12 @@ jobs:
       - name: Проверки API
         run: npm run test:api
 
+      - name: Каталог казино и быстрые переходы
+        run: npm run test:casino
+
+      - name: Мобильная сетка мини-игр и Live казино
+        run: node test/casino-layout.mjs http://localhost:3000
+
       - name: Кеш рисунков и обложек
         run: npm run test:art && npm run test:casino-covers
 
@@ -111,6 +117,21 @@ jobs:
 
       - name: Проверки интерфейса по автономной сборке
         run: node test/ui.mjs "file://$PWD/dist/luckybox.html"
+
+      - name: Безопасность HTTP с выключенным DEV_MODE
+        run: |
+          DEV_MODE=false DB_PATH=./data/security-ci.db PORT=3099 HOST=127.0.0.1 node server/app.js > security-server.log 2>&1 &
+          security_pid=$!
+          trap 'kill "$security_pid" 2>/dev/null || true' EXIT
+          for i in $(seq 1 40); do
+            if curl -sf http://127.0.0.1:3099/api/health > /dev/null; then
+              node test/security-http.mjs http://127.0.0.1:3099
+              exit $?
+            fi
+            sleep 1
+          done
+          cat security-server.log
+          exit 1
 
       - name: Резервное копирование работает
         run: node deploy/backup.mjs

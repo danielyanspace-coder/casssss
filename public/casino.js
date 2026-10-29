@@ -308,7 +308,7 @@ export function createCasino(deps) {
         </span>
       </span>
       <span class="cz-name">${esc(o.name)}</span>
-      <span class="cz-prov">LUCKYBOX</span>
+      ${liveHtml({ id: `own:${o.view}` })}
     </button>`;
   }
 
@@ -318,9 +318,7 @@ export function createCasino(deps) {
     const own = OWN_FAST.filter((o) => !deps.ownOpen || deps.ownOpen(o.view));
     body.innerHTML = `<div class="cz-grid cz-fast" data-block="fast">
         ${own.map(ownTileHtml).join('')}${ui.fast.map((g) => tileHtml(g, remember(g))).join('')}
-      </div>
-      <p class="cz-note">Отдача игр провайдеров <b>${esc(String(ui.lobby.rtp))}%</b>. Краш и Апгрейд - наши игры,
-        их исход проверяется в разделе «Честность игры».</p>`;
+      </div>`;
   }
 
   async function loadFast() {
@@ -346,7 +344,16 @@ export function createCasino(deps) {
     }
     // Отдачи на экране игр нет (решение заказчика): она объявлена одна на
     // всё казино в разделе «Честность игры», и повторять её здесь незачем.
-    body.innerHTML = blocks.map(blockHtml).join('');
+    // У live-полок разные первые игры, но состав каждой категории сохраняется.
+    const leaders = new Set();
+    body.innerHTML = blocks.map((b) => {
+      if (ui.kind !== 'live') return blockHtml(b);
+      const games = [...b.games];
+      const first = games.findIndex((g) => !leaders.has(g.name.trim().toLowerCase()));
+      if (first > 0) games.unshift(...games.splice(first, 1));
+      if (games.length) leaders.add(games[0].name.trim().toLowerCase());
+      return blockHtml({ ...b, games });
+    }).join('');
   }
 
   function skeletonHome() {
@@ -431,6 +438,15 @@ export function createCasino(deps) {
     $('czEmpty').hidden = true;
   }
 
+  function renderLoadError() {
+    if (!ui.active) return;
+    $('czBody').innerHTML = `<div class="cz-soon">
+      <b>Не удалось загрузить игры</b>
+      <span>Проверьте соединение и попробуйте ещё раз.</span>
+      <button class="cz-soon-btn" data-retry>Повторить</button>
+    </div>`;
+  }
+
   function fetchPage(offset) {
     const v = ui.view;
     return api('/api/casino/games', {
@@ -450,6 +466,7 @@ export function createCasino(deps) {
    */
   async function reload() {
     const seq = ++ui.seq;
+    refs.clear();
     ui.loading = true;
     skeletonGrid();
     try {
@@ -462,6 +479,7 @@ export function createCasino(deps) {
     } catch (err) {
       if (seq !== ui.seq) return;
       ui.loading = false;
+      renderLoadError();
       toast(err.message);
     }
   }
@@ -481,11 +499,14 @@ export function createCasino(deps) {
       ui.total = data.total;
       renderGrid(from);
     } catch (err) {
+      if (seq !== ui.seq) return;
       toast(err.message);
     } finally {
-      ui.loading = false;
       if (btn.isConnected) btn.disabled = false;
-      resumeCoverRequests();
+      if (seq === ui.seq) {
+        ui.loading = false;
+        resumeCoverRequests();
+      }
     }
   }
 
@@ -524,6 +545,10 @@ export function createCasino(deps) {
 
   function render() {
     if (!ui.active) return;
+    // Любой переход отменяет влияние запросов прежнего экрана.
+    ui.seq++;
+    ui.loading = false;
+    refs.clear();
     pauseCoverRequests();
     // Вкладка на корне: по ней стили делают плитки live крупнее (у живых
     // столов обложка - картинка стола, мелкой она не читается). Именно
@@ -541,6 +566,7 @@ export function createCasino(deps) {
 
   /* Переход вперёд: прежний экран уходит в стек. */
   function go(view) {
+    clearTimeout(ui.searchTimer);
     ui.stack.push(ui.view);
     ui.view = view;
     render();
@@ -548,6 +574,7 @@ export function createCasino(deps) {
   }
 
   function back() {
+    clearTimeout(ui.searchTimer);
     ui.view = ui.stack.pop() || { type: 'home' };
     // Из поиска назад - поле очищается, иначе возврат выглядит как поиск.
     if (ui.view.type !== 'search') { ui.q = ''; const q = $('czQ'); if (q) q.value = ''; }
@@ -556,6 +583,7 @@ export function createCasino(deps) {
   }
 
   async function setKind(kind) {
+    clearTimeout(ui.searchTimer);
     if (ui.kind === kind && ui.view.type === 'home') return;
     ui.kind = kind;
     ui.view = { type: 'home' };
@@ -563,7 +591,10 @@ export function createCasino(deps) {
     ui.q = '';
     const q = $('czQ'); if (q) q.value = '';
     render();
-    try { await loadHome(kind); } catch (err) { toast(err.message); return; }
+    try { await loadHome(kind); } catch (err) {
+      if (ui.kind === kind && ui.view.type === 'home') { renderLoadError(); toast(err.message); }
+      return;
+    }
     if (ui.kind === kind && ui.view.type === 'home') render();
   }
 
@@ -589,6 +620,11 @@ export function createCasino(deps) {
     r.dataset.bound = '1';
 
     const onClick = (e) => {
+      if (e.target.closest('[data-retry]')) {
+        if (!ui.lobby || ui.view.type === 'home') open();
+        else render();
+        return;
+      }
       const kindBtn = e.target.closest('[data-kind]');
       if (kindBtn) { haptic('light'); setKind(kindBtn.dataset.kind); return; }
       if (e.target.closest('[data-back]')) { haptic('light'); back(); return; }
@@ -643,12 +679,17 @@ export function createCasino(deps) {
       try {
         ui.lobby = await api('/api/casino/lobby');
       } catch (err) {
+        renderLoadError();
         toast(err.message);
         return;
       }
     }
     render();
-    try { await loadHome(ui.kind); } catch (err) { toast(err.message); return; }
+    const seq = ui.seq;
+    try { await loadHome(ui.kind); } catch (err) {
+      if (seq === ui.seq && ui.active) { renderLoadError(); toast(err.message); }
+      return;
+    }
     if (ui.view.type === 'home') render();
     resumeCoverRequests();
   }
@@ -668,9 +709,10 @@ export function createCasino(deps) {
     if (!g) return;
     haptic('light');
     const sheet = $('czSheet');
-    const sheetArt = g.wide || g.cover;
+    // Используем уже показанную обложку: окно выбора не ждёт загрузки баннера.
+    const sheetArt = g.cover || g.wide;
     $('czSheetArt').style.backgroundImage = sheetArt ? `url("${sheetArt}")` : 'none';
-    $('czSheetArt').classList.toggle('is-cover', !g.wide);
+    $('czSheetArt').classList.toggle('is-cover', !!g.cover);
     $('czSheetName').textContent = g.name;
     $('czSheetProv').textContent = g.provider;
     const demo = $('czDemo');
@@ -678,12 +720,10 @@ export function createCasino(deps) {
     demo.onclick = () => launch(g, true);
     $('czPlay').onclick = () => launch(g, false);
     sheet.hidden = false;
-    requestAnimationFrame(() => sheet.classList.add('is-in'));
   }
 
   function closeSheet() {
     const sheet = $('czSheet');
-    sheet.classList.remove('is-in');
     sheet.hidden = true;
     $('czSheetArt').style.backgroundImage = 'none';
   }
