@@ -225,6 +225,13 @@ for (const method of ['get', 'post', 'put', 'patch', 'delete']) {
  * всей цепочке (`true`) нельзя, заголовок подделывается кем угодно.
  */
 app.set('trust proxy', Number(process.env.TRUST_PROXY_HOPS || 1));
+app.disable('x-powered-by');
+app.use('/api', (req, res, next) => {
+  // Ответы с балансом, сессией и данными сотрудников не сохраняются в кеше.
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  next();
+});
 
 app.use(express.json({ limit: '8mb', verify: (req, res, buffer) => { req.rawBody = buffer.toString('utf8'); } }));
 /*
@@ -3179,11 +3186,7 @@ app.post('/api/admin/export', auth, need('reports.view'), (req, res) => {
       r.deposits, r.payouts, r.net, r.signups]);
   }
 
-  const escape = (v) => {
-    const text = String(v ?? '');
-    return /[";\n]/.test(text) ? '"' + text.replace(/"/g, '""') + '"' : text;
-  };
-  const csv = '\ufeff' + [head, ...rows].map((r) => r.map(escape).join(';')).join('\r\n');
+  const csv = toCsv(head, rows);
   logAdmin(req.player.id, 0, 'export', { note: kind, meta: { days, rows: rows.length } });
   res.type('text/csv; charset=utf-8').send(csv);
 });

@@ -176,7 +176,10 @@ export function payoutsCsvRows(days) {
 
 export function toCsv(head, rows) {
   const escape = (v) => {
-    const text = String(v ?? '');
+    // Кавычки CSV не мешают Excel исполнить формулу из ника/комментария.
+    // Числовые значения остаются числами, пользовательские строки - текстом.
+    const raw = String(v ?? '');
+    const text = typeof v === 'string' && (/^\s*[=+\-@]/.test(raw) || /^[\t\r\n]/.test(raw)) ? "'" + raw : raw;
     return /[";\n\r]/.test(text) ? '"' + text.replace(/"/g, '""') + '"' : text;
   };
   return '﻿' + [head, ...rows].map((r) => r.map(escape).join(';')).join('\r\n');

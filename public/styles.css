@@ -10662,15 +10662,20 @@ body.mo-receded .opener-scroll { opacity: .42; transform: scale(.94); }
 .cz-pword.is-inline, .cz-pword.is-title { font-size: 17px; text-align: left; }
 
 .cz-grid { display: grid; gap: 10px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
-/* Live казино: плитки крупнее, чем у слотов и быстрых игр (просьба
-   заказчика). Обложка стола горизонтальная, поэтому кадр 4:3 и без размытой
-   подложки: картинка стола заполняет кадр целиком. */
-.cz[data-cz-kind="live"] .cz-track { --cz-tile: calc((100vw - 2 * var(--cz-gutter) - 10px) / 1.55); }
+/* Live: вертикальный постер, исходная обложка всегда помещается целиком. */
+.cz[data-cz-kind="live"] .cz-track { --cz-tile: calc((100vw - 2 * var(--cz-gutter) - 10px) / 2.2); }
 .cz[data-cz-kind="live"] .cz-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.cz[data-cz-kind="live"] .cz-art { aspect-ratio: 4 / 3; }
-.cz[data-cz-kind="live"] .cz-art.is-wide .cz-blur { display: none; }
-.cz[data-cz-kind="live"] .cz-art.is-wide .cz-fit { object-fit: cover; }
-.cz[data-cz-kind="live"] .cz-name { font-size: 14px; }
+.cz[data-cz-kind="live"] .cz-art { aspect-ratio: 3 / 4; background: #191322; }
+.cz[data-cz-kind="live"] .cz-art img:not(.cz-blur) { object-fit: contain; }
+.cz[data-cz-kind="live"] .cz-tile .cz-name {
+  display: block; position: static; width: auto; height: auto; clip: auto;
+  margin: 9px 0 0; font-size: 13px; font-weight: 800;
+  white-space: normal; line-height: 1.35;
+}
+.cz-grid.cz-fast { row-gap: 26px; align-items: start; }
+@media (max-width: 599px) {
+  .cz[data-cz-kind="fast"] .cz-body { padding-top: 24px; }
+}
 @media (min-width: 600px) {
   .cz-grid { gap: 14px; grid-template-columns: repeat(auto-fill, minmax(225px, 1fr)); }
 }
@@ -10713,13 +10718,13 @@ body.mo-receded .opener-scroll { opacity: .42; transform: scale(.94); }
    уже нарисовано на самой обложке. Строка остаётся в разметке для экранных
    чтецов и поиска по тексту, но на экране её нет; ряд под обложкой начинается
    сразу с провайдера или «N играют». */
-.cz-tile[data-game] .cz-name, .cz-skel .cz-name {
+.cz-tile[data-game] .cz-name, .cz-own .cz-name, .cz-skel .cz-name {
   /* Внутри плитки (у неё position: relative): иначе скрытая строка
      выпадала из ленты и раздвигала страницу вбок. */
   position: absolute; left: 0; top: 0; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0;
   overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
 }
-.cz-tile[data-game] .cz-prov, .cz-tile[data-game] .cz-live { margin-top: 7px; }
+.cz-tile[data-game] .cz-prov, .cz-tile[data-game] .cz-live, .cz-own .cz-live { margin-top: 7px; }
 /* «N играют»: зелёная точка дышит, число белое, как у образца. Провайдер
    при этом уходит: под обложкой одна строка, а не две. */
 .cz-live {
@@ -10755,10 +10760,8 @@ body.mo-receded .opener-scroll { opacity: .42; transform: scale(.94); }
   border-radius: 22px 22px 0 0; overflow: hidden;
   background: var(--bg-soft); border: 1px solid rgba(255, 255, 255, 0.08);
   padding-bottom: var(--safe-bottom);
-  transform: translateY(40px); opacity: 0;
-  transition: transform .28s cubic-bezier(.2, .8, .3, 1), opacity .2s;
+  /* Окно выбора видно в первый кадр после нажатия. */
 }
-.cz-sheet.is-in .cz-sheet-card { transform: none; opacity: 1; }
 .cz-sheet-art { aspect-ratio: 1004 / 494; background: var(--card) center / cover no-repeat; }
 /* Без широкой картинки окно берёт вертикальную обложку: верх кадра, где
    обычно название, а не середину. */
@@ -10814,12 +10817,11 @@ body.cz-playing { overflow: hidden; }
   /* В столбике доли пары не нужны: каждая картинка во всю ширину столбика. */
   .cz-promo > button { flex-grow: 0; flex-shrink: 0; flex-basis: auto; width: 100%; }
   .cz-seg { max-width: 560px; }
-  /* Обложки на компьютере в полтора раза крупнее прежних 156 (просьба
-     заказчика): на мониторе мелкие плитки читались значками. Live ещё
-     крупнее - у стола картинка горизонтальная. */
+  /* На компьютере обложки крупнее, чтобы название читалось с полки. */
   .cz-track { --cz-tile: 234px; gap: 16px 14px; margin: 0; padding: 0 0 4px; scroll-padding: 0; }
-  .cz[data-cz-kind="live"] .cz-track { --cz-tile: 340px; }
-  .cz[data-cz-kind="live"] .cz-grid { grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
+  .cz[data-cz-kind="live"] .cz-track { --cz-tile: 234px; }
+  .cz[data-cz-kind="live"] .cz-grid { grid-template-columns: repeat(auto-fill, minmax(225px, 1fr)); }
+  .cz-grid.cz-fast { row-gap: 34px; }
   .cz-chips { margin: 12px 0 0; padding: 0 0 2px; flex-wrap: wrap; overflow: visible; }
   .cz-tools { max-width: 720px; }
   .cz-btitle { font-size: 19px; }
@@ -10954,13 +10956,16 @@ body.case-open #app > .view *::after, body.case-open .money-rain * { animation-p
 
 /* Раскрывающаяся памятка бонусного счёта: те же правила, три коротких шага. */
 .cash-bonus-details summary > span { display: inline-grid; gap: 4px; vertical-align: top; font-weight: 700; }
-.cash-bonus-details summary small { font-size: 10.5px; font-weight: 500; opacity: .75; }
+.cash-bonus-details summary small { font-size: 12px; font-weight: 600; color: #ead6a8; }
 .cash-bonus-steps { list-style: none; padding: 0; margin: 12px 0; display: grid; gap: 8px; }
-.cash-bonus-steps li { display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 9px; padding: 10px; border-radius: 12px; background: #ffffff07; border: 1px solid #ffffff0a; }
+.cash-bonus-steps li { display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 9px; padding: 10px; border-radius: 12px; background: #251e16; border: 1px solid #655136; }
 .cash-bonus-step { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 8px; background: #dfbe621a; color: var(--gold); font: 800 12px/1 system-ui, sans-serif; }
 .cash-bonus-steps .is-done .cash-bonus-step { background: #a2edcf1a; color: #a2edcf; }
-.cash-bonus-steps li > div > b { color: var(--text); font-size: 12px; }
+.cash-bonus-steps li > div > b { color: #fff4d9; font-size: 13px; }
 .cash-bonus .cash-bonus-steps p { margin: 5px 0 0; line-height: 1.55; }
 .cash-bonus-steps strong { color: #a2edcf; font-weight: 800; }
 .cash-bonus-limit { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 5px 10px; margin-top: 9px; padding-top: 9px; border-top: 1px solid #ffffff12; font-size: 11px; color: var(--c-text-2); }
-.cash-bonus .cash-bonus-note { font-size: 10.5px; opacity: .8; }
+.cash-bonus .cash-bonus-note { font-size: 12px; color: #d6c8ad; }
+
+/* Нажатие на игру сразу открывает выбор режима и не ждёт двойного тапа. */
+.cz-tile { touch-action: manipulation; }

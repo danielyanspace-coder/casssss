@@ -11,6 +11,19 @@ on:
   pull_request:
 
 jobs:
+  dependencies:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: У зависимостей нет известных уязвимостей
+        run: npm audit --audit-level=low
+
   tests:
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -73,6 +86,9 @@ jobs:
       - name: Партнёрская программа и сверка с Sicilia
         run: npm run test:partners
 
+      - name: Безопасное открытие CSV в таблицах
+        run: node test/csv-security.mjs
+
       - name: Проверка заявок на вывод
         run: npm run test:payout-check
 
@@ -90,6 +106,9 @@ jobs:
 
       - name: Проверки API
         run: npm run test:api
+
+      - name: Каталог казино и быстрые переходы
+        run: npm run test:casino
 
       - name: Кеш рисунков и обложек
         run: npm run test:art && npm run test:casino-covers
@@ -118,3 +137,62 @@ jobs:
       - name: Логи сервера при падении
         if: failure()
         run: cat server.log || true
+
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      DEV_MODE: 'true'
+      ADMIN_TG_IDS: '999000001'
+      PAYOUT_DATA_KEY: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
+      DB_PATH: './data/quality-ci.db'
+      RATE_LIMIT_READ: '100000'
+      RATE_LIMIT_AUTH: '100000'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Запуск отдельного тестового сервера
+        run: |
+          mkdir -p data artifacts
+          node server/app.js > quality-server.log 2>&1 &
+          for i in $(seq 1 40); do
+            curl -sf http://localhost:3000/api/health > /dev/null && exit 0
+            sleep 1
+          done
+          cat quality-server.log
+          exit 1
+      - name: Мобильная сетка мини-игр и Live казино
+        run: node test/casino-layout.mjs http://localhost:3000
+      - name: Замер интерфейса при CPU x4
+        timeout-minutes: 2
+        if: success() || failure()
+        run: node tools/perf-audit.mjs http://localhost:3000 artifacts/performance.json
+      - name: Безопасность HTTP с выключенным DEV_MODE
+        if: success() || failure()
+        run: |
+          DEV_MODE=false DB_PATH=./data/security-ci.db PORT=3099 HOST=127.0.0.1 node server/app.js > security-server.log 2>&1 &
+          security_pid=$!
+          trap 'kill "$security_pid" 2>/dev/null || true' EXIT
+          for i in $(seq 1 40); do
+            if curl -sf http://127.0.0.1:3099/api/health > /dev/null; then
+              node test/security-http.mjs http://127.0.0.1:3099
+              exit $?
+            fi
+            sleep 1
+          done
+          cat security-server.log
+          exit 1
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mobile-quality-results
+          path: artifacts/
+      - name: Логи тестовых серверов при падении
+        if: failure()
+        run: cat quality-server.log security-server.log || true

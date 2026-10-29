@@ -67,13 +67,20 @@ try {
   await page.click('#brandHome');
   const card = page.locator('.case-card').first();
   await card.scrollIntoViewIfNeeded();
-  const bounds = await card.boundingBox();
-  const x = bounds.x + bounds.width / 2, y = bounds.y + bounds.height / 2;
   // pointerdown + pointerup без синтетического click (сценарий Safari).
   // Пересоздаём карточку между ними: старый индивидуальный listener теряется.
-  await card.dispatchEvent('pointerdown', { pointerType: 'touch', isPrimary: true, pointerId: 7, clientX: x, clientY: y });
-  await card.evaluate((el) => el.replaceWith(el.cloneNode(true)));
-  await page.locator('.case-card').first().dispatchEvent('pointerup', { pointerType: 'touch', isPrimary: true, pointerId: 7, clientX: x, clientY: y });
+  // Одна JS-задача не смешивает этот сценарий с прокруткой между CDP-командами.
+  const { x, y } = await card.evaluate(el => {
+    const bounds = el.getBoundingClientRect();
+    const x = bounds.x + bounds.width / 2, y = bounds.y + bounds.height / 2;
+    if (!el.contains(document.elementFromPoint(x, y))) throw new Error('Touch target is covered');
+    const init = { bubbles:true, pointerType:'touch', isPrimary:true, pointerId:7, clientX:x, clientY:y };
+    el.dispatchEvent(new PointerEvent('pointerdown', init));
+    const next = el.cloneNode(true);
+    el.replaceWith(next);
+    next.dispatchEvent(new PointerEvent('pointerup', init));
+    return {x, y};
+  });
   await page.waitForSelector('#opener:not([hidden])');
   await page.click('#closeOpenerTop');
   // Свайп по горизонтальной полке не должен открывать кейс.

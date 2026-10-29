@@ -24,7 +24,11 @@ try {
    const shelfKept=node===shelves.firstElementChild;
    const id=a.state.config.cases.find(c=>c.id==='warmup_100').id;
    const start=performance.now();a.openCase(id);
-   await new Promise(resolve=>{const tick=()=>document.getElementById('opener').hidden?requestAnimationFrame(tick):resolve();requestAnimationFrame(tick)});
+   await new Promise((resolve,reject)=>{
+     const timeout=setTimeout(()=>reject(new Error('Case did not open within 15 seconds')),15000);
+     const tick=()=>{if(document.getElementById('opener').hidden)requestAnimationFrame(tick);else{clearTimeout(timeout);resolve();}};
+     requestAnimationFrame(tick);
+   });
    const openMs=performance.now()-start;
    return {applyUserMs:times,shelfKept,openMs,domNodes:document.querySelectorAll('*').length,longTasks:window.__long.filter(e=>e.duration>50),resources:performance.getEntriesByType('resource').length};
   });

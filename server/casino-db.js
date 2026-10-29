@@ -601,15 +601,21 @@ export function casinoGames({ kind = '', provider = '', category = '', q = '', o
 
   const order = cat?.type === 'new' ? 'g.partner_new DESC, g.first_seen_at DESC, ' + POPULAR_ORDER : POPULAR_ORDER;
   const whereSql = where.join(' AND ');
-  const total = db.prepare(`SELECT COUNT(*) AS n FROM casino_games g WHERE ${whereSql}`).get(args).n;
-  const rows = db.prepare(`
-    SELECT g.*, COALESCE(h.n, 0) AS heat
+  // Дубли разных поставщиков убираются до пагинации: иначе они возвращались
+  // на следующей странице. Внутри провайдера доступен его собственный каталог.
+  const selection = `WITH ranked AS (
+    SELECT g.*, COALESCE(h.n, 0) AS heat,
+           ROW_NUMBER() OVER (PARTITION BY g.kind, lower(trim(g.name)) ORDER BY ${order.replace('heat DESC', 'COALESCE(h.n, 0) DESC')}, g.id) AS copy_rank
       FROM casino_games g
       LEFT JOIN (SELECT game_id, COUNT(*) AS n FROM casino_tx
                   WHERE method = 'bet' AND created_at >= @since GROUP BY game_id) h
         ON h.game_id = g.id
      WHERE ${whereSql}
-     ORDER BY ${order}
+  )`;
+  const total = db.prepare(`${selection} SELECT COUNT(*) AS n FROM ranked WHERE copy_rank = 1`).get(args).n;
+  const rows = db.prepare(`${selection}
+    SELECT * FROM ranked g WHERE copy_rank = 1
+     ORDER BY ${order}, g.id
      LIMIT @limit OFFSET @offset
   `).all({ ...args, limit: Math.min(Math.max(1, limit), 120), offset: Math.max(0, offset) });
   return { total, rows };
@@ -655,7 +661,8 @@ function bigWins(kind, limit = BLOCK_SIZE) {
 /*
  * В блоке одно название - одна плитка. «40 Super Hot» есть и у EGT, и у EGT
  * VIP: это разные игры, но два одинаковых рядом в одной ленте читаются как
- * ошибка. Полный список категории показывает обе.
+ * ошибка. Общий список также убирает дубли до пагинации; конкретный
+ * провайдер показывает свою версию.
  */
 function uniqueByName(rows, size) {
   const seen = new Set();

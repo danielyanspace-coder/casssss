@@ -1055,11 +1055,11 @@ function demoCasinoRows({ kind = '', provider = '', category = '', q = '' }) {
     && (!re || re.test(g[1]))
     && (cat?.type !== 'new' || g[13] === 1)
     && (!needle || g[1].toLowerCase().includes(needle)));
-  return rows.sort(demoPopular);
+  return demoUnique(rows.sort(demoPopular), rows.length);
 }
 function demoUnique(rows, size) {
   const seen = new Set();
-  return rows.filter((r) => { const k = r[1].toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; }).slice(0, size);
+  return rows.filter((r) => { const k = r[4] + ":" + r[1].trim().toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; }).slice(0, size);
 }
 
 

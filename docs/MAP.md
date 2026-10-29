@@ -1023,3 +1023,9 @@ UI против автономной сборки: `npm run demo && node test/ui
 | Форма выплат кейсов | `server/cases.js` `BAND_STEPS`, `MID_STEPS`, `PROFILES` (`bandShare`, `midShare`) |
 | Казино: «N играют», значки категорий | `public/casino.js` `livePlayers`, `liveHtml`, `ICON_TONES`, `icon`; выключатель `FEED_SYNTHETIC` (config.feed.synthetic) |
 | Меню компьютера плитками | `public/app.js` `renderSideNav` (`.is-sq`, `.is-wide`, `.is-tall`); стили в последнем блоке `styles.css` |
+
+Мобильные мини-игры и проверка качества (29.10.2026): `docs/MOBILE-QUALITY-REVIEW.md`.
+Геометрия - `test/casino-layout.mjs`, быстрые переходы и отказы -
+`test/casino-navigation.mjs`, HTTP-безопасность без DEV_MODE - `test/security-http.mjs`.
+Подписи собственных игр - `ownTileHtml`, отступ - мобильный `.cz-body`,
+выравнивание - `.cz-grid.cz-fast`, повтор после ошибки - `renderLoadError`.

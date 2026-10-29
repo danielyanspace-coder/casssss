@@ -1337,7 +1337,10 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
   // Игры без обложки на CDN не показываются (решение заказчика).
   const snapGames = JSON.parse(readFileSync(new URL('../server/casino-catalog.json', import.meta.url), 'utf8')).games;
   const bareGame = snapGames.find((g) => g.kind === 'slots' && g.cover_state === 'x');
-  const visibleSlots = snapGames.filter((g) => g.kind === 'slots' && g.cover_state !== 'x').length;
+  // Общая витрина считает уникальные названия после скрытия обложек,
+  // каталог выбранного провайдера при этом сохраняет его собственные игры.
+  const visibleSlots = new Set(snapGames.filter((g) => g.kind === 'slots' && g.cover_state !== 'x')
+    .map((g) => g.name.trim().toLowerCase())).size;
   check('казино: игр без обложки нет в лобби', page.data.total === visibleSlots, `${page.data.total} / ${visibleSlots}`);
   check('казино: у каждой игры в списке есть обложка', games.every((g) => typeof g.cover === 'string' && g.cover));
   if (bareGame) {
@@ -1383,7 +1386,7 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
         mw.data.total > 10 && mw.data.games.every((g) => /megaways/i.test(g.name)), String(mw.data.total));
   const fakeCat = await post('/api/casino/games', { kind: 'slots', category: 'нет-такой', limit: 5 });
   check('казино: неизвестная категория не ломает список',
-        fakeCat.status === 200 && fakeCat.data.total === lobby.data.counts?.slots, String(fakeCat.data.total));
+        fakeCat.status === 200 && fakeCat.data.total === page.data.total, String(fakeCat.data.total));
   const liveHome = await post('/api/casino/home', { kind: 'live' });
   check('казино: вкладка Live отвечает и без столов', liveHome.status === 200 && Array.isArray(liveHome.data.blocks));
 
