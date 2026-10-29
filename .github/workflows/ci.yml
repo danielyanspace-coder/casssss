@@ -21,16 +21,8 @@ jobs:
           node-version: '20'
           cache: npm
       - run: npm ci --ignore-scripts
-      - name: Отчёт по уязвимостям зависимостей
-        run: |
-          npm audit --json > dependency-audit.json || true
-          node -e 'const a=require("./dependency-audit.json");console.log(JSON.stringify(a.metadata));console.log(JSON.stringify(a.vulnerabilities));'
-      - name: Подготовить исправленный lockfile для проверки
-        run: |
-          npm install --package-lock-only --ignore-scripts nodemailer@10.3.1 sharp@0.35.5
-          npm pkg set 'overrides.qs=^6.16.1' 'engines.node=>=20.9.0'
-          npm audit fix --package-lock-only --ignore-scripts
-          node -e 'console.log("REPAIRED_PACKAGE "+JSON.stringify(require("./package.json")));console.log("REPAIRED_LOCK "+JSON.stringify(require("./package-lock.json")));'
+      - name: У зависимостей нет известных уязвимостей
+        run: npm audit --audit-level=low
 
   tests:
     runs-on: ubuntu-latest

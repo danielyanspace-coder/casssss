@@ -359,6 +359,21 @@ const tokenFrom = (res) => /lb_session=([^;]*)/.exec(res.cookies.at(-1) || '')?.
 
   delete process.env.RESEND_API_KEY;
   globalThis.fetch = realFetch;
+
+  // Настоящий транспорт Nodemailer без сети: совместимость обновлений SMTP.
+  const oldSmtp = process.env.SMTP_URL;
+  process.env.SMTP_URL = 'log';
+  const smtpMessage = {to:'quality@example.com', subject:'Проверка сброса', text:'Тестовая ссылка: https://example.com/?reset=test-only'};
+  const smtpResult = await mailer.sendMail(smtpMessage);
+  const smtpJson = JSON.parse(String(smtpResult.message));
+  check('почта: транспорт Nodemailer сохраняет тему и текст',
+    smtpJson.subject === smtpMessage.subject && smtpJson.text === smtpMessage.text);
+  check('почта: транспорт Nodemailer сохраняет адрес получателя',
+    smtpJson.to.some(address => address.address === smtpMessage.to));
+  check('почта: логирование тестового письма совместимо с SMTP',
+    mailer.lastLoggedMail.to === smtpMessage.to);
+  if (oldSmtp === undefined) delete process.env.SMTP_URL;
+  else process.env.SMTP_URL = oldSmtp;
 }
 
 /* ---------- Итог ---------- */
