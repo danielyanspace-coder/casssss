@@ -574,8 +574,8 @@
           <div class="sicilia-create" id="siciliaCreate" hidden>
             <div class="cash-step" data-sic-h2h>Как переводите</div>
             <div class="cash-seg is-2" id="siciliaMethod" data-active="sbp" role="group" aria-label="Способ перевода" data-sic-h2h>
-              <button class="cash-seg-btn active" type="button" data-sic-method="sbp"><span data-cash-ico="phone"></span>СБП</button>
-              <button class="cash-seg-btn" type="button" data-sic-method="card"><span data-cash-ico="card"></span>На карту</button>
+              <button class="cash-seg-btn active" type="button" data-sic-method="sbp"><span class="cash-choice-art" data-cash-art="sbpOnly" aria-hidden="true"></span>СБП</button>
+              <button class="cash-seg-btn" type="button" data-sic-method="card"><span class="cash-choice-art" data-cash-art="card" aria-hidden="true"></span>На карту</button>
             </div>
             <div class="cash-step">Сумма</div>
             <label class="cash-amount">
@@ -614,9 +614,9 @@
 
           <div class="cash-step">Куда вывести</div>
           <div class="payout-methods cash-seg" data-active="sbp" role="group" aria-label="Способ вывода">
-            <button class="cash-seg-btn active" type="button" data-withdraw-method="sbp">СБП</button>
-            <button class="cash-seg-btn" type="button" data-withdraw-method="card">Карта</button>
-            <button class="cash-seg-btn" type="button" data-withdraw-method="crypto">Крипта</button>
+            <button class="cash-seg-btn active" type="button" data-withdraw-method="sbp"><span class="cash-choice-art" data-cash-art="sbpOnly" aria-hidden="true"></span>СБП</button>
+            <button class="cash-seg-btn" type="button" data-withdraw-method="card"><span class="cash-choice-art" data-cash-art="card" aria-hidden="true"></span>Карта</button>
+            <button class="cash-seg-btn" type="button" data-withdraw-method="crypto"><span class="cash-choice-art" data-cash-art="usdt" aria-hidden="true"></span>USDT</button>
           </div>
           <div class="cash-fields" id="withdrawSbpFields">
             <label class="cash-field">
@@ -920,7 +920,7 @@
          боковое меню и подвал: страница кейса без них выглядела пустым полем.
          Снаружи <main> так сделать нельзя - подвал стоит после него. -->
     <!-- Загрузка между нажатием на кейс и его экраном (openCase). -->
-    <div class="case-loader" id="caseLoader" hidden aria-hidden="true"><i></i></div>
+    <div class="case-loader" id="caseLoader" hidden role="status" aria-live="polite"><div class="case-loader-card"><div class="case-loader-orbit" aria-hidden="true"><i></i><span>✦</span></div><b>Загружаем кейс</b><span id="caseLoaderName"></span></div></div>
     <div class="opener" id="opener" hidden>
     <!-- Тематический фон кейса: сюда уезжает его же обложка. -->
     <div class="opener-theme" id="openerTheme" aria-hidden="true"></div>

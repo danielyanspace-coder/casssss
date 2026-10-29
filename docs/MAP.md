@@ -74,6 +74,12 @@ grep -nE "^app\.(get|post)\(" server/app.js                  # все ручки
 - `isSameOrigin` - сверка Origin.
 - `newResetToken`, `resetTokenHash` - токен сброса пароля.
 
+### server/bot-menu.js — приветствие и постоянная клавиатура Telegram-бота
+
+- `registerBotMenu` — /start, «Поддержка», «Актуальная ссылка»; `server/bot.js` подключает меню.
+- `test/bot-menu.mjs` — обработка Telegram updates с подменой API; входит в `test:broadcast`.
+- `test/cashier-ui.mjs` — касса, загрузчик и закреплённые вкладки на 390/1440 px (`test:cashier-ui`, нужен dev-сервер).
+
 ### server/cases.js - 68 кейсов, решатель вероятностей
 
 - `TIERS`, `CATEGORIES` - ступени редкости и полки (start, classic, themed, premium, elite, risk, bonus, country, got, season).

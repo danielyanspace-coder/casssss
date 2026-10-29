@@ -877,26 +877,30 @@ main { position: relative; z-index: 2; padding: 18px; }
 }
 .opener-inner { width: 100%; max-width: 580px; }
 
-/* Загрузка перед экраном кейса: лёгкая вуаль и кольцо посередине.
-   Проявляется через 0,15 с, чтобы быстрое открытие не мигало,
-   и движется только transform/opacity - это продолжает идти, даже когда
-   главный поток занят сборкой кейса. */
+/* Отклик на нажатие виден до тяжёлой сборки кейса. Движется transform. */
 .case-loader {
-  position: fixed; inset: 0; z-index: 85; display: grid; place-items: center; pointer-events: none;
-  background: radial-gradient(circle at 50% 50%, rgba(20, 6, 40, 0.55), rgba(6, 1, 14, 0.25) 60%);
-  opacity: 0; animation: caseLoaderIn 0.25s ease 0.15s forwards;
+  position: fixed; inset: 0; z-index: 85; display: grid; place-items: center;
+  background: rgba(6, 1, 14, .72); cursor: progress;
 }
 .case-loader[hidden] { display: none; }
-.case-loader i {
-  width: 46px; height: 46px; border-radius: 50%;
-  background: conic-gradient(from 0deg, rgba(255, 79, 168, 0), #ff4fa8 55%, #b23cff 85%, #ffd34d);
-  -webkit-mask: radial-gradient(circle, transparent 56%, #000 58%);
-  mask: radial-gradient(circle, transparent 56%, #000 58%);
-  animation: caseLoaderSpin 0.8s linear infinite;
-  will-change: transform;
+.case-loader-card {
+  display: grid; justify-items: center; gap: 10px; padding: 28px 36px;
+  max-width: calc(100vw - 40px); border-radius: 24px; background: #1b102c;
+  border: 1px solid rgba(255, 211, 77, .25); box-shadow: 0 20px 80px #080210;
 }
-@keyframes caseLoaderIn { to { opacity: 1; } }
+.case-loader-card b { font: 800 16px/1.4 'Manrope', sans-serif; color: #fff3c4; }
+.case-loader-card > span { max-width: 240px; text-align: center; color: #c9bedb; font-size: 13px; }
+.case-loader-orbit { position: relative; width: 64px; height: 64px; display: grid; place-items: center; margin-bottom: 6px; }
+.case-loader-orbit > span { color: #ffd34d; font-size: 32px; }
+.case-loader i {
+  position: absolute; inset: 0; border-radius: 50%;
+  background: conic-gradient(transparent, #ff4fa8 45%, #b23cff 70%, #ffd34d);
+  -webkit-mask: radial-gradient(circle, transparent 61%, #000 63%);
+  mask: radial-gradient(circle, transparent 61%, #000 63%);
+  animation: caseLoaderSpin .85s linear infinite; will-change: transform;
+}
 @keyframes caseLoaderSpin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .case-loader i { animation: none; } }
 
 /* ---------- Тема кейса ---------- */
 
@@ -5383,9 +5387,9 @@ div.mini-row { cursor: default; }
   font: 800 21px/1.2 'Unbounded', 'Manrope', system-ui, sans-serif; color: #fff;
 }
 
-/* Вкладки стоят наверху раздела и за прокруткой не едут (решение
-   заказчика). Переход по вкладке прокручивает к ивенту под шапкой. */
+/* Вкладки закреплены под шапкой; фон сохраняет читаемость при прокрутке. */
 .fm-tabs {
+  position: sticky; top: var(--topbar-h, 64px); z-index: 12; background: #160d24;
   display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none;
   margin: 0 -18px 18px; padding: 8px 18px;
   border-top: 1px solid var(--fm-line); border-bottom: 1px solid var(--fm-line);
@@ -6336,7 +6340,10 @@ div.mini-row { cursor: default; }
 }
 .cash-bonus-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
 .cash-bonus-head span { font-size: 12px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--gold); }
-.cash-bonus-head b { font: 800 18px/1 'Unbounded', 'Manrope', system-ui, sans-serif; color: var(--gold); }
+.cash-bonus-head b { font: 800 18px/1 'Unbounded', 'Manrope', system-ui, sans-serif; color: #a2edcf; }
+.cash-bonus-details { margin-top: 12px; }
+.cash-bonus-details summary { cursor: pointer; font-size: 12px; color: var(--c-text-2); padding: 6px 0; }
+.cash-bonus-details summary:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
 .cash-bonus p { margin: 8px 0 10px; font-size: 12px; line-height: 1.5; color: var(--c-text-2); }
 .cash-bonus p b { color: var(--text); }
 .cash-bonus-refuse {
@@ -6566,15 +6573,15 @@ div.mini-row { cursor: default; }
   width: 100%; height: 54px; margin-top: 16px;
   display: flex; align-items: center; justify-content: center; gap: 10px;
   border: 0; border-radius: 16px;
-  background: linear-gradient(180deg, #ea6299, #d4457f);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 10px 24px -14px rgba(224, 81, 140, 0.9);
-  font: 800 16px/1 'Manrope', system-ui, sans-serif; color: #fff;
+  background: linear-gradient(180deg, #fff3c4 0%, #ffd34d 38%, #e8a024 62%, #ffcf5a 100%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.9), inset 0 -2px 0 rgba(120,60,0,.35), 0 5px 0 #8a4f08, 0 14px 30px -8px rgba(255,170,40,.5);
+  font: 800 16px/1 'Manrope', system-ui, sans-serif; color: #3a1d00;
   font-variant-numeric: tabular-nums; text-decoration: none;
   cursor: pointer;
   transition: transform 0.15s, filter 0.2s;
 }
 .cash-cta:hover { filter: brightness(1.06); }
-.cash-cta:active { transform: scale(0.98); filter: brightness(0.95); }
+.cash-cta:active { transform: translateY(4px); box-shadow: inset 0 1px 0 #fff, 0 1px 0 #8a4f08; }
 #view-wallet .cash-cta .cash-ico { width: 19px; height: 19px; transition: transform 0.3s var(--ease-out); }
 .cash-cta:hover .cash-ico { transform: translateX(3px); }
 .cash-cta:disabled { opacity: 1; cursor: default; }
@@ -6648,6 +6655,16 @@ div.mini-row { cursor: default; }
 }
 /* Пять банков в строку на любом телефоне: подписи короткие намеренно. */
 #view-wallet .sic-banks { grid-template-columns: repeat(5, 1fr); }
+#view-wallet .sic-banks .quick-btn { background: #393246; color: #fff; border-color: transparent; }
+#view-wallet .sic-banks [data-bank="sberbank"] { background: #16833e; }
+#view-wallet .sic-banks [data-bank="tinkoff"] { background: #ffdd2d; color: #232323; }
+#view-wallet .sic-banks [data-bank="vtb"] { background: #164dc2; }
+#view-wallet .sic-banks [data-bank="alfa-bank"] { background: #d92932; }
+#view-wallet .sic-banks .quick-btn.active { outline: 2px solid #fff; outline-offset: 2px; box-shadow: 0 4px 12px #0005; }
+.cash-choice-art { display: inline-flex; width: 27px; height: 28px; flex: none; }
+.cash-choice-art svg { width: 100%; height: 100%; }
+#view-wallet .cash-seg-btn { display: flex; align-items: center; justify-content: center; gap: 6px; }
+
 
 #view-wallet .payment-checkout:has(.sic-pay),
 #view-wallet .payment-checkout:has(.sic-done) { padding: 18px 16px 14px; }

@@ -18,6 +18,7 @@ import {
   pendingSpinReminders, freeCaseReminders, markNoticeSent,
   touchBotSubscriber, markBotBlocked,
 } from './db.js';
+import { registerBotMenu } from './bot-menu.js';
 import { getCase } from './cases.js';
 import { isConfigured as freeCaseConfigured, FREE_CASE_COOLDOWN_MS } from './subscription.js';
 
@@ -64,17 +65,7 @@ bot.on('my_chat_member', (ctx) => {
   }
 });
 
-bot.command('start', (ctx) =>
-  ctx.reply(
-    'LUCKYBOX - кейсы, апгрейд, краш и рулетка.\n\n' +
-      'Сюда каждый день приходит промокод на прокрут Колеса удачи.\n\n' +
-      'Содержимое каждого кейса показано целиком до открытия, ' +
-      'а результат любого раунда можно перепроверить самостоятельно ' +
-      'через provably fair.\n\n' +
-      '18+. Играйте ответственно.',
-    { reply_markup: keyboard }
-  )
-);
+registerBotMenu(bot);
 
 bot.command('play', (ctx) => ctx.reply('Погнали:', { reply_markup: keyboard }));
 

@@ -91,6 +91,9 @@ jobs:
       - name: Проверки API
         run: npm run test:api
 
+      - name: Касса, загрузчик и закреплённые вкладки
+        run: npm run test:cashier-ui
+
       - name: Проверки интерфейса
         run: npm run test:ui
 

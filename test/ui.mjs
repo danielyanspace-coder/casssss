@@ -297,15 +297,15 @@ if (newcomer) {
   await page.waitForTimeout(150);
   check('Колесо удачи: «изменить» возвращает поле', await page.isVisible('#pwCode'));
 
-  // Вкладки стоят наверху раздела и за прокруткой не едут (просьба заказчика).
+  // Вкладки остаются под шапкой при прокрутке (просьба заказчика).
   await page.evaluate(() => window.scrollTo(0, 900));
   await page.waitForTimeout(300);
   const stick = await page.evaluate(() => ({
     pos: getComputedStyle(document.getElementById('fmTabs')).position,
-    tabs: document.getElementById('fmTabs').getBoundingClientRect().bottom,
+    tabs: document.getElementById('fmTabs').getBoundingClientRect().top,
     bar: document.querySelector('.topbar').getBoundingClientRect().bottom,
   }));
-  check('Free Money: вкладки не едут за прокруткой', stick.pos !== 'sticky' && stick.pos !== 'fixed' && stick.tabs < stick.bar,
+  check('Free Money: вкладки закреплены под шапкой', stick.pos === 'sticky' && Math.abs(stick.tabs - stick.bar) < 3,
     JSON.stringify(stick));
 
   // Порядок: розыгрыш первым, подарки последними и свёрнуты кнопкой.

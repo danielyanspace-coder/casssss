@@ -45,9 +45,9 @@ export const PARTNERS = [
 export const COMPANY = {
   brand: 'LUCKYBOX',
   email: 'support-luckybox@gmail.com',
-  telegram: 'https://t.me/luckybox_off',
+  telegram: 'https://t.me/Luckyboxbonus_bot',
   // Чат поддержки. Он же стоит за кнопкой «Поддержка» в меню.
-  support: 'https://t.me/luckyboxsupport',
+  support: 'https://t.me/luckybox_support',
   entities: [
     {
       name: 'Caribbean Digital Entertainment B.V.',
@@ -673,7 +673,7 @@ export function footerHtml() {
         <span class="footer-promo-hit support" aria-hidden="true"></span>
       </a>
       <a class="footer-promo" href="${COMPANY.telegram}" target="_blank" rel="noopener noreferrer">
-        <img src="/assets/ui/footer-channel.webp" alt="Подписаться на канал">
+        <img src="/assets/ui/footer-channel.webp" alt="Подписаться на Telegram-бота с промокодами">
         <span class="footer-promo-hit channel" aria-hidden="true"></span>
       </a>
     </div>

@@ -156,3 +156,25 @@ for i in $(seq 1 12); do curl -s -o /dev/null -w "%{http_code} " \
   нет, а вывод требует отыгранного пополнения.
 - **Мониторинга и оповещений.** Ни одно падение никуда не напишет.
 - **Второго сервера.** Всё на одной машине, включая базу.
+
+## Обновление, которое продолжится после разрыва SSH
+
+Запускайте из SSH. `systemd-run` передаёт работу системной службе;
+`--no-block` сразу возвращает управление, а `--remain-after-exit` сохраняет итог.
+Скрипт `update.sh` сам делает согласованную копию базы, получает основную ветку,
+устанавливает зависимости и перезапускает сайт и бота. `.env` сохраняется.
+
+```bash
+u="luckybox-update-$(date +%Y%m%d-%H%M%S)" && sudo systemd-run --unit="$u" --property=Type=oneshot --remain-after-exit --no-block /bin/bash /srv/luckybox/deploy/update.sh && printf '%s\n' "$u" | sudo tee /srv/luckybox/data/last-deploy-unit
+```
+
+Проверка в любое время, в том числе после нового входа по SSH:
+
+```bash
+u=$(cat /srv/luckybox/data/last-deploy-unit) && sudo systemctl show "$u" -p ActiveState -p SubState -p Result -p ExecMainStatus && sudo journalctl -u "$u" -n 100 --no-pager
+```
+
+Во время выполнения `SubState=start`. Успешное завершение:
+`SubState=exited`, `Result=success`, `ExecMainStatus=0` и сообщение
+«Выкат закончен» в журнале. При ошибке сначала изучите журнал. Не запускайте
+несколько обновлений одновременно. Журнал хранится по правилам journald сервера.

@@ -1006,14 +1006,16 @@ function applyCaseTheme(c) {
  * раскладка всей страницы. На слабом телефоне это секунда, и нажатие на
  * кейс выглядело проигнорированным. Поэтому при входе снаружи сначала
  * показывается загрузка, кадр уходит на экран, и только потом строится кейс.
- * Загрузка проявляется с задержкой (CSS) и крутится на видеокарте: на
- * быстром телефоне её не видно, на медленном она не замирает, пока главный
+ * Загрузка появляется сразу и крутится на видеокарте: на
+ * быстром телефоне это короткий отклик, на медленном она не замирает, пока главный
  * поток занят сборкой.
  */
 function openCase(caseId, { now = false } = {}) {
   if (!now && document.getElementById('opener').hidden) {
     const loader = document.getElementById('caseLoader');
+    if (!loader.hidden || !state.config.cases.some((c) => c.id === caseId)) return;
     loader.hidden = false;
+    document.getElementById('caseLoaderName').textContent = state.config.cases.find((c) => c.id === caseId).name;
     requestAnimationFrame(() => requestAnimationFrame(() => {
       try { openCase(caseId, { now: true }); } finally { loader.hidden = true; }
     }));
@@ -6616,7 +6618,7 @@ const cashIcon = (name) =>
 
 /*
  * Рисунки способов пополнения (решение заказчика): у «СБП и карта» - знак
- * СБП перед банковской картой, у криптовалюты - веер монет BTC, ETH, USDT.
+ * СБП рядом с банковской картой, у криптовалюты - веер монет BTC, ETH, USDT.
  * Знак СБП - отметка способа оплаты, как на кассе в магазине; банковской
  * карте намеренно не дан ни один банк и ни одна платёжная система.
  */
@@ -6626,15 +6628,15 @@ const CASH_ART = {
       <linearGradient id="caCard" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#8a5cff"/><stop offset="1" stop-color="#ff4fa8"/></linearGradient>
       <linearGradient id="caChip" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff1b8"/><stop offset="1" stop-color="#d89a22"/></linearGradient>
     </defs>
-    <g transform="rotate(-9 42 20)">
+    <g transform="translate(16 0) scale(.75 1)">
       <rect x="22" y="6" width="40" height="27" rx="4.5" fill="url(#caCard)"/>
       <rect x="22" y="12" width="40" height="5" fill="rgba(20,6,40,.45)"/>
       <rect x="27" y="21" width="8" height="6" rx="1.4" fill="url(#caChip)"/>
       <rect x="44" y="25.5" width="13" height="2" rx="1" fill="rgba(255,255,255,.55)"/>
       <rect x="22.5" y="6.5" width="39" height="5" rx="4" fill="rgba(255,255,255,.18)"/>
     </g>
-    <rect x="2" y="7" width="26" height="26" rx="7" fill="#fff"/>
-    <g transform="translate(6.2 9.25) scale(0.43)">
+    <rect x="0" y="7" width="26" height="26" rx="7" fill="#fff"/>
+    <g transform="translate(4.2 9.25) scale(0.43)">
       <path fill="#5b57a2" d="M0 10.39l6.13 10.95v6.68L.01 38.95z"/>
       <path fill="#d90751" d="M23.53 17.35l5.74-3.52 11.75-.01-17.49 10.71z"/>
       <path fill="#fab718" d="M23.5 10.33l.03 14.49-6.14-3.77V0z"/>
@@ -6664,6 +6666,11 @@ const CASH_ART = {
     </g>
   </svg>`,
 };
+
+// Отдельные знаки для выбора способа перевода и вывода.
+CASH_ART.sbpOnly = `<svg viewBox="0 0 32 40" aria-hidden="true">${CASH_ART.sbp.slice(CASH_ART.sbp.indexOf('    <rect x="0"'), CASH_ART.sbp.lastIndexOf('</svg>'))}</svg>`;
+CASH_ART.card = `<svg viewBox="0 0 48 40" aria-hidden="true"><rect x="2" y="6" width="44" height="28" rx="5" fill="#9764ef"/><path d="M2 15h44" stroke="#33204f" stroke-width="6"/><rect x="8" y="23" width="9" height="6" rx="1.5" fill="#ffe4a3"/><path d="M29 27h10" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg>`;
+CASH_ART.usdt = `<svg viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="20" r="17" fill="#26a17b"/><path d="M11 12h18M20 12v17" stroke="#fff" stroke-width="3"/><ellipse cx="20" cy="18" rx="10" ry="3" fill="none" stroke="#fff" stroke-width="2"/></svg>`;
 
 /** Подставляет иконки в разметку из index.html по data-cash-ico. */
 function hydrateCashIcons(root) {
@@ -6885,9 +6892,10 @@ function renderWalletBonus(b) {
     : 'Бонус отыгран и ждёт лимита: перейдёт в деньги после следующего пополнения.';
   box.innerHTML = `
     <div class="cash-bonus-head"><span>Бонусный счёт</span><b>${money(b.balance)}</b></div>
+    <details class="cash-bonus-details"><summary>Как перевести бонус в деньги</summary>
     <p>${left} Бонусом играют в кейсах, краше, рулетке и апгрейде, когда своих
       не хватает на ставку. В деньги бонусы переходят до ${b.rules.cashoutPct}% от суммы
-      пополнений: сейчас можно перевести до ${money(b.cashoutLeft)}.</p>
+      пополнений: сейчас можно перевести до ${money(b.cashoutLeft)}.</p></details>
     <button class="cash-bonus-refuse" id="bonusRefuse" type="button">Отказаться от бонуса</button>`;
   const btn = document.getElementById('bonusRefuse');
   btn.addEventListener('click', async () => {
@@ -10175,13 +10183,10 @@ const FM_TAB_GAP = 12;
 /** Пауза перед «это я»: плитка должна сначала доехать до экрана. */
 const FM_HELLO_DELAY_MS = 380;
 
-/*
- * Нижний край шапки - по разметке, а не числом. Вкладки к ней не липнут
- * (решение заказчика: полоса, едущая за прокруткой, мешала), поэтому
- * прокрутка к ивенту отсчитывается от шапки.
- */
+/** Нижний край закреплённых вкладок, включая их фактическую высоту. */
 function fmStickyBottom() {
-  return document.querySelector('.topbar')?.getBoundingClientRect().bottom || 0;
+  const bar = document.querySelector('.topbar')?.getBoundingClientRect().bottom || 0;
+  return bar + (document.getElementById('fmTabs')?.getBoundingClientRect().height || 0);
 }
 
 function markFmTab() {
