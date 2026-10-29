@@ -56,6 +56,8 @@ export function createCasino(deps) {
   const COVER_RETRY_MS = 1500;
 
   const ui = {
+    active: false,
+    polling: false,
     lobby: null,           // вкладки, счётчики, провайдеры, отдача
     kind: 'slots',
     home: {},              // блоки лобби по вкладкам, кешируются
@@ -248,6 +250,7 @@ export function createCasino(deps) {
    * при этом запомнит 404, и в следующий раз игры в списке уже не будет.
    */
   function onCoverError(img) {
+    if (!ui.active || img.dataset.pausedSrc) return;
     const tile = img.closest('.cz-tile[data-ref]');
     const g = tile && refs.get(tile.dataset.ref);
     if (!g || !tile.isConnected) return;
@@ -255,7 +258,7 @@ export function createCasino(deps) {
       img.dataset.retried = '1';
       const src = img.getAttribute('src');
       setTimeout(() => {
-        if (img.isConnected) img.src = `${src}${src.includes('?') ? '&' : '?'}retry=1`;
+        if (ui.active && img.isConnected && !img.dataset.pausedSrc) img.src = `${src}${src.includes('?') ? '&' : '?'}retry=1`;
       }, COVER_RETRY_MS);
       return;
     }
@@ -467,6 +470,7 @@ export function createCasino(deps) {
     if (ui.loading || ui.games.length >= ui.total) return;
     const seq = ui.seq;
     ui.loading = true;
+    pauseCoverRequests();
     const btn = $('czMoreBtn');
     btn.disabled = true;
     try {
@@ -481,6 +485,7 @@ export function createCasino(deps) {
     } finally {
       ui.loading = false;
       if (btn.isConnected) btn.disabled = false;
+      resumeCoverRequests();
     }
   }
 
@@ -498,9 +503,28 @@ export function createCasino(deps) {
         : '<div class="cz-empty">Провайдеров в этой вкладке пока нет</div>'}`;
   }
 
+  // Удаление тега img само по себе не всегда отменяет загрузку. Сбрасываем
+  // src перед заменой экрана, освобождая соединения для следующего API-запроса.
+  function pauseCoverRequests() {
+    root()?.querySelectorAll('.cz-art img[src]').forEach((img) => {
+      if (!img.complete) { img.dataset.pausedSrc = img.getAttribute('src'); img.removeAttribute('src'); }
+    });
+  }
+
+  function resumeCoverRequests() {
+    if (!ui.active) return;
+    root()?.querySelectorAll('img[data-paused-src]').forEach((img) => {
+      const src = img.dataset.pausedSrc;
+      delete img.dataset.pausedSrc;
+      img.src = src;
+    });
+  }
+
   /* ---------- Переходы ---------- */
 
   function render() {
+    if (!ui.active) return;
+    pauseCoverRequests();
     // Вкладка на корне: по ней стили делают плитки live крупнее (у живых
     // столов обложка - картинка стола, мелкой она не читается). Именно
     // data-cz-kind, а не data-kind: по data-kind обработчик нажатий ищет
@@ -610,6 +634,7 @@ export function createCasino(deps) {
   /* ---------- Вход в раздел ---------- */
 
   async function open() {
+    ui.active = true;
     const r = root();
     if (!r.firstChild) r.innerHTML = shell();
     bind();
@@ -625,6 +650,7 @@ export function createCasino(deps) {
     render();
     try { await loadHome(ui.kind); } catch (err) { toast(err.message); return; }
     if (ui.view.type === 'home') render();
+    resumeCoverRequests();
   }
 
   /* Баннер «Большие джекпоты» в казино ведёт к блоку «Популярные». */
@@ -659,11 +685,19 @@ export function createCasino(deps) {
     const sheet = $('czSheet');
     sheet.classList.remove('is-in');
     sheet.hidden = true;
+    $('czSheetArt').style.backgroundImage = 'none';
   }
 
   /* ---------- Экран игры ---------- */
 
   async function launch(g, demo) {
+    if (state.guest) {
+      pauseCoverRequests();
+      closeSheet();
+      deps.onAuth?.();
+      return;
+    }
+    pauseCoverRequests();
     const btn = demo ? $('czDemo') : $('czPlay');
     btn.disabled = true;
     try {
@@ -678,6 +712,7 @@ export function createCasino(deps) {
       haptic('error');
     } finally {
       btn.disabled = false;
+      if ($('czFrame').hidden && ($('authBackdrop')?.hidden ?? true)) resumeCoverRequests();
     }
   }
 
@@ -686,12 +721,15 @@ export function createCasino(deps) {
     if (el && state.user) el.textContent = money(state.user.balance);
   }
 
-  async function refreshUser() {
+  async function refreshUser(force = false) {
+    if (ui.polling || (!force && (document.hidden || $('czFrame').hidden))) return;
+    ui.polling = true;
     try {
       const { user } = await api('/api/me');
       onUser(user);
       renderFrameBalance();
     } catch { /* сеть моргнула - следующий опрос поправит */ }
+    finally { ui.polling = false; }
   }
 
   function openFrame(g, data, demo) {
@@ -731,7 +769,7 @@ export function createCasino(deps) {
     $('czFrameHost').innerHTML = '';
     frame.hidden = true;
     document.body.classList.remove('cz-playing');
-    refreshUser();
+    refreshUser(true).finally(resumeCoverRequests);
   }
 
   function bindOverlays() {
@@ -747,8 +785,19 @@ export function createCasino(deps) {
 
   return {
     open() { bindOverlays(); return open(); },
-    close() { closeSheet(); closeFrame(); },
+    close() {
+      ui.active = false;
+      ui.seq++;
+      clearTimeout(ui.searchTimer);
+      // Скрытые обложки не должны занимать все HTTP/1-соединения и держать
+      // запросы кассы/игр в очереди. При следующем открытии разметка восстановится.
+      root()?.querySelectorAll('img[src]').forEach((img) => {
+        if (!img.complete) { img.dataset.pausedSrc = img.getAttribute('src'); img.removeAttribute('src'); }
+      });
+      closeSheet(); closeFrame();
+    },
     focusBlock,
+    resumeCovers: resumeCoverRequests,
     /** Открыта ли сейчас игра: пока да, остальной интерфейс не трогаем. */
     playing: () => !$('czFrame').hidden,
   };

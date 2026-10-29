@@ -37,6 +37,7 @@ const state = {
   config: null,
   user: null,
   guest: true,
+  feedPolling: false,
   openingCaseId: null,
   busy: false,
   crash: null,
@@ -396,9 +397,13 @@ function spendableMoney() {
 
 function renderBalance() {
   const chip = document.getElementById('balanceChip');
-  document.getElementById('balanceValue').innerHTML = moneyRich(state.user.balance);
-  chip.classList.add('bump');
-  setTimeout(() => chip.classList.remove('bump'), 260);
+  const value = document.getElementById('balanceValue');
+  if (chip.dataset.balance !== String(state.user.balance)) {
+    value.innerHTML = moneyRich(state.user.balance);
+    chip.dataset.balance = String(state.user.balance);
+    chip.classList.add('bump');
+    setTimeout(() => chip.classList.remove('bump'), 260);
+  }
 
   renderPerkBar();
 }
@@ -406,6 +411,10 @@ function renderBalance() {
 /** Плашка с активными плюшками: ×2 и накопленные подарочные кейсы. */
 function renderPerkBar() {
   const bar = document.getElementById('perkBar');
+  const key = JSON.stringify(state.user.x2Perks || []);
+  if (bar.dataset.perksKey === key && bar.caseConfig === state.config) return;
+  bar.dataset.perksKey = key;
+  bar.caseConfig = state.config;
   const chips = [];
 
   // Удвоители копятся по кейсам: у одного игрока их может быть несколько и на
@@ -654,7 +663,10 @@ function applyUser(user) {
   renderMenu();
   renderSideNav();
   // Шкалы Free Money двигаются вместе с оборотом, пока раздел открыт.
-  if (state.view === 'freemoney') { renderBonuses(); renderFreeMoney(); }
+  if (state.view === 'freemoney' && JSON.stringify([before?.vouchers, before?.x2Perks, before?.raffle, before?.startCase])
+      !== JSON.stringify([user.vouchers, user.x2Perks, user.raffle, user.startCase])) {
+    renderBonuses(); renderFreeMoney();
+  }
 }
 
 /* ============================================================
@@ -823,6 +835,20 @@ function renderCases() {
   if (!root) return;
 
   const vouchers = new Map((state.user.vouchers || []).map((v) => [v.case_id, v.count]));
+  // При смене только баланса сохраняем обложки, анимации и позицию полок.
+  const shape = JSON.stringify([state.user.vouchers || [], state.user.x2Perks || [],
+    state.config.cases.filter((c) => c.availableFrom).map((c) => !!lockedUntil(c))]);
+  if (root.caseConfig === state.config && root.dataset.caseShape === shape && root.firstElementChild) {
+    root.querySelectorAll('.case-card').forEach((card) => {
+      const c = root.caseIndex.get(card.dataset.case);
+      if (c) card.classList.toggle('can-afford', !lockedUntil(c)
+        && ((vouchers.get(c.id) || 0) > 0 || (!c.free && c.price <= (state.user.balance || 0))));
+    });
+    return;
+  }
+  root.caseConfig = state.config;
+  root.caseIndex = new Map(state.config.cases.map((c) => [c.id, c]));
+  root.dataset.caseShape = shape;
   const all = [...state.config.cases].sort((a, b) => a.price - b.price);
 
   // Сезонный кейс идёт витриной над полками, поэтому из общего списка его
@@ -6246,6 +6272,7 @@ document.getElementById('adminSearchBtn').addEventListener('click', () => {
  */
 const casino = createCasino({
   api, esc, money, toast, haptic, state, plural,
+  onAuth: () => openAuth(authDefaultPane()),
   onUser: (user) => applyUser(user),
   // Наши Краш и Апгрейд в сетке быстрых игр открываются своими разделами.
   openOwn: (view) => switchView(view),
@@ -6365,6 +6392,9 @@ const MENU_ADMIN = { view: 'admin', ico: 'admin', title: 'Админ', sub: 'П�
 function renderMenu() {
   const nav = document.getElementById('menuNav');
   if (!nav) return;
+  const key = JSON.stringify([!!state.user?.isAdmin, !!state.user?.isPartner, state.config?.open]);
+  if (nav.dataset.navKey === key && nav.firstElementChild) return;
+  nav.dataset.navKey = key;
   nav.innerHTML = navTilesHtml({ admin: !!state.user?.isAdmin, supportId: 'menuSupport' });
   mountIcons(nav);
 
@@ -6537,6 +6567,10 @@ function navTilesHtml({ admin = false, supportId, prize = false }) {
 function renderSideNav() {
   const nav = document.getElementById('sideNav');
   if (!nav) return;
+  const key = JSON.stringify([!!state.user?.isAdmin, !!state.user?.isPartner, state.config?.open, new Date().toDateString()]);
+  if (nav.dataset.navKey === key && nav.caseConfig === state.config && nav.firstElementChild) { markSideNav(); return; }
+  nav.dataset.navKey = key;
+  nav.caseConfig = state.config;
   nav.innerHTML = `
     <button class="side-brand" data-view="cases" aria-label="На главную">
       <img src="/assets/ui/logo.webp" alt="LUCKYBOX" class="side-brand-logo">
@@ -6922,15 +6956,26 @@ function renderWalletBonus(b) {
   if (!box) return;
   if (!b || !(b.balance > 0)) { box.hidden = true; box.innerHTML = ''; return; }
   box.hidden = false;
-  const left = b.wagerLeft > 0
-    ? `Осталось поставить бонусом <b>${money(b.wagerLeft)}</b>, и он перейдёт в деньги.`
-    : 'Бонус отыгран и ждёт лимита: перейдёт в деньги после следующего пополнения.';
+  const expanded = box.querySelector('details')?.open || false;
+  const wagerDone = !(b.wagerLeft > 0);
   box.innerHTML = `
     <div class="cash-bonus-head"><span>Бонусный счёт</span><b>${money(b.balance)}</b></div>
-    <details class="cash-bonus-details"><summary>Как перевести бонус в деньги</summary>
-    <p>${left} Бонусом играют в кейсах, краше, рулетке и апгрейде, когда своих
-      не хватает на ставку. В деньги бонусы переходят до ${b.rules.cashoutPct}% от суммы
-      пополнений: сейчас можно перевести до ${money(b.cashoutLeft)}.</p></details>
+    <details class="cash-bonus-details"${expanded ? ' open' : ''}>
+      <summary><span>Как перевести бонус в деньги<small>Условия и ваш текущий статус</small></span></summary>
+      <ol class="cash-bonus-steps">
+        <li><span class="cash-bonus-step" aria-hidden="true">1</span><div><b>Играйте бонусом</b>
+          <p>Кейсы, краш, рулетка и апгрейд используют бонус, когда своих денег не хватает на ставку.</p></div></li>
+        <li class="${wagerDone ? 'is-done' : ''}"><span class="cash-bonus-step" aria-hidden="true">${wagerDone ? '✓' : '2'}</span><div>
+          <b>${wagerDone ? 'Отыгрыш завершён' : 'Завершите отыгрыш'}</b>
+          <p>${wagerDone ? 'Бонус отыгран. Перевод в деньги зависит от оставшегося лимита.'
+            : `Осталось поставить бонусом <strong>${money(b.wagerLeft)}</strong>.`}</p></div></li>
+        <li><span class="cash-bonus-step" aria-hidden="true">3</span><div><b>Получайте деньги</b>
+          <p>Отыгранные бонусы переходят в деньги автоматически: до <strong>${b.rules.cashoutPct}%</strong> от суммы пополнений.</p>
+          <div class="cash-bonus-limit"><span>Лимит перевода сейчас</span><strong>${money(b.cashoutLeft)}</strong></div>
+          ${!(b.cashoutLeft > 0) ? '<p class="cash-bonus-note">Новое пополнение увеличит лимит перевода.</p>' : ''}
+        </div></li>
+      </ol>
+    </details>
     <button class="cash-bonus-refuse" id="bonusRefuse" type="button">Отказаться от бонуса</button>`;
   const btn = document.getElementById('bonusRefuse');
   btn.addEventListener('click', async () => {
@@ -7120,26 +7165,31 @@ function rateLine(currency, side = 'deposit') {
 
 async function loadCryptoOptions() {
   if (cryptoState.loaded) return cryptoState;
-  try {
-    const data = await api('/api/crypto/options');
-    Object.assign(cryptoState, {
-      // Запоминается только рабочая касса. Отказ (шлюз моргнул, сервер
-      // перезапускался с новыми ключами) раньше запоминался до перезагрузки
-      // страницы, и игрок видел «недоступна», когда касса уже работала.
-      loaded: !!data.enabled,
-      enabled: !!data.enabled,
-      coins: data.coins || [],
-      rates: data.rates || {},
-      payoutRates: data.payoutRates || {},
-      min: data.min ?? 100,
-      max: data.max ?? 500000,
-    });
-  } catch {
-    cryptoState.enabled = false;
-    cryptoState.loaded = false;
-    state.depositChosen = false;
-  }
-  return cryptoState;
+  if (cryptoState.optionsRequest) return cryptoState.optionsRequest;
+  cryptoState.optionsRequest = (async () => {
+    try {
+      const data = await api('/api/crypto/options');
+      Object.assign(cryptoState, {
+        // Запоминается только рабочая касса. Отказ (шлюз моргнул, сервер
+        // перезапускался с новыми ключами) раньше запоминался до перезагрузки
+        // страницы, и игрок видел «недоступна», когда касса уже работала.
+        loaded: !!data.enabled,
+        enabled: !!data.enabled,
+        coins: data.coins || [],
+        rates: data.rates || {},
+        payoutRates: data.payoutRates || {},
+        min: data.min ?? 100,
+        max: data.max ?? 500000,
+      });
+    } catch {
+      cryptoState.enabled = false;
+      cryptoState.loaded = false;
+      state.depositChosen = false;
+    }
+    return cryptoState;
+  })();
+  try { return await cryptoState.optionsRequest; }
+  finally { cryptoState.optionsRequest = null; }
 }
 
 /** Сетка монет. Одна и та же и для пополнения, и для вывода. */
@@ -7486,21 +7536,26 @@ const SICILIA_BANKS = [
 
 async function loadSiciliaOptions() {
   if (siciliaState.loaded) return siciliaState;
-  try {
-    const d = await api('/api/sicilia/options');
-    Object.assign(siciliaState, {
-      loaded: true, enabled: !!d.enabled, mode: d.mode === 'window' ? 'window' : 'h2h',
-      min: d.min ?? 100, max: d.max ?? 300000,
-    });
-  } catch {
-    // Сетевой сбой или истёкший вход не являются настройкой шлюза.
-    siciliaState.loaded = false;
-    state.depositChosen = false;
-  }
-  try { siciliaState.bank = localStorage.getItem(SICILIA_BANK_KEY) || ''; } catch { /* нет хранилища */ }
-  const tab = document.querySelector('[data-payment-method="sicilia"]');
-  if (tab) tab.hidden = !siciliaState.enabled;
-  return siciliaState;
+  if (siciliaState.optionsRequest) return siciliaState.optionsRequest;
+  siciliaState.optionsRequest = (async () => {
+    try {
+      const d = await api('/api/sicilia/options');
+      Object.assign(siciliaState, {
+        loaded: true, enabled: !!d.enabled, mode: d.mode === 'window' ? 'window' : 'h2h',
+        min: d.min ?? 100, max: d.max ?? 300000,
+      });
+    } catch {
+      // Сетевой сбой или истёкший вход не являются настройкой шлюза.
+      siciliaState.loaded = false;
+      state.depositChosen = false;
+    }
+    try { siciliaState.bank = localStorage.getItem(SICILIA_BANK_KEY) || ''; } catch { /* нет хранилища */ }
+    const tab = document.querySelector('[data-payment-method="sicilia"]');
+    if (tab) tab.hidden = !siciliaState.enabled;
+    return siciliaState;
+  })();
+  try { return await siciliaState.optionsRequest; }
+  finally { siciliaState.optionsRequest = null; }
 }
 
 /*
@@ -8439,13 +8494,15 @@ document.getElementById('feedTrack')?.addEventListener('click', (e) => {
 });
 
 async function pollFeed() {
+  if (document.hidden || state.feedPolling) return;
+  state.feedPolling = true;
   let drops;
   try {
     const res = await fetch(`/api/feed?limit=${FEED_LIMIT}`);
     ({ drops } = await res.json());
   } catch {
     return; // Лента необязательна: молча ждём следующего опроса.
-  }
+  } finally { state.feedPolling = false; }
   if (!drops?.length) return;
 
   // Первый заход наполняет ленту сразу, без анимации: пустая полоса,
@@ -8485,7 +8542,7 @@ function startFeed() {
       // Пока открыт кейс, лента стоит: на телефоне она живёт под ним, и
       // каждая новая плитка - раскладка и перерисовка посреди прокрута, из-за
       // которых лента кейса подвисала на остановке. Очередь ждёт.
-      if (document.body.classList.contains('case-open')) return;
+      if (document.hidden || document.body.classList.contains('case-open')) return;
       const next = feedQueue.shift();
       if (next) pushFeedCard(next);
     }, FEED_STEP_MS),
@@ -9171,6 +9228,7 @@ function openAuth(pane = 'login') {
 function closeAuth() {
   state.afterAuthView = null;
   authEl('authBackdrop').hidden = true;
+  if (state.view === 'casino') casino.resumeCovers();
   authFail('');
 }
 
@@ -10543,6 +10601,9 @@ function renderPromoWheel() {
   if (!box || !cfg) return;
   // Колесо не пересобираем посреди прокрута: перерисовка сбросила бы угол.
   if (wheelState.busy && box.querySelector('.pw-svg')) return;
+  const key = JSON.stringify(cfg);
+  if (box.dataset.wheelConfig === key && box.querySelector('.pw-svg')) return;
+  box.dataset.wheelConfig = key;
   box.innerHTML = `
     <div class="fm-tile-head"><h2 class="fm-tile-title">Колесо удачи</h2>
       <span class="fm-tile-note">промокоды - в нашем боте</span></div>

@@ -667,7 +667,21 @@ function uniqueByName(rows, size) {
   }).slice(0, size);
 }
 
+// Лобби собирает десятки одинаковых выборок каталога. Снимок живёт не
+// больше секунды и сбрасывается при ЛЮБОЙ записи через наше соединение
+// или внешний SQLite-процесс, включая cover_state и новые раунды казино.
+// Это публичные плитки: кошелёк и балансы здесь никогда не кешируются.
+const casinoHomeCache = new Map();
+const casinoHomeChanges = db.prepare('SELECT total_changes() AS n');
+let casinoHomeVersion = '';
+const copyHome = (blocks) => blocks.map((b) => ({ ...b, games: b.games.map((g) => ({ ...g })) }));
+
 export function casinoHome(kind) {
+  const version = `${casinoHomeChanges.get().n}:${db.pragma('data_version', { simple: true })}`;
+  if (version !== casinoHomeVersion) { casinoHomeCache.clear(); casinoHomeVersion = version; }
+  const now = performance.now();
+  const cached = casinoHomeCache.get(kind);
+  if (cached && now < cached.expires) return copyHome(cached.blocks);
   const blocks = [];
   for (const cat of categoriesFor(kind)) {
     const size = cat.type === 'popular' && kind === 'slots' ? POPULAR_SIZE : BLOCK_SIZE;
@@ -687,7 +701,9 @@ export function casinoHome(kind) {
       if (rows.length) blocks.push({ id: `provider:${p.id}`, provider: p.id, title: p.name, type: 'provider', rows: 1, total, games: rows });
     }
   }
-  return blocks;
+  if (!casinoHomeCache.has(kind) && casinoHomeCache.size >= 3) casinoHomeCache.delete(casinoHomeCache.keys().next().value);
+  casinoHomeCache.set(kind, { blocks, expires: performance.now() + 1000 });
+  return copyHome(blocks);
 }
 
 export function casinoGame(id) {

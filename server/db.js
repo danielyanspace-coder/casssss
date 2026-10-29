@@ -4629,10 +4629,12 @@ export function settingsAll() {
   return SETTING_DEFS.map((d) => ({ ...d, value: stored.has(d.key) ? stored.get(d.key) : d.value }));
 }
 
+const settingValueQuery = db.prepare('SELECT value FROM app_settings WHERE key = ?');
+
 export function setting(key) {
   const def = SETTING_BY_KEY.get(key);
   if (!def) return null;
-  const row = db.prepare('SELECT value FROM app_settings WHERE key = ?').get(key);
+  const row = settingValueQuery.get(key);
   const raw = row ? row.value : def.value;
   return def.type === 'bool' ? raw === '1' || raw === 'true'
        : def.type === 'int' || def.type === 'num' ? Number(raw) || 0

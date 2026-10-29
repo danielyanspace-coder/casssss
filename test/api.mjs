@@ -217,10 +217,19 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
    */
   const big = feed.drops.filter(
     (d) => d.multiplier >= feed.minMultiplier && d.value >= feed.minValue).length;
-  const share = big / feed.drops.length;
   check('витрина: крупные есть', big > 0, `крупных ${big} из ${feed.drops.length}`);
-  check('витрина: крупных меньшинство', share <= 0.55,
-        `${(share * 100).toFixed(0)}% при цели ${(feed.bigShare * 100).toFixed(0)}%`);
+  // Доля относится только к выдуманным записям, не к настоящим раундам.
+  // Старое требование «меньше половины» противоречило текущим 90% и давало
+  // случайные отказы после реальных прокрутов. Проверяем заявленную долю
+  // на синтетической части с допуском 4σ для конечной выборки.
+  const synthetic = feed.drops.filter((d) => String(d.id).startsWith('s'));
+  if (synthetic.length >= 10) {
+    const syntheticBig = synthetic.filter((d) => d.multiplier >= feed.minMultiplier && d.value >= feed.minValue).length;
+    const tolerance = Math.max(0.1, 4 * Math.sqrt(feed.bigShare * (1 - feed.bigShare) / synthetic.length));
+    check('витрина: синтетическая часть соответствует заданной доле',
+      Math.abs(syntheticBig / synthetic.length - feed.bigShare) <= tolerance,
+      `${syntheticBig}/${synthetic.length}, цель ${feed.bigShare}`);
+  }
   check('витрина: обычные есть', big < feed.drops.length,
         `обычных ${feed.drops.length - big}`);
 

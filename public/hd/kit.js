@@ -237,8 +237,8 @@ export function hdStar(cx, cy, r1, r2, n = 5, rot = -90) {
  * карточках ленты разрешился бы в первый по порядку, и вся лента взяла бы
  * цвета первой плитки. На этом уже ломалось item-art.js.
  */
-export function hdKit() {
-  const id = `hd${(hdSeq++).toString(36)}`;
+export function hdKit(namespace) {
+  const id = namespace ?? `hd${(hdSeq++).toString(36)}`;
   const defs = new Map();
   let clip = 0;
 

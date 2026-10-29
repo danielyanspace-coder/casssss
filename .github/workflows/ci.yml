@@ -91,6 +91,12 @@ jobs:
       - name: Проверки API
         run: npm run test:api
 
+      - name: Кеш рисунков и обложек
+        run: npm run test:art && npm run test:casino-covers
+
+      - name: Стабильность интерфейса при обновлениях
+        run: npm run test:performance-ui
+
       - name: Первый заход, вход из кассы и касание кейсов
         run: npm run test:startup-ui
 

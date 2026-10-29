@@ -430,6 +430,10 @@ export async function launchGame({ game, playerId, demo, ip, country, rtp, lobby
  * на странице - мегабайты на мобильном интернете.
  */
 const COVER_WIDTH = 330;
+// У декоративных обложек свой бюджет ожидания: таймаут API запуска игры
+// (40 с × 4) не должен держать соединения браузера несколько минут.
+const COVER_TIMEOUT_MS = 8000;
+const COVER_RETRIES = 2;
 const COVER_QUALITY = 78;
 // Путь абсолютный, как у самой базы в db.js: res.sendFile относительный не
 // принимает, а DB_PATH в .env.example относительный (./data/app.db), и каждая
@@ -467,12 +471,12 @@ export async function coverFile(game) {
 
   const job = (async () => {
     let last;
-    for (let i = 0; i < RETRIES; i++) {
+    for (let i = 0; i < COVER_RETRIES; i++) {
       try {
-        const res = await fetch(src, { signal: AbortSignal.timeout(TIMEOUT_MS) });
+        const res = await fetch(src, { signal: AbortSignal.timeout(COVER_TIMEOUT_MS) });
         // Файла нет на CDN - повторять незачем: ответ будет тот же, а игрок
         // всё это время смотрит на пустую плитку.
-        if (res.status >= 400 && res.status < 500) return { missing: true, vertical };
+        if (res.status === 404 || res.status === 410) return { missing: true, vertical };
         if (!res.ok) throw new Error(`обложка ${res.status}`);
         const buf = Buffer.from(await res.arrayBuffer());
         const out = await (await sharp())(buf)
@@ -486,7 +490,7 @@ export async function coverFile(game) {
         return { file, vertical };
       } catch (err) {
         last = err;
-        await new Promise((r) => setTimeout(r, 800 * (i + 1)));
+        if (i + 1 < COVER_RETRIES) await new Promise((r) => setTimeout(r, 800 * (i + 1)));
       }
     }
     console.error('[casino] обложка', game.id, last?.message);

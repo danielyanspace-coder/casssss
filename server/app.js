@@ -487,10 +487,13 @@ app.get('/api/health', (req, res) => {
   }
 });
 
+const PUBLIC_CASE_CONFIG_JSON = JSON.stringify(CASES.map(publicCase));
+let lastConfigSettings = '';
+let lastPublicConfig = '';
+
 app.get('/api/config', (req, res) => {
-  res.json({
+  const config = {
     categories: CATEGORIES,
-    cases: CASES.map(publicCase),
     tiers: TIERS,
     crash: {
       rtp: CRASH_CONFIG.rtp,
@@ -560,7 +563,15 @@ app.get('/api/config', (req, res) => {
     // Потолок перевода бонуса в деньги нужен тексту правил: обещание без
     // него («отыграл - выводи») было бы неправдой.
     firstDeposit: { ...firstDepositRules(), cashoutPct: bonusRules().cashoutPct },
-  });
+  };
+  const settingsJson = JSON.stringify(config);
+  if (settingsJson !== lastConfigSettings) {
+    lastConfigSettings = settingsJson;
+    lastPublicConfig = `{"cases":${PUBLIC_CASE_CONFIG_JSON},${settingsJson.slice(1)}`;
+  }
+  // В кеше только публичная конфигурация, не данные игрока. Настройки
+  // сверяются на каждом запросе, переключатели панели действуют сразу.
+  res.type('application/json').send(lastPublicConfig);
 });
 
 /* ============================================================
@@ -1931,8 +1942,13 @@ async function sendCover(req, res, choose) {
   const game = casinoGame(req.params.id);
   if (!game) return res.status(404).end();
   const { src, missing } = choose(game);
+  if (!src.img_vertical && !src.img) {
+    if (missing) setCoverState(game.id, missing);
+    return res.status(404).end();
+  }
   const cover = await coverFile(src);
-  if (!cover) return res.status(404).end();
+  // Временная ошибка сети не означает, что файл отсутствует на CDN.
+  if (!cover) return res.status(503).set('Cache-Control', 'no-store').end();
   if (cover.missing) {
     if (missing) setCoverState(game.id, missing);
     return res.status(404).end();

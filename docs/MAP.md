@@ -78,6 +78,11 @@ grep -nE "^app\.(get|post)\(" server/app.js                  # все ручки
 
 - `registerBotMenu` — /start, «Поддержка», «Актуальная ссылка»; `server/bot.js` подключает меню.
 - `test/bot-menu.mjs` — обработка Telegram updates с подменой API; входит в `test:broadcast`.
+- `test/performance-ui.mjs` — сохранение полок/меню и поля промокода, состояния бонуса, отмена обложек и пагинация под медленным изображением (`test:performance-ui`).
+- `test/art-cache.mjs` — уникальность SVG-ссылок и ограничение кеша шаблонов; входит в `test:art`.
+- `test/casino-home-cache.mjs` — сброс лобби при собственных/внешних записях SQLite; входит в `test:casino`.
+- `test/casino-covers.mjs` — временные ошибки CDN, таймауты и общий кеш загрузок (`test:casino-covers`).
+- `tools/perf-audit.mjs` — три замера на CPU ×4, запуск через `perf:audit`.
 - `test/startup-ui.mjs` — запуск с зависшими шрифтами, вход из кассы, повтор после ошибок шлюзов и touch/свайп кейсов (`test:startup-ui`).
 - `wireCaseNavigation` в `public/app.js` — делегированные click/touch на полках и сезонном кейсе, без открытия при свайпе.
 - `test/cashier-ui.mjs` — касса, загрузчик и закреплённые вкладки на 390/1440 px (`test:cashier-ui`, нужен dev-сервер).

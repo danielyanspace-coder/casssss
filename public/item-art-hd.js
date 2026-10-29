@@ -107,10 +107,25 @@ export function hdDrawFor(key) {
   return HD_THEMES[theme]?.[Number(idx)] || null;
 }
 
+// Храним ограниченное число неизменных рисунков. SVG каждой вставки получает
+// свой namespace: градиенты и clipPath соседних карточек не пересекаются.
+const HD_ART_TEMPLATES = new Map();
+const HD_ART_TEMPLATE_LIMIT = 128;
+let hdArtInstance = 0;
+
 /** Готовая svg по ключу; null - вызывающий откатится на старые наборы мотивов. */
 export function itemArtHd(key) {
-  const draw = hdDrawFor(key);
-  if (!draw) return null;
-  const k = hdKit();
-  return k.svg(draw(k));
+  if (!key) return null;
+  let template = HD_ART_TEMPLATES.get(key);
+  if (!template) {
+    const draw = hdDrawFor(key);
+    if (!draw) return null;
+    const k = hdKit('__hd_instance__');
+    template = k.svg(draw(k));
+    if (HD_ART_TEMPLATES.size >= HD_ART_TEMPLATE_LIMIT) {
+      HD_ART_TEMPLATES.delete(HD_ART_TEMPLATES.keys().next().value);
+    }
+    HD_ART_TEMPLATES.set(key, template);
+  }
+  return template.replace(/__hd_instance__/g, `hd_cached_${hdArtInstance++}_`);
 }

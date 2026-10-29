@@ -45,9 +45,10 @@ try {
     await goto('wallet');
     await page.waitForSelector('#walletBonus details');
     assert.equal(await page.$eval('#walletBonus details', (d) => d.open), false);
-    assert.equal(await page.locator('#walletBonus p').isVisible(), false);
+    assert.equal(await page.locator('#walletBonus p').first().isVisible(), false);
     await page.click('#walletBonus summary');
-    assert.equal(await page.locator('#walletBonus p').isVisible(), true);
+    assert.equal(await page.locator('#walletBonus p').first().isVisible(), true);
+    assert.equal(await page.locator('#walletBonus .cash-bonus-steps > li').count(), 3);
     const colors = await page.evaluate(() => [...document.querySelectorAll('.cash-bonus-head > *')].map((e) => getComputedStyle(e).color));
     assert.notEqual(colors[0], colors[1]);
     assert.equal(await page.locator('#siciliaMethod svg').count(), 2);

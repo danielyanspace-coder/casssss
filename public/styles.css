@@ -10951,3 +10951,16 @@ body.case-open #app > .view *::after, body.case-open .money-rain * { animation-p
 
 /* Статус доступен ещё до загрузки модулей и внешних шрифтов. */
 .boot-status { padding: 18px; text-align: center; color: #dfbe62; font: 700 15px/1.5 system-ui, sans-serif; }
+
+/* Раскрывающаяся памятка бонусного счёта: те же правила, три коротких шага. */
+.cash-bonus-details summary > span { display: inline-grid; gap: 4px; vertical-align: top; font-weight: 700; }
+.cash-bonus-details summary small { font-size: 10.5px; font-weight: 500; opacity: .75; }
+.cash-bonus-steps { list-style: none; padding: 0; margin: 12px 0; display: grid; gap: 8px; }
+.cash-bonus-steps li { display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 9px; padding: 10px; border-radius: 12px; background: #ffffff07; border: 1px solid #ffffff0a; }
+.cash-bonus-step { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 8px; background: #dfbe621a; color: var(--gold); font: 800 12px/1 system-ui, sans-serif; }
+.cash-bonus-steps .is-done .cash-bonus-step { background: #a2edcf1a; color: #a2edcf; }
+.cash-bonus-steps li > div > b { color: var(--text); font-size: 12px; }
+.cash-bonus .cash-bonus-steps p { margin: 5px 0 0; line-height: 1.55; }
+.cash-bonus-steps strong { color: #a2edcf; font-weight: 800; }
+.cash-bonus-limit { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 5px 10px; margin-top: 9px; padding-top: 9px; border-top: 1px solid #ffffff12; font-size: 11px; color: var(--c-text-2); }
+.cash-bonus .cash-bonus-note { font-size: 10.5px; opacity: .8; }

@@ -508,8 +508,8 @@ async function goto(view) {
   });
   await page.click('#menuSupport');
   await page.waitForTimeout(300);
-  check('меню: «Поддержка» ведёт в чат @luckyboxsupport',
-        await page.evaluate(() => window.__supportUrl) === 'https://t.me/luckyboxsupport',
+  check('меню: «Поддержка» ведёт в чат @luckybox_support',
+        await page.evaluate(() => window.__supportUrl) === 'https://t.me/luckybox_support',
         String(await page.evaluate(() => window.__supportUrl)));
   check('меню: «Поддержка» закрывает меню',
         await page.evaluate(() => document.getElementById('menuBackdrop').hidden));
