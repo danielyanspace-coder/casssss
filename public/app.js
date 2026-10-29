@@ -36,6 +36,7 @@ import { createMotion, MOTION_NICE_AT } from './motion.js';
 const state = {
   config: null,
   user: null,
+  guest: true,
   openingCaseId: null,
   busy: false,
   crash: null,
@@ -45,6 +46,7 @@ const state = {
   view: 'cases',
   admin: { tab: 'overview', users: [], query: '', funnelDays: 7, perms: new Set(), me: null, reportDays: 30 },
   depositChosen: false,
+  afterAuthView: null,
   withdrawMethod: 'sbp',
   /*
    * Колесо фортуны. Лежит здесь, а не отдельной константой внизу файла:
@@ -240,7 +242,6 @@ function track(name) {
 
 /** Касса с сразу открытой вкладкой пополнения. */
 function openCashier() {
-  if (state.guest) return openAuth(authDefaultPane());
   switchView('wallet');
   setCashMode('deposit');
 }
@@ -419,19 +420,10 @@ function renderPerkBar() {
       ×2 ${where}${p.count > 1 ? ` · ${p.count}` : ''}</span>`);
   }
 
-  // Бонусный счёт - первым: это деньги, которыми игрок может играть сейчас.
-  // Нажатие ведёт в кассу, где расписано, сколько осталось отыграть.
-  if ((state.user.bonusBalance || 0) > 0) {
-    chips.unshift(`<span class="perk-chip is-bonus" data-goto-cashier>
-      Бонус ${money(state.user.bonusBalance)}${state.user.wagerRequired > 0
-        ? ` · отыграть ${money(state.user.wagerRequired)}` : ''}</span>`);
-  }
-
   // Выигранных кейсов здесь нет намеренно: их место в «Бонусах». Полоса над
   // полками разрасталась на несколько строк и отжимала сами кейсы вниз.
 
   bar.innerHTML = chips.join('');
-  bar.querySelector('[data-goto-cashier]')?.addEventListener('click', () => { haptic('light'); openCashier(); });
   bar.hidden = !chips.length;
   mountIcons(bar);
 
@@ -472,6 +464,49 @@ function wireCaseCardFx(list) {
   };
   list.addEventListener('pointerover', (e) => { if (e.pointerType === 'mouse') fire(e); });
   list.addEventListener('pointerdown', fire);
+}
+
+/** Делегирование переживает перерисовку полок между касанием и отпусканием.
+ * На touch открываем после короткого касания, не полагаясь на синтетический
+ * click Safari после появления искр. Свайп и pointercancel ничего не открывают.
+ */
+function wireCaseNavigation(root) {
+  if (root.dataset.caseNav) return;
+  root.dataset.caseNav = '1';
+  let touch = null;
+  let lastTouch = null;
+  const cardAt = (target) => {
+    const card = target?.closest?.('.case-card, .featured-card');
+    return card && root.contains(card) ? card : null;
+  };
+  root.addEventListener('pointerdown', (e) => {
+    if (e.pointerType !== 'touch' || !e.isPrimary) return;
+    const card = cardAt(e.target);
+    if (!card) return;
+    touch = { id: e.pointerId, caseId: card.dataset.case, x: e.clientX, y: e.clientY,
+      row: card.closest('.shelf-row'), scrollY: window.scrollY };
+    touch.scrollLeft = touch.row?.scrollLeft || 0;
+  }, { passive: true });
+  root.addEventListener('pointermove', (e) => {
+    if (touch?.id === e.pointerId && Math.hypot(e.clientX - touch.x, e.clientY - touch.y) > 10) touch = null;
+  }, { passive: true });
+  root.addEventListener('pointercancel', () => { touch = null; }, { passive: true });
+  root.addEventListener('pointerup', (e) => {
+    const tap = touch;
+    touch = null;
+    if (!tap || tap.id !== e.pointerId || Math.hypot(e.clientX - tap.x, e.clientY - tap.y) > 10) return;
+    if (Math.abs(window.scrollY - tap.scrollY) > 2 || Math.abs((tap.row?.scrollLeft || 0) - tap.scrollLeft) > 2) return;
+    const card = cardAt(document.elementFromPoint(e.clientX, e.clientY));
+    if (card?.dataset.case !== tap.caseId) return;
+    lastTouch = { caseId: tap.caseId, at: performance.now() };
+    openCase(tap.caseId);
+  });
+  root.addEventListener('click', (e) => {
+    const card = cardAt(e.target);
+    if (!card) return;
+    if (e.detail !== 0 && lastTouch?.caseId === card.dataset.case && performance.now() - lastTouch.at < 700) return;
+    openCase(card.dataset.case);
+  });
 }
 
 /** Сколько монет летит в баланс при пополнении. */
@@ -883,12 +918,7 @@ function renderCases() {
   root.innerHTML = blocks.join('');
   wireCaseCardFx(root);
 
-  // Слот сезонного кейса лежит вне списка полок, поэтому перебираем оба места.
-  [root, slot].filter(Boolean).forEach((box) => {
-    box.querySelectorAll('.case-card, .featured-card').forEach((card) => {
-      card.addEventListener('click', () => openCase(card.dataset.case));
-    });
-  });
+  [root, slot].filter(Boolean).forEach(wireCaseNavigation);
 }
 
 /**
@@ -6243,6 +6273,11 @@ const slot = createSlot({
    ============================================================ */
 
 function switchView(name) {
+  if (name === 'wallet' && state.guest) {
+    state.afterAuthView = 'wallet';
+    openAuth(authDefaultPane());
+    return;
+  }
   // Раздела «Бонусы» больше нет: всё бесплатное живёт во Free Money, и
   // старые входы (меню, ссылки) ведут туда.
   if (name === 'bonuses') name = 'freemoney';
@@ -7101,6 +7136,8 @@ async function loadCryptoOptions() {
     });
   } catch {
     cryptoState.enabled = false;
+    cryptoState.loaded = false;
+    state.depositChosen = false;
   }
   return cryptoState;
 }
@@ -7246,12 +7283,15 @@ function renderCryptoQuick() {
 }
 
 async function openCryptoDeposit() {
-  const box = document.getElementById('cryptoCreate');
   showDepositPane('cryptoCreate');
+  document.getElementById('cryptoCreateBtn').disabled = true;
 
   await loadCryptoOptions();
+  document.getElementById('cryptoStatus').hidden = true;
+  document.getElementById('cryptoCreateBtn').disabled = false;
   if (!cryptoState.enabled || !cryptoState.coins.length) {
-    box.innerHTML = '<p class="empty">Криптокасса временно недоступна. Попробуйте позже.</p>';
+    document.getElementById('cryptoStatus').hidden = false;
+    document.getElementById('cryptoCreateBtn').disabled = true;
     return;
   }
 
@@ -7260,6 +7300,11 @@ async function openCryptoDeposit() {
   document.getElementById('cryptoAmount').placeholder = `от ${fmtMoney(cryptoState.min)}`;
   selectCoin('deposit', cryptoState.deposit.currency || cryptoState.coins[0].currency);
 }
+
+document.getElementById('cryptoRetry').addEventListener('click', async () => {
+  await loadSiciliaOptions();
+  openCryptoDeposit();
+});
 
 document.getElementById('coinNetworkSelect')?.addEventListener('change', (e) => {
   cryptoState.deposit.network = e.target.value;
@@ -7448,7 +7493,9 @@ async function loadSiciliaOptions() {
       min: d.min ?? 100, max: d.max ?? 300000,
     });
   } catch {
-    siciliaState.loaded = true;
+    // Сетевой сбой или истёкший вход не являются настройкой шлюза.
+    siciliaState.loaded = false;
+    state.depositChosen = false;
   }
   try { siciliaState.bank = localStorage.getItem(SICILIA_BANK_KEY) || ''; } catch { /* нет хранилища */ }
   const tab = document.querySelector('[data-payment-method="sicilia"]');
@@ -7553,9 +7600,7 @@ function syncSiciliaAmount() {
   const input = document.getElementById('siciliaAmount');
   const n = amountOf(input);
   markQuick(document.getElementById('siciliaQuick'), input);
-  const verb = siciliaState.mode === 'h2h' ? 'Пополнить' : 'Оплатить';
-  document.getElementById('siciliaCreateLabel').textContent = n > 0 ? `${verb} ${money(n)}`
-    : siciliaState.mode === 'h2h' ? 'Получить реквизиты' : 'Перейти к оплате';
+  document.getElementById('siciliaCreateLabel').textContent = n > 0 ? `Оплатить ${money(n)}` : 'Оплатить';
 }
 document.getElementById('siciliaAmount')?.addEventListener('input', syncSiciliaAmount);
 
@@ -9124,6 +9169,7 @@ function openAuth(pane = 'login') {
 }
 
 function closeAuth() {
+  state.afterAuthView = null;
   authEl('authBackdrop').hidden = true;
   authFail('');
 }
@@ -9258,7 +9304,12 @@ function renderAuthChrome() {
 /** Сразу после входа: то, что гостю не запускалось. */
 function signedIn(user, created = false) {
   const wasGuest = state.guest;
+  const nextView = state.afterAuthView;
+  state.afterAuthView = null;
   state.guest = false;
+  state.depositChosen = false;
+  siciliaState.loaded = false;
+  cryptoState.loaded = false;
   try { localStorage.setItem(AUTH_SEEN_KEY, '1'); } catch { /* приватное окно */ }
   closeAuth();
   applyUser(user);
@@ -9271,6 +9322,7 @@ function signedIn(user, created = false) {
     loadFreeCase();
     startOnboarding();
   }
+  if (nextView === 'wallet' || state.view === 'wallet') openCashier();
   openAdminEntry();
 }
 
@@ -9521,6 +9573,7 @@ async function init() {
     state.guest = !me;
     const user = me || guestUser();
     state.user = user;
+    document.getElementById('bootStatus')?.remove();
     renderAuthChrome();
     renderColorPicker();
     renderRouletteWheel();

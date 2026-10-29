@@ -10948,3 +10948,6 @@ body.cz-playing { overflow: hidden; }
  */
 body.case-open #app > .view *, body.case-open #app > .view *::before,
 body.case-open #app > .view *::after, body.case-open .money-rain * { animation-play-state: paused !important; }
+
+/* Статус доступен ещё до загрузки модулей и внешних шрифтов. */
+.boot-status { padding: 18px; text-align: center; color: #dfbe62; font: 700 15px/1.5 system-ui, sans-serif; }

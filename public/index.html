@@ -24,7 +24,7 @@
   -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;800;900&amp;family=Manrope:wght@500;700;800&amp;family=Inter:wght@400;500;600;700;800&amp;family=Bodoni+Moda:opsz,wght@6..96,700;6..96,900&amp;family=JetBrains+Mono:wght@400;700&amp;family=Great+Vibes&amp;display=swap">
+  <link rel="stylesheet" media="print" onload="this.media='all'" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;800;900&amp;family=Manrope:wght@500;700;800&amp;family=Inter:wght@400;500;600;700;800&amp;family=Bodoni+Moda:opsz,wght@6..96,700;6..96,900&amp;family=JetBrains+Mono:wght@400;700&amp;family=Great+Vibes&amp;display=swap">
 
   <link rel="stylesheet" href="/styles.css">
 </head>
@@ -98,6 +98,7 @@
   </div>
 
   <main id="app">
+    <div class="boot-status" id="bootStatus" role="status">Загружаем LUCKYBOX…</div>
 
     <!-- ══════════ КЕЙСЫ ══════════ -->
     <section class="view active" id="view-cases">
@@ -549,6 +550,7 @@
           <!-- Пополнение криптовалютой. Список монет приходит от шлюза, поэтому
                сетка и выпадающий список сетей собираются в коде. -->
           <div class="crypto-create" id="cryptoCreate" hidden>
+            <div id="cryptoStatus" role="status" hidden><p>Не удалось загрузить криптокассу.</p><button type="button" class="cash-ghost" id="cryptoRetry">Повторить загрузку</button></div>
             <div class="cash-step">Монета</div>
             <div class="coin-grid" id="coinGrid"></div>
             <div class="coin-network cash-field" id="coinNetwork" hidden>
@@ -585,7 +587,7 @@
             <div class="quick-row" id="siciliaQuick"></div>
             <div class="cash-step" data-sic-h2h>Ваш банк <small>откроем перевод в приложении</small></div>
             <div class="quick-row sic-banks" id="siciliaBank" data-sic-h2h></div>
-            <button class="cash-cta" id="siciliaCreateBtn"><span id="siciliaCreateLabel">Получить реквизиты</span><span data-cash-ico="arrow"></span></button>
+            <button class="cash-cta" id="siciliaCreateBtn"><span id="siciliaCreateLabel">Оплатить</span><span data-cash-ico="arrow"></span></button>
             <p class="cash-fine" id="siciliaFine">Реквизиты для перевода появятся здесь. Переведите точную сумму:
               деньги зачислятся сами, как только банк подтвердит перевод.</p>
           </div>

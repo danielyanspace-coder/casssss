@@ -78,6 +78,8 @@ grep -nE "^app\.(get|post)\(" server/app.js                  # все ручки
 
 - `registerBotMenu` — /start, «Поддержка», «Актуальная ссылка»; `server/bot.js` подключает меню.
 - `test/bot-menu.mjs` — обработка Telegram updates с подменой API; входит в `test:broadcast`.
+- `test/startup-ui.mjs` — запуск с зависшими шрифтами, вход из кассы, повтор после ошибок шлюзов и touch/свайп кейсов (`test:startup-ui`).
+- `wireCaseNavigation` в `public/app.js` — делегированные click/touch на полках и сезонном кейсе, без открытия при свайпе.
 - `test/cashier-ui.mjs` — касса, загрузчик и закреплённые вкладки на 390/1440 px (`test:cashier-ui`, нужен dev-сервер).
 
 ### server/cases.js - 68 кейсов, решатель вероятностей
