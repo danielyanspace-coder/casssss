@@ -11,6 +11,21 @@ on:
   pull_request:
 
 jobs:
+  dependencies:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Отчёт по уязвимостям зависимостей
+        run: |
+          npm audit --json > dependency-audit.json || true
+          node -e 'const a=require("./dependency-audit.json");console.log(JSON.stringify(a.metadata));console.log(JSON.stringify(a.vulnerabilities));'
+
   tests:
     runs-on: ubuntu-latest
     timeout-minutes: 25
