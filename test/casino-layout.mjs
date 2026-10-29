@@ -19,7 +19,8 @@ try {
   if(await page.locator('#onbSkip').isVisible()) await page.click('#onbSkip');
   await page.locator('#promoCasino').click();
   await page.locator('#czSeg [data-kind="live"]').click();
-  await page.waitForSelector('.cz[data-cz-kind="live"] .cz-block');
+  // Заглушки тоже имеют .cz-block: измеряем только ответ с настоящими играми.
+  await page.waitForSelector('.cz[data-cz-kind="live"] .cz-block .cz-tile[data-game]');
   const leaders = await page.locator('.cz-block').evaluateAll(bs=>bs.map(b=>b.querySelector('.cz-name').textContent));
   assert.equal(new Set(leaders).size,3, 'Different live shelves must open with different games');
   const geometry = await page.locator('.cz-block .cz-art').first().evaluate(e=>{const r=e.getBoundingClientRect(); return { ratio:r.width/r.height, fit:getComputedStyle(e.querySelector('img:not(.cz-blur)')).objectFit };});

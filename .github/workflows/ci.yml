@@ -156,6 +156,7 @@ jobs:
       - name: Мобильная сетка мини-игр и Live казино
         run: node test/casino-layout.mjs http://localhost:3000
       - name: Замер интерфейса при CPU x4
+        timeout-minutes: 2
         if: success() || failure()
         run: node tools/perf-audit.mjs http://localhost:3000 artifacts/performance.json
       - name: Безопасность HTTP с выключенным DEV_MODE
