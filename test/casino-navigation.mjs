@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 // Выполняем настоящий модуль с управляемыми ответами сети и минимальным DOM.
 let inspect;
 const elements = new Map();
-const element = () => ({ innerHTML: '', dataset: {}, hidden: false, isConnected: false,
+const element = () => ({ innerHTML: '', dataset: {}, style: {}, hidden: false, isConnected: false,
   querySelector: () => null, querySelectorAll: () => [] });
 globalThis.document = { getElementById(id) {
   if (!elements.has(id)) elements.set(id, element());
@@ -65,5 +65,18 @@ ui.searchTimer = setTimeout(() => { searched = true; }, 0);
 await setKind('fast');
 await new Promise(resolve => setTimeout(resolve, 10));
 assert.equal(searched, false);
+
+// Отказ нового запроса предлагает повтор, повторная загрузка снимает заглушку.
+ui.view = { type: 'search' };
+const broken = reload();
+rejectRequest(new Error('temporary failure'));
+await broken;
+assert.match(elements.get('czBody').innerHTML, /data-retry/);
+render();
+assert.doesNotMatch(elements.get('czBody').innerHTML, /data-retry/);
+resolveRequest({games:[], total:0});
+await new Promise(resolve => setTimeout(resolve, 0));
+assert.equal(ui.loading, false);
+assert.equal(elements.get('czEmpty').hidden, false);
 delete globalThis.document;
-console.log('Casino navigation: stale search/page/error ignored, loading preserved, refs released, search canceled, own counters respect configuration');
+console.log('Casino navigation: stale replies ignored, loading preserved, refs released, search canceled, counters respect configuration, failed search can retry');

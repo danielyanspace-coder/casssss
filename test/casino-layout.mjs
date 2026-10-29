@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
+import { mkdirSync } from 'node:fs';
+mkdirSync('artifacts', { recursive: true });
 const browser = await chromium.launch();
 try {
  for (const width of [320, 390, 599, 768, 1440]) {
@@ -42,6 +44,7 @@ try {
   assert.ok(gap.row>gap.col, JSON.stringify(gap));
   assert.ok(!/Отдача игр провайдеров/.test(await page.locator('#czBody').innerText()));
   assert.deepEqual(errors,[]);
+  await page.screenshot({ path: `artifacts/casino-${width}.png`, fullPage: true, animations: 'disabled' });
   console.log(`Live and fast layout ${width}px: portrait, complete image, distinct leaders, visible title, row spacing, no RTP notice`);
   await page.close();
  }
