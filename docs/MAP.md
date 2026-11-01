@@ -29,6 +29,19 @@ grep -nE "^app\.(get|post)\(" server/app.js                  # все ручки
 
 ---
 
+## Обновление счетов 30.10.2026
+
+- `docs/ACCOUNTS-RELEASE.md`: новый контракт денег и установка.
+- `server/db.js`: `selectWallet`, `pendingReward`, `claimPendingReward`,
+  `holdReward`, `caseTableId`, `withdraw_gift`, `bonus_kop`.
+- `server/sicilia-fees.js`: комиссии по сумме и методу.
+- `server/finance.js`: `siciliaDeposits`, фильтр от/до, ручные споры.
+- `server/case-tables-legacy.json`: историческая таблица до RTP 80%.
+- `public/app.js`: `collectReward`, `scrollCaseTop`, шторка `walletSheet`,
+  поиск банков; `public/partners/partners.js`: `renderPlayers`, `openPlayer`.
+- `test/accounts-rewards.mjs`, `test/accounts-ui.mjs`: проверки счетов.
+- `test/case-exit.mjs`: получение при выходе и поздние ответы игровых запросов.
+
 ## 1. Корень проекта
 
 | Файл | Что это |
@@ -50,6 +63,15 @@ grep -nE "^app\.(get|post)\(" server/app.js                  # все ручки
 | `data/` | база по умолчанию (`app.db`, копии в `data/backups`) |
 
 ---
+
+## Первый запуск страницы
+
+- `public/boot.js`: ранние запросы конфига и игрока, `loadStartupData`.
+- `public/item-art-lazy.js`: `preloadItemArt`, `itemArtReady`, `warmItemArt`; исходные рисунки в `public/hd/` не меняются.
+- `public/app.js`: `openCase`, `renderOpenCase`, `cancelCaseLoad`, `pollFeed`, `renderSideNav`.
+- `test/startup.mjs`: совпадение всех SVG, ошибки сети, отмена и повтор загрузки, скрипт автономной сборки.
+- `tools/startup-audit.mjs`: объём обязательного графа модулей; `tools/measure-startup.mjs`: браузерные замеры и снимки.
+- Результаты и ограничения проверки: `docs/STARTUP-PERFORMANCE.md`.
 
 ## 2. server/ по файлам
 
@@ -558,6 +580,12 @@ grep -nE "^app\.(get|post)\(" server/app.js                  # все ручки
 
 ### public/casino.js - лобби казино, провайдеры, окно и экран игры
 
+- Live: вертикальные карточки 3:4 с целой обложкой; `renderHome` выбирает разные первые игры полок, сохраняя состав категорий.
+- Общие списки `casinoGames` убирают одинаковые названия до пагинации и подсчёта `total`; каталог конкретного провайдера сохраняет его версию. Автономная сборка повторяет это в `demoCasinoRows`.
+- Быстрые игры: `.cz-grid.cz-fast` увеличивает только вертикальный промежуток; плашка с отдачей удалена.
+- `node test/casino-layout.mjs [URL]`: браузерная проверка live и быстрых игр на 390/1440 px с тестовыми ответами казино.
+
+
 - `createCasino()` -> `{ open, close, focusBlock, playing }`.
 - Внутри: `shell`, `renderSeg` (меню Слоты/Live/Быстрые), `renderChips`, `syncBanners`, `renderHome`/`loadHome` (блоки), `blockHtml`, `tileHtml`, `onCoverError` (`COVER_RETRY_MS`, затем `?w=1`, затем убрать), `renderFast`/`loadFast` (наши Краш и Апгрейд), `renderList`, `renderGrid`, `fetchPage`, `loadMore`, `renderProviders`, `providerMark`, навигация-стек `go`/`back`, `setKind`, `openChip`, `openSheet`/`closeSheet` (окно запуска `#czSheet`), `launch`, `openFrame`/`closeFrame` (iframe `#czFrame`), `refreshUser` (`BALANCE_POLL_MS`).
 
@@ -647,7 +675,7 @@ grep -nE "^app\.(get|post)\(" server/app.js                  # все ручки
 | АПГРЕЙД | `renderUpgradePicker`, `renderUpgradeTicks`, `renderUpgradeStage`, `upgCharge`, `upgSpin`, `upgCountTo` |
 | ПОДВАЛ И ПРАВОВЫЕ ДОКУМЕНТЫ | `buildFooter`, `openDoc` |
 | ПЕРВЫЙ ЗАХОД | `ONBOARDING`, `licenseLine`, `renderOnboarding`, `startOnboarding` |
-| ВХОД НА САЙТ | `guestUser`, `AUTH_PANES`, `openAuth`, `closeAuth`, `showAuthPane`, `mountTelegramWidget`, `onTelegramAuth`, `renderAccount`, `openAccount`, `renderAuthChrome`, `signedIn`, `submitAuth`, `wireAuth`, `takeResetToken`, `loadMe` |
+| ВХОД НА САЙТ | `guestUser`, `AUTH_PANES`, `openAuth`, `closeAuth`, `showAuthPane`, `mountTelegramWidget`, `onTelegramAuth`, `renderAccount`, `openAccount`, `renderAuthChrome`, `signedIn`, `submitAuth`, `wireAuth`, `takeResetToken` |
 | НАВИГАЦИЯ И СТАРТ | **`init()`** - старт приложения, навешивание обработчиков |
 | КОЛЕСО ФОРТУНЫ | `fortuneWheelMarkup` (рисунок колеса по описанию сервера), `renderFortuneArt`, `loadFortune`, `renderFortuneStatus`, `renderFortuneLog`, `showFortuneSteps`, `spinFortune`, `fortuneHighlight`, `showFortuneWin`, **`openFreeMoney`**, `wireFortune` |
 | ГЛАВНЫЙ БАННЕР | `runHeroSlider` (`data-ms` на слайдах) |
@@ -1023,3 +1051,25 @@ UI против автономной сборки: `npm run demo && node test/ui
 | Форма выплат кейсов | `server/cases.js` `BAND_STEPS`, `MID_STEPS`, `PROFILES` (`bandShare`, `midShare`) |
 | Казино: «N играют», значки категорий | `public/casino.js` `livePlayers`, `liveHtml`, `ICON_TONES`, `icon`; выключатель `FEED_SYNTHETIC` (config.feed.synthetic) |
 | Меню компьютера плитками | `public/app.js` `renderSideNav` (`.is-sq`, `.is-wide`, `.is-tall`); стили в последнем блоке `styles.css` |
+
+Мобильные мини-игры и проверка качества (29.10.2026):
+`docs/MOBILE-QUALITY-REVIEW.md`; регрессии быстрых переходов казино -
+`test/casino-navigation.mjs` (входит в `test:casino`), геометрия -
+`test/casino-layout.mjs`. Счетчики собственных игр - `ownTileHtml`,
+выравнивание и отступ - `.cz-grid.cz-fast` и мобильный `.cz-body`.
+
+**Полная сцена покупки фриспинов на телефонах:** `public/motion.js`,
+`purchase`, `rasterSvg`, `metalBitmap`, `bitmapRays`; описание и проверки
+в `docs/FREESPIN-RASTER.md`, браузерная проверка `test/freespin-raster-ui.mjs`.
+
+## Первый экран загрузки
+
+`public/index.html` — лёгкая входная страница (около 15 КБ): встроенные логотип,
+стили и анимация. После первого отображения (Paint Timing, с запасным путём
+через декодирование логотипа и два кадра) начинает запросы `boot.js` и `app-shell.html`.
+`public/app-shell.html` хранит полную разметку прежней страницы. Входная страница
+подключает её ресурсы и код только после первого отображения заставки.
+`public/app.js` сообщает `lb:ready` после инициализации и `lb:boot-error` при
+отказе данных. Переход ждёт также основные стили; внешние шрифты не блокируют.
+Ошибка или 45 секунд ожидания показывают повтор. Демо-сборка использует полную
+разметку `app-shell.html`, без сетевого загрузчика. Проверка: `test/launch-screen-ui.mjs`.

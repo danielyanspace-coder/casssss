@@ -22,7 +22,7 @@ try {
   await page.route('**/casino/cover/**', (r) => r.abort());
   const source = readFileSync(new URL('../public/app.js', import.meta.url), 'utf8');
   // Только тестовый ответ: рабочий app.js не экспортирует состояние игрока.
-  await page.route('**/app.js', (r) => r.fulfill({ contentType: 'application/javascript',
+  await page.route('**/app.js*', (r) => r.fulfill({ contentType: 'application/javascript',
     body: source + '\nwindow.__audit = { state, applyUser, switchView, renderWalletBonus, loadCryptoOptions, loadSiciliaOptions, cryptoState, siciliaState };' }));
   await page.goto(target, { waitUntil: 'domcontentloaded' });
   await page.waitForSelector('.case-card');

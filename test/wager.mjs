@@ -153,12 +153,12 @@ check('отыгранный бонус перешёл в деньги в пре�
 const p = getOrCreateUser({ id: 'wg-p', username: 'p' });
 deposit(p.id, 1000);
 grantBonus(p.id, 2000, { source: 'test', wager: 0 });
-check('сверх 25% пополнений бонус не переходит в деньги',
-  getUserById(p.id).bonus_converted === 250 && getUserById(p.id).bonus_balance === 1750,
+check('после отыгрыша весь бонус переходит в деньги',
+  getUserById(p.id).bonus_converted === 2000 && getUserById(p.id).bonus_balance === 0,
   JSON.stringify({ conv: getUserById(p.id).bonus_converted, bb: getUserById(p.id).bonus_balance }));
 deposit(p.id, 2000);
-check('следующее пополнение поднимает потолок, и бонус переходит дальше',
-  getUserById(p.id).bonus_converted === 750 && getUserById(p.id).bonus_balance === 1250,
+check('следующее пополнение не повторяет перевод уже полученного бонуса',
+  getUserById(p.id).bonus_converted === 2000 && getUserById(p.id).bonus_balance === 0,
   JSON.stringify({ conv: getUserById(p.id).bonus_converted, bb: getUserById(p.id).bonus_balance }));
 
 /* ---------- Вес оборота по отдаче игры ----------

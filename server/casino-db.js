@@ -18,7 +18,8 @@
  * преобразования на входе (toKop). Сложение 0.1 + 0.2 в плавающей точке даёт
  * 0.30000000000000004, и через тысячу ставок касса разошлась бы с игроком.
  */
-import { db, getUserById, consumeWager, getPlayerLimits, moneyTx, ledgerLink, setting } from './db.js';
+import { demoWallet, isDemoPlayerId } from './casino-demo.js';
+import { db, getUserById, consumeWager, getPlayerLimits, moneyTx, ledgerLink, setting, settleBonus, wagerWeight } from './db.js';
 import {
   categoryById, categoriesFor, POPULAR_SIZE, BLOCK_SIZE, PROVIDER_BLOCKS, MIN_BLOCK_GAMES,
   FEATURED_GAMES, BURIED_GAMES,
@@ -115,6 +116,7 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS casino_tx_game ON casino_tx (game_id, created_at);
   CREATE INDEX IF NOT EXISTS casino_tx_user ON casino_tx (user_id, created_at);
 `);
+ensureColumn('casino_tx', 'wallet', "TEXT NOT NULL DEFAULT 'real'");
 // Сколько долга пополнения погасила эта ставка: при отмене ставки
 // агрегатором он возвращается, иначе отменённые ставки гасили бы отыгрыш
 // пополнения, не рискуя ни рублём.
@@ -251,10 +253,10 @@ function addWager(userId, kop) {
  * третьей стороне. Префикс отличает наших игроков от тестовых в их кабинете
  * и не даёт перепутать номер с чем-то ещё. Лимит агрегатора - 20 символов.
  */
-export const casinoPlayerId = (userId) => `lb${userId}`;
+export const casinoPlayerId = (userId, wallet = 'real') => `lb${userId}${wallet === 'bonus' ? 'b' : ''}`;
 
 export function userFromCasinoId(value) {
-  const m = /^lb(\d{1,17})$/.exec(String(value || ''));
+  const m = /^lb(\d{1,17})(b?)$/.exec(String(value || ''));
   return m ? getUserById(Number(m[1])) : null;
 }
 
@@ -269,9 +271,9 @@ export function casinoExcluded(userId) {
 
 const insertTx = db.prepare(`
   INSERT INTO casino_tx (user_id, method, dedupe_key, tx_id, orig_tx_id, round_id,
-                         game_id, provider_id, amount_kop, free_round, balance_kop, wager_cut, created_at)
+                         game_id, provider_id, amount_kop, free_round, balance_kop, wager_cut, created_at, wallet)
   VALUES (@user_id, @method, @dedupe_key, @tx_id, @orig_tx_id, @round_id,
-          @game_id, @provider_id, @amount_kop, @free_round, @balance_kop, @wager_cut, @created_at)
+          @game_id, @provider_id, @amount_kop, @free_round, @balance_kop, @wager_cut, @created_at, @wallet)
 `);
 
 const fail = (status, extra = {}) => Object.assign(new Error(MESSAGES[status] || 'error'), { status, ...extra });
@@ -330,26 +332,34 @@ export function casinoWallet(requests, { currency = 'RUB' } = {}) {
     return { statusCode: CASINO_STATUS.INVALID_REQUEST };
   }
 
+  // Демо имеет отдельные ID, таблицы и транзакцию без доступа к денежному журналу.
+  if (list.some(r => isDemoPlayerId(r.userId))) return demoWallet(list, { currency });
+  // Помеченный как демо вызов с реальным ID никогда не меняет деньги.
+  if (list.some(r => r.demo === true || r.isDemo === true || r.additionalData?.demo === true)) {
+    return { statusCode: CASINO_STATUS.INVALID_REQUEST };
+  }
+
   // Все вызовы пакета - про одного игрока. Чужой userId посреди пакета -
   // ошибка агрегатора, а не повод начислить кому-то второму.
   const user = userFromCasinoId(list[0].userId);
   if (!user) return { statusCode: CASINO_STATUS.USER_NOT_FOUND };
   if (list.some((r) => String(r.userId) !== String(list[0].userId))) {
-    return { statusCode: CASINO_STATUS.INVALID_REQUEST, balance: userBalanceRub(user) };
+    return { statusCode: CASINO_STATUS.INVALID_REQUEST, balance: casinoWalletKop(user, String(list[0].userId).endsWith('b') ? 'bonus' : 'real') / 100 };
   }
 
   try {
-    const balance = applyBatch(user.id, list, currency);
+    const wallet = String(list[0].userId).endsWith('b') ? 'bonus' : 'real';
+    const balance = applyBatch(user.id, list, currency, wallet);
     return { statusCode: CASINO_STATUS.OK, balance };
   } catch (err) {
     if (err.status === undefined) throw err;
     // Баланс в отказе - текущий, после отката: этого требует документация
     // для нехватки средств, и для остальных отказов он тоже правдив.
-    return { statusCode: err.status, balance: userBalanceRub(getUserById(user.id)) };
+    return { statusCode: err.status, balance: casinoWalletKop(getUserById(user.id), String(list[0].userId).endsWith('b') ? 'bonus' : 'real') / 100 };
   }
 }
 
-const applyBatch = moneyTx('casino', (userId, list, currency) => {
+const applyBatch = moneyTx('casino', (userId, list, currency, wallet = 'real') => {
   const now = Date.now();
 
   for (const req of list) {
@@ -369,14 +379,14 @@ const applyBatch = moneyTx('casino', (userId, list, currency) => {
     if (Number.isNaN(amount)) throw fail(CASINO_STATUS.INVALID_REQUEST);
 
     const user = getUserById(userId);
-    let kop = userKop(user);
+    let kop = casinoWalletKop(user, wallet);
     const row = {
       user_id: userId, method, dedupe_key: key,
       tx_id: req.transactionId ? String(req.transactionId) : null,
       orig_tx_id: req.originalTransId ? String(req.originalTransId) : null,
       round_id: req.roundId ? String(req.roundId) : null,
       game_id: req.gameId ? String(req.gameId) : null,
-      provider_id: req.providerId ? String(req.providerId) : null,
+      provider_id: req.providerId ? String(req.providerId) : null, wallet,
       amount_kop: amount, free_round: free ? 1 : 0, balance_kop: 0, wager_cut: 0, created_at: now,
     };
 
@@ -388,19 +398,25 @@ const applyBatch = moneyTx('casino', (userId, list, currency) => {
       const debit = free ? 0 : amount;
       if (debit > kop) throw fail(CASINO_STATUS.LOW_BALANCE);
       kop -= debit;
-      writeKop(userId, kop);
-      row.wager_cut = addWager(userId, debit);
+      writeWalletKop(userId, kop, wallet);
+      if (wallet === 'bonus') {
+        const pending = (user.casino_bonus_wager_kop || 0) + debit;
+        consumeWager(userId, { bonus: Math.floor(pending / 100), rtp: casinoRtp() / 100 });
+        db.prepare('UPDATE users SET casino_bonus_wager_kop = ?, casino_bet_kop = casino_bet_kop + ? WHERE id = ?')
+          .run(pending % 100, debit, userId);
+        row.wager_cut = Math.min(user.wager_required, Math.floor(Math.floor(pending / 100) * wagerWeight(casinoRtp() / 100) + 1e-9));
+      } else row.wager_cut = addWager(userId, debit);
     } else if (method === 'win' || method === 'cashout') {
       // Выигрыш без ставки - ошибка агрегатора или подделка. Начислять его
       // нельзя: сценарии партнёра проверяют ровно это.
-      if (!roundBets(userId, req.roundId).length) throw fail(CASINO_STATUS.BET_NOT_EXIST);
+      if (!roundBets(userId, req.roundId).some(b => b.wallet === wallet)) throw fail(CASINO_STATUS.BET_NOT_EXIST);
       kop += amount;
-      writeKop(userId, kop);
+      writeWalletKop(userId, kop, wallet);
       if (amount > 0) {
         db.prepare('UPDATE users SET casino_win_kop = casino_win_kop + ? WHERE id = ?').run(amount, userId);
       }
     } else if (method === 'rollback') {
-      const targets = rollbackTargets(userId, req);
+      const targets = rollbackTargets(userId, req).filter(t => t.wallet === wallet);
       // Отменять нечего - ошибка, а не тихий успех: так требуют сценарии партнёра.
       if (!targets.length) throw fail(CASINO_STATUS.BET_NOT_EXIST);
       /*
@@ -418,11 +434,11 @@ const applyBatch = moneyTx('casino', (userId, list, currency) => {
       }
       kop = Math.max(0, kop + net);
       amount = net;
-      writeKop(userId, kop);
+      writeWalletKop(userId, kop, wallet);
       // Отменённая ставка не была игрой: погашенный ею долг пополнения и
       // оборот казино возвращаются.
       if (debtBack || betBack) {
-        db.prepare(`UPDATE users SET deposit_debt = deposit_debt + ?, casino_bet_kop = MAX(0, casino_bet_kop - ?)
+        db.prepare(`UPDATE users SET ${wallet === 'bonus' ? 'wager_required' : 'deposit_debt'} = ${wallet === 'bonus' ? 'wager_required' : 'deposit_debt'} + ?, casino_bet_kop = MAX(0, casino_bet_kop - ?)
                      WHERE id = ?`).run(debtBack, betBack, userId);
       }
       const marks = targets.map(() => '?').join(',');
@@ -435,7 +451,8 @@ const applyBatch = moneyTx('casino', (userId, list, currency) => {
     ledgerLink('casino_tx', saved.lastInsertRowid);
   }
 
-  return userBalanceRub(getUserById(userId));
+  if (wallet === 'bonus' && list.some(r => ['win', 'cashout'].includes(r.method))) settleBonus(userId);
+  return casinoWalletKop(getUserById(userId), wallet) / 100;
 });
 
 /* ---------- Каталог ---------- */
@@ -601,15 +618,21 @@ export function casinoGames({ kind = '', provider = '', category = '', q = '', o
 
   const order = cat?.type === 'new' ? 'g.partner_new DESC, g.first_seen_at DESC, ' + POPULAR_ORDER : POPULAR_ORDER;
   const whereSql = where.join(' AND ');
-  const total = db.prepare(`SELECT COUNT(*) AS n FROM casino_games g WHERE ${whereSql}`).get(args).n;
-  const rows = db.prepare(`
-    SELECT g.*, COALESCE(h.n, 0) AS heat
+  // Дубли разных поставщиков убираются до пагинации: иначе они возвращались
+  // на следующей странице. Внутри провайдера доступен его собственный каталог.
+  const selection = `WITH ranked AS (
+    SELECT g.*, COALESCE(h.n, 0) AS heat,
+           ROW_NUMBER() OVER (PARTITION BY g.kind, lower(trim(g.name)) ORDER BY ${order.replace('heat DESC', 'COALESCE(h.n, 0) DESC')}, g.id) AS copy_rank
       FROM casino_games g
       LEFT JOIN (SELECT game_id, COUNT(*) AS n FROM casino_tx
                   WHERE method = 'bet' AND created_at >= @since GROUP BY game_id) h
         ON h.game_id = g.id
      WHERE ${whereSql}
-     ORDER BY ${order}
+  )`;
+  const total = db.prepare(`${selection} SELECT COUNT(*) AS n FROM ranked WHERE copy_rank = 1`).get(args).n;
+  const rows = db.prepare(`${selection}
+    SELECT * FROM ranked g WHERE copy_rank = 1
+     ORDER BY ${order}, g.id
      LIMIT @limit OFFSET @offset
   `).all({ ...args, limit: Math.min(Math.max(1, limit), 120), offset: Math.max(0, offset) });
   return { total, rows };
@@ -655,7 +678,8 @@ function bigWins(kind, limit = BLOCK_SIZE) {
 /*
  * В блоке одно название - одна плитка. «40 Super Hot» есть и у EGT, и у EGT
  * VIP: это разные игры, но два одинаковых рядом в одной ленте читаются как
- * ошибка. Полный список категории показывает обе.
+ * ошибка. Общий список также убирает дубли до пагинации; конкретный
+ * провайдер показывает свою версию.
  */
 function uniqueByName(rows, size) {
   const seen = new Set();
@@ -746,3 +770,13 @@ export function casinoSummary(sinceMs = 0) {
   };
 }
 
+
+// Счёт закреплён в playerId запуска: поздний выигрыш не зависит от выбора в шапке.
+function casinoWalletKop(user, wallet) {
+  return wallet === 'bonus' ? user.bonus_balance * 100 + (user.bonus_kop || 0) : userKop(user);
+}
+function writeWalletKop(userId, kop, wallet) {
+  if (wallet !== 'bonus') return writeKop(userId, kop);
+  if (!Number.isSafeInteger(kop) || kop < 0) throw fail(CASINO_STATUS.GENERIC);
+  db.prepare('UPDATE users SET bonus_balance = ?, bonus_kop = ? WHERE id = ?').run(Math.floor(kop / 100), kop % 100, userId);
+}

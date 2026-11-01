@@ -1,3 +1,4 @@
+import { siciliaPayinFeePct } from './sicilia-fees.js';
 /**
  * Приём платежей и выплаты через Sicilia (api.sicilia.ink).
  *
@@ -576,7 +577,7 @@ export const applyPayinStatus = moneyTx('deposit', (orderId, info) => {
   // У мобильной коммерции своя комиссия: оператор связи берёт больше банка.
   const feeKey = mk ? 'sicilia_mk_fee_pct' : 'sicilia_payin_fee_pct';
   db.prepare('UPDATE sicilia_orders SET credited_rub = ?, paid_at = ?, fee_pct = ?, fee_fixed = 0 WHERE id = ?')
-    .run(credited, now, Number(setting(feeKey)) || 0, row.id);
+    .run(credited, now, siciliaPayinFeePct(credited, mk ? 'mk' : row.method), row.id);
   // Общие последствия любого пополнения: бонус, отыгрыш, прокруты колеса.
   const { bonus } = registerDeposit(row.user_id, credited, 'sicilia');
   // Деньги пришли - открытый спор по этой оплате закрыт, каким бы путём ни

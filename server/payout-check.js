@@ -33,6 +33,11 @@
 import {
   db, getUserById, seedByHash, MAX_FREE_SPINS, ensureCardHashes, bonusRules,
 } from './db.js';
+import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+// Время установки RTP 80% подтверждено reflog рабочего сайта, а не датой коммита.
+const CASE_TABLE_CUTOVER = Date.parse('2026-10-28T14:18:23Z');
+const legacyCases = JSON.parse(readFileSync(new URL('./case-tables-legacy.json', import.meta.url), 'utf8'));
 import { computeRoll } from './fair.js';
 import { getCase, pickItem } from './cases.js';
 import {
@@ -41,7 +46,7 @@ import {
 } from './games.js';
 
 /** Версия набора проверок: сохранённый итог старой версии пересчитывается. */
-export const CHECK_VERSION = 1;
+export const CHECK_VERSION = 2;
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS payout_checks (
@@ -98,16 +103,16 @@ function checkLedger(user, rows) {
     real += r.real_kop;
     bonus += r.bonus;
     if (prev && (prev.real_after_kop + r.real_kop !== r.real_after_kop
-              || prev.bonus_after + r.bonus !== r.bonus_after)) {
+              || Math.abs(prev.bonus_after + r.bonus - r.bonus_after) > 1e-7)) {
       problems.push(`разрыв цепочки на записи #${r.id}`);
     }
     if (!negative && (r.real_after_kop < 0 || r.bonus_after < 0)) negative = r;
     prev = r;
   }
   const nowReal = user.balance * 100 + (user.balance_kop || 0);
-  const nowBonus = user.bonus_balance || 0;
-  const sumOk = real === nowReal && bonus === nowBonus;
-  const lastOk = !prev || (prev.real_after_kop === nowReal && prev.bonus_after === nowBonus);
+  const nowBonus = (user.bonus_balance || 0) + (user.bonus_kop || 0) / 100;
+  const sumOk = real === nowReal && Math.abs(bonus - nowBonus) < 1e-7;
+  const lastOk = !prev || (prev.real_after_kop === nowReal && Math.abs(prev.bonus_after - nowBonus) < 1e-7);
 
   const out = [];
   out.push({
@@ -193,6 +198,17 @@ function checkSources(user, rows) {
       continue;
     }
 
+    if (g.table === 'pending_rewards') {
+      const reward = db.prepare('SELECT * FROM pending_rewards WHERE id = ? AND user_id = ?').get(g.id, user.id);
+      if (!reward) { bad.push(`получение #${g.id}: источник не найден`); continue; }
+      const sign = reward.claimed_at ? 0 : -1;
+      if (g.real !== sign * reward.real * 100 || g.bonus !== sign * reward.bonus)
+        bad.push(`получение #${g.id}: сумма не совпадает с журналом`);
+      const round = db.prepare('SELECT payout, bonus_payout FROM rounds WHERE id = ? AND user_id = ?').get(reward.round_id, user.id);
+      if (!round || reward.real + reward.bonus !== round.payout || reward.bonus !== round.bonus_payout)
+        bad.push(`получение #${g.id}: выплата не совпадает с раундом`);
+      continue;
+    }
     if (g.table === 'rounds') {
       const round = db.prepare('SELECT * FROM rounds WHERE id = ? AND user_id = ?').get(g.id, user.id);
       if (!round) { bad.push(`раунд #${g.id} не найден`); continue; }
@@ -251,8 +267,8 @@ function checkSources(user, rows) {
       const ev = db.prepare('SELECT * FROM bonus_events WHERE id = ? AND user_id = ?').get(g.id, user.id);
       if (!ev) { bad.push(`событие бонуса #${g.id} не найдено`); continue; }
       const ok = ev.kind === 'grant' ? g.real === 0 && g.bonus === ev.amount
-        : ev.kind === 'convert' ? g.real === ev.amount * 100 && g.bonus === -ev.amount
-        : ev.kind === 'refuse' ? g.real === 0 && g.bonus === -ev.amount
+        : ev.kind === 'convert' ? g.real === Math.round(ev.amount * 100) && Math.abs(g.bonus + ev.amount) < 1e-7
+        : ev.kind === 'refuse' ? g.real === 0 && Math.abs(g.bonus + ev.amount) < 1e-7
         : false;
       if (!ok) bad.push(`бонус #${ev.id} (${ev.kind}): журнал не сходится с событием`);
       continue;
@@ -262,7 +278,7 @@ function checkSources(user, rows) {
       if (!tx) { bad.push(`операция казино #${g.id} не найдена`); continue; }
       const expected = tx.method === 'bet' ? (tx.free_round ? 0 : -tx.amount_kop)
         : tx.method === 'rollback' ? tx.amount_kop : tx.amount_kop;
-      if (g.real !== expected) {
+      if (tx.wallet === 'bonus' ? (g.real !== 0 || Math.abs(g.bonus * 100 - expected) > 1e-6) : g.real !== expected) {
         bad.push(tx.method === 'rollback'
           ? `откат казино #${tx.id}: списать удалось ${fmt(rub(-g.real))} ₽ из ${fmt(rub(-expected))} ₽, выигрыш уже потрачен`
           : `операция казино #${tx.id}: по журналу ${fmt(rub(g.real))} ₽, у агрегатора ${fmt(rub(expected))} ₽`);
@@ -327,7 +343,14 @@ function checkRound(round, seed, crashRows) {
   try { meta = JSON.parse(round.meta || '{}'); } catch { /* старая строка */ }
 
   if (round.game === 'case') {
-    const caseData = round.case_id ? getCase(round.case_id) : null;
+    let caseData = round.case_id ? getCase(round.case_id) : null;
+    if (meta.table) {
+      const archived = db.prepare('SELECT payload FROM case_tables WHERE id = ?').get(meta.table);
+      if (!archived) return 'не найдена сохранённая таблица кейса';
+      if (createHash('sha256').update(archived.payload).digest('hex') !== meta.table) return 'сохранённая таблица была изменена';
+      caseData = JSON.parse(archived.payload);
+      if (caseData.id !== round.case_id) return 'таблица другого кейса';
+    } else if (round.created_at < CASE_TABLE_CUTOVER) caseData = legacyCases[round.case_id] || caseData;
     if (!caseData) return null;
     if (meta.bought) {
       const total = seriesTotal(caseData, seed, round.client_seed, round.nonce, meta.bought);
@@ -459,8 +482,8 @@ function checkBonuses(user) {
                                         AND source IN ('beeline', 'crypto', 'sicilia', 'admin')`)
       .get(user.id, ev.created_at).n;
     moved += ev.amount;
-    if ((ev.deposits_total || 0) > realDeposits) bad.push(`перевод #${ev.id} посчитан от пополнений больше настоящих`);
-    if (moved > Math.floor(((ev.deposits_total || 0) * (ev.cashout_pct || 0)) / 100)) {
+    if (ev.cashout_pct !== -1 && (ev.deposits_total || 0) > realDeposits) bad.push(`перевод #${ev.id} посчитан от пополнений больше настоящих`);
+    if (ev.cashout_pct !== -1 && moved > Math.floor(((ev.deposits_total || 0) * (ev.cashout_pct || 0)) / 100)) {
       bad.push(`перевод #${ev.id}: в деньги ушло больше ${ev.cashout_pct}% пополнений`);
     }
   }
@@ -471,7 +494,7 @@ function checkBonuses(user) {
     title: 'Бонусы по правилам',
     ok: bad.length === 0,
     detail: bad.length ? bad.join('; ')
-      : `выдано бонусов ${fmt(granted)} ₽, перешло в деньги ${fmt(moved)} ₽ (потолок ${bonusRules().cashoutPct}% пополнений)`,
+      : `выдано бонусов ${fmt(granted)} ₽, после отыгрыша перешло в деньги ${fmt(moved)} ₽`,
   }];
 }
 

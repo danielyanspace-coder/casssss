@@ -17,11 +17,11 @@ import {
 import { caseCover, porschePhotoSrc, caseArtSrc, caseStageSrc } from './covers.js';
 import { itemArt, itemArtMaterial } from './item-art.js';
 import { itemArt64 } from './item-art64.js';
-import { itemArtHd } from './item-art-hd.js';
+import { itemArtHd, itemArtReady, preloadItemArt, warmItemArt } from './item-art-lazy.js';
+import { loadStartupData } from './boot.js';
+import { feedArtKeys } from './feed-art-keys.js';
 import { coinMark, coinColor } from './coin-art.js';
-import { COMPANY, LICENSE, DOCS, PARTNERS, footerHtml } from './legal.js';
-import { createSlot } from './slots.js';
-import { createCasino } from './casino.js';
+import { COMPANY, LICENSE, PARTNERS, footerHtml } from './legal-summary.js';
 import {
   sndTick, sndSpinStart, sndLand, sndReveal,
   sndBigWin, sndCollect, sndLose, sndFlip, sndBet, sndCrash, sndClimb,
@@ -61,6 +61,34 @@ const state = {
   fortune: { data: null, angle: 0, busy: false },
 };
 
+// Только оформление оболочки: игра и платежные события продолжают работать.
+let casinoActivity = false;
+let userChromeDirty = false;
+const backgroundListeners = new Set();
+function backgroundPaused() { return document.hidden || casinoActivity; }
+function watchBackground(listener) {
+  backgroundListeners.add(listener);
+  listener(backgroundPaused());
+}
+function notifyBackground() {
+  const paused = backgroundPaused();
+  for (const listener of backgroundListeners) listener(paused);
+}
+function setCasinoActivity(active) {
+  if (casinoActivity === active) return;
+  casinoActivity = active;
+  document.body.classList.toggle('casino-background-paused', active);
+  // Отменяем наблюдение за скрытыми картинками: новые загрузки под игрой не нужны.
+  if (active) { nearbyImages?.disconnect(); nearbyImageTargets.clear(); }
+  else if (state.config) warmShelfCovers();
+  notifyBackground();
+  if (!active && userChromeDirty) {
+    userChromeDirty = false;
+    renderUserChrome();
+  }
+}
+document.addEventListener('visibilitychange', notifyBackground);
+
 const ICONS = {
   cases: iconCases, crash: iconCrash, roulette: iconRoulette,
   history: iconHistory, fair: iconFair, admin: iconAdmin,
@@ -92,7 +120,12 @@ function mountIcons(root = document) {
  * нельзя. Ошибка всё равно бросается - вызывающий код снимает свои флаги
  * занятости как после любой неудачи.
  */
+const CASE_REWARD_PATHS = new Set(['/api/open', '/api/freespins/buy', '/api/gamble/pick']);
+let caseExitVersion = 0;
+let caseExitCollection = null;
+
 async function api(path, body, { quiet = false } = {}) {
+  const exitVersion = caseExitVersion;
   const res = await fetch(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -114,10 +147,18 @@ async function api(path, body, { quiet = false } = {}) {
     }
     throw err;
   }
+  // Выход мог произойти до ответа открытия: раннее «Забрать» тогда ещё
+  // не видело выигрыша. Получаем его снова после завершения запроса.
+  if (CASE_REWARD_PATHS.has(path) && exitVersion !== caseExitVersion) {
+    data.user = await collectExitedCase();
+    data.balance = data.user.balance;
+  }
   return data;
 }
 
-const fmt = (n) => Number(n).toLocaleString('ru-RU');
+const numberFormat = new Intl.NumberFormat('ru-RU');
+const fractionalMoneyFormat = new Intl.NumberFormat('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmt = (n) => numberFormat.format(Number(n));
 
 /**
  * Как назвать игрока в панели: почта, Telegram ID или внутренний номер.
@@ -163,8 +204,8 @@ function plural(n, one, few, many) {
 const fmtMoney = (n) => {
   const v = Math.round(Number(n) * 100) / 100;
   return Number.isInteger(v)
-    ? v.toLocaleString('ru-RU')
-    : v.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    ? numberFormat.format(v)
+    : fractionalMoneyFormat.format(v);
 };
 const money = (n) => fmtMoney(n) + ' ₽';
 const esc = (s) => String(s ?? '').replace(/[<>&"]/g, (c) =>
@@ -176,9 +217,12 @@ const CATEGORY_COLORS = {
   country: '#00d4ff', got: '#c9a227',
 };
 
+const tierColorCache = new Map();
 function tierColor(tier) {
-  return getComputedStyle(document.documentElement)
-    .getPropertyValue(`--t-${tier}`).trim() || '#9d8bb0';
+  if (tierColorCache.has(tier)) return tierColorCache.get(tier);
+  const color = getComputedStyle(document.documentElement).getPropertyValue(`--t-${tier}`).trim();
+  if (color) tierColorCache.set(tier, color);
+  return color || '#9d8bb0';
 }
 
 let toastTimer;
@@ -270,7 +314,7 @@ function buildMoneyRain() {
     const delay = -Math.random() * 24;
     const size = 14 + Math.random() * 16;
     html += `<span class="money-drop" style="left:${left}%;width:${size}px;height:${size}px;
-      animation-duration:${dur}s;animation-delay:${delay}s">${iconCoin()}</span>`;
+      animation-duration:${dur}s;animation-delay:${delay}s"><img src="/assets/items/coin.svg" alt="" width="24" height="24"></span>`;
   }
   layer.innerHTML = html;
 }
@@ -384,6 +428,13 @@ function celebrate(kind, payload = {}) {
 
 /** Сумма с отдельно выделенным знаком рубля: он набран жирнее цифр. */
 const moneyRich = (n) => `${fmtMoney(n)} <span class="rub">₽</span>`;
+function paintMoneyRich(el, n) {
+  const text = `${fmtMoney(n)} `;
+  if (el.childNodes.length === 2 && el.firstChild.nodeType === 3
+      && el.lastElementChild?.classList.contains('rub')) {
+    if (el.firstChild.nodeValue !== text) el.firstChild.nodeValue = text;
+  } else el.innerHTML = `${text}<span class="rub">₽</span>`;
+}
 
 /*
  * Сколько игрок может поставить в наших играх: свои деньги и бонусный счёт.
@@ -392,15 +443,17 @@ const moneyRich = (n) => `${fmtMoney(n)} <span class="rub">₽</span>`;
  * показывает только свои: их выводят и ими играет казино.
  */
 function spendableMoney() {
-  return Math.max(0, state.user?.balance || 0) + Math.max(0, state.user?.bonusBalance || 0);
+  return Math.max(0, state.user?.activeWallet === 'bonus' ? state.user?.bonusBalance || 0 : state.user?.balance || 0);
 }
 
 function renderBalance() {
   const chip = document.getElementById('balanceChip');
   const value = document.getElementById('balanceValue');
-  if (chip.dataset.balance !== String(state.user.balance)) {
-    value.innerHTML = moneyRich(state.user.balance);
-    chip.dataset.balance = String(state.user.balance);
+  const selected = spendableMoney();
+  chip.classList.toggle('is-bonus', state.user.activeWallet === 'bonus');
+  if (chip.dataset.balance !== String(selected)) {
+    paintMoneyRich(value, selected);
+    chip.dataset.balance = String(selected);
     chip.classList.add('bump');
     setTimeout(() => chip.classList.remove('bump'), 260);
   }
@@ -422,11 +475,15 @@ function renderPerkBar() {
   for (const p of state.user.x2Perks || []) {
     // Удвоитель с колеса фортуны не привязан к кейсу и лежит под ключом «*».
     // Подписывать его названием кейса нельзя: он работает в любом.
-    const where = p.case_id === '*'
-      ? 'в любом кейсе'
-      : `на «${esc(state.config.cases.find((x) => x.id === p.case_id)?.name || '-')}»`;
-    chips.push(`<span class="perk-chip"><span data-ico="x2"></span>
-      ×2 ${where}${p.count > 1 ? ` · ${p.count}` : ''}</span>`);
+    const universal = p.case_id === '*';
+    const name = universal ? 'Любой кейс'
+      : state.config.cases.find((x) => x.id === p.case_id)?.name || 'Кейс';
+    chips.push(`<button type="button" class="perk-ready" ${universal ? 'data-any-case' : `data-goto="${esc(p.case_id)}"`}>
+      <span class="perk-ready-mark" aria-hidden="true">×2</span>
+      <span class="perk-ready-copy"><span class="perk-ready-label">Удвоитель выигрыша${p.count > 1 ? ` · ${p.count} шт.` : ''}</span>
+      <span class="perk-ready-name">${esc(name)}</span></span>
+      <span class="perk-ready-arrow" aria-hidden="true">→</span>
+    </button>`);
   }
 
   // Выигранных кейсов здесь нет намеренно: их место в «Бонусах». Полоса над
@@ -435,6 +492,10 @@ function renderPerkBar() {
   bar.innerHTML = chips.join('');
   bar.hidden = !chips.length;
   mountIcons(bar);
+  bar.querySelector('[data-any-case]')?.addEventListener('click', () => {
+    haptic('light');
+    document.querySelector('#caseShelves')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
 
   bar.querySelectorAll('[data-goto]').forEach((el) => {
     el.addEventListener('click', () => {
@@ -442,37 +503,6 @@ function renderPerkBar() {
       openCase(el.dataset.goto);
     });
   });
-}
-
-/** Как часто одна карточка может выпустить искры: не чаще раза в полсекунды. */
-const CARD_SPARK_GAP_MS = 500;
-
-/**
- * Кейс на полке приподнимается под пальцем или курсором, и вокруг него
- * вспыхивают искры в тон обложки. Слушатель один на полку, а не на каждую
- * карточку: полки перерисовываются после каждого раунда.
- */
-function wireCaseCardFx(list) {
-  if (!list || list.dataset.fx) return;
-  list.dataset.fx = '1';
-  const fire = (e) => {
-    const card = e.target.closest?.('.case-card.has-art');
-    if (!card || !list.contains(card)) return;
-    const now = performance.now();
-    if (now - (Number(card.dataset.spark) || 0) < CARD_SPARK_GAP_MS) return;
-    card.dataset.spark = String(now);
-    const c = state.config.cases.find((x) => x.id === card.dataset.case);
-    const [h1, h2] = c?.artGlow || [275, 300];
-    const cover = card.querySelector('.case-cover');
-    if (!cover) return;
-    const b = cover.getBoundingClientRect();
-    sparkBurst(cover, b.width / 2, b.height * 0.55, {
-      n: 16, dist: [b.width * 0.3, b.width * 0.55], size: 5,
-      colors: [`hsl(${h1} 95% 65%)`, `hsl(${h2} 90% 70%)`, '#fff6cf'],
-    });
-  };
-  list.addEventListener('pointerover', (e) => { if (e.pointerType === 'mouse') fire(e); });
-  list.addEventListener('pointerdown', fire);
 }
 
 /** Делегирование переживает перерисовку полок между касанием и отпусканием.
@@ -532,7 +562,7 @@ function celebrateDeposit(before, after) {
   const target = chip?.offsetParent ? chip : document.getElementById('openerBalance');
   setTimeout(() => {
     coinShower(target, DEPOSIT_COINS);
-    countBalance(before.balance, after.balance);
+    countBalance(before.activeWallet === 'bonus' ? before.bonusBalance : before.balance, after.activeWallet === 'bonus' ? after.bonusBalance : after.balance);
     sndCoin();
   }, 60);
   if (!before.depositsCount) {
@@ -583,7 +613,7 @@ function countBalance(from, to) {
   const frame = (now) => {
     const k = Math.min(1, (now - t0) / COUNT_MS);
     // Сюда могли успеть прийти новые числа: тогда счёт уступает настоящему.
-    if (state.user.balance !== to) return;
+    if (spendableMoney() !== to) return;
     el.innerHTML = moneyRich(Math.round(from + (to - from) * (1 - Math.pow(1 - k, 3))));
     if (k < 1) requestAnimationFrame(frame);
   };
@@ -650,18 +680,27 @@ function showFirstDepositChest(amount, bonus) {
   setTimeout(close, FIRST_DEPOSIT_SCENE_MS);
 }
 
+function renderUserChrome() {
+  renderBalance();
+  renderCases();
+  const menuChanged = renderMenu();
+  const sidebarChanged = renderSideNav();
+  if (menuChanged || sidebarChanged) warmShelfCovers();
+}
+
 function applyUser(user) {
+  if (user?.id === state.user?.id && (user.walletRevision || 0) < (state.user.walletRevision || 0)) return;
   const before = state.user;
   state.user = user;
   // Пополнение узнаём по счётчику пополнений, а не по росту баланса: баланс
   // растёт и от выигрыша, а праздновать выигрыш как взнос нельзя.
-  if (before && user && user.depositsCount > (before.depositsCount || 0)) {
+  if (before?.id != null && before.id === user?.id
+      && user.depositsCount > (before.depositsCount || 0)) {
     celebrateDeposit(before, user);
   }
-  renderBalance();
-  renderCases();
-  renderMenu();
-  renderSideNav();
+  // Состояние кошелька актуально всегда; скрытую оболочку рисуем один раз при выходе.
+  if (casinoActivity) userChromeDirty = true;
+  else renderUserChrome();
   // Шкалы Free Money двигаются вместе с оборотом, пока раздел открыт.
   if (state.view === 'freemoney' && JSON.stringify([before?.vouchers, before?.x2Perks, before?.raffle, before?.startCase])
       !== JSON.stringify([user.vouchers, user.x2Perks, user.raffle, user.startCase])) {
@@ -760,7 +799,7 @@ function caseCardHtml(c, vouchers, artAspect = null) {
   let h = 0;
   for (let i = 0; i < c.id.length; i++) h = (h * 31 + c.id.charCodeAt(i)) >>> 0;
   const breath = `;--breath:${-((h % 5500) / 1000).toFixed(2)}s;--glint:${-((h % 9000) / 1000).toFixed(2)}s`;
-  const afford = !locked && (freeCount > 0 || (!c.free && c.price <= (state.user?.balance || 0)));
+  const afford = !locked && (freeCount > 0 || (!c.free && c.price <= spendableMoney()));
   // Бесплатный кейс: вместо цены - «FREE», а готовый подарок светится.
   // Число подарков - отдельной приклеенной плашкой, тише самой надписи
   // (решение заказчика): главное на полке «FREE», а сколько их - справка.
@@ -835,17 +874,21 @@ function renderCases() {
   if (!root) return;
 
   const vouchers = new Map((state.user.vouchers || []).map((v) => [v.case_id, v.count]));
+  const available = spendableMoney();
   // При смене только баланса сохраняем обложки, анимации и позицию полок.
   const shape = JSON.stringify([state.user.vouchers || [], state.user.x2Perks || [],
     state.config.cases.filter((c) => c.availableFrom).map((c) => !!lockedUntil(c))]);
   if (root.caseConfig === state.config && root.dataset.caseShape === shape && root.firstElementChild) {
+    if (root.affordBalance === available) return;
+    root.affordBalance = available;
     root.querySelectorAll('.case-card').forEach((card) => {
       const c = root.caseIndex.get(card.dataset.case);
       if (c) card.classList.toggle('can-afford', !lockedUntil(c)
-        && ((vouchers.get(c.id) || 0) > 0 || (!c.free && c.price <= (state.user.balance || 0))));
+        && ((vouchers.get(c.id) || 0) > 0 || (!c.free && c.price <= spendableMoney())));
     });
     return;
   }
+  root.affordBalance = available;
   root.caseConfig = state.config;
   root.caseIndex = new Map(state.config.cases.map((c) => [c.id, c]));
   root.dataset.caseShape = shape;
@@ -942,7 +985,7 @@ function renderCases() {
   }
 
   root.innerHTML = blocks.join('');
-  wireCaseCardFx(root);
+  warmShelfCovers();
 
   [root, slot].filter(Boolean).forEach(wireCaseNavigation);
 }
@@ -1066,17 +1109,79 @@ function applyCaseTheme(c) {
  * быстром телефоне это короткий отклик, на медленном она не замирает, пока главный
  * поток занят сборкой.
  */
-function openCase(caseId, { now = false } = {}) {
-  if (!now && document.getElementById('opener').hidden) {
-    const loader = document.getElementById('caseLoader');
-    if (!loader.hidden || !state.config.cases.some((c) => c.id === caseId)) return;
-    loader.hidden = false;
-    document.getElementById('caseLoaderName').textContent = state.config.cases.find((c) => c.id === caseId).name;
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-      try { openCase(caseId, { now: true }); } finally { loader.hidden = true; }
-    }));
+let caseLoadRequest = 0;
+let caseReturnPosition = null;
+
+function capturePagePosition() {
+  return { view: state.view, y: window.scrollY,
+    rows: [...document.querySelectorAll('.shelf-row, .cz-track')].map((el) => el.scrollLeft) };
+}
+
+function restorePagePosition(position) {
+  if (!position || position.view !== state.view) return;
+  document.querySelectorAll('.shelf-row, .cz-track').forEach((el, i) => {
+    if (position.rows[i] !== undefined) el.scrollLeft = position.rows[i];
+  });
+  window.scrollTo({ top: position.y, behavior: 'instant' });
+}
+
+function cancelCaseLoad() {
+  caseLoadRequest++;
+  document.getElementById('caseLoader').hidden = true;
+}
+
+const pendingCaseDetails = new Map();
+async function loadCaseDetails(c) {
+  if (c.detailsLoaded !== false) return c;
+  if (!pendingCaseDetails.has(c.id)) {
+    const request = fetch(`/api/cases/${encodeURIComponent(c.id)}`, {cache:'no-cache'})
+      .then(async res => {
+        if (!res.ok) throw new Error('Case unavailable');
+        const data = await res.json();
+        if (data.case?.id !== c.id || !Array.isArray(data.case.items) || !data.case.items.length) throw new Error('Incomplete case');
+        Object.assign(c, data.case);
+        delete c.detailsLoaded;
+        return c;
+      }).finally(() => pendingCaseDetails.delete(c.id));
+    pendingCaseDetails.set(c.id, request);
+  }
+  return pendingCaseDetails.get(c.id);
+}
+async function prepareCaseDetails(c, items) {
+  await Promise.all([loadCaseDetails(c), preloadItemArt(items)]);
+  await preloadItemArt([...c.items, c.showcase].filter(Boolean));
+}
+
+async function openCase(caseId) {
+  const c = state.config?.cases.find((x) => x.id === caseId);
+  if (!c) return;
+  const loader = document.getElementById('caseLoader');
+  if (!loader.hidden) return;
+  const items = [...c.items, c.showcase].filter(Boolean);
+  if (c.detailsLoaded !== false && !document.getElementById('opener').hidden && itemArtReady(items)) {
+    renderOpenCase(caseId);
     return;
   }
+  if (document.getElementById('opener').hidden) caseReturnPosition = capturePagePosition();
+  const request = ++caseLoadRequest;
+  loader.hidden = false;
+  document.getElementById('caseLoaderName').textContent = c.name;
+  try {
+    // Сеть запускается сразу, два кадра дают загрузке появиться до сборки DOM.
+    await Promise.all([
+      c.detailsLoaded === false ? prepareCaseDetails(c, items) : preloadItemArt(items),
+      new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+    ]);
+    if (request !== caseLoadRequest) return;
+    renderOpenCase(caseId);
+  } catch (err) {
+    if (request === caseLoadRequest) toast('Не удалось загрузить рисунки кейса. Попробуйте ещё раз.');
+  } finally {
+    if (request === caseLoadRequest) loader.hidden = true;
+  }
+}
+
+function renderOpenCase(caseId) {
   const c = state.config.cases.find((x) => x.id === caseId);
   if (!c) return;
   haptic('light');
@@ -1494,22 +1599,23 @@ function playRitual(c, count = 1) {
 function renderIdleReel(c, count = 1) {
   const reels = document.getElementById('reels');
   reels.className = 'reels' + (count > 1 ? ' compact' : '');
-  reels.innerHTML = Array.from({ length: count }, () => reelWrapHtml()).join('');
-
-  reels.querySelectorAll('.reel').forEach((reel) => {
+  reels.innerHTML = Array.from({ length: count }, () => {
     const strip = [];
     for (let i = 0; i < 24; i++) strip.push(weightedSample(c.items));
-    reel.innerHTML = strip.map(tileHtml).join('');
-    // Экран кейса в этот момент ещё может быть скрыт: меряем после показа.
-    requestAnimationFrame(() => fitNames(reel));
-
-    reel.style.transition = 'none';
-    requestAnimationFrame(() => {
+    return reelWrapHtml(strip.map(tileHtml).join(''));
+  }).join('');
+  const tracks = [...reels.querySelectorAll('.reel')];
+  for (const reel of tracks) reel.style.transition = 'none';
+  // В одном кадре: размеры всех подписей, затем геометрия всех лент, затем сдвиги.
+  requestAnimationFrame(() => {
+    if (!tracks.length || !tracks[0].isConnected) return;
+    fitNames(reels);
+    const placements = tracks.map((reel) => {
       const viewport = reel.parentElement.clientWidth;
       const { tileW, step } = measureReel(reel);
-      // Ставим ленту так, чтобы под маркером оказалась целая плитка, а не стык.
-      reel.style.transform = `translateX(${-(6 * step + tileW / 2 - viewport / 2)}px)`;
+      return [reel, -(6 * step + tileW / 2 - viewport / 2)];
     });
+    for (const [reel, x] of placements) reel.style.transform = `translateX(${x}px)`;
   });
 }
 
@@ -1669,12 +1775,12 @@ function tileHtml(item, visual) {
 const SHOWCASE_SLOTS = [11, 27, 43, 58];
 
 /** Разметка одной ленты. */
-function reelWrapHtml() {
+function reelWrapHtml(content = '') {
   return `<div class="reel-wrap">
     <div class="reel-marker"></div>
     <div class="reel-fade reel-fade-l"></div>
     <div class="reel-fade reel-fade-r"></div>
-    <div class="reel"></div>
+    <div class="reel">${content}</div>
   </div>`;
 }
 
@@ -1708,6 +1814,13 @@ function trackReelTicks(reel, step, durationMs) {
  */
 async function startOpening(caseId, count = 1, { again = false } = {}) {
   if (state.busy) return;
+  if (caseExitCollection) {
+    try { await caseExitCollection; } catch (err) { toast(err.message); return; }
+    if (state.busy) return;
+  }
+  if (again) {
+    try { await collectReward({ quick: true }); } catch (err) { toast(err.message); return; }
+  }
   const c = state.config.cases.find((x) => x.id === caseId);
   if (!c) return;
 
@@ -1723,6 +1836,7 @@ async function startOpening(caseId, count = 1, { again = false } = {}) {
   state.busy = true;
   state.openingCaseId = caseId;
   state.openingCount = count;
+  const presentation = freeSpinPresentation;
 
   // Обряд запускается до похода на сервер, а не после: тряска - это ответ на
   // нажатие, и ждать сети ей нельзя, иначе кнопка кажется залипшей. Ответ
@@ -1745,6 +1859,9 @@ async function startOpening(caseId, count = 1, { again = false } = {}) {
     return;
   }
 
+  if (presentation !== freeSpinPresentation) {
+    applyUser(data.user); state.busy = false; return;
+  }
   const opened = data.opened || [data];
 
   const opener = document.getElementById('opener');
@@ -1779,10 +1896,11 @@ async function startOpening(caseId, count = 1, { again = false } = {}) {
    */
 
   // Списание видно с первой секунды прокрута, а не задним числом.
-  previewBalance(state.user.balance - data.totalSpent);
+  previewBalance(spendableMoney() - data.totalSpent);
 
   if (ritual) await ritual;
   await spinReels(c, opened, SPIN_DURATION);
+  if (presentation !== freeSpinPresentation) { state.busy = false; return; }
 
   sndLand();
   haptic('medium');
@@ -1819,6 +1937,11 @@ async function startOpening(caseId, count = 1, { again = false } = {}) {
       origins: from.map(winnerTile),
       sub: merged.parts ? mergedSeriesSub(merged.parts) : null,
     });
+    state.busy = false;
+    if (presentation !== freeSpinPresentation) return;
+    loadCaseHistory(c.name);
+    await returnToCaseIdle({ collected: true });
+    return;
   }
 
   if (count > 1) showBatchResult(data, c);
@@ -1893,7 +2016,7 @@ const SETTLE_MIN_DURATION = 3;
 function spinReels(c, opened, duration) {
   const reels = document.getElementById('reels');
   reels.className = 'reels' + (opened.length > 1 ? ' compact' : '');
-  reels.innerHTML = opened.map(reelWrapHtml).join('');
+  reels.innerHTML = opened.map(() => reelWrapHtml()).join('');
 
   sndSpinStart();
   sndBet();
@@ -1936,11 +2059,13 @@ function spinReels(c, opened, duration) {
      * правый край окна не уложится в ленту с запасом.
      */
     let guard = 0;
+    const extra = [];
     while (target + viewport > strip.length * step - (step - tileW) && guard < 40) {
-      reel.insertAdjacentHTML('beforeend', tileHtml(weightedSample(c.items), c.visual));
+      extra.push(tileHtml(weightedSample(c.items), c.visual));
       strip.push(null);
       guard++;
     }
+    if (extra.length) reel.insertAdjacentHTML('beforeend', extra.join(''));
     fitNames(reel);
 
     const settle = duration >= SETTLE_MIN_DURATION;
@@ -2137,9 +2262,14 @@ function confirmBuyFreeSpins(c, count, fromEl = null) {
 /** Покупает серию и сразу её проигрывает - той же анимацией, что и выпавшую. */
 async function buyFreeSpins(caseId, count) {
   if (state.busy) return;
+  if (caseExitCollection) {
+    try { await caseExitCollection; } catch (err) { toast(err.message); return; }
+    if (state.busy) return;
+  }
   const c = state.config.cases.find((x) => x.id === caseId);
   if (!c) return;
 
+  const presentation = freeSpinPresentation;
   state.busy = true;
   state.openingCaseId = caseId;
 
@@ -2150,6 +2280,12 @@ async function buyFreeSpins(caseId, count) {
     state.busy = false;
     toast(err.message);
     haptic('error');
+    return;
+  }
+
+  if (presentation !== freeSpinPresentation) {
+    applyUser(data.user);
+    state.busy = false;
     return;
   }
 
@@ -2173,26 +2309,18 @@ async function buyFreeSpins(caseId, count) {
   // Сначала честное списание стоимости, и только потом серия начинает
   // возвращать выигрыш. Иначе баланс сразу показал бы итог, и покупка за
   // 18 000 выглядела бы списанием на 9 000.
-  previewBalance(state.user.balance - data.cost);
+  previewBalance(spendableMoney() - data.cost);
 
   // Покупка - событие, за которое игрок заплатил: пролог серии отыгрывает
   // целиком, прежде чем поедет первая лента (runFreeSpins). Итог серии
   // сравнивается с ценой пачки.
   await runFreeSpins(data.grant, c, { cost: data.cost, origin });
 
-  // Настоящее значение с сервера - на случай, если анимация где-то разошлась.
-  applyUser(data.user);
-  updateOpenerBalance();
-  loadCaseHistory(c.name);
+  // Итог серии уже получил выигрыш: второго экрана «Забрать» не нужно.
   state.busy = false;
-  showAutoResult(c, {
-    times: count,
-    done: data.grant.spins.length,
-    spent: data.cost,
-    won: data.grant.total,
-    stopped: false,
-    label: 'фриспинов',
-  });
+  if (presentation !== freeSpinPresentation) return;
+  loadCaseHistory(c.name);
+  await returnToCaseIdle({ collected: true });
 }
 
 /**
@@ -2263,6 +2391,10 @@ const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
  */
 async function runAutoOpen(caseId, times) {
   if (state.busy) return;
+  if (caseExitCollection) {
+    try { await caseExitCollection; } catch (err) { toast(err.message); return; }
+    if (state.busy) return;
+  }
   const c = state.config.cases.find((x) => x.id === caseId);
   if (!c) return;
 
@@ -2334,13 +2466,14 @@ async function runAutoOpen(caseId, times) {
     let data;
     try {
       data = await api('/api/open', { caseId, count: 1 });
+      if (state.autoStop && document.getElementById('opener').hidden) { applyUser(data.user); break; }
     } catch (err) {
       toast(err.message);
       haptic('error');
       break;
     }
 
-    previewBalance(state.user.balance - data.totalSpent);
+    previewBalance(spendableMoney() - data.totalSpent);
     await spinReels(c, [data], AUTO_SPIN_DURATION);
     sndLand();
     await playDoublers([data]);
@@ -2355,6 +2488,7 @@ async function runAutoOpen(caseId, times) {
     setProgress(done);
 
     applyUser(data.user);
+    await collectReward({ quick: true });
     updateOpenerBalance();
 
     totalEl.textContent = money(won);
@@ -2493,6 +2627,8 @@ function mergedSeriesSub(parts) {
  * @param {Element|object} [opts.origin] откуда летит сгусток пролога
  */
 async function runFreeSpins(grant, caseData, { auto = false, replay = false, cost = 0, origin = null, origins = null, sub = null } = {}) {
+  const presentation = freeSpinPresentation;
+  const cancelled = () => presentation !== freeSpinPresentation;
   const box = document.getElementById('freespins');
   const reel = document.getElementById('fsReel');
   const totalEl = document.getElementById('fsTotal');
@@ -2549,15 +2685,17 @@ async function runFreeSpins(grant, caseData, { auto = false, replay = false, cos
     await motion().purchase({
       count: startCount, origin, origins, sub, theme: caseData.theme,
       emblem: fsEmblem(grant, startCount),
-      prepare: () => open(false),
+      prepare: () => cancelled() ? { pips: [] } : open(false),
     });
+    if (cancelled()) return;
     leftEl.textContent = `0 из ${shown}`;
   } else {
     open(true);
   }
 
-  const SPIN_LEN = 26;
-  const SPIN_WIN = 20;
+  const mobileSeries = matchMedia('(pointer: coarse)').matches || innerWidth <= 600;
+  const SPIN_LEN = mobileSeries ? 18 : 26;
+  const SPIN_WIN = mobileSeries ? 12 : 20;
   /* Прокрут внутри серии короче обычного - их подряд десятки, - но кривая та
      же: к предмету лента подходит ползком, а не гаснет на полном ходу. */
   const SPIN_MS = 2300;
@@ -2594,30 +2732,36 @@ async function runFreeSpins(grant, caseData, { auto = false, replay = false, cos
 
     // Та же страховка от пустоты справа, что и в обычном прокруте.
     let guard = 0;
-    while (target + viewport > reel.children.length * step - (step - tileW) && guard < 40) {
-      reel.insertAdjacentHTML('beforeend', tileHtml(pickFiller(), caseData.visual));
+    const length = reel.children.length;
+    const extra = [];
+    while (target + viewport > (length + guard) * step - (step - tileW) && guard < 40) {
+      extra.push(tileHtml(pickFiller(), caseData.visual));
       guard++;
     }
+    if (extra.length) reel.insertAdjacentHTML('beforeend', extra.join(''));
     fitNames(reel);
 
     requestAnimationFrame(() => {
+      if (cancelled()) { done(); return; }
       reel.style.transition = `transform ${SPIN_MS / 1000}s ${SPIN_EASE}`;
       reel.style.transform = `translateX(${-(target + step * OVERSHOOT)}px)`;
       sndSpinStart();
 
       setTimeout(() => {
+        if (cancelled()) return;
         reel.style.transition = `transform ${SETTLE_MS}ms ${SETTLE_EASE}`;
         reel.style.transform = `translateX(${-target}px)`;
       }, SPIN_MS + 20);
 
       setTimeout(async () => {
+        if (cancelled()) { done(); return; }
         sndLand();
         const tile = reel.children[SPIN_WIN];
         // Баланс растёт вместе с суммой серии: игрок видит, что выигрыш
         // капает по ходу, а не появляется одним прыжком в конце.
         // При доигрывании сохранённой серии баланс не трогаем: деньги за неё
         // зачислены ещё в тот раз, и второй раз их прибавлять нельзя.
-        if (spin.value > 0 && !replay) previewBalance(state.user.balance + spin.value);
+        // Выпадение пополняет только итог серии; доступный счёт меняется при получении.
 
         // Удвоитель внутри серии её прокруты не удваивает - он откладывается
         // до платного открытия, и подпись говорит именно это.
@@ -2651,8 +2795,10 @@ async function runFreeSpins(grant, caseData, { auto = false, replay = false, cos
           haptic('light');
         }
 
+        if (cancelled()) { done(); return; }
         // Сумма прибавляется, когда до счётчика долетела её копия, а не раньше.
         setTimeout(() => {
+          if (cancelled()) return;
           acc += spin.value;
           totalEl.textContent = money(acc);
           // Перезапуск анимации: без сброса класса подряд идущие прибавки
@@ -2667,7 +2813,11 @@ async function runFreeSpins(grant, caseData, { auto = false, replay = false, cos
     });
   });
 
-  for (let i = 0; i < grant.spins.length; i++) await runOne(i);
+  for (let i = 0; i < grant.spins.length; i++) {
+    if (cancelled()) return;
+    await runOne(i);
+  }
+  if (cancelled()) return;
   [...pipsEl.children].forEach((pip) => { pip.classList.remove('is-current'); pip.classList.add('spent'); });
 
   // Итог серии честный: празднуется только окупившаяся. Неокупившаяся
@@ -2691,30 +2841,32 @@ async function runFreeSpins(grant, caseData, { auto = false, replay = false, cos
   else if (!showTotal) sndCollect();
 
   // Серию досмотрели - сервер может её забыть.
-  const ack = () => { api('/api/freespins/ack').catch(() => {}); };
-  const finish = () => {
+  const ack = () => api('/api/freespins/ack');
+  const finish = async ({ quick = auto } = {}) => {
+    await collectReward({ quick, source: totalEl });
+    await ack();
     sndCollect();
     box.hidden = true;
     // Кнопка прячется вместе с панелью: иначе следующий показ панели на
     // долю секунды выводил бы «Забрать» прошлой серии.
     collectBtn.hidden = true;
     endBonusMode();
-    ack();
   };
 
   // В серии автооткрытий забираем сами: смысл режима в том, чтобы игрок не
   // жал кнопки. Паузу всё же держим - сумму надо успеть прочитать.
   if (auto) {
     await sleep(1500);
-    finish();
+    await finish();
     return;
   }
 
   await new Promise((done) => {
-    const take = () => {
+    const take = async (options = {}) => {
+      if (rewardCollection) { rewardFastRequested = true; finishRewardAnimation?.(); }
+      try { await finish({ quick: options.quick === true || auto }); } catch (err) { toast(err.message); return; }
       collectBtn.removeEventListener('click', take);
       fsCollectPending = null;
-      finish();
       done();
     };
     // Ожидание «Забрать» ставится до показа итога, а не после: закрытие кейса
@@ -2734,9 +2886,10 @@ async function runFreeSpins(grant, caseData, { auto = false, replay = false, cos
  * меню): тогда closeOpener забирает сам. Иначе открытие так и висело бы
  * незавершённым, state.busy не снимался, и ни один кейс больше не
  * открывался до перезагрузки страницы. Деньги серии начислены сервером
- * заранее, «Забрать» только закрывает показ.
+ * в ожидании; закрытие получает их тем же защищённым запросом, что «Забрать».
  */
 let fsCollectPending = null;
+let freeSpinPresentation = 0;
 
 /** Множитель итога серии: ×1,4 или ×12. */
 function seriesRatio(r) {
@@ -2961,7 +3114,7 @@ function showStartGate(c) {
       <h3 class="sg-title">${deposit
         ? `Пополните от <b>${money(st.minDeposit)}</b><br>и кейс ваш бесплатно`
         : `Ещё <b>${money(left)}</b> ставок<br>и кейс снова ваш`}</h3>
-      <p class="sg-sub">В кейсе до ${money(top)}. Выигрыш приходит на бонусный счёт.</p>
+      <p class="sg-sub">В кейсе до ${money(top)}. Выигрыш приходит на основной счёт и доступен для вывода без отыгрыша.</p>
       ${deposit ? `<ol class="sg-steps">
         <li><i>1</i><span>Пополнение<br>от ${money(st.minDeposit)}</span></li>
         <li><i>2</i><span>Кейс<br>в подарок</span></li>
@@ -3042,14 +3195,14 @@ function viewersFor(caseId) {
  * ставит настоящее значение с сервера, так что расхождение невозможно.
  */
 function previewBalance(value) {
-  state.user.balance = Math.max(0, Math.round(value));
+  state.user[state.user.activeWallet === 'bonus' ? 'bonusBalance' : 'balance'] = Math.max(0, Math.round(value));
   renderBalance();
   updateOpenerBalance();
 }
 
 function updateOpenerBalance() {
   const el = document.getElementById('openerBalance');
-  if (el) el.textContent = money(state.user.balance);
+  if (el) el.textContent = money(spendableMoney());
 }
 
 /** Сколько выпадений забирать с сервера за раз: столько же отдаёт ручка. */
@@ -3178,13 +3331,24 @@ async function loadCaseHistory(caseTitle) {
 }
 
 function closeOpener() {
-  fsCollectPending?.();
+  caseExitVersion++;
+  state.autoStop = true;
+  freeSpinPresentation++;
+  cancelCaseLoad();
+  fsCollectPending?.({ quick: true });
+  const collection = collectExitedCase();
+  caseExitCollection = collection;
+  collection.catch(err => toast(err.message)).finally(() => {
+    if (caseExitCollection === collection) caseExitCollection = null;
+  });
   // Показ, оставшийся висеть поверх закрытого кейса, перекрыл бы весь экран.
   motion().reset();
   endBonusMode();
   document.getElementById('opener').hidden = true;
   document.body.classList.remove('case-open');
   document.getElementById('gamble').hidden = true;
+  restorePagePosition(caseReturnPosition);
+  caseReturnPosition = null;
 }
 
 /**
@@ -3192,10 +3356,15 @@ function closeOpener() {
  * наверняка захочет крутить ещё. Экран просто возвращается в исходное
  * состояние, как при первом входе в кейс, а не закрывается целиком.
  */
-function returnToCaseIdle() {
+async function returnToCaseIdle({ collected = false } = {}) {
+  if (state.busy) return;
+  if (!collected) {
+    try { await collectReward(); } catch (err) { toast(err.message); return; }
+  }
   document.getElementById('gamble').hidden = true;
-  if (state.openingCaseId) openCase(state.openingCaseId);
+  if (state.openingCaseId) await openCase(state.openingCaseId);
   else closeOpener();
+  scrollCaseTop();
 }
 
 document.getElementById('closeOpener').addEventListener('click', returnToCaseIdle);
@@ -3228,7 +3397,7 @@ const GAMBLE_SUSPENSE_MS = 650;
 const GAMBLE_LOSE_LINES = [
   ['Туз ускользнул', 'Он прятался на карте №{n}'],
   ['Не в этот раз', 'Красный туз лежал на карте №{n}'],
-  ['Карта пустая', 'Туз ждал на карте №{n}'],
+  ['Карта пустая', ''],
 ];
 
 function renderGamble() {
@@ -3304,6 +3473,10 @@ document.getElementById('gambleStartBtn').addEventListener('click', () => {
 
 async function pickGambleCard(index) {
   if (state.busy) return;
+  if (caseExitCollection) {
+    try { await caseExitCollection; } catch (err) { toast(err.message); return; }
+    if (state.busy) return;
+  }
   state.busy = true;
 
   const root = gambleEl.root();
@@ -3371,10 +3544,10 @@ async function pickGambleCard(index) {
 
     setTimeout(() => {
       if (data.won) {
-        out.innerHTML = `<b>Туз ваш!</b><span>Выигрыш вырос в ${String(g.payout).replace('.', ',')} раза: ${money(data.payout)} уже на балансе</span>`;
+        out.innerHTML = `<b>Туз ваш!</b><span>Выигрыш вырос в ${String(g.payout).replace('.', ',')} раза: ${money(data.payout)}. Нажмите «Продолжить», чтобы забрать</span>`;
       } else {
         const [title, line] = GAMBLE_LOSE_LINES[Math.floor(Math.random() * GAMBLE_LOSE_LINES.length)];
-        out.innerHTML = `<b>${title}</b><span>${line.replace('{n}', data.acePosition + 1)}. Кейс по-прежнему ждёт вас</span>`;
+        out.innerHTML = `<b>${title}</b>`;
         sndLose();
       }
       out.className = 'gamble-outcome ' + (data.won ? 'win' : 'lose');
@@ -3435,23 +3608,101 @@ function gambleStamp(payout) {
   requestAnimationFrame(tick);
 }
 
-document.getElementById('gambleSkipBtn').addEventListener('click', async (e) => {
-  const done = e.currentTarget.dataset.done === '1';
-  if (!done) {
-    // Отказ от риска: ставку надо снять, иначе она осталась бы висеть.
-    try { await api('/api/gamble/skip'); } catch { /* не критично */ }
-    const me = await api('/api/me').catch(() => null);
-    if (me) applyUser(me.user);
+function scrollCaseTop() {
+  const scroller = document.querySelector('.opener-scroll');
+  if (scroller) scroller.scrollTop = 0;
+  window.scrollTo(0, 0);
+}
+
+let rewardCollection = null;
+let finishRewardAnimation = null;
+let rewardFastRequested = false;
+async function collectReward({ quick = false, source = null, afterPending = false, onCollected = null } = {}) {
+  if (rewardCollection) {
+    rewardFastRequested = true; finishRewardAnimation?.();
+    const user = await rewardCollection;
+    if (afterPending) return collectReward({ quick: true });
+    return user;
   }
-  delete e.currentTarget.dataset.done;
-  e.currentTarget.textContent = 'Забрать без риска';
-  gambleEl.root().hidden = true;
-  document.getElementById('result').hidden = false;
-  document.getElementById('gambleStartBtn').hidden = true;
-  updateOpenerBalance();
+  rewardFastRequested = quick;
+  rewardCollection = (async () => {
+    const before = spendableMoney();
+    const data = await api('/api/gamble/skip');
+    applyUser(data.user);
+    const after = spendableMoney();
+    onCollected?.();
+    if (!rewardFastRequested && after > before && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      const caseOpen = !document.getElementById('opener').hidden;
+      const value = document.getElementById(caseOpen ? 'openerBalance' : 'balanceValue');
+      const sum = source || document.getElementById('resultValue');
+      const duration = 520;
+      // Decoration must never block claiming or leaving the risk table in Safari.
+      await new Promise((resolve) => {
+        const start = performance.now();
+        let frame, fallback, settled = false, coin;
+        const end = () => {
+          if (settled) return;
+          settled = true; cancelAnimationFrame(frame); clearTimeout(fallback);
+          if (value) paintMoneyRich(value, after);
+          if (sum) sum.textContent = money(0);
+          coin?.remove(); finishRewardAnimation = null; resolve();
+        };
+        finishRewardAnimation = end;
+        fallback = setTimeout(end, duration + 150);
+        const tick = (now) => {
+          if (settled) return;
+          const t = Math.min(1, (now - start) / duration);
+          const k = 1 - (1 - t) ** 3;
+          if (value) paintMoneyRich(value, before + (after - before) * k);
+          if (sum) sum.textContent = money(Math.round((after - before) * (1 - k)));
+          if (t < 1) frame = requestAnimationFrame(tick); else end();
+        };
+        try {
+          if (value) paintMoneyRich(value, before);
+          frame = requestAnimationFrame(tick);
+          const chip = caseOpen ? value : document.getElementById('balanceChip');
+          chip?.animate?.([{ transform: 'scale(1)' }, { transform: 'scale(1.08)' }, { transform: 'scale(1)' }], { duration });
+          if (sum && chip) {
+            const a = sum.getBoundingClientRect(), b = chip.getBoundingClientRect();
+            coin = document.createElement('span'); coin.className = 'reward-coin'; coin.textContent = '₽';
+            coin.style.left = `${a.left + a.width / 2}px`; coin.style.top = `${a.top}px`; document.body.append(coin);
+            const animation = coin.animate?.([{ opacity: 1, transform: 'translate(0,0) scale(1)' },
+              { opacity: 0, transform: `translate(${b.left - a.left}px,${b.top - a.top}px) scale(.4)` }], { duration });
+            animation?.finished?.then(() => coin.remove(), () => coin.remove());
+          }
+        } catch { end(); }
+      });
+    }
+    updateOpenerBalance();
+    return data.user;
+  })();
+  try { return await rewardCollection; } finally { rewardCollection = null; }
+}
+
+async function collectExitedCase() {
+  if (state.guest) return state.user;
+  const user = await collectReward({ quick: true, afterPending: true });
+  await api('/api/freespins/ack');
+  return user;
+}
+
+document.getElementById('gambleSkipBtn').addEventListener('click', async (e) => {
+  if (state.busy) return;
+  const button = e.currentTarget;
+  try { await collectReward({ source: document.querySelector('#gambleStake b'), onCollected: () => {
+    document.getElementById('gamble').hidden = true;
+    scrollCaseTop();
+  } }); }
+  catch (err) { toast(err.message); return; }
+  delete button.dataset.done;
+  button.textContent = 'Забрать без риска';
+  await returnToCaseIdle({ collected: true });
 });
 
-document.getElementById('againBtn').addEventListener('click', () => {
+document.getElementById('againBtn').addEventListener('click', async () => {
+  if (state.busy) return;
+  try { await collectReward({ quick: true }); }
+  catch (err) { toast(err.message); return; }
   if (state.openingCaseId) startOpening(state.openingCaseId, state.openingCount || 1, { again: true });
 });
 
@@ -3512,6 +3763,8 @@ const [GRAPH_W, GRAPH_H] = (() => {
 })();
 
 function drawCrashGraph(elapsedMs, multiplier) {
+  const stage = document.getElementById('crashStage');
+  const width = stage.clientWidth, height = stage.clientHeight;
   const growth = state.config.crash.growth;
   const xMax = Math.max(6000, elapsedMs * 1.15);
   const yMax = Math.max(2, multiplier * 1.15);
@@ -3533,10 +3786,9 @@ function drawCrashGraph(elapsedMs, multiplier) {
 
   // Ракета летит по концу кривой носом по касательной; координаты из
   // системы графика переводятся в точки сцены.
-  const stage = document.getElementById('crashStage');
   const toPx = (pt) => {
     const [x, y] = pt.split(',').map(Number);
-    return [(x / GRAPH_W) * stage.clientWidth, (y / GRAPH_H) * stage.clientHeight];
+    return [(x / GRAPH_W) * width, (y / GRAPH_H) * height];
   };
   const [x, y] = toPx(points[points.length - 1]);
   const [px, py] = toPx(points[points.length - 3] || points[0]);
@@ -3596,7 +3848,7 @@ function createCrashFx(stage) {
   function frame(now) {
     const dt = Math.min(0.05, (now - last) / 1000 || 0.016);
     last = now;
-    if (!stage.offsetParent) { raf = 0; return; }
+    if (document.hidden || !stage.offsetParent) { raf = 0; return; }
     if (W !== stage.clientWidth || H !== stage.clientHeight) fit();
 
     bg.clearRect(0, 0, W, H);
@@ -3633,8 +3885,9 @@ function createCrashFx(stage) {
       const p = P[i];
       p.age += dt;
       if (p.age >= p.life) { P.splice(i, 1); continue; }
-      p.vx *= Math.pow(p.drag, dt * 60);
-      p.vy = p.vy * Math.pow(p.drag, dt * 60) + p.g * dt;
+      const drag = Math.pow(p.drag, dt * 60);
+      p.vx *= drag;
+      p.vy = p.vy * drag + p.g * dt;
       p.x += p.vx * dt; p.y += p.vy * dt;
       const k = 1 - p.age / p.life;
       if (p.ring) {
@@ -3651,8 +3904,13 @@ function createCrashFx(stage) {
     raf = requestAnimationFrame(frame);
   }
   function wake() {
-    if (!raf && stage.offsetParent) { fit(); last = performance.now(); raf = requestAnimationFrame(frame); }
+    if (!raf && !document.hidden && stage.offsetParent) { fit(); last = performance.now(); raf = requestAnimationFrame(frame); }
   }
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) { cancelAnimationFrame(raf); raf = 0; }
+    else wake();
+  });
 
   return {
     wake,
@@ -3774,8 +4032,11 @@ function runCrashLoop() {
   const elapsed = Date.now() - round.localStart;
   const m = Math.exp((state.config.crash.growth * elapsed) / 1000);
 
-  crashEl.multiplier().textContent = `${m.toFixed(2)}x`;
-  crashEl.multiplier().style.color = crashColorFor(m);
+  const multiplierText = `${m.toFixed(2)}x`;
+  const multiplierEl = crashEl.multiplier();
+  if (multiplierEl.textContent !== multiplierText) multiplierEl.textContent = multiplierText;
+  const color = crashColorFor(m);
+  if (round.color !== color) { multiplierEl.style.color = color; round.color = color; }
   if (m >= (round.nextMile ?? CRASH_MILESTONES[0])) {
     const passed = CRASH_MILESTONES.filter((v) => v <= m).pop();
     round.nextMile = CRASH_MILESTONES.find((v) => v > m) ?? Infinity;
@@ -3783,7 +4044,9 @@ function runCrashLoop() {
     // когда она уже стоит на новом месте.
     requestAnimationFrame(() => crashMilestone(passed));
   }
-  crashEl.btn().textContent = `ЗАБРАТЬ ${fmt(Math.floor(round.bet * m))}`;
+  const cashoutText = `ЗАБРАТЬ ${fmt(Math.floor(round.bet * m))}`;
+  const cashoutBtn = crashEl.btn();
+  if (cashoutBtn.textContent !== cashoutText) cashoutBtn.textContent = cashoutText;
   drawCrashGraph(elapsed, m);
 
   // Тон ползёт вверх вместе с множителем, но не чаще раза в ~250 мс.
@@ -4092,9 +4355,9 @@ function spinRouletteWheel(slot) {
         rel += Math.sin(drop * Math.PI * 5) * seg * 0.55 * (1 - drop);
       }
 
-      hostWheel.style.transform = `rotate(${W}deg)`;
       const ballAngle = W + mid + rel;
       placeRouletteBall(ballAngle, radius);
+      hostWheel.style.transform = `rotate(${W}deg)`;
 
       // Щелчок на каждой лунке, которую шар проходит относительно колеса.
       const fret = Math.floor(rel / seg);
@@ -4109,8 +4372,8 @@ function spinRouletteWheel(slot) {
       else {
         rw.angle = ((W % 360) + 360) % 360;
         rw.ballAngle = ((ballAngle % 360) + 360) % 360;
-        hostWheel.style.transform = `rotate(${rw.angle}deg)`;
         placeRouletteBall(rw.ballAngle, ROUL_POCKET_R);
+        hostWheel.style.transform = `rotate(${rw.angle}deg)`;
         done();
       }
     };
@@ -4302,831 +4565,6 @@ document.getElementById('rotateBtn').addEventListener('click', async () => {
    АДМИНКА
    ============================================================ */
 
-const pct = (v) => (v === null || v === undefined ? '-' : `${(v * 100).toFixed(2)}%`);
-
-async function loadAdminOverview() {
-  let d;
-  try { d = await api('/api/admin/overview'); }
-  catch (err) { toast(err.message); return; }
-
-  const kpis = [
-    { label: 'Игроков', value: fmt(d.users.total), sub: `активных: ${fmt(d.users.active || 0)}` },
-    { label: 'Раундов', value: fmt(d.rounds.total) },
-    { label: 'Поставлено', value: fmt(d.rounds.wagered) },
-    { label: 'Выплачено', value: fmt(d.rounds.paid) },
-    {
-      label: 'Прибыль заведения',
-      value: `${d.rounds.profit >= 0 ? '+' : ''}${fmt(d.rounds.profit)}`,
-      cls: d.rounds.profit >= 0 ? 'plus' : 'minus',
-      sub: `фактический RTP: ${pct(d.rounds.rtp)}`,
-    },
-    { label: 'Единиц на руках', value: fmt(d.users.balance), sub: `заблокировано: ${fmt(d.users.blocked || 0)}` },
-  ];
-
-  const gameRows = d.byGame.map((g) => `<tr>
-      <td>${({ case: 'Кейсы', crash: 'Краш', roulette: 'Рулетка' })[g.game] || g.game}</td>
-      <td class="num">${fmt(g.rounds)}</td>
-      <td class="num">${fmt(g.wagered)}</td>
-      <td class="num">${fmt(g.profit)}</td>
-      <td class="num">${pct(g.rtp)}</td>
-    </tr>`).join('');
-
-  const winRows = d.topWins.map((w) => `<tr>
-      <td>${esc(w.username || w.first_name || w.user_id)}</td>
-      <td>${esc(w.subtitle)}</td>
-      <td class="num">${fmt(w.payout)}</td>
-    </tr>`).join('');
-
-  document.getElementById('admin-overview').innerHTML = `
-    <div class="admin-kpis">
-      ${kpis.map((k) => `<div class="kpi">
-        <div class="kpi-label">${k.label}</div>
-        <div class="kpi-value ${k.cls || ''}">${k.value}</div>
-        ${k.sub ? `<div class="kpi-sub">${k.sub}</div>` : ''}
-      </div>`).join('')}
-    </div>
-
-    <h2 class="section-title">За сутки</h2>
-    <div class="admin-kpis">
-      <div class="kpi"><div class="kpi-label">Раундов</div><div class="kpi-value">${fmt(d.today.rounds)}</div></div>
-      <div class="kpi"><div class="kpi-label">Игроков</div><div class="kpi-value">${fmt(d.today.players)}</div></div>
-      <div class="kpi"><div class="kpi-label">Поставлено</div><div class="kpi-value">${fmt(d.today.wagered)}</div></div>
-      <div class="kpi"><div class="kpi-label">Прибыль</div>
-        <div class="kpi-value ${d.today.profit >= 0 ? 'plus' : 'minus'}">${fmt(d.today.profit)}</div></div>
-    </div>
-
-    <h2 class="section-title">По играм</h2>
-    <table class="admin-table">
-      <thead><tr><th>Игра</th><th class="num">Раундов</th><th class="num">Ставки</th>
-        <th class="num">Прибыль</th><th class="num">RTP</th></tr></thead>
-      <tbody>${gameRows || '<tr><td colspan="5">Нет данных</td></tr>'}</tbody>
-    </table>
-
-    <h2 class="section-title">Крупнейшие выигрыши</h2>
-    <table class="admin-table">
-      <thead><tr><th>Игрок</th><th>Что</th><th class="num">Выплата</th></tr></thead>
-      <tbody>${winRows || '<tr><td colspan="3">Нет данных</td></tr>'}</tbody>
-    </table>
-  `;
-
-  renderAdminFeed(d.recent);
-}
-
-function renderAdminFeed(recent) {
-  document.getElementById('admin-feed').innerHTML = recent.length
-    ? recent.map((r) => {
-        const profit = r.payout - r.bet;
-        return `<div class="history-row" style="--tier-color:${profit >= 0 ? 'var(--green)' : 'var(--line)'}">
-          <div class="history-main">
-            <div class="history-item">${esc(r.subtitle)}</div>
-            <div class="history-case">${esc(r.username || r.first_name || ('#' + r.user_id))}
-              · ${esc(r.title)} · ${r.free ? 'подарок' : fmt(r.bet)}</div>
-          </div>
-          <div class="history-right">
-            <div class="history-value">${fmt(r.payout)}</div>
-            <div class="history-mult ${profit >= 0 ? 'plus' : 'minus'}">${r.multiplier.toFixed(2)}x</div>
-          </div>
-        </div>`;
-      }).join('')
-    : '<div class="empty">Пока нет раундов</div>';
-}
-
-async function loadAdminUsers() {
-  let d;
-  try { d = await api('/api/admin/users', { query: state.admin.query }); }
-  catch (err) { toast(err.message); return; }
-
-  state.admin.users = d.rows;
-  const list = document.getElementById('adminUserList');
-
-  list.innerHTML = d.rows.length ? d.rows.map((u) => {
-    const name = u.username ? '@' + u.username : (u.first_name || 'Без имени');
-    const letter = (u.first_name || u.username || '?').trim().charAt(0).toUpperCase();
-    return `<div class="user-row ${u.is_blocked ? 'blocked' : ''}" data-user="${u.id}">
-      <div class="user-avatar">${esc(letter)}</div>
-      <div class="user-main">
-        <div class="user-name">${esc(name)}${u.is_admin ? ' <span class="admin-tag">АДМИН</span>' : ''}</div>
-        <div class="user-meta">${esc(playerIdent(u))} · раундов ${fmt(u.total_rounds)}
-          · RTP ${u.total_spent ? ((u.total_won / u.total_spent) * 100).toFixed(0) + '%' : '-'}</div>
-      </div>
-      <div class="user-bal">${fmt(u.balance)}</div>
-    </div>`;
-  }).join('') : '<div class="empty">Никого не найдено</div>';
-
-  list.querySelectorAll('.user-row').forEach((row) => {
-    row.addEventListener('click', () => openAdminUser(Number(row.dataset.user)));
-  });
-}
-
-async function openAdminUser(userId) {
-  let d;
-  try { d = await api('/api/admin/user', { userId }); }
-  catch (err) { toast(err.message); return; }
-
-  const u = d.user;
-  const name = u.username ? '@' + u.username : (u.first_name || 'Без имени');
-
-  const logRows = d.log.map((l) => {
-    const who = l.admin_username ? '@' + l.admin_username : (l.admin_name || '');
-    return `<div class="log-row">
-      <span>${esc(BO_ACTIONS[l.action] || l.action)}${l.note ? ` · ${esc(l.note)}` : ''}
-        <div class="bo-sub">${esc(who)} · ${boDateTime(l.created_at)}</div></span>
-      <b class="${l.amount > 0 ? 'plus' : l.amount < 0 ? 'minus' : ''}">${l.amount ? fmt(l.amount) : ''}</b>
-    </div>`;
-  }).join('');
-
-  const histRows = d.history.slice(0, 12).map((h) => `<div class="log-row">
-      <span>${esc(h.title)} · ${esc(h.subtitle)}</span>
-      <b class="${h.payout >= h.bet ? 'plus' : 'minus'}">${fmt(h.payout - h.bet)}</b>
-    </div>`).join('');
-
-  const detail = document.getElementById('adminDetail');
-  detail.innerHTML = `
-    <div class="detail-head">
-      <button class="btn btn-outline" id="detailBack"><span data-ico="back"></span></button>
-      <div style="flex:1">
-        <div class="user-name" style="font-size:19px">${esc(name)}</div>
-        <div class="user-meta">${esc(playerIdent(u))}</div>
-      </div>
-    </div>
-
-    ${boKpis([
-      { label: 'Баланс', value: fmt(u.balance),
-        sub: `к выводу: ${fmt(d.money.withdrawable)}` },
-      { label: 'Пополнил', value: fmt(d.money.deposited),
-        sub: d.money.bonus ? `бонусами ещё ${fmt(d.money.bonus)}` : '' },
-      { label: 'Вывел', value: fmt(d.money.paidOut),
-        sub: d.money.pendingOut ? `в заявках ${fmt(d.money.pendingOut)}` : '' },
-      { label: 'Касса заработала', value: fmt(d.money.deposited - d.money.paidOut),
-        cls: d.money.deposited - d.money.paidOut >= 0 ? 'plus' : 'minus',
-        sub: 'пополнил минус вывел' },
-      { label: 'Раундов', value: fmt(u.total_rounds),
-        sub: `поставил ${fmt(u.total_spent)}` },
-      { label: 'Его отдача', value: u.total_spent
-          ? ((u.total_won / u.total_spent) * 100).toFixed(1) + '%' : '-',
-        cls: u.total_spent && u.total_won > u.total_spent ? 'minus' : '',
-        sub: `выиграл ${fmt(u.total_won)}` },
-      { label: 'Долг по обороту', value: fmt(d.money.depositDebt),
-        cls: d.money.depositDebt ? 'minus' : 'plus',
-        sub: d.money.depositDebt ? 'вывод закрыт, пока не отыграет' : 'вывод открыт' },
-      { label: 'Бонусный счёт', value: fmt(d.money.bonusBalance || 0),
-        sub: d.money.wagerRequired ? `отыграть ${fmt(d.money.wagerRequired)}` : 'вывод не запирает' },
-      { label: 'Бонусы в деньги', value: fmt(d.money.bonusConverted || 0),
-        sub: `ещё можно ${fmt(d.money.bonusCashoutLeft || 0)}` },
-    ])}
-
-    <div class="bo-daybar">
-      За сутки: поставил <b>${fmt(d.day.wagered)}</b> ·
-      проиграл <b>${fmt(d.day.lost)}</b> ·
-      пополнил <b>${fmt(d.day.deposited)}</b>
-    </div>
-
-    ${boCan('players.balance') ? `
-    <h2 class="section-title">Изменить баланс</h2>
-    <div class="amount-row">
-      <input class="seed-input" id="adjAmount" type="number" inputmode="numeric" placeholder="сумма">
-      <input class="seed-input" id="adjNote" placeholder="комментарий" maxlength="200">
-    </div>
-    <label class="adj-mode">
-      <input type="checkbox" id="adjCorrection">
-      <span>Корректировка: деньги придут без отыгрыша</span>
-    </label>
-    <p class="adj-hint">Обычное начисление считается пополнением, и его надо
-      прокрутить через ставки, прежде чем откроется вывод. Для возврата после
-      сбоя или компенсации ставьте галочку - иначе поддержка своими руками
-      запрёт игроку вывод.${state.admin.me?.balanceCap
-        ? ` Ваш потолок одной правки: ${fmt(state.admin.me.balanceCap)}.` : ''}</p>
-    <div class="admin-actions">
-      <button class="btn btn-primary" id="adjPlus"><span data-ico="plus"></span> Начислить</button>
-      <button class="btn btn-outline" id="adjMinus"><span data-ico="minus"></span> Списать</button>
-    </div>` : ''}
-
-    ${boCan('players.gift') ? `
-    <h2 class="section-title">Подарочный кейс</h2>
-    <div class="amount-row">
-      <select class="seed-input" id="voucherCase">
-        ${state.config.cases.map((c) => `<option value="${c.id}">${esc(c.name)} · ${fmt(c.price)}</option>`).join('')}
-      </select>
-      <input class="seed-input" id="voucherCount" type="number" value="1" min="1" max="100" style="max-width:80px">
-    </div>
-    <button class="btn btn-outline btn-wide" id="grantVoucher">Выдать кейс</button>` : ''}
-
-    ${boCan('players.limits') ? `
-    <h2 class="section-title">Лимиты ответственной игры</h2>
-    <p class="game-sub">Ужесточение действует сразу, ослабление - через сутки.
-      Лимит, который снимается в ту минуту, когда очень хочется играть, не лимит.</p>
-    <div class="bo-settings">
-      <label class="bo-field"><b>Пополнение в сутки</b>
-        <i>0 - без ограничения</i>
-        <input class="seed-input" type="number" id="limDeposit" value="${d.limits.deposit_day || 0}"></label>
-      <label class="bo-field"><b>Проигрыш в сутки</b>
-        <i>0 - без ограничения</i>
-        <input class="seed-input" type="number" id="limLoss" value="${d.limits.loss_day || 0}"></label>
-      <label class="bo-field"><b>Оборот в сутки</b>
-        <i>0 - без ограничения</i>
-        <input class="seed-input" type="number" id="limWager" value="${d.limits.wager_day || 0}"></label>
-      <label class="bo-field"><b>Самоисключение, дней</b>
-        <i>Продлить можно, укоротить - нет</i>
-        <input class="seed-input" type="number" id="limExclude" value="0"></label>
-    </div>
-    ${d.limits.pending_at ? `<p class="adj-hint">Ослабление вступит в силу
-      ${boDateTime(d.limits.pending_at)}.</p>` : ''}
-    ${d.limits.excluded_until > Date.now() ? `<p class="adj-hint">Самоисключение
-      до ${boDateTime(d.limits.excluded_until)}.</p>` : ''}
-    <button class="btn btn-outline btn-wide" id="saveLimits">Сохранить лимиты</button>` : ''}
-
-    ${boCan('players.block') ? `
-    <h2 class="section-title">Доступ</h2>
-    <button class="btn ${u.is_blocked ? 'btn-primary' : 'btn-outline'} btn-wide" id="toggleBlock">
-      <span data-ico="block"></span> ${u.is_blocked ? 'Разблокировать' : 'Заблокировать'}
-    </button>` : ''}
-
-    ${boCan('players.notes') ? `
-    <h2 class="section-title">Заметки</h2>
-    <div class="amount-row">
-      <input class="seed-input" id="noteText" maxlength="2000" placeholder="что важно знать следующему">
-      <button class="btn btn-sm" id="noteAdd">Добавить</button>
-    </div>
-    ${d.notes.length ? d.notes.map((n) => `<div class="bo-note">
-      <div>${esc(n.text)}</div>
-      <div class="bo-sub">${esc(n.author_username ? '@' + n.author_username
-        : (n.author_name || '#' + n.author_id))} · ${boDateTime(n.created_at)}
-        <button class="bo-userlink" data-note-del="${n.id}">убрать</button></div>
-    </div>`).join('') : '<div class="empty">Пока ничего</div>'}` : ''}
-
-    ${d.vouchers.length ? `<h2 class="section-title">Подарки на руках</h2>
-      ${d.vouchers.map((v) => `<div class="log-row"><span>${esc(
-        state.config.cases.find((c) => c.id === v.case_id)?.name || v.case_id)}</span>
-        <b>×${v.count}</b></div>`).join('')}` : ''}
-
-    <h2 class="section-title">Действия администраторов</h2>
-    ${logRows || '<div class="empty">Пока ничего</div>'}
-
-    <h2 class="section-title">Последние раунды</h2>
-    ${histRows || '<div class="empty">Пока ничего</div>'}
-  `;
-
-  detail.hidden = false;
-  mountIcons(detail);
-
-  document.getElementById('detailBack').addEventListener('click', () => { detail.hidden = true; });
-
-  const adjust = async (sign) => {
-    const raw = Math.abs(Math.trunc(Number(document.getElementById('adjAmount').value)));
-    if (!raw) { toast('Укажите сумму'); return; }
-    try {
-      await api('/api/admin/balance', {
-        userId, amount: sign * raw,
-        note: document.getElementById('adjNote').value,
-        asDeposit: !document.getElementById('adjCorrection').checked,
-      });
-      toast(sign > 0 ? `Начислено ${fmt(raw)}` : `Списано ${fmt(raw)}`);
-      haptic('success');
-      openAdminUser(userId);
-      loadAdminUsers();
-    } catch (err) { toast(err.message); haptic('error'); }
-  };
-
-  document.getElementById('adjPlus')?.addEventListener('click', () => adjust(1));
-  document.getElementById('adjMinus')?.addEventListener('click', () => adjust(-1));
-
-  document.getElementById('saveLimits')?.addEventListener('click', async () => {
-    const num = (id) => Math.max(0, Math.trunc(Number(document.getElementById(id).value) || 0));
-    try {
-      await api('/api/admin/player/limits', { userId, patch: {
-        deposit_day: num('limDeposit'), loss_day: num('limLoss'),
-        wager_day: num('limWager'), excludedDays: num('limExclude'),
-      } });
-      toast('Лимиты сохранены');
-      openAdminUser(userId);
-    } catch (err) { toast(err.message); }
-  });
-
-  document.getElementById('noteAdd')?.addEventListener('click', async () => {
-    const text = document.getElementById('noteText').value.trim();
-    if (!text) { toast('Пустая заметка'); return; }
-    try {
-      await api('/api/admin/player/note', { userId, text });
-      openAdminUser(userId);
-    } catch (err) { toast(err.message); }
-  });
-
-  detail.querySelectorAll('[data-note-del]').forEach((b) => {
-    b.onclick = async () => {
-      try {
-        await api('/api/admin/player/note/delete', { noteId: Number(b.dataset.noteDel) });
-        openAdminUser(userId);
-      } catch (err) { toast(err.message); }
-    };
-  });
-
-  document.getElementById('grantVoucher')?.addEventListener('click', async () => {
-    try {
-      await api('/api/admin/voucher', {
-        userId,
-        caseId: document.getElementById('voucherCase').value,
-        count: Number(document.getElementById('voucherCount').value) || 1,
-      });
-      toast('Кейс выдан');
-      haptic('success');
-      openAdminUser(userId);
-    } catch (err) { toast(err.message); haptic('error'); }
-  });
-
-  document.getElementById('toggleBlock')?.addEventListener('click', async () => {
-    try {
-      await api('/api/admin/block', { userId, blocked: !u.is_blocked });
-      toast(u.is_blocked ? 'Разблокирован' : 'Заблокирован');
-      openAdminUser(userId);
-      loadAdminUsers();
-    } catch (err) { toast(err.message); haptic('error'); }
-  });
-}
-
-/* ---------- Панель: разделы и права ---------- */
-
-/*
- * Список разделов с правом, которое их открывает.
- *
- * Право одно на раздел - то, без которого раздел бессмысленен. Внутри раздела
- * отдельные кнопки прячутся по своим правам: финансист видит заявки на вывод,
- * но кнопку «Выплатить» видит только с finance.payouts.resolve.
- */
-const BO_SECTIONS = [
-  { id: 'overview', name: 'Сводка', group: 'Обзор', need: 'reports.view', load: () => loadAdminOverview() },
-  { id: 'reports', name: 'Отчёты', group: 'Обзор', need: 'reports.view', load: () => loadAdminReports() },
-  { id: 'funnel', name: 'Воронка', group: 'Обзор', need: 'reports.view', load: () => loadAdminFunnel() },
-  { id: 'feed', name: 'Лента', group: 'Обзор', need: 'reports.view', load: () => loadAdminOverview() },
-
-  { id: 'users', name: 'Игроки', group: 'Игроки', need: 'players.view', load: () => loadAdminUsers() },
-  { id: 'risk', name: 'Риск', group: 'Игроки', need: 'risk.view', load: () => loadAdminRisk() },
-
-  { id: 'deposits', name: 'Пополнения', group: 'Финансы', need: 'finance.payouts.view', load: () => loadAdminDeposits() },
-  { id: 'payouts', name: 'Выводы', group: 'Финансы', need: 'finance.payouts.view', load: () => loadAdminPayouts() },
-
-  { id: 'promos', name: 'Промокоды', group: 'Промо', need: 'promo.view', load: () => loadAdminPromos() },
-  { id: 'partners', name: 'Партнёры', group: 'Промо', need: 'partners.view', load: () => loadAdminPartners() },
-
-  { id: 'casino', name: 'Казино', group: 'Система', need: 'games.manage', load: () => loadAdminCasino() },
-  { id: 'settings', name: 'Настройки', group: 'Система', need: 'settings.manage', load: () => loadAdminSettings() },
-  { id: 'staff', name: 'Сотрудники', group: 'Система', need: 'staff.manage', load: () => loadAdminStaff() },
-  { id: 'journal', name: 'Журнал', group: 'Система', need: 'journal.view', load: () => loadAdminJournal() },
-];
-
-function boCan(permission) {
-  return state.admin.perms?.has(permission) || false;
-}
-
-function boOpen(id) {
-  const section = BO_SECTIONS.find((s) => s.id === id);
-  if (!section || !boCan(section.need)) return;
-  state.admin.tab = id;
-  document.querySelectorAll('[data-admin-tab]').forEach((b) =>
-    b.classList.toggle('active', b.dataset.adminTab === id));
-  document.querySelectorAll('.admin-pane').forEach((p) =>
-    p.classList.toggle('active', p.id === `admin-${id}`));
-  document.getElementById('adminDetail').hidden = true;
-  section.load();
-  haptic('light');
-}
-
-/**
- * Собирает панель под права вошедшего.
- *
- * Вызывается при каждом входе в раздел: состав команды меняют на ходу, и
- * панель, собранная один раз при загрузке страницы, показывала бы вчерашние
- * права до перезагрузки.
- */
-/* ---------- Подтверждение входа в панель ---------- */
-
-/*
- * Если на сервере включён служебный бот, панель открывается только после
- * подтверждения в Telegram (server/ops.js). Экран сам опрашивает сервер и
- * открывает панель, как только в боте нажали «Это я».
- */
-const GATE_POLL_MS = 2000;
-const gateState = { poll: 0, id: 0 };
-
-function showAdminShell(open) {
-  document.getElementById('boGate').hidden = open;
-  document.getElementById('boShell').hidden = !open;
-  if (open) clearInterval(gateState.poll);
-}
-
-/** true - панель можно открывать. */
-async function adminGateOk() {
-  let st;
-  try { st = await api('/api/admin/2fa/status'); }
-  catch (err) { toast(err.message); return false; }
-  if (!st.required || st.confirmed) { showAdminShell(true); return true; }
-  renderAdminGate(st);
-  return false;
-}
-
-async function renderAdminGate(st) {
-  clearInterval(gateState.poll);
-  if (!st) {
-    try { st = await api('/api/admin/2fa/status'); } catch (err) { toast(err.message); return; }
-  }
-  showAdminShell(false);
-  const box = document.getElementById('boGate');
-
-  if (!st.linked) {
-    box.innerHTML = `
-      <div class="bo-gate-card">
-        <div class="bo-gate-title">Привяжите Telegram</div>
-        <p>Вход в панель подтверждается в служебном боте${st.bot ? ` <b>@${esc(st.bot)}</b>` : ''}.
-          Откройте его по кнопке ниже и нажмите Start - бот запомнит этот Telegram.
-          Сюда же будут приходить оповещения о сбоях.</p>
-        <button class="btn btn-primary btn-wide" id="gateLink">Открыть служебного бота</button>
-        <button class="btn btn-outline btn-wide" id="gateLinked">Я нажал Start</button>
-      </div>`;
-    document.getElementById('gateLink').onclick = async () => {
-      const tab = openBlankTab();
-      try {
-        const { url } = await api('/api/admin/2fa/link');
-        if (tab && !tab.closed) tab.location.href = url; else window.open(url, '_blank', 'noopener');
-      } catch (err) { tab?.close(); toast(err.message); }
-    };
-    document.getElementById('gateLinked').onclick = () => initAdminPanel();
-    return;
-  }
-
-  box.innerHTML = `
-    <div class="bo-gate-card">
-      <div class="bo-gate-title">Подтвердите вход</div>
-      <p>Мы отправим запрос в служебного бота${st.bot ? ` <b>@${esc(st.bot)}</b>` : ''}.
-        Нажмите там «Это я» - панель откроется сама. Не пришло - введите код из сообщения.</p>
-      <button class="btn btn-primary btn-wide" id="gateSend">Отправить запрос в Telegram</button>
-      <div class="bo-gate-wait" id="gateWait" hidden>
-        <div class="bo-gate-status" id="gateStatus">Ждём подтверждения в Telegram…</div>
-        <div class="bo-gate-code">
-          <input class="seed-input" id="gateCode" inputmode="numeric" maxlength="6" placeholder="Код из сообщения">
-          <button class="btn btn-outline" id="gateCodeBtn">Подтвердить</button>
-        </div>
-      </div>
-    </div>`;
-
-  const status = (text) => { document.getElementById('gateStatus').textContent = text; };
-  document.getElementById('gateSend').onclick = async () => {
-    const btn = document.getElementById('gateSend');
-    btn.disabled = true;
-    try {
-      const r = await api('/api/admin/2fa/request');
-      gateState.id = r.id;
-      document.getElementById('gateWait').hidden = false;
-      btn.textContent = 'Отправить ещё раз';
-      status('Ждём подтверждения в Telegram…');
-      clearInterval(gateState.poll);
-      gateState.poll = setInterval(async () => {
-        if (state.view !== 'admin') { clearInterval(gateState.poll); return; }
-        try {
-          const p = await api('/api/admin/2fa/poll', { id: gateState.id });
-          if (p.confirmed) { clearInterval(gateState.poll); initAdminPanel(); return; }
-          if (p.status === 'denied') { clearInterval(gateState.poll); status('Вход отклонён в Telegram. Сессия закрыта.'); }
-          if (p.status === 'expired' || p.status === 'burned') { clearInterval(gateState.poll); status('Запрос устарел, отправьте новый.'); }
-        } catch { /* сеть моргнула - следующий опрос */ }
-      }, GATE_POLL_MS);
-    } catch (err) { toast(err.message); }
-    btn.disabled = false;
-  };
-  document.getElementById('gateCodeBtn').onclick = async () => {
-    try {
-      await api('/api/admin/2fa/code', { id: gateState.id, code: document.getElementById('gateCode').value });
-      initAdminPanel();
-    } catch (err) { status(err.message); haptic('error'); }
-  };
-}
-
-async function initAdminPanel() {
-  if (!(await adminGateOk())) return;
-  let me;
-  try { me = await api('/api/admin/me'); }
-  catch (err) { toast(err.message); return; }
-
-  state.admin.perms = new Set(me.permissions);
-  state.admin.me = me;
-
-  document.getElementById('boWho').innerHTML =
-    `${esc(me.roleName || 'Без роли')} · прав: ${me.permissions.length}` +
-    (me.balanceCap ? ` · правка баланса до ${fmt(me.balanceCap)}` : '');
-
-  const allowed = BO_SECTIONS.filter((s) => boCan(s.need));
-  const groups = [];
-  for (const section of allowed) {
-    let group = groups.find((g) => g.name === section.group);
-    if (!group) groups.push(group = { name: section.group, items: [] });
-    group.items.push(section);
-  }
-
-  document.getElementById('boNav').innerHTML = groups.map((g) => `
-    <div class="bo-group">
-      <div class="bo-group-name">${esc(g.name)}</div>
-      ${g.items.map((s) => `<button class="bo-link" data-admin-tab="${s.id}">${esc(s.name)}${
-        s.id === 'deposits' && me.sections?.disputes ? ` <span class="bo-badge" title="Споры ждут решения">${fmt(me.sections.disputes)}</span>` : ''}</button>`).join('')}
-    </div>`).join('') || '<div class="empty">Разделов нет</div>';
-
-  document.querySelectorAll('[data-admin-tab]').forEach((btn) => {
-    btn.addEventListener('click', () => boOpen(btn.dataset.adminTab));
-  });
-
-  const first = allowed.find((s) => s.id === state.admin.tab) || allowed[0];
-  if (first) boOpen(first.id);
-  else document.getElementById('boNav').innerHTML =
-    '<div class="empty">Доступа ни к одному разделу нет</div>';
-}
-
-document.getElementById('boRefresh')?.addEventListener('click', () => {
-  const current = state.admin.tab;
-  state.admin.tab = current;
-  initAdminPanel();
-});
-
-/* ---------- Панель: казино ---------- */
-
-/*
- * Состояние каталога и деньги казино. Отдачу здесь не меняют: она в
- * «Настройках» рядом с выключателями игр, а тут видно, какое число
- * применяется на самом деле (с учётом пределов агрегатора).
- */
-async function loadAdminCasino() {
-  const pane = document.getElementById('admin-casino');
-  pane.innerHTML = '<div class="empty">Загрузка...</div>';
-  let d;
-  try { d = await api('/api/admin/casino'); } catch (err) { pane.innerHTML = `<div class="empty">${esc(err.message)}</div>`; return; }
-  const s = d.sync;
-  const syncLine = !d.configured
-    ? 'Ключи агрегатора не заданы: каталог из снимка в репозитории'
-    : s.running ? 'Идёт обновление каталога...'
-    : s.at ? `${s.ok ? 'Обновлён' : 'Ошибка обновления'} ${boDateTime(s.at)}${s.ok ? '' : `: ${esc(s.message)}`}`
-    : 'Ещё не обновлялся';
-  const row = (label, m) => `<tr><td>${label}</td><td class="num">${money(m.bets)}</td><td class="num">${money(m.wins)}</td>
-    <td class="num">${money(m.ggr)}</td><td class="num">${fmt(m.rounds)}</td><td class="num">${fmt(m.players)}</td></tr>`;
-  pane.innerHTML = `
-    ${boKpis([
-      { label: 'Игр в лобби', value: fmt(s.games), sub: `провайдеров ${fmt(s.providers)}` },
-      { label: 'Отдача слотов', value: `${d.rtp}%`, sub: `пределы агрегатора ${d.rtpRange[0]}-${d.rtpRange[1]}%` },
-      { label: 'Доход кассы за 30 дней', value: money(d.month.ggr), sub: 'ставки минус выигрыши', cls: d.month.ggr >= 0 ? 'plus' : 'minus' },
-    ])}
-    <div class="bo-subtitle">Каталог</div>
-    <p class="bo-note">${syncLine}. По расписанию каталог обновляется сам.</p>
-    <div class="admin-actions">
-      <button class="btn btn-outline btn-sm" id="casinoSync" ${d.configured ? '' : 'disabled'}>Обновить сейчас</button>
-    </div>
-    <div class="bo-subtitle">Деньги</div>
-    ${boTable([{ label: 'Период' }, { label: 'Ставки', num: true }, { label: 'Выигрыши', num: true },
-      { label: 'Доход', num: true }, { label: 'Раундов', num: true }, { label: 'Игроков', num: true }],
-      [row('Сутки', d.today), row('7 дней', d.week), row('30 дней', d.month)])}`;
-  document.getElementById('casinoSync')?.addEventListener('click', async (e) => {
-    e.target.disabled = true;
-    try { await api('/api/admin/casino/sync'); toast('Каталог обновлён'); } catch (err) { toast(err.message); }
-    loadAdminCasino();
-  });
-}
-
-/* ---------- Панель: общие кирпичи ---------- */
-
-const boDate = (t) => new Date(t).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' });
-const boDateTime = (t) => new Date(t).toLocaleString('ru-RU',
-  { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
-
-function boKpis(items) {
-  return `<div class="admin-kpis">${items.map((k) => `<div class="kpi">
-    <div class="kpi-label">${esc(k.label)}</div>
-    <div class="kpi-value ${k.cls || ''}">${k.value}</div>
-    ${k.sub ? `<div class="kpi-sub">${k.sub}</div>` : ''}
-  </div>`).join('')}</div>`;
-}
-
-function boTable(head, rows, empty = 'Нет данных') {
-  return `<div class="bo-scroll"><table class="admin-table">
-    <thead><tr>${head.map((h) => `<th class="${h.num ? 'num' : ''}">${esc(h.label ?? h)}</th>`).join('')}</tr></thead>
-    <tbody>${rows.length ? rows.join('')
-      : `<tr><td colspan="${head.length}">${esc(empty)}</td></tr>`}</tbody>
-  </table></div>`;
-}
-
-/*
- * Столбики рисуются делениями, а не картинкой и не библиотекой.
- *
- * График в панели нужен ровно для одного: увидеть, что позавчера было не как
- * обычно. Для этого хватает высоты столбика, а тянуть ради этого рисовалку в
- * проект без сборщика - значит тянуть её и на телефон игрока.
- */
-function boBars(points, { key, label, color = 'var(--cyan)' }) {
-  const max = Math.max(1, ...points.map((p) => Math.abs(p[key])));
-  return `<div class="bo-chart" role="img" aria-label="${esc(label)}">
-    ${points.map((p) => {
-      const value = p[key];
-      const height = Math.round((Math.abs(value) / max) * 100);
-      return `<div class="bo-bar" title="${boDate(p.day)}: ${fmt(value)}">
-        <i style="height:${Math.max(2, height)}%;background:${value < 0 ? 'var(--pink)' : color}"></i>
-        <span>${boDate(p.day)}</span>
-      </div>`;
-    }).join('')}
-  </div>`;
-}
-
-/* ---------- Панель: отчёты ---------- */
-
-async function loadAdminReports() {
-  const box = document.getElementById('admin-reports');
-  box.innerHTML = '<div class="empty">Считаем...</div>';
-
-  let d;
-  try { d = await api('/api/admin/reports', { days: state.admin.reportDays }); }
-  catch (err) { box.innerHTML = `<div class="empty">${esc(err.message)}</div>`; return; }
-
-  const sum = (key) => d.daily.reduce((a, r) => a + r[key], 0);
-  const wagered = sum('wagered');
-  const paid = sum('paid');
-
-  const dayRows = [...d.daily].reverse().map((r) => `<tr>
-    <td>${boDate(r.day)}</td>
-    <td class="num">${fmt(r.rounds)}</td>
-    <td class="num">${fmt(r.players)}</td>
-    <td class="num">${fmt(r.wagered)}</td>
-    <td class="num ${r.ggr >= 0 ? 'plus' : 'minus'}">${fmt(r.ggr)}</td>
-    <td class="num">${pct(r.rtp)}</td>
-    <td class="num">${fmt(r.deposits)}</td>
-    <td class="num">${fmt(r.payouts)}</td>
-    <td class="num ${r.net >= 0 ? 'plus' : 'minus'}">${fmt(r.net)}</td>
-    <td class="num">${fmt(r.signups)}</td>
-  </tr>`);
-
-  const caseRows = d.cases.slice(0, 30).map((c) => `<tr>
-    <td>${esc(c.title)}</td>
-    <td class="num">${fmt(c.opened)}</td>
-    <td class="num">${fmt(c.players)}</td>
-    <td class="num">${fmt(c.wagered)}</td>
-    <td class="num ${c.ggr >= 0 ? 'plus' : 'minus'}">${fmt(c.ggr)}</td>
-    <td class="num">${pct(c.rtp)}</td>
-  </tr>`);
-
-  box.innerHTML = `
-    <div class="admin-tabs" id="reportPeriod">
-      ${[7, 30, 90].map((n) => `<button class="tab ${n === state.admin.reportDays ? 'active' : ''}"
-        data-report-days="${n}">${n} дней</button>`).join('')}
-      <button class="tab" id="exportDaily">Выгрузить дни</button>
-      <button class="tab" id="exportCases">Выгрузить кейсы</button>
-    </div>
-
-    ${boKpis([
-      { label: 'Поставлено', value: fmt(wagered) },
-      { label: 'Выплачено', value: fmt(paid) },
-      { label: 'Доход с игры', value: fmt(wagered - paid),
-        cls: wagered - paid >= 0 ? 'plus' : 'minus',
-        sub: `фактическая отдача ${pct(wagered ? paid / wagered : null)}` },
-      { label: 'Пополнено', value: fmt(sum('deposits')) },
-      { label: 'Выведено', value: fmt(sum('payouts')) },
-      { label: 'Чистый приход', value: fmt(sum('deposits') - sum('payouts')),
-        cls: sum('deposits') - sum('payouts') >= 0 ? 'plus' : 'minus',
-        sub: 'пополнения минус выплаты' },
-      { label: 'Регистраций', value: fmt(sum('signups')) },
-    ])}
-
-    <h2 class="section-title">Доход с игры по дням</h2>
-    ${boBars(d.daily, { key: 'ggr', label: 'Доход по дням', color: 'var(--green)' })}
-
-    <h2 class="section-title">Чистый приход кассы по дням</h2>
-    <p class="game-sub">Пополнения минус выплаты. Доход с игры считает ставки,
-      но выигрыш на балансе игрока ещё не выведен и ничей.</p>
-    ${boBars(d.daily, { key: 'net', label: 'Приход кассы по дням' })}
-
-    <h2 class="section-title">По дням</h2>
-    ${boTable(
-      ['Дата', { label: 'Раундов', num: 1 }, { label: 'Игроков', num: 1 },
-       { label: 'Ставки', num: 1 }, { label: 'Доход', num: 1 }, { label: 'Отдача', num: 1 },
-       { label: 'Пополнено', num: 1 }, { label: 'Выведено', num: 1 },
-       { label: 'Чисто', num: 1 }, { label: 'Регистраций', num: 1 }],
-      dayRows)}
-
-    <h2 class="section-title">По кейсам</h2>
-    ${boTable(
-      ['Кейс', { label: 'Открытий', num: 1 }, { label: 'Игроков', num: 1 },
-       { label: 'Ставки', num: 1 }, { label: 'Доход', num: 1 }, { label: 'Отдача', num: 1 }],
-      caseRows)}
-  `;
-
-  box.querySelectorAll('[data-report-days]').forEach((btn) => {
-    btn.onclick = () => {
-      state.admin.reportDays = Number(btn.dataset.reportDays);
-      loadAdminReports();
-    };
-  });
-  box.querySelector('#exportDaily').onclick = () => boExport('daily');
-  box.querySelector('#exportCases').onclick = () => boExport('cases');
-}
-
-/**
- * Выгрузка отчёта файлом.
- *
- * Скачивание собрано вручную через Blob, а не ссылкой на ручку: отчёт
- * отдаётся только на POST, чтобы чужая страница не могла подсунуть ссылку
- * на выгрузку и заставить браузер сотрудника её открыть.
- */
-async function boExport(kind) {
-  try {
-    const res = await fetch('/api/admin/export', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ kind, days: state.admin.reportDays }),
-    });
-    if (!res.ok) throw new Error('Не удалось выгрузить');
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `luckybox-${kind}-${state.admin.reportDays}d.csv`;
-    a.click();
-    // Отзыв ссылки сразу после click() в Safari и Firefox иногда отменял загрузку.
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-    toast('Файл готов');
-  } catch (err) { toast(err.message); }
-}
-
-/* ---------- Панель: пополнения ---------- */
-
-/*
- * Все пополнения через шлюзы одним списком. Главное здесь - номера: наш (его
- * шлюз видит в каждом запросе) и шлюза (его видно в их кабинете). При споре
- * сотрудник ищет сделку по любому номеру, который ему назвали, и копирует
- * нужный одним нажатием, а не переписывает руками.
- */
-const DEP_FILTERS = [
-  ['all', 'Все'], ['credited', 'Зачислены'], ['open', 'Ждут оплаты'], ['failed', 'Не оплачены'], ['dispute', 'Споры'],
-];
-const DEP_STATUS = {
-  created: 'создан', pending: 'ждёт оплаты', processing: 'в обработке', completed: 'зачислен',
-  cancelled: 'отменён шлюзом', error: 'ошибка шлюза', unclaimed: 'отозван', expired: 'не оплачен вовремя',
-  paid: 'зачислен', paid_over: 'зачислен с переплатой', failed: 'не прошёл', wrong_amount: 'не та сумма',
-  cancel: 'отменён', fail: 'не прошёл', system_fail: 'сбой шлюза', process: 'в обработке', check: 'проверяется',
-};
-const DISPUTE_STATUS = {
-  new: 'Игрок сообщил: деньги не пришли', sent: 'Апелляция у шлюза', won: 'Спор выигран, зачислено',
-  lost: 'Шлюз отказал', declined: 'Отказано сотрудником',
-};
-/* Сколько дней выгружать: финансист сверяется с выпиской за месяц. */
-const EXPORT_DAYS = [7, 30, 90];
-
-function idChip(label, value) {
-  if (!value) return '';
-  return `<button class="dep-id" type="button" data-copy="${esc(String(value))}" title="Скопировать">
-    <span>${esc(label)}</span><b>${esc(String(value))}</b></button>`;
-}
-
-function bindIdChips(box) {
-  box.querySelectorAll('[data-copy]').forEach((b) => {
-    if (b.dataset.bound) return;
-    b.dataset.bound = '1';
-    b.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      try { await navigator.clipboard.writeText(b.dataset.copy); toast('Скопировано'); haptic('light'); }
-      catch { toast('Скопируйте вручную'); }
-    });
-  });
-}
-
-function exportBarHtml() {
-  return `<div class="dep-export">
-    <span>Выгрузка в Excel</span>
-    <select class="seed-input" id="depExportDays">${EXPORT_DAYS.map((d) =>
-      `<option value="${d}"${d === 30 ? ' selected' : ''}>${d} дн.</option>`).join('')}</select>
-    <button class="btn btn-outline btn-sm" data-fin-export="deposits">Пополнения</button>
-    <button class="btn btn-outline btn-sm" data-fin-export="payouts">Выводы</button>
-  </div>`;
-}
-
-function bindExportBar(box) {
-  box.querySelectorAll('[data-fin-export]').forEach((b) => b.addEventListener('click', () =>
-    finExport(b.dataset.finExport, Number(box.querySelector('#depExportDays')?.value) || 30)));
-}
-
-/* Скачивание тем же способом, что и отчёты: POST и Blob, а не ссылка. */
-async function finExport(kind, days) {
-  try {
-    const res = await fetch('/api/admin/export/finance', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ kind, days }),
-    });
-    if (!res.ok) throw new Error('Не удалось выгрузить');
-    const url = URL.createObjectURL(await res.blob());
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `luckybox-${kind}-${days}d.csv`;
-    a.click();
-    // Отзыв ссылки сразу после click() в Safari и Firefox иногда отменял загрузку.
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-    toast('Файл готов');
-  } catch (err) { toast(err.message); }
-}
-
-/*
- * Чек с телефона - это фото на 4-8 МБ. Пережимаем в JPEG по длинной стороне
- * RECEIPT_MAX_SIDE: текст чека читается, а файл в разы меньше, что важно на
- * мобильной связи и для лимита шлюза. Не вышло (старый браузер) - уходит как есть.
- */
 const RECEIPT_MAX_SIDE = 1800;
 const RECEIPT_QUALITY = 0.85;
 async function receiptDataUrl(file) {
@@ -5154,1137 +4592,58 @@ async function receiptDataUrl(file) {
   } catch { return raw; }
 }
 
-async function loadAdminDeposits({ more = false } = {}) {
-  const box = document.getElementById('admin-deposits');
-  const st = state.admin.dep || (state.admin.dep = { filter: 'all', q: '', rows: [] });
-  if (!more) st.rows = [];
-  if (!box.dataset.built) {
-    box.dataset.built = '1';
-    box.innerHTML = `
-      <div id="depKpis"></div>
-      <div class="admin-search">
-        <input class="seed-input" id="depSearch" placeholder="номер наш или шлюза, почта, ник, id игрока">
-        <button class="btn btn-sm" id="depSearchBtn">Найти</button>
-      </div>
-      <div class="admin-tabs" id="depFilter">${DEP_FILTERS.map(([id, name]) =>
-        `<button class="tab${id === st.filter ? ' active' : ''}" data-dep-filter="${id}">${name}</button>`).join('')}</div>
-      <div id="depList"></div>
-      <button class="btn btn-outline" id="depMore" hidden>Показать ещё</button>
-      ${exportBarHtml()}`;
-    const search = () => { st.q = box.querySelector('#depSearch').value.trim(); loadAdminDeposits(); };
-    box.querySelector('#depSearchBtn').addEventListener('click', search);
-    box.querySelector('#depSearch').addEventListener('keydown', (e) => { if (e.key === 'Enter') search(); });
-    box.querySelectorAll('[data-dep-filter]').forEach((b) => b.addEventListener('click', () => {
-      st.filter = b.dataset.depFilter;
-      box.querySelectorAll('[data-dep-filter]').forEach((x) => x.classList.toggle('active', x === b));
-      loadAdminDeposits();
-    }));
-    box.querySelector('#depMore').addEventListener('click', () => loadAdminDeposits({ more: true }));
-    bindExportBar(box);
+
+let adminUIPromise = null;
+let adminUIAttempts = 0;
+async function loadAdminUI() {
+  if (!adminUIPromise) {
+    const attempt = adminUIAttempts++;
+    const retrySource = '/admin-ui.js?retry=' + attempt;
+    const module = typeof createAdminUI === 'function' ? Promise.resolve({createAdminUI})
+      : attempt === 0 ? import('./admin-ui.js') : import(retrySource);
+    adminUIPromise = module.then(({createAdminUI}) => createAdminUI({api,toast,fmt,esc,state,playerIdent,money,mountIcons,haptic,openBlankTab,withCashBusy,STATUS_LABEL,payoutRequisites,receiptDataUrl}))
+      .catch(err => { adminUIPromise = null; throw err; });
   }
-
-  const list = box.querySelector('#depList');
-  if (!more) list.innerHTML = '<span class="skel skel-line"></span>'.repeat(4);
-  let d;
-  try {
-    d = await api('/api/admin/deposits', {
-      q: st.q, filter: st.filter, before: more && st.rows.length ? st.rows[st.rows.length - 1].created_at : 0,
-    });
-  } catch (err) { list.innerHTML = `<div class="empty">${esc(err.message)}</div>`; return; }
-  st.rows.push(...d.rows);
-  st.meta = d;
-
-  const s = d.summary;
-  box.querySelector('#depKpis').innerHTML = `<div class="admin-kpis">
-    <div class="kpi"><div class="kpi-label">Зачислено за сутки</div>
-      <div class="kpi-value plus">${money(s.paidSum)}</div><div class="kpi-sub">${fmt(s.paidCount)} оплат</div></div>
-    <div class="kpi"><div class="kpi-label">Доходят до оплаты</div>
-      <div class="kpi-value">${s.conversion == null ? '-' : Math.round(s.conversion * 100) + '%'}</div>
-      <div class="kpi-sub">из созданных за сутки</div></div>
-    <div class="kpi${s.disputesNew ? ' kpi-alert' : ''}"><div class="kpi-label">Споры ждут решения</div>
-      <div class="kpi-value">${fmt(s.disputesNew)}</div><div class="kpi-sub">сообщили игроки</div></div>
-    <div class="kpi"><div class="kpi-label">Апелляции у шлюза</div>
-      <div class="kpi-value">${fmt(s.disputesSent)}</div><div class="kpi-sub">ждём решения Sicilia</div></div>
-  </div>`;
-
-  list.innerHTML = st.rows.length ? st.rows.map((r) => depositRowHtml(r, d)).join('')
-    : `<div class="empty">${st.q ? 'Ничего не нашлось' : 'Пополнений нет'}</div>`;
-  box.querySelector('#depMore').hidden = d.rows.length < 50;
-  bindIdChips(list);
-  bindDepositRows(list);
+  return adminUIPromise;
 }
-
-function depositRowHtml(r, meta) {
-  const paid = !!r.paid_at;
-  const name = r.username ? '@' + r.username : (r.email || r.first_name || ('#' + r.user_id));
-  const tone = paid ? 'paid' : ['created', 'pending', 'processing', 'process', 'check'].includes(r.status) ? 'processing' : 'rejected';
-  const d = r.dispute;
-  const canAct = meta.canResolve && r.source === 'sicilia' && !paid;
-  const disputeBox = d ? `<div class="dep-dispute is-${d.status}">
-      <b>${esc(DISPUTE_STATUS[d.status] || d.status)}</b>
-      <small>${d.source === 'player' ? 'Сообщил игрок' : 'Открыл сотрудник'} · ${new Date(d.createdAt).toLocaleString('ru-RU')}</small>
-      ${d.comment ? `<p>«${esc(d.comment)}»</p>` : ''}
-      ${d.receipt ? `<a class="dep-receipt" href="${esc(d.receipt)}" target="_blank" rel="noopener"><img src="${esc(d.receipt)}" alt="Чек" loading="lazy"><span>Открыть чек</span></a>` : ''}
-      ${d.appealReason ? `<p>Ответ шлюза: ${esc(d.appealReason)}</p>` : ''}
-      ${d.staffNote ? `<p>Ответ игроку: ${esc(d.staffNote)}</p>` : ''}
-      ${d.error ? `<p class="dep-error">Не ушло в шлюз: ${esc(d.error)}</p>` : ''}
-    </div>` : '';
-  const newDispute = d && d.status === 'new';
-  const actions = canAct ? `<div class="dep-actions" data-dep-actions="${r.id}">
-      <button class="btn btn-outline btn-sm" data-dep-recheck="${r.id}">Проверить у шлюза</button>
-      ${['created', 'pending', 'processing'].includes(r.status) ? `<button class="btn btn-outline btn-sm" data-dep-cancel="${r.id}">Отменить у шлюза</button>` : ''}
-      ${!d || !['new', 'sent'].includes(d.status) || newDispute
-        ? `<button class="btn btn-sm" data-dep-appeal="${r.id}" data-dispute="${newDispute ? d.id : ''}">${newDispute ? 'Отправить спор в Sicilia' : 'Открыть спор'}</button>` : ''}
-      ${newDispute ? `<button class="btn btn-outline btn-sm" data-dep-decline="${d.id}">Отказать</button>` : ''}
-    </div>
-    <div class="dep-form" data-dep-form="${r.id}" hidden></div>` : '';
-  return `<div class="payout-row admin ${tone}">
-    <div class="payout-head">
-      <b>${money(r.amount)}${paid && r.credited !== r.amount ? ` <small class="dep-fact">зачислено ${money(r.credited)}</small>` : ''}</b>
-      <span class="payout-status ${tone}">${esc(DEP_STATUS[r.status] || r.status)}</span>
-    </div>
-    <div class="payout-date">${r.source === 'sicilia' ? (r.terminal === 'mk' ? 'Мобильная коммерция · Sicilia' : 'СБП / карта · Sicilia') : `Криптовалюта${r.currency ? ' ' + esc(r.currency) : ''} · Heleket`} ·
-      <a href="#" data-dep-user="${r.user_id}">${esc(name)}</a> · ${esc(playerIdent(r, r.user_id))}</div>
-    <div class="payout-date">Создан ${new Date(r.created_at).toLocaleString('ru-RU')}${paid ? ` · зачислен ${new Date(r.paid_at).toLocaleString('ru-RU')}` : ''}</div>
-    <div class="dep-ids">${idChip('Наш номер', r.number)}${idChip(r.source === 'sicilia' ? 'Номер Sicilia' : 'Номер Heleket', r.gateway_id)}</div>
-    ${disputeBox}
-    ${actions}
-  </div>`;
+async function initAdminPanel() {
+  try { const ui = await loadAdminUI(); if (state.view === 'admin') return await ui.initAdminPanel(); }
+  catch { toast('Не удалось загрузить панель. Нажмите «Обновить».'); }
 }
-
-function bindDepositRows(list) {
-  list.querySelectorAll('[data-dep-user]').forEach((a) => a.addEventListener('click', (e) => {
-    e.preventDefault();
-    openAdminUser(Number(a.dataset.depUser));
-  }));
-  list.querySelectorAll('[data-dep-recheck]').forEach((b) => b.addEventListener('click', () => withCashBusy(b, async () => {
-    try {
-      const r = await api('/api/admin/deposit/recheck', { id: Number(b.dataset.depRecheck) });
-      toast(r.credited ? `Зачислено ${money(r.amount)}` : `Шлюз отвечает: ${DEP_STATUS[r.status] || r.status || 'нет ордера'}`);
-      loadAdminDeposits();
-    } catch (err) { toast(err.message); }
-  })));
-  list.querySelectorAll('[data-dep-cancel]').forEach((b) => b.addEventListener('click', () => {
-    // Второе нажатие подтверждает: отмена оплаты, которую игрок сейчас
-    // переводит, оставит его деньги у трейдера до разбора.
-    if (b.dataset.armed !== '1') { b.dataset.armed = '1'; b.textContent = 'Точно отменить?'; return; }
-    withCashBusy(b, async () => {
-      try {
-        const r = await api('/api/admin/deposit/cancel', { id: Number(b.dataset.depCancel) });
-        toast(r.credited ? `Оплата успела пройти: зачислено ${money(r.amount)}` : 'Оплата отменена у шлюза');
-        loadAdminDeposits();
-      } catch (err) { toast(err.message); }
-    });
-  }));
-  list.querySelectorAll('[data-dep-appeal]').forEach((b) => b.addEventListener('click', () => {
-    const id = b.dataset.depAppeal;
-    const form = list.querySelector(`[data-dep-form="${id}"]`);
-    const row = state.admin.dep.rows.find((x) => x.source === 'sicilia' && String(x.id) === id);
-    const fromPlayer = !!b.dataset.dispute;
-    if (!state.admin.dep.meta.siteUrl) { toast('Не задан SITE_URL: шлюзу не по чему открыть чек'); return; }
-    form.hidden = !form.hidden;
-    if (form.hidden) return;
-    form.innerHTML = `
-      <label class="dep-label">Причина для шлюза</label>
-      <textarea class="seed-input" rows="2" data-f="reason" placeholder="Например: перевод выполнен, чек приложен, сумма совпадает">${esc(row?.dispute?.comment || '')}</textarea>
-      <label class="dep-label">${fromPlayer ? 'Свой чек, если чек игрока не годится' : 'Чек перевода (фото или скриншот)'}</label>
-      <label class="dep-file"><span data-f="filename">Выбрать файл</span><input type="file" accept="image/*" data-f="file" hidden></label>
-      <div class="admin-actions"><button class="btn btn-primary" data-f="send">Отправить апелляцию</button></div>`;
-    form.querySelector('[data-f="file"]').addEventListener('change', (e) => {
-      form.querySelector('[data-f="filename"]').textContent = e.target.files[0]?.name || 'Выбрать файл';
-    });
-    form.querySelector('[data-f="send"]').addEventListener('click', (e) => withCashBusy(e.currentTarget, async () => {
-      try {
-        const image = await receiptDataUrl(form.querySelector('[data-f="file"]').files[0]);
-        if (!fromPlayer && !image) { toast('Приложите чек'); return; }
-        const r = await api('/api/admin/dispute/open', {
-          orderId: Number(id), disputeId: fromPlayer ? Number(b.dataset.dispute) : undefined,
-          reason: form.querySelector('[data-f="reason"]').value, image,
-        });
-        toast(r.credited ? 'Пока открывали спор, деньги пришли: зачислено' : 'Апелляция открыта, решение придёт от шлюза');
-        haptic('success');
-        loadAdminDeposits();
-      } catch (err) { toast(err.message); }
-    }));
-  }));
-  list.querySelectorAll('[data-dep-decline]').forEach((b) => b.addEventListener('click', () => {
-    const form = b.closest('.payout-row').querySelector('[data-dep-form]');
-    form.hidden = false;
-    form.innerHTML = `
-      <label class="dep-label">Ответ игроку: почему отказано</label>
-      <textarea class="seed-input" rows="2" data-f="note" placeholder="Например: перевод ушёл на реквизиты другого платежа"></textarea>
-      <div class="admin-actions"><button class="btn btn-outline" data-f="send">Отказать</button></div>`;
-    form.querySelector('[data-f="send"]').addEventListener('click', (e) => withCashBusy(e.currentTarget, async () => {
-      try {
-        await api('/api/admin/dispute/decline', { id: Number(b.dataset.depDecline), note: form.querySelector('[data-f="note"]').value });
-        toast('Игрок увидит ответ в кассе');
-        loadAdminDeposits();
-      } catch (err) { toast(err.message); }
-    }));
-  }));
+async function renderAdminGate() {
+  try { const ui = await loadAdminUI(); if (state.view === 'admin') return await ui.renderAdminGate(); }
+  catch { toast('Не удалось загрузить панель. Нажмите «Обновить».'); }
 }
-
-/* ---------- Панель: риск ---------- */
-
-async function loadAdminRisk() {
-  const box = document.getElementById('admin-risk');
-  box.innerHTML = '<div class="empty">Проверяем...</div>';
-
-  let d;
-  try { d = await api('/api/admin/risk'); }
-  catch (err) { box.innerHTML = `<div class="empty">${esc(err.message)}</div>`; return; }
-
-  const openLink = (id, label) =>
-    `<button class="bo-userlink" data-open-user="${id}">${esc(label)}</button>`;
-
-  const signals = [
-    {
-      title: 'Один номер СБП на нескольких аккаунтах',
-      hint: 'Самый прямой признак мультиаккаунта: деньги сходятся в один кошелёк.',
-      head: ['Номер', { label: 'Аккаунтов', num: 1 }, { label: 'Сумма заявок', num: 1 }, 'Кто'],
-      rows: d.sharedPhone.map((r) => `<tr>
-        <td>${esc(r.phone)}</td><td class="num">${r.accounts}</td>
-        <td class="num">${fmt(r.amount)}</td>
-        <td>${String(r.users).split(',').map((id) => openLink(id, '#' + id)).join(' ')}</td></tr>`),
-    },
-    {
-      title: 'Один криптокошелёк на нескольких аккаунтах',
-      head: ['Адрес', { label: 'Аккаунтов', num: 1 }, { label: 'Сумма заявок', num: 1 }, 'Кто'],
-      rows: d.sharedWallet.map((r) => `<tr>
-        <td class="bo-mono">${esc(String(r.address).slice(0, 18))}…</td>
-        <td class="num">${r.accounts}</td><td class="num">${fmt(r.amount)}</td>
-        <td>${String(r.users).split(',').map((id) => openLink(id, '#' + id)).join(' ')}</td></tr>`),
-    },
-    {
-      title: 'Заявка на вывод при почти нулевом обороте',
-      hint: 'Так выглядит и вымывание бонусов, и прогон чужих денег через площадку.',
-      head: ['Игрок', { label: 'Заявка', num: 1 }, { label: 'Поставил всего', num: 1 },
-             { label: 'Раундов', num: 1 }, 'Статус'],
-      rows: d.quickCashout.map((r) => `<tr>
-        <td>${openLink(r.user_id, r.username ? '@' + r.username : (r.first_name || '#' + r.user_id))}</td>
-        <td class="num">${fmt(r.amount)}</td><td class="num">${fmt(r.total_spent)}</td>
-        <td class="num">${fmt(r.total_rounds)}</td><td>${esc(r.status)}</td></tr>`),
-    },
-    {
-      title: 'Отдача игрока сильно выше заявленной',
-      hint: 'Само по себе это везение. Ровно так же выглядит и найденная дыра, поэтому смотреть стоит.',
-      head: ['Игрок', { label: 'Поставил', num: 1 }, { label: 'Выиграл', num: 1 },
-             { label: 'Его отдача', num: 1 }, { label: 'Баланс', num: 1 }],
-      rows: d.hotPlayers.map((r) => `<tr>
-        <td>${openLink(r.id, r.username ? '@' + r.username : (r.first_name || '#' + r.id))}</td>
-        <td class="num">${fmt(r.total_spent)}</td><td class="num">${fmt(r.total_won)}</td>
-        <td class="num plus">${((r.total_won / r.total_spent) * 100).toFixed(0)}%</td>
-        <td class="num">${fmt(r.balance)}</td></tr>`),
-    },
-    {
-      title: 'Свежие аккаунты с бонусом и без единой ставки',
-      head: ['Игрок', { label: 'Промокодов', num: 1 }, { label: 'Баланс', num: 1 }, 'Заведён'],
-      rows: d.bonusOnly.map((r) => `<tr>
-        <td>${openLink(r.id, r.username ? '@' + r.username : (r.first_name || '#' + r.id))}</td>
-        <td class="num">${r.redemptions}</td><td class="num">${fmt(r.balance)}</td>
-        <td>${boDateTime(r.created_at)}</td></tr>`),
-    },
-  ];
-
-  const total = signals.reduce((a, s) => a + s.rows.length, 0);
-
-  box.innerHTML = `
-    <p class="game-sub">Сигнал это повод посмотреть, а не повод заблокировать.
-      Ни один из них ничего не делает сам.</p>
-    ${boKpis([{ label: 'Сигналов', value: fmt(total),
-                cls: total ? 'minus' : 'plus',
-                sub: total ? 'есть что проверить' : 'чисто' }])}
-    ${signals.map((s) => `
-      <h2 class="section-title">${esc(s.title)}</h2>
-      ${s.hint ? `<p class="game-sub">${esc(s.hint)}</p>` : ''}
-      ${boTable(s.head, s.rows, 'Чисто')}`).join('')}
-  `;
-
-  box.querySelectorAll('[data-open-user]').forEach((b) => {
-    b.onclick = () => openAdminUser(Number(b.dataset.openUser));
-  });
-}
-
-/* ---------- Панель: настройки площадки ---------- */
-
-async function loadAdminSettings() {
-  const box = document.getElementById('admin-settings');
-  box.innerHTML = '<div class="empty">Загружаем...</div>';
-
-  let d;
-  try { d = await api('/api/admin/settings'); }
-  catch (err) { box.innerHTML = `<div class="empty">${esc(err.message)}</div>`; return; }
-
-  const groups = [];
-  for (const row of d.rows) {
-    let g = groups.find((x) => x.name === row.group);
-    if (!g) groups.push(g = { name: row.group, items: [] });
-    g.items.push(row);
-  }
-
-  box.innerHTML = `
-    <p class="game-sub">Меняется на лету, без выката. Каждая правка попадает
-      в журнал вместе с тем, что было до неё.</p>
-    ${groups.map((g) => `
-      <h2 class="section-title">${esc(g.name)}</h2>
-      <div class="bo-settings">
-        ${g.items.map((row) => row.type === 'bool' ? `
-          <label class="bo-toggle">
-            <input type="checkbox" data-setting="${row.key}" ${row.value === '1' ? 'checked' : ''}>
-            <span><b>${esc(row.label)}</b>${row.hint ? `<i>${esc(row.hint)}</i>` : ''}</span>
-          </label>` : `
-          <label class="bo-field">
-            <b>${esc(row.label)}</b>
-            ${row.hint ? `<i>${esc(row.hint)}</i>` : ''}
-            <input class="seed-input" type="number" inputmode="numeric"
-                   data-setting="${row.key}" value="${esc(row.value)}">
-          </label>`).join('')}
-      </div>`).join('')}
-    <button class="btn btn-primary btn-wide" id="saveSettings">Сохранить</button>
-  `;
-
-  box.querySelector('#saveSettings').onclick = async () => {
-    const patch = {};
-    box.querySelectorAll('[data-setting]').forEach((el) => {
-      patch[el.dataset.setting] = el.type === 'checkbox' ? el.checked : el.value;
-    });
-    try {
-      await api('/api/admin/settings/save', { patch });
-      toast('Сохранено');
-      haptic('success');
-      loadAdminSettings();
-    } catch (err) { toast(err.message); haptic('error'); }
-  };
-}
-
-/* ---------- Панель: сотрудники ---------- */
-
-async function loadAdminStaff() {
-  const box = document.getElementById('admin-staff');
-  box.innerHTML = '<div class="empty">Загружаем...</div>';
-
-  let d;
-  try { d = await api('/api/admin/staff'); }
-  catch (err) { box.innerHTML = `<div class="empty">${esc(err.message)}</div>`; return; }
-
-  state.admin.staff = d;
-  const roleName = (id) => d.roles.find((r) => r.id === id)?.name || id;
-
-  const rows = d.rows.map((r) => {
-    const name = r.username ? '@' + r.username : (r.first_name || 'Без имени');
-    return `<tr class="${r.active ? '' : 'bo-off'}">
-      <td>${esc(name)}<div class="bo-sub">${esc(playerIdent(r, r.user_id))}</div></td>
-      <td>${esc(roleName(r.role))}${r.added_by === null ? '<div class="bo-sub">из настроек сервера</div>' : ''}</td>
-      <td class="num">${fmt(r.actions || 0)}</td>
-      <td>${r.last_action ? boDateTime(r.last_action) : 'не заходил'}</td>
-      <td>${r.active ? '<span class="bo-ok">работает</span>' : '<span class="bo-no">выключен</span>'}</td>
-      <td class="bo-rowact">
-        <button class="btn btn-sm" data-staff-edit="${r.user_id}">Править</button>
-        ${r.user_id === d.meId ? '' : `<button class="btn btn-sm btn-outline" data-staff-del="${r.user_id}">Убрать</button>`}
-      </td>
-    </tr>`;
-  });
-
-  box.innerHTML = `
-    <p class="game-sub">Роль это заготовка набора прав. Поправки сверху дают
-      «поддержка, но ещё и промокоды» без новой роли.</p>
-
-    ${boTable(['Сотрудник', 'Роль', { label: 'Действий', num: 1 }, 'Последнее', 'Статус', ''], rows,
-              'Пока только вы')}
-
-    <h2 class="section-title">Роли</h2>
-    <div class="bo-roles">
-      ${d.roles.map((r) => `<div class="bo-role ${d.assignable.includes(r.id) ? '' : 'bo-off'}">
-        <b>${esc(r.name)}</b>
-        <p>${esc(r.description)}</p>
-        <span>${r.permissions.length} прав${r.balanceCap ? ` · правка баланса до ${fmt(r.balanceCap)}` : ''}</span>
-        ${d.assignable.includes(r.id) ? '' : '<span class="bo-no">вам недоступна</span>'}
-      </div>`).join('')}
-    </div>
-
-    <h2 class="section-title">Добавить или изменить</h2>
-    <div id="staffForm"></div>
-  `;
-
-  renderStaffForm(null);
-
-  box.querySelectorAll('[data-staff-edit]').forEach((b) => {
-    b.onclick = () => {
-      const row = d.rows.find((r) => r.user_id === Number(b.dataset.staffEdit));
-      renderStaffForm(row);
-      document.getElementById('staffForm').scrollIntoView({ behavior: 'smooth', block: 'center' });
-    };
-  });
-  box.querySelectorAll('[data-staff-del]').forEach((b) => {
-    b.onclick = async () => {
-      if (!confirm('Убрать сотрудника из панели?')) return;
-      try {
-        await api('/api/admin/staff/remove', { userId: Number(b.dataset.staffDel) });
-        toast('Убран');
-        loadAdminStaff();
-      } catch (err) { toast(err.message); }
-    };
-  });
-}
-
-function renderStaffForm(row) {
-  const d = state.admin.staff;
-  const box = document.getElementById('staffForm');
-  const parse = (raw) => { try { return JSON.parse(raw || '[]'); } catch { return []; } };
-  const extra = new Set(row ? parse(row.extra_perms) : []);
-  const denied = new Set(row ? parse(row.denied_perms) : []);
-  const role = row?.role || d.assignable[d.assignable.length - 1] || d.roles[0].id;
-
-  const byGroup = d.groups.map((g) => ({
-    ...g, items: d.permissions.filter((p) => p.group === g.id),
-  }));
-
-  box.innerHTML = `
-    <div class="bo-settings">
-      <label class="bo-field">
-        <b>Кто</b>
-        <i>Почта, Telegram ID, ник или внутренний номер. Человек должен сначала зарегистрироваться на сайте.</i>
-        <input class="seed-input" id="staffKey" value="${row ? esc(row.email || row.tg_id || row.user_id) : ''}"
-               ${row ? 'readonly' : ''} placeholder="почта, 123456789 или @nickname">
-      </label>
-      <label class="bo-field">
-        <b>Роль</b>
-        <select class="seed-input" id="staffRole">
-          ${d.roles.filter((r) => d.assignable.includes(r.id)).map((r) =>
-            `<option value="${r.id}" ${r.id === role ? 'selected' : ''}>${esc(r.name)}</option>`).join('')}
-        </select>
-      </label>
-      <label class="bo-field">
-        <b>Потолок одной правки баланса</b>
-        <i>Пусто - как у роли. Ноль - без потолка.</i>
-        <input class="seed-input" id="staffCap" type="number" inputmode="numeric"
-               value="${row && row.balance_cap !== null ? row.balance_cap : ''}">
-      </label>
-      <label class="bo-field">
-        <b>Заметка</b>
-        <input class="seed-input" id="staffNote" maxlength="300" value="${row ? esc(row.note || '') : ''}">
-      </label>
-      <label class="bo-toggle">
-        <input type="checkbox" id="staffActive" ${!row || row.active ? 'checked' : ''}>
-        <span><b>Доступ включён</b><i>Выключенный сотрудник остаётся в списке, но в панель не входит</i></span>
-      </label>
-    </div>
-
-    <h3 class="bo-subtitle">Поправки к роли</h3>
-    <p class="game-sub">Слева выдать сверх роли, справа отобрать. Выдать можно
-      только то, что есть у вас самих.</p>
-    <div class="bo-perms">
-      ${byGroup.map((g) => `
-        <div class="bo-perm-group">
-          <div class="bo-group-name">${esc(g.name)}</div>
-          ${g.items.map((p) => `
-            <div class="bo-perm ${d.grantable.includes(p.id) ? '' : 'bo-off'}">
-              <span><b>${esc(p.label)}</b>${p.hint ? `<i>${esc(p.hint)}</i>` : ''}</span>
-              <label title="Выдать сверх роли">
-                <input type="checkbox" data-extra="${p.id}" ${extra.has(p.id) ? 'checked' : ''}
-                       ${d.grantable.includes(p.id) ? '' : 'disabled'}>+
-              </label>
-              <label title="Отобрать у роли">
-                <input type="checkbox" data-denied="${p.id}" ${denied.has(p.id) ? 'checked' : ''}>&minus;
-              </label>
-            </div>`).join('')}
-        </div>`).join('')}
-    </div>
-
-    <div class="admin-actions">
-      <button class="btn btn-primary" id="staffSave">${row ? 'Сохранить' : 'Добавить'}</button>
-      ${row ? '<button class="btn btn-outline" id="staffCancel">Отмена</button>' : ''}
-    </div>
-  `;
-
-  box.querySelector('#staffSave').onclick = async () => {
-    const payload = {
-      userKey: box.querySelector('#staffKey').value.trim(),
-      role: box.querySelector('#staffRole').value,
-      balanceCap: box.querySelector('#staffCap').value === ''
-        ? null : Number(box.querySelector('#staffCap').value),
-      note: box.querySelector('#staffNote').value,
-      active: box.querySelector('#staffActive').checked,
-      extra: [...box.querySelectorAll('[data-extra]:checked')].map((i) => i.dataset.extra),
-      denied: [...box.querySelectorAll('[data-denied]:checked')].map((i) => i.dataset.denied),
-    };
-    if (!payload.userKey) { toast('Укажите, кого добавляем'); return; }
-    try {
-      await api('/api/admin/staff/save', payload);
-      toast('Сохранено');
-      haptic('success');
-      loadAdminStaff();
-    } catch (err) { toast(err.message); haptic('error'); }
-  };
-  box.querySelector('#staffCancel')?.addEventListener('click', () => renderStaffForm(null));
-}
-
-/* ---------- Панель: журнал ---------- */
-
-const BO_ACTIONS = {
-  credit: 'Начисление', debit: 'Списание', block: 'Блокировка',
-  unblock: 'Разблокировка', voucher: 'Выдан кейс', payout_paid: 'Вывод выплачен',
-  payout_rejected: 'Вывод отклонён', payout_processing: 'Вывод в работе',
-  partner_payout: 'Выплата партнёру', promo_save: 'Промокод сохранён',
-  promo_delete: 'Промокод удалён', partner_save: 'Партнёр сохранён',
-  staff_add: 'Сотрудник добавлен', staff_update: 'Права изменены',
-  staff_remove: 'Сотрудник убран', settings: 'Настройки', limits: 'Лимиты',
-  note_add: 'Заметка', note_delete: 'Заметка удалена', export: 'Выгрузка',
-};
-
-async function loadAdminJournal() {
-  const box = document.getElementById('admin-journal');
-  box.innerHTML = '<div class="empty">Загружаем...</div>';
-
-  let d;
-  try { d = await api('/api/admin/journal', { action: state.admin.journalAction || '' }); }
-  catch (err) { box.innerHTML = `<div class="empty">${esc(err.message)}</div>`; return; }
-
-  const rows = d.rows.map((l) => {
-    const who = l.admin_username ? '@' + l.admin_username : (l.admin_name || '#' + l.admin_id);
-    const target = l.target_id
-      ? (l.target_username ? '@' + l.target_username : (l.target_name || '#' + l.target_id))
-      : '';
-    let meta = '';
-    if (l.meta) {
-      try {
-        meta = Object.entries(JSON.parse(l.meta))
-          .map(([k, v]) => `${k}: ${typeof v === 'object' && v && 'before' in v
-            ? `${v.before} → ${v.after}` : JSON.stringify(v)}`)
-          .join(', ');
-      } catch { meta = ''; }
-    }
-    return `<tr>
-      <td>${boDateTime(l.created_at)}</td>
-      <td>${esc(who)}</td>
-      <td>${esc(BO_ACTIONS[l.action] || l.action)}</td>
-      <td>${esc(target)}</td>
-      <td class="num ${l.amount > 0 ? 'plus' : l.amount < 0 ? 'minus' : ''}">${l.amount ? fmt(l.amount) : ''}</td>
-      <td class="bo-sub">${esc(l.note || '')}${meta ? `<br>${esc(meta)}` : ''}</td>
-    </tr>`;
-  });
-
-  box.innerHTML = `
-    <p class="game-sub">Всё, что сотрудники делают руками. Записи не правятся
-      и не удаляются.</p>
-    <div class="admin-tabs">
-      <button class="tab ${state.admin.journalAction ? '' : 'active'}" data-journal="">Все</button>
-      ${d.actions.slice(0, 10).map((a) => `<button class="tab
-        ${state.admin.journalAction === a.action ? 'active' : ''}"
-        data-journal="${esc(a.action)}">${esc(BO_ACTIONS[a.action] || a.action)} · ${a.n}</button>`).join('')}
-    </div>
-    ${boTable(['Когда', 'Кто', 'Что', 'Кому', { label: 'Сумма', num: 1 }, 'Подробности'], rows,
-              'Пока ничего')}
-    <p class="game-sub">Показано ${d.rows.length} из ${fmt(d.total)}.</p>
-  `;
-
-  box.querySelectorAll('[data-journal]').forEach((b) => {
-    b.onclick = () => { state.admin.journalAction = b.dataset.journal; loadAdminJournal(); };
-  });
-}
-
-/* ---------- Админка: воронка ---------- */
-
-/*
- * Воронка по когорте: игроки, зарегистрированные за период, и то, докуда
- * каждый дошёл. Считает сервер, здесь только рисование.
- *
- * Показываем обе доли сразу - от когорты и от предыдущего шага. От когорты
- * видно, сколько людей теряется вообще; от предыдущего - на каком именно шаге
- * они уходят. По одной доле из двух вывод получается неверный.
- */
-async function loadAdminFunnel() {
-  const box = document.getElementById('funnelBody');
-  box.innerHTML = '<div class="empty">Считаем...</div>';
-
-  let d;
-  try { d = await api('/api/admin/funnel', { days: state.admin.funnelDays || 7 }); }
-  catch (err) { box.innerHTML = `<div class="empty">${esc(err.message)}</div>`; return; }
-
-  const f = d.funnel;
-  if (!f.cohort) {
-    box.innerHTML = '<div class="empty">За этот период новых игроков не было</div>';
-    return;
-  }
-
-  const steps = f.steps.map((s, i) => {
-    const width = Math.max(1, Math.round(s.ofCohort * 100));
-    const lost = i > 0 ? f.steps[i - 1].users - s.users : 0;
-    return `<div class="funnel-step">
-      <div class="funnel-bar" style="width:${width}%"></div>
-      <div class="funnel-head">
-        <span class="funnel-title">${esc(s.title)}</span>
-        <span class="funnel-users">${fmt(s.users)}</span>
-      </div>
-      <div class="funnel-sub">
-        ${pct(s.ofCohort)} от всех${i > 0 ? ` · ${pct(s.ofPrev)} от предыдущего` : ''}
-        ${lost > 0 ? `<span class="funnel-drop"> · потеряно ${fmt(lost)}</span>` : ''}
-      </div>
-    </div>`;
-  }).join('');
-
-  const events = d.events.map((e) => `<tr>
-      <td>${esc(e.name)}</td>
-      <td class="num">${fmt(e.total)}</td>
-      <td class="num">${fmt(e.users)}</td>
-    </tr>`).join('');
-
-  box.innerHTML = `
-    <div class="admin-kpis">
-      <div class="kpi"><div class="kpi-label">Новых игроков</div>
-        <div class="kpi-value">${fmt(f.cohort)}</div></div>
-      <div class="kpi"><div class="kpi-label">Пополнений</div>
-        <div class="kpi-value">${fmt(f.deposits)}</div></div>
-      <div class="kpi"><div class="kpi-label">Внесено</div>
-        <div class="kpi-value">${fmt(f.deposited)}</div></div>
-      <div class="kpi"><div class="kpi-label">На игрока</div>
-        <div class="kpi-value">${fmt(Math.round(f.arpu))}</div>
-        <div class="kpi-sub">внесено / новых игроков</div></div>
-    </div>
-
-    <h2 class="section-title">Шаги</h2>
-    ${steps}
-
-    <h2 class="section-title">Все события за период</h2>
-    <table class="admin-table">
-      <thead><tr><th>Событие</th><th class="num">Всего</th><th class="num">Игроков</th></tr></thead>
-      <tbody>${events || '<tr><td colspan="3">Пока пусто</td></tr>'}</tbody>
-    </table>
-  `;
-}
-
-document.querySelectorAll('[data-funnel-days]').forEach((btn) => {
-  btn.addEventListener('click', () => {
-    state.admin.funnelDays = Number(btn.dataset.funnelDays);
-    document.querySelectorAll('[data-funnel-days]').forEach((b) => b.classList.remove('active'));
-    btn.classList.add('active');
-    loadAdminFunnel();
-  });
+document.getElementById('boRefresh')?.addEventListener('click', () => {
+  const current = state.admin.tab;
+  state.admin.tab = current;
+  initAdminPanel();
 });
 
-/* ---------- Админка: промокоды ---------- */
-
-/** Дата в формате поля input[type=date] и обратно в миллисекунды. */
-const dateValue = (ms) => (ms ? new Date(ms).toISOString().slice(0, 10) : '');
-const dateMs = (v, endOfDay) =>
-  (v ? new Date(v + (endOfDay ? 'T23:59:59' : 'T00:00:00')).getTime() : null);
-
-async function loadAdminPromos() {
-  let d;
-  try { d = await api('/api/admin/promos'); }
-  catch (err) { toast(err.message); return; }
-
-  let partners = [];
-  try { partners = (await api('/api/admin/partners')).rows; } catch { /* необязательно */ }
-
-  const box = document.getElementById('admin-promos');
-
-  box.innerHTML = `
-    <div class="admin-form">
-      <div class="form-grid">
-        <div class="wide">
-          <label>Код</label>
-          <input class="seed-input" id="pmCode" placeholder="WELCOME" maxlength="32">
-        </div>
-        <div class="wide">
-          <label>Тип</label>
-          <select class="seed-input" id="pmType">
-            <option value="balance">Начисление на баланс</option>
-            <option value="deposit_pct">Процент к пополнению</option>
-            <option value="free_case">Бесплатный кейс</option>
-          </select>
-        </div>
-
-        <div data-when="balance"><label>Сумма</label>
-          <input class="seed-input" id="pmAmount" type="number" min="0" value="500"></div>
-
-        <div data-when="deposit_pct"><label>Процент</label>
-          <input class="seed-input" id="pmPct" type="number" min="0" max="500" value="100"></div>
-        <div data-when="deposit_pct"><label>Потолок бонуса</label>
-          <input class="seed-input" id="pmMaxBonus" type="number" min="0" value="0"></div>
-        <div data-when="deposit_pct"><label>Мин. пополнение</label>
-          <input class="seed-input" id="pmMinDep" type="number" min="0" value="0"></div>
-
-        <div data-when="free_case"><label>Кейс</label>
-          <select class="seed-input" id="pmCase">
-            ${d.cases.map((c) => `<option value="${c.id}">${esc(c.name)} · ${fmt(c.price)}</option>`).join('')}
-          </select></div>
-        <div data-when="free_case"><label>Сколько штук</label>
-          <input class="seed-input" id="pmCaseCount" type="number" min="1" value="1"></div>
-
-        <div><label>Отыгрыш, ×</label>
-          <input class="seed-input" id="pmWager" type="number" min="0" step="0.5" value="3"></div>
-        <div><label>Всего активаций</label>
-          <input class="seed-input" id="pmMaxUses" type="number" min="0" value="0"></div>
-        <div><label>На игрока</label>
-          <input class="seed-input" id="pmPerUser" type="number" min="0" value="1"></div>
-        <div><label>Партнёр</label>
-          <select class="seed-input" id="pmPartner">
-            <option value="">нет</option>
-            ${partners.map((p) => `<option value="${p.partner.id}">${
-              esc(p.partner.name || p.partner.email || p.partner.tg_id)}</option>`).join('')}
-          </select></div>
-        <div><label>Действует с</label>
-          <input class="seed-input" id="pmFrom" type="date"></div>
-        <div><label>Действует по</label>
-          <input class="seed-input" id="pmTo" type="date"></div>
-        <div class="wide">
-          <label class="check">
-            <input type="checkbox" id="pmNewOnly"> только игрокам без пополнений
-          </label>
-        </div>
-        <div class="wide"><label>Заметка</label>
-          <input class="seed-input" id="pmNote" maxlength="200"></div>
-      </div>
-      <button class="btn btn-primary btn-wide" id="pmSave">Сохранить промокод</button>
-      <div class="kpi-sub" style="margin-top:8px">
-        Ноль в лимитах означает «без ограничения». Отыгрыш ноль - бонус можно
-        выводить сразу, так что для щедрых кодов его лучше не оставлять пустым.
-      </div>
-    </div>
-
-    <h2 class="section-title">Промокоды</h2>
-    ${d.rows.length ? d.rows.map(promoRowHtml).join('') : '<div class="empty">Пока пусто</div>'}
-  `;
-
-  // Показываем только поля, относящиеся к выбранному типу: иначе форма просит
-  // заполнить то, что для этого типа не значит ничего.
-  const syncType = () => {
-    const t = document.getElementById('pmType').value;
-    box.querySelectorAll('[data-when]').forEach((el) => {
-      el.style.display = el.dataset.when === t ? '' : 'none';
-    });
-  };
-  document.getElementById('pmType').addEventListener('change', syncType);
-  syncType();
-
-  document.getElementById('pmSave').addEventListener('click', savePromo);
-
-  box.querySelectorAll('[data-promo-edit]').forEach((btn) => {
-    btn.addEventListener('click', () => fillPromoForm(
-      d.rows.find((r) => r.id === Number(btn.dataset.promoEdit))));
-  });
-  box.querySelectorAll('[data-promo-del]').forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      try {
-        const r = await api('/api/admin/promo/delete', { id: Number(btn.dataset.promoDel) });
-        toast(r.disabled ? 'Код отключён (по нему были активации)' : 'Код удалён');
-        loadAdminPromos();
-      } catch (err) { toast(err.message); }
-    });
-  });
-}
-
-function promoRowHtml(p) {
-  const bits = [];
-  if (p.type === 'balance') bits.push(`+${fmt(p.amount)} на баланс`);
-  if (p.type === 'deposit_pct') {
-    bits.push(`+${p.pct}% к пополнению`);
-    if (p.min_deposit) bits.push(`от ${fmt(p.min_deposit)}`);
-    if (p.max_bonus) bits.push(`макс ${fmt(p.max_bonus)}`);
-  }
-  if (p.type === 'free_case') bits.push(`кейс ${esc(p.case_id)} ×${p.case_count}`);
-  if (p.wager_multiplier) bits.push(`отыгрыш ×${p.wager_multiplier}`);
-  bits.push(`активаций ${p.used_count}${p.max_uses ? ' из ' + p.max_uses : ''}`);
-  if (p.per_user_limit) bits.push(`на игрока ${p.per_user_limit}`);
-  if (p.new_players_only) bits.push('только новым');
-  if (p.expires_at) bits.push(`до ${new Date(p.expires_at).toLocaleDateString('ru-RU')}`);
-  if (p.partner_name || p.partner_tg) bits.push(`партнёр: ${esc(p.partner_name || p.partner_tg)}`);
-
-  return `<div class="promo-row ${p.is_active ? '' : 'off'}">
-    <div>
-      <div class="promo-code">${esc(p.code)}</div>
-      <div class="promo-meta">${bits.join(' · ')}</div>
-    </div>
-    <div class="promo-actions">
-      <button class="btn btn-outline btn-sm" data-promo-edit="${p.id}">Изм.</button>
-      <button class="btn btn-outline btn-sm" data-promo-del="${p.id}">×</button>
-    </div>
-  </div>`;
-}
-
-function fillPromoForm(p) {
-  if (!p) return;
-  const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
-  set('pmCode', p.code);
-  set('pmType', p.type);
-  set('pmAmount', p.amount);
-  set('pmPct', p.pct);
-  set('pmMaxBonus', p.max_bonus);
-  set('pmMinDep', p.min_deposit);
-  if (p.case_id) set('pmCase', p.case_id);
-  set('pmCaseCount', p.case_count);
-  set('pmWager', p.wager_multiplier);
-  set('pmMaxUses', p.max_uses);
-  set('pmPerUser', p.per_user_limit);
-  set('pmPartner', p.partner_id || '');
-  set('pmFrom', dateValue(p.starts_at));
-  set('pmTo', dateValue(p.expires_at));
-  set('pmNote', p.note || '');
-  document.getElementById('pmNewOnly').checked = !!p.new_players_only;
-  document.getElementById('pmType').dispatchEvent(new Event('change'));
-  document.getElementById('admin-promos').scrollIntoView({ behavior: 'smooth' });
-}
-
-async function savePromo() {
-  const val = (id) => document.getElementById(id)?.value;
-  try {
-    const r = await api('/api/admin/promo/save', {
-      code: val('pmCode'),
-      type: val('pmType'),
-      amount: val('pmAmount'),
-      pct: val('pmPct'),
-      max_bonus: val('pmMaxBonus'),
-      min_deposit: val('pmMinDep'),
-      case_id: val('pmCase'),
-      case_count: val('pmCaseCount'),
-      wager_multiplier: val('pmWager'),
-      max_uses: val('pmMaxUses'),
-      per_user_limit: val('pmPerUser'),
-      partner_id: val('pmPartner') || null,
-      starts_at: dateMs(val('pmFrom'), false),
-      expires_at: dateMs(val('pmTo'), true),
-      new_players_only: document.getElementById('pmNewOnly').checked,
-      note: val('pmNote'),
-    });
-    toast(r.created ? `Промокод ${r.code} создан` : `Промокод ${r.code} обновлён`);
-    haptic('success');
-    loadAdminPromos();
-  } catch (err) { toast(err.message); haptic('error'); }
-}
-
-/* ---------- Админка: партнёры ---------- */
-
-async function loadAdminPartners() {
-  let d;
-  try { d = await api('/api/admin/partners'); }
-  catch (err) { toast(err.message); return; }
-
-  const box = document.getElementById('admin-partners');
-  // Управление программой - в кабинете /partners: доли, сетка, заявки на
-  // вывод и сверка со шлюзом. Здесь список для взгляда и заведение партнёра
-  // из существующего игрока.
-  box.innerHTML = `
-    <a class="btn btn-primary btn-wide" href="/partners/" target="_blank" rel="noopener">Открыть кабинет партнёров</a>
-    <div class="admin-form" style="margin-top:14px">
-      <div class="form-grid">
-        <div><label>Игрок</label>
-          <input class="seed-input" id="ptTg" placeholder="почта, Telegram ID или номер"></div>
-        <div><label>Доля, %</label>
-          <input class="seed-input" id="ptShare" type="number" min="0" max="90" value="50"></div>
-        <div class="wide"><label>Имя</label>
-          <input class="seed-input" id="ptName" maxlength="80"></div>
-      </div>
-      <button class="btn btn-outline btn-wide" id="ptSave">Сделать партнёром</button>
-    </div>
-
-    <h2 class="section-title">Партнёры</h2>
-    ${d.rows.length ? d.rows.map((r) => `<div class="promo-row ${r.status === 'active' ? '' : 'off'}">
-        <div>
-          <div class="promo-code">${esc(r.name || 'Партнёр')}</div>
-          <div class="promo-meta">#${r.id} · ${esc(r.email || '')} · доля ${r.share}% · игроков ${fmt(r.total.signups)}</div>
-        </div>
-        <div style="text-align:right">
-          <div class="promo-code">${money(r.balance.available)}</div>
-          <div class="promo-meta">к выводу</div>
-        </div>
-      </div>`).join('') : '<div class="empty">Пока пусто</div>'}
-  `;
-
-  document.getElementById('ptSave').addEventListener('click', async () => {
-    try {
-      await api('/api/admin/partner/save', {
-        userKey: document.getElementById('ptTg').value,
-        share_pct: document.getElementById('ptShare').value,
-        name: document.getElementById('ptName').value,
-      });
-      toast('Партнёр сохранён');
-      haptic('success');
-      loadAdminPartners();
-    } catch (err) { toast(err.message); haptic('error'); }
-  });
-}
-
-/* ---------- Админка: заявки на вывод ---------- */
-
-/*
- * Шлюз Sicilia в заявках: баланс мерчанта сверху и кнопка выплаты у заявок
- * на карту и по СБП. Банк подставляется по названию из заявки, но выбирает и
- * подтверждает его человек: ошибка в банке при СБП - деньги не тому.
- */
-const SICILIA_STATUS = {
-  opened: 'отправлено, ждёт обработки', in_progress: 'в обработке у шлюза', completed: 'выплачено',
-  cancelled: 'отменено шлюзом', error: 'ошибка', unclaimed: 'отозвано',
-};
-async function siciliaAdminInfo() {
-  const cached = state.admin.sicilia;
-  if (cached && Date.now() - cached.at < 5 * 60_000) return cached;
-  try {
-    state.admin.sicilia = { at: Date.now(), ...(await api('/api/admin/sicilia')) };
-  } catch {
-    state.admin.sicilia = { at: Date.now(), configured: false, banks: [] };
-  }
-  return state.admin.sicilia;
-}
-
-function siciliaPayoutBlock(p, gateway, info) {
-  const g = gateway[p.id];
-  const line = g ? `<div class="payout-comment">Sicilia: ${esc(SICILIA_STATUS[g.status] || g.status)}${g.error ? ` - ${esc(g.error)}` : ''}${
-    g.checkUrl ? ` · <a href="${esc(g.checkUrl)}" target="_blank" rel="noopener">чек</a>` : ''}</div>
-    <div class="dep-ids">${idChip('Наш номер', g.invid)}${g.gatewayId ? idChip('Номер Sicilia', g.gatewayId) : ''}</div>` : '';
-  const dead = g && ['cancelled', 'error', 'unclaimed'].includes(g.status);
-  // Отзыв - пока ордер не закрыт шлюзом; возврат в «ожидают» - когда шлюз
-  // выплату отменил, а заявка ещё «в работе».
-  const manage = info.configured && g && p.status === 'processing' ? `<div class="admin-actions">
-    ${['opened', 'in_progress'].includes(g.status) ? `<button class="btn btn-outline btn-sm" data-sic-recall="${p.id}">Отозвать из Sicilia</button>` : ''}
-    ${dead ? `<button class="btn btn-outline btn-sm" data-sic-release="${p.id}">Вернуть в ожидание</button>` : ''}
-  </div>` : '';
-  const canSend = info.configured && (p.method === 'sbp' || p.method === 'card')
-    && (p.status === 'pending' || p.status === 'processing')
-    && (!g || dead);
-  if (!canSend) return line + manage;
-  const options = info.banks.map((b) => `<option value="${esc(b.code)}"${b.code === p.gatewayBank ? ' selected' : ''}>${esc(b.name)}</option>`).join('');
-  return `${line}${manage}<div class="admin-actions sicilia-send">
-    <select class="seed-input" data-sic-bank="${p.id}"><option value="">Банк получателя…</option>${options}</select>
-    <button class="btn btn-outline" data-sic-pay="${p.id}" data-amount="${p.amount}">Выплатить через Sicilia</button>
-  </div>`;
-}
-
-/*
- * Плашка проверки заявки на вывод. Зелёная - всё сошлось, красная - есть
- * подозрения, с причинами. Красную нельзя двинуть к выплате, пока сотрудник
- * не разобрал причины и не подтвердил заявку комментарием: подозрение не
- * должно уйти деньгами одним нажатием «взять в работу».
- */
-function riskPlate(p) {
-  const c = p.check;
-  if (!c) return '';
-  const green = c.verdict === 'green';
-  const why = green ? 'Математика сходится, источники денег подтверждены'
-    : esc((c.reasons || []).join(' · '));
-  const ok = c.override
-    ? `<div class="risk-override">Подтверждено сотрудником: «${esc(c.override.comment)}»</div>` : '';
-  return `<div class="risk-plate ${green ? 'risk-green' : 'risk-red'}">
-      <span class="risk-dot" aria-hidden="true"></span>
-      <div class="risk-text"><b>${green ? 'Проверено системой' : 'Есть подозрения'}</b><small>${why}</small></div>
-      <button class="risk-more" data-risk-open="${p.id}" type="button">Подробнее</button>
-    </div>
-    ${ok}
-    <div class="risk-details" data-risk-details="${p.id}" hidden></div>`;
-}
-
-/** Полный разбор проверки: каждый пункт с подробностями. */
-function riskDetailsHtml(c) {
-  const s = c.summary || {};
-  const rows = c.checks.map((x) => `<li class="${x.ok ? 'ok' : x.level === 'info' ? 'info' : 'bad'}">
-      <span>${x.ok ? '✓' : x.level === 'info' ? 'i' : '✗'}</span>
-      <div><b>${esc(x.title)}</b><small>${esc(x.detail || '')}</small></div></li>`).join('');
-  return `<ul class="risk-list">${rows}</ul>
-    <div class="risk-summary">Пополнил ${money(s.deposited || 0)} · выплачено ${money(s.paidOut || 0)} ·
-      итог игр ${money(s.gamesNet || 0)} · раундов ${fmt(s.rounds || 0)} · лучший выигрыш ${money(s.bestWin || 0)} ·
-      аккаунту ${fmt(s.accountAgeDays || 0)} дн. · проверено ${new Date(c.checkedAt).toLocaleString('ru-RU')}</div>
-    <button class="btn btn-outline btn-sm" data-risk-recheck="${c.payoutId || ''}" type="button">Перепроверить</button>`;
-}
-
-async function loadAdminPayouts() {
-  let d;
-  try { d = await api('/api/admin/payouts', { status: state.admin.payoutStatus || 'pending' }); }
-  catch (err) { toast(err.message); return; }
-  const sic = d.siciliaReady ? await siciliaAdminInfo() : { configured: false, banks: [] };
-
-  const box = document.getElementById('payoutAdminList');
-  const s = d.stats;
-
-  const head = `<div class="admin-kpis">
-    <div class="kpi"><div class="kpi-label">Ожидают решения</div>
-      <div class="kpi-value">${fmt(s.pendingCount)}</div>
-      <div class="kpi-sub">на ${money(s.pendingSum)}</div></div>
-    <div class="kpi"><div class="kpi-label">Выплачено всего</div>
-      <div class="kpi-value minus">${money(s.paidSum)}</div></div>
-    <div class="kpi"><div class="kpi-label">В работе</div>
-      <div class="kpi-value">${fmt(s.processingCount)}</div>
-      <div class="kpi-sub">на ${money(s.processingSum)}</div></div>
-    ${sic.configured ? `<div class="kpi"><div class="kpi-label">Баланс Sicilia</div>
-      <div class="kpi-value">${sic.balance ? money(Math.floor(sic.balance.balance)) : '-'}</div>
-      <div class="kpi-sub">${sic.balance ? `заморожено ${money(Math.floor(sic.balance.frozen_balance || 0))}` : esc(sic.balanceError || '')}</div></div>` : ''}
-  </div>`;
-
-  if (!d.rows.length) {
-    box.innerHTML = head + '<div class="empty">Заявок нет</div>' + exportBarHtml();
-    bindExportBar(box);
-    return;
-  }
-
-  box.innerHTML = head + d.rows.map((p) => {
-    const name = p.username ? '@' + p.username : (p.first_name || ('#' + p.user_id));
-    return `<div class="payout-row admin ${p.status}">
-      <div class="payout-head">
-        <b>${money(p.amount)}${p.requested_amount ? ` <small class="dep-fact">из ${money(p.requested_amount)}</small>` : ''}</b>
-        <span class="payout-status ${p.status}">${STATUS_LABEL[p.status] || p.status}</span>
-      </div>
-      <div class="payout-date">${esc(name)} · ${esc(playerIdent(p, p.user_id))} ·
-        баланс ${money(p.balance)} · ${new Date(p.created_at).toLocaleString('ru-RU')}</div>
-      <div class="payout-requisites">${payoutRequisites(p, { full: true })}</div>
-      ${riskPlate(p)}
-      ${p.comment ? `<div class="payout-comment">${esc(p.comment)}</div>` : ''}
-      ${p.check && p.check.verdict === 'red' && !p.check.override && ['pending', 'processing'].includes(p.status) ? `
-        <textarea class="seed-input risk-note" data-risk-note="${p.id}" rows="2"
-          placeholder="Почему заявку можно выплатить: что проверено вручную"></textarea>
-        <div class="admin-actions">
-          <button class="btn btn-primary" data-risk-ok="${p.id}">Подтвердить заявку</button>
-          <button class="btn btn-outline" data-resolve="rejected" data-id="${p.id}">Отклонить</button>
-        </div>
-        <input class="seed-input payout-note" data-note="${p.id}" placeholder="комментарий игроку (при отклонении)">` : `
-      ${siciliaPayoutBlock(p, d.gateway || {}, sic)}
-      ${p.status === 'pending' ? `
-        <input class="seed-input payout-note" data-note="${p.id}" placeholder="комментарий игроку">
-        <div class="admin-actions">
-          <button class="btn btn-primary" data-resolve="processing" data-id="${p.id}">Взять в работу</button>
-          <button class="btn btn-outline" data-resolve="rejected" data-id="${p.id}">Отклонить</button>
-        </div>` : p.status === 'processing' ? `
-        <input class="seed-input payout-note" data-note="${p.id}" placeholder="комментарий игроку">
-        <div class="admin-actions">
-          <button class="btn btn-primary" data-resolve="paid" data-id="${p.id}">Выполнено</button>
-        </div>` : ''}`}
-    </div>`;
-  }).join('');
-
-  box.insertAdjacentHTML('beforeend', exportBarHtml());
-  bindExportBar(box);
-  bindIdChips(box);
-
-  const openDetails = async (id, recheck = false) => {
-    const panel = box.querySelector(`[data-risk-details="${id}"]`);
-    if (!panel) return;
-    panel.hidden = false;
-    panel.innerHTML = '<span class="skel skel-line"></span>';
-    try {
-      const { check } = await api('/api/admin/payout/check', { id, recheck });
-      panel.innerHTML = riskDetailsHtml({ ...check, payoutId: id });
-      panel.querySelector('[data-risk-recheck]')?.addEventListener('click', async () => {
-        await openDetails(id, true);
-        loadAdminPayouts();
-      });
-    } catch (err) { panel.innerHTML = `<div class="empty">${esc(err.message)}</div>`; }
-  };
-  box.querySelectorAll('[data-risk-open]').forEach((btn) => btn.addEventListener('click', () => {
-    const id = Number(btn.dataset.riskOpen);
-    const panel = box.querySelector(`[data-risk-details="${id}"]`);
-    if (panel && !panel.hidden) { panel.hidden = true; return; }
-    openDetails(id);
-  }));
-
-  box.querySelectorAll('[data-risk-ok]').forEach((btn) => btn.addEventListener('click', async () => {
-    const id = Number(btn.dataset.riskOk);
-    const comment = box.querySelector(`[data-risk-note="${id}"]`)?.value || '';
-    try {
-      await api('/api/admin/payout/override', { id, comment });
-      toast('Заявка подтверждена, решение записано в журнал');
-      haptic('success');
-      loadAdminPayouts();
-    } catch (err) { toast(err.message); haptic('error'); }
-  }));
-
-  // Выплата через шлюз - вторым нажатием: первое показывает, сколько и куда.
-  const sicAction = (attr, path, ok) => box.querySelectorAll(`[${attr}]`).forEach((btn) => btn.addEventListener('click', () =>
-    withCashBusy(btn, async () => {
-      try {
-        const r = await api(path, { id: Number(btn.getAttribute(attr)) });
-        toast(ok(r));
-        haptic('success');
-      } catch (err) { toast(err.message); haptic('error'); }
-      loadAdminPayouts();
-    })));
-  sicAction('data-sic-recall', '/api/admin/sicilia/payout/recall',
-    (r) => (r.payoutStatus === 'pending' ? 'Выплата отозвана, заявка снова ждёт решения' : 'Запрос на отзыв отправлен'));
-  sicAction('data-sic-release', '/api/admin/sicilia/payout/release', () => 'Заявка снова ждёт решения');
-
-  box.querySelectorAll('[data-sic-pay]').forEach((btn) => {
-    // Сменили банк после первого нажатия - подтверждение снимается: уйти
-    // выплата должна ровно в тот банк, что был показан на кнопке.
-    box.querySelector(`[data-sic-bank="${btn.dataset.sicPay}"]`)?.addEventListener('change', () => {
-      btn.dataset.armed = '';
-      btn.textContent = 'Выплатить через Sicilia';
-      btn.classList.replace('btn-primary', 'btn-outline');
-    });
-    btn.addEventListener('click', async () => {
-      const id = Number(btn.dataset.sicPay);
-      const select = box.querySelector(`[data-sic-bank="${id}"]`);
-      const bank = select?.value || '';
-      if (!bank) { toast('Выберите банк получателя'); return; }
-      if (btn.dataset.armed !== '1') {
-        btn.dataset.armed = '1';
-        btn.textContent = `Подтвердить: ${money(Number(btn.dataset.amount))} · ${select.selectedOptions[0].textContent}`;
-        btn.classList.replace('btn-outline', 'btn-primary');
-        return;
-      }
-      btn.disabled = true;
-      try {
-        await api('/api/admin/sicilia/payout', { id, bank });
-        toast('Выплата отправлена в Sicilia');
-        haptic('success');
-      } catch (err) { toast(err.message); haptic('error'); }
-      loadAdminPayouts();
-    });
-  });
-
-  box.querySelectorAll('[data-resolve]').forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      const id = Number(btn.dataset.id);
-      const note = box.querySelector(`[data-note="${id}"]`)?.value || '';
-      const status = btn.dataset.resolve;
-
-      if (status === 'rejected' && !note.trim()) {
-        toast('Укажите причину отклонения - игрок её увидит');
-        return;
-      }
-
-      // Второе нажатие, пока идёт первое, не шлёт второй запрос.
-      await withCashBusy(btn, async () => {
-        try {
-          await api('/api/admin/payout/resolve', { id, status, comment: note });
-          toast(status === 'paid' ? 'Заявка выполнена' : status === 'processing' ? 'Заявка поставлена в работу' : 'Заявка отклонена, средства возвращены');
-          haptic('success');
-          loadAdminPayouts();
-        } catch (err) { toast(err.message); haptic('error'); }
-      });
-    });
-  });
-}
-
-document.querySelectorAll('[data-payout-status]').forEach((btn) => {
-  btn.addEventListener('click', () => {
-    state.admin.payoutStatus = btn.dataset.payoutStatus;
-    document.querySelectorAll('[data-payout-status]').forEach((b) => b.classList.remove('active'));
-    btn.classList.add('active');
-    loadAdminPayouts();
-  });
-});
-
-document.getElementById('adminSearchBtn').addEventListener('click', () => {
-  state.admin.query = document.getElementById('adminSearch').value.trim();
-  loadAdminUsers();
-});
 
 /*
  * Казино тоже отдельным файлом: лобби на пять тысяч игр, окно запуска и
  * экран игры к остальному app.js отношения не имеют.
  */
-const casino = createCasino({
+const casinoOptions = {
+  onActivity: setCasinoActivity,
   api, esc, money, toast, haptic, state, plural,
   onAuth: () => openAuth(authDefaultPane()),
   onUser: (user) => applyUser(user),
   // Наши Краш и Апгрейд в сетке быстрых игр открываются своими разделами.
-  openOwn: (view) => switchView(view),
+  openOwn: (view) => {
+    ownGameReturnPosition = capturePagePosition();
+    switchView(view, { fromCasino: true });
+  },
   ownOpen: (view) => viewOpen(view),
-});
+};
 
 /*
  * Слот живёт отдельным файлом: у него своя анимация лент, своя панель и
  * свои окна, и держать всё это в app.js значило бы добавить туда полторы
  * тысячи строк, никак не связанных с остальным.
  */
-const slot = createSlot({
+const slotOptions = {
   api, esc, fmt, money, toast, haptic, state,
   sounds: {
     bet: sndBet, tick: sndTick, land: sndLand,
@@ -6293,13 +4652,61 @@ const slot = createSlot({
   onUser: (user) => applyUser(user),
   onNoFunds: (need) => needMoney(need),
   onCashier: () => openCashier(),
-});
+};
+
+let casinoInstance, casinoRequest, casinoAttempts = 0;
+async function loadCasinoUI() {
+  if (casinoInstance) return casinoInstance;
+  if (!casinoRequest) {
+    const attempt = casinoAttempts++;
+    const retrySource = '/casino.js?retry=' + attempt;
+    const request = typeof createCasino === 'function' ? Promise.resolve({createCasino})
+      : attempt === 0 ? import('./casino.js') : import(retrySource);
+    casinoRequest = request.then(({createCasino}) => casinoInstance = createCasino(casinoOptions))
+      .catch(err => {casinoRequest = null; throw err;});
+  }
+  return casinoRequest;
+}
+const casino = {
+  async open() { try { const ui = await loadCasinoUI(); if (state.view === 'casino') return await ui.open(); } catch { toast('Не удалось загрузить казино. Откройте раздел ещё раз.'); } },
+  close() { casinoInstance?.close(); },
+  resumeCovers() { casinoInstance?.resumeCovers(); },
+  async focusBlock(id) { try { const ui = await loadCasinoUI(); if (state.view === 'casino') return await ui.focusBlock(id); } catch { toast('Не удалось загрузить казино. Откройте раздел ещё раз.'); } },
+};
+let slotInstance, slotRequest, slotAttempts = 0;
+async function loadSlotsUI() {
+  if (slotInstance) return slotInstance;
+  if (!slotRequest) {
+    const attempt = slotAttempts++;
+    const retrySource = '/slots.js?retry=' + attempt;
+    const request = typeof createSlot === 'function' ? Promise.resolve({createSlot})
+      : attempt === 0 ? import('./slots.js') : import(retrySource);
+    slotRequest = request.then(({createSlot}) => slotInstance = createSlot(slotOptions))
+      .catch(err => {slotRequest = null; throw err;});
+  }
+  return slotRequest;
+}
+const slot = {
+  async openShelf() { try {const ui = await loadSlotsUI(); if (state.view === 'slots') return await ui.openShelf();} catch {toast('Не удалось загрузить слоты. Откройте раздел ещё раз.');} },
+  close() { slotInstance?.close(); },
+};
 
 /* ============================================================
    КАССА
    ============================================================ */
 
-function switchView(name) {
+let ownGameReturnPosition = null;
+for (const btn of document.querySelectorAll('[data-own-game-back]')) {
+  btn.addEventListener('click', () => {
+    const position = ownGameReturnPosition;
+    switchView('casino');
+    restorePagePosition(position);
+    // Casino.open() may render again when its cached data promise resolves.
+    requestAnimationFrame(() => restorePagePosition(position));
+  });
+}
+
+function switchView(name, { fromCasino = false } = {}) {
   if (name === 'wallet' && state.guest) {
     state.afterAuthView = 'wallet';
     openAuth(authDefaultPane());
@@ -6314,6 +4721,11 @@ function switchView(name) {
     toast('Раздел временно недоступен');
     return;
   }
+  if (!fromCasino) ownGameReturnPosition = null;
+  document.querySelectorAll('[data-own-game-back]').forEach((btn) => {
+    btn.hidden = !ownGameReturnPosition || !['crash', 'upgrade'].includes(name);
+  });
+  cancelCaseLoad();
   // Открытый кейс лежит поверх разделов: без закрытия меню переключало бы
   // раздел под ним, и игрок видел бы всё тот же кейс. Серия авто
   // останавливается, как по «СТОП»: начатый прокрут уже посчитан сервером,
@@ -6334,6 +4746,8 @@ function switchView(name) {
 
   if (name === 'fair') renderFair();
   if (name === 'wallet') {
+    hydrateCashIcons(document.getElementById('view-wallet'));
+    loadSbpBanks();
     loadWallet();
     track('cashier_view');
     // «Пополнить» и «Вывести» - переключатель, а не две раскрывашки: одна
@@ -6341,14 +4755,15 @@ function switchView(name) {
     // приходят; на компьютере без него пустовала бы вся правая колонка.
     if (!document.getElementById('cashSwitch').dataset.mode) setCashMode('deposit');
   }
-  if (name === 'roulette') renderRouletteWheel();
+  if (name === 'roulette') { renderColorPicker(); renderRouletteWheel(); }
   if (name === 'crash') { if (!state.crash) resetCrashGraph(); crashFx().wake(); }
   if (name === 'slots') slot.openShelf();
   else slot.close();
   if (name === 'casino') casino.open();
   else casino.close();
   if (name === 'admin') initAdminPanel();
-  if (name === 'cases') loadFreeCase();
+  if (name === 'cases') { loadFreeCase(); pollFeed(); }
+  warmShelfCovers();
   if (name === 'freemoney') openFreeMoney();
   if (name === 'partner') loadPartner();
   if (name === 'upgrade') {
@@ -6414,6 +4829,7 @@ function renderMenu() {
     haptic('light');
     openSupport();
   });
+  return true;
 }
 
 /* ============================================================
@@ -6518,10 +4934,12 @@ function dailyPrizeHtml() {
   const p = dailyPrize();
   if (!p) return '';
   const color = tierColor(p.item.tier);
+  const art = itemArtReady([p.item]) ? tileArt(p.item, color)
+    : '<span class="skel" aria-hidden="true"></span>';
   return `<button class="side-prize" data-prize-case="${esc(p.c.id)}" style="--tier-color:${color}"
       data-material="${p.item.skin?.material || 'gold'}">
     <span class="side-prize-kicker">Главный приз дня</span>
-    <span class="side-prize-art">${tileArt(p.item, color)}</span>
+    <span class="side-prize-art">${art}</span>
     <span class="side-prize-name">${esc(p.item.name)}</span>
     <span class="side-prize-value">${money(p.item.value)}</span>
     <span class="side-prize-case">в кейсе «${esc(p.c.name)}»</span>
@@ -6536,7 +4954,7 @@ function navTilesHtml({ admin = false, supportId, prize = false }) {
   // Рисунок плитки - вырезка из присланного макета. У разделов, которых в
   // макете нет (партнёр, слоты), остаётся собственная иконка.
   const icon = (m) => (m.art
-    ? `<img class="side-art" src="${m.art}" alt="">`
+    ? `<img class="side-art" data-src="${m.art}" alt="">`
     : `<span class="side-ico" data-ico="${m.ico}"></span>`);
 
   const tile = (m, extra = '') => `<button class="side-item${extra}" ${m.view
@@ -6564,16 +4982,32 @@ function navTilesHtml({ admin = false, supportId, prize = false }) {
     </div>`;
 }
 
+function refreshSidePrizeArt() {
+  const card = document.querySelector('#sideNav [data-prize-case]');
+  const prize = dailyPrize();
+  if (!card || !prize || card.dataset.prizeCase !== prize.c.id || !itemArtReady([prize.item])) return;
+  const art = card.querySelector('.side-prize-art');
+  if (art.querySelector('.skel')) art.innerHTML = tileArt(prize.item, tierColor(prize.item.tier));
+}
+
+// В том числе после восстановления сети и успешной фоновой загрузки темы.
+document.addEventListener('lb:art-ready', refreshSidePrizeArt);
+
 function renderSideNav() {
   const nav = document.getElementById('sideNav');
   if (!nav) return;
+  const prize = dailyPrize();
+  if (prize && nav.getBoundingClientRect().width > 0 && !itemArtReady([prize.item])) {
+    // Навигация работает сразу; только рисунок приза ждёт свою тему.
+    preloadItemArt([prize.item]).then(refreshSidePrizeArt).catch(() => {});
+  }
   const key = JSON.stringify([!!state.user?.isAdmin, !!state.user?.isPartner, state.config?.open, new Date().toDateString()]);
   if (nav.dataset.navKey === key && nav.caseConfig === state.config && nav.firstElementChild) { markSideNav(); return; }
   nav.dataset.navKey = key;
   nav.caseConfig = state.config;
   nav.innerHTML = `
     <button class="side-brand" data-view="cases" aria-label="На главную">
-      <img src="/assets/ui/logo.webp" alt="LUCKYBOX" class="side-brand-logo">
+      <img data-src="/assets/ui/logo.webp" alt="LUCKYBOX" class="side-brand-logo">
     </button>
     ${navTilesHtml({ supportId: 'sideSupport', prize: true })}
   `;
@@ -6597,6 +5031,7 @@ function renderSideNav() {
 
   nav.querySelector('#sideSupport').addEventListener('click', openSupport);
   markSideNav();
+  return true;
 }
 
 /** Подсвечивает раздел, в котором игрок сейчас находится. */
@@ -6609,6 +5044,7 @@ function markSideNav(name = state.view) {
 function openMenu() {
   renderMenu();
   document.getElementById('menuBackdrop').hidden = false;
+  warmShelfCovers();
   haptic('light');
 }
 
@@ -6627,14 +5063,36 @@ document.getElementById('topDeposit').addEventListener('click', () => {
   openCashier();
 });
 
+const walletSheet = document.getElementById('walletSheet');
+document.getElementById('openerBalance').addEventListener('click', () => document.getElementById('balanceChip').click());
+function closeWalletSheet() {
+  walletSheet.hidden = true;
+  document.getElementById('balanceChip').setAttribute('aria-expanded', 'false');
+}
 document.getElementById('balanceChip').addEventListener('click', () => {
-  if (state.crash && !state.crash.finished) {
-    toast('Сначала закончите раунд краша');
-    return;
-  }
-  haptic('light');
-  switchView('wallet');
+  if (!walletSheet.hidden) { closeWalletSheet(); return; }
+  document.getElementById('walletRealAmount').textContent = money(state.user.balance);
+  document.getElementById('walletBonusAmount').textContent = money(state.user.bonusBalance || 0);
+  document.getElementById('walletWager').textContent = `Осталось отыграть: ${money(state.user.wagerRequired || 0)}`;
+  const pending = state.user.pendingReward || {};
+  document.getElementById('walletPending').hidden = !(pending.real || pending.bonus);
+  document.getElementById('walletPending').textContent = `Ожидает получения: ${money((pending.real || 0) + (pending.bonus || 0))}`;
+  walletSheet.querySelectorAll('[data-wallet]').forEach(b => b.classList.toggle('active', b.dataset.wallet === (state.user.activeWallet || 'real')));
+  walletSheet.hidden = false;
+  document.getElementById('balanceChip').setAttribute('aria-expanded', 'true');
 });
+walletSheet.querySelectorAll('[data-wallet]').forEach(btn => btn.addEventListener('click', async () => {
+  if (state.busy || state.crash && !state.crash.finished) { toast('Сначала завершите игру'); return; }
+  try { applyUser((await api('/api/wallet/select', { wallet: btn.dataset.wallet })).user); closeWalletSheet(); updateOpenerBalance(); }
+  catch (err) { toast(err.message); }
+}));
+document.getElementById('walletSheetCashier').onclick = () => { closeWalletSheet(); openCashier(); };
+document.getElementById('walletPending').onclick = async () => {
+  try { await collectReward(); closeWalletSheet(); } catch (err) { toast(err.message); }
+};
+document.addEventListener('click', e => { if (!e.target.closest('#walletSheet, #balanceChip, #openerBalance')) closeWalletSheet(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeWalletSheet(); });
+
 
 const STATUS_LABEL = {
   pending: 'Новая',
@@ -6752,7 +5210,6 @@ function hydrateCashIcons(root) {
     el.dataset.icoDone = '1';
   });
 }
-hydrateCashIcons(document.getElementById('view-wallet'));
 
 /** Высота карточки баланса для липкого переключателя под ней (см. styles.css). */
 (function watchCashHero() {
@@ -6766,9 +5223,13 @@ hydrateCashIcons(document.getElementById('view-wallet'));
 const cashReduceMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
 /** Дата в истории: «18 окт., 10:11». Год и секунды в кассе никто не читает. */
-const cashDate = (ts) => new Date(ts).toLocaleString('ru-RU', {
+const cashDateFormat = new Intl.DateTimeFormat('ru-RU', {
   day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
 });
+const cashDate = (ts) => {
+  const date = new Date(ts);
+  return Number.isNaN(date.getTime()) ? date.toLocaleString('ru-RU') : cashDateFormat.format(date);
+};
 
 /** Длительность докрутки баланса, мс. */
 const CASH_BALANCE_TWEEN_MS = 700;
@@ -6783,7 +5244,13 @@ function paintCashBalance(to) {
   const el = document.getElementById('walletBalance');
   // Копейки бывают (казино), поэтому в промежутке целые рубли, а в конце
   // ровно та сумма, что пришла с сервера.
-  const draw = (v) => { el.innerHTML = `${fmtMoney(v)}<span class="cash-cur">₽</span>`; };
+  const draw = (v) => {
+    const text = fmtMoney(v);
+    if (el.childNodes.length === 2 && el.firstChild.nodeType === 3
+        && el.lastElementChild?.classList.contains('cash-cur')) {
+      if (el.firstChild.nodeValue !== text) el.firstChild.nodeValue = text;
+    } else el.innerHTML = `${text}<span class="cash-cur">₽</span>`;
+  };
   const from = cashShownBalance;
   cashShownBalance = to;
   if (from === null || from === to || cashReduceMotion()) { draw(to); return; }
@@ -6886,7 +5353,7 @@ function renderDepositOffer() {
     </div>
     <details class="do-more">
       <summary>Как работает бонус</summary>
-      <p>Бонус приходит на бонусный счёт вместе с пополнением. Им играют, когда своих денег не хватает на ставку.
+      <p>Бонус приходит на бонусный счёт вместе с пополнением. Выберите бонусный счёт стрелкой рядом с балансом. Ставки списываются только с выбранного счёта.
       После ставок бонусом на ×${rules.wager} от его суммы он переходит в деньги${rules.cashoutPct ? `, но не больше ${rules.cashoutPct}% от ваших пополнений` : ''}.
       Свои деньги выводятся в любой момент.</p>
     </details>`;
@@ -6941,7 +5408,7 @@ async function loadWallet() {
     + (w.depositDebt > 0
       ? `<span class="withdraw-locked">Пополнение нужно прокрутить через ставки:
            осталось поставить ${money(w.depositDebt)}. После этого выводится
-           весь баланс, включая выигрыш.</span>`
+           весь основной баланс. Выигрыш FREE-кейса за пополнение и оборот уже включён в доступную сумму.</span>`
       : '');
 }
 
@@ -6964,15 +5431,14 @@ function renderWalletBonus(b) {
       <summary><span>Как перевести бонус в деньги<small>Условия и ваш текущий статус</small></span></summary>
       <ol class="cash-bonus-steps">
         <li><span class="cash-bonus-step" aria-hidden="true">1</span><div><b>Играйте бонусом</b>
-          <p>Кейсы, краш, рулетка и апгрейд используют бонус, когда своих денег не хватает на ставку.</p></div></li>
+          <p>Выберите бонусный счёт стрелкой рядом с балансом. Ставки и выигрыши будут только на этом счёте.</p></div></li>
         <li class="${wagerDone ? 'is-done' : ''}"><span class="cash-bonus-step" aria-hidden="true">${wagerDone ? '✓' : '2'}</span><div>
           <b>${wagerDone ? 'Отыгрыш завершён' : 'Завершите отыгрыш'}</b>
-          <p>${wagerDone ? 'Бонус отыгран. Перевод в деньги зависит от оставшегося лимита.'
+          <p>${wagerDone ? 'Бонус отыгран. Получите ожидающий выигрыш и завершите текущую игру для перевода.'
             : `Осталось поставить бонусом <strong>${money(b.wagerLeft)}</strong>.`}</p></div></li>
         <li><span class="cash-bonus-step" aria-hidden="true">3</span><div><b>Получайте деньги</b>
-          <p>Отыгранные бонусы переходят в деньги автоматически: до <strong>${b.rules.cashoutPct}%</strong> от суммы пополнений.</p>
-          <div class="cash-bonus-limit"><span>Лимит перевода сейчас</span><strong>${money(b.cashoutLeft)}</strong></div>
-          ${!(b.cashoutLeft > 0) ? '<p class="cash-bonus-note">Новое пополнение увеличит лимит перевода.</p>' : ''}
+          <p>После полного отыгрыша бонусный остаток автоматически переходит на основной счёт.</p>
+
         </div></li>
       </ol>
     </details>
@@ -8207,14 +6673,26 @@ document.getElementById('withdrawAll').addEventListener('click', () => {
   haptic('light');
 });
 
+let sbpBanksLoading = false;
 async function loadSbpBanks() {
+  if (sbpBanksLoading || document.querySelector('.bank-search')) return;
+  sbpBanksLoading = true;
   try {
     const data = await fetch('/sbp-banks.json').then(r => r.json());
     const select = document.getElementById('withdrawBank');
-    select.insertAdjacentHTML('beforeend', data.banks.map(name => `<option value="${esc(name)}">${esc(name)}</option>`).join(''));
-  } catch { /* Серверная валидация всё равно не даст создать заявку без банка. */ }
+    const search = document.createElement('input'); search.type = 'search'; search.className = 'seed-input bank-search';
+    search.placeholder = 'Найти банк'; search.setAttribute('aria-label', 'Поиск банка'); select.before(search);
+    const render = () => {
+      const selected = select.value;
+      const query = search.value.trim().toLocaleLowerCase('ru-RU').replace(/ё/g, 'е');
+      const names = data.banks.filter(name => name.toLocaleLowerCase('ru-RU').replace(/ё/g, 'е').includes(query) || name === selected);
+      select.innerHTML = '<option value="">Выберите банк</option>' + names.map(name => `<option value="${esc(name)}">${esc(name)}</option>`).join('');
+      select.value = selected;
+    };
+    search.addEventListener('input', render); render();
+  } catch { /* Retry on the next cashier visit; server still validates the bank. */ }
+  finally { sbpBanksLoading = false; }
 }
-loadSbpBanks();
 
 document.querySelectorAll('[data-withdraw-method]').forEach(btn => btn.addEventListener('click', async () => {
   state.withdrawMethod = btn.dataset.withdrawMethod;
@@ -8336,7 +6814,9 @@ const feedDrops = new Map();
 
 function feedCardHtml(drop) {
   const color = tierColor(drop.tier);
-  const art = tileArt(drop, color);
+  const art = !drop.photo && typeof feedArtKeys !== 'undefined' && feedArtKeys.has(drop.art)
+    ? `<img class="feed-vector" data-src="/assets/items/${drop.art}.svg" alt="" decoding="async" width="30" height="30">`
+    : tileArt(drop, color);
   // Ников в карточке нет: витрина показывает выигрыш, а не того, кто его снял.
   // Семейства и силуэта у плашки ленты нет, только материал рисунка. Лента
   // бежит мимо глаз полосой из десятка плашек, и скосы, билеты и
@@ -8352,15 +6832,41 @@ function feedCardHtml(drop) {
   </button>`;
 }
 
+// Decode offscreen so the entering card already contains its artwork.
+const preparedFeedCards = new WeakMap();
+function prepareFeedCard(drop) {
+  if (preparedFeedCards.has(drop)) return preparedFeedCards.get(drop);
+  const ready = (async () => {
+    const template = document.createElement('template');
+    template.innerHTML = feedCardHtml(drop);
+    const card = document.importNode(template.content.firstElementChild, true);
+    await Promise.all([...card.querySelectorAll('img')].map(async (img) => {
+      img.loading = 'eager';
+      loadNearbyImage(img);
+      try { await img.decode(); }
+      catch { img.replaceWith(document.createRange().createContextualFragment(iconTier(drop.tier, tierColor(drop.tier)))); }
+    }));
+    return card;
+  })();
+  preparedFeedCards.set(drop, ready);
+  return ready;
+}
+let feedInserting = false;
+
 /** Ставит одну карточку в начало ленты и убирает лишнее с хвоста. */
-function pushFeedCard(drop, animate = true) {
+async function pushFeedCard(drop, animate = true) {
   const track = document.getElementById('feedTrack');
   if (!track) return;
 
+  const card = await prepareFeedCard(drop);
+  const previous = animate ? [...track.children].filter(el => !el.classList.contains('skel')).map(el => [el, el.getBoundingClientRect().left]) : [];
   feedDrops.set(String(drop.id), drop);
   track.querySelectorAll('.skel').forEach((el) => el.remove());
-  track.insertAdjacentHTML('afterbegin', feedCardHtml(drop));
+  track.prepend(card);
   if (!animate) track.firstElementChild.classList.remove('is-new');
+  // FLIP keeps the same sliding effect on the compositor, without animating width/padding.
+  const moves = previous.map(([el, left]) => [el, left - el.getBoundingClientRect().left]);
+  for (const [el, dx] of moves) if (dx) el.animate([{transform:`translateX(${dx}px)`},{transform:'translateX(0)'}], {duration:550,easing:'cubic-bezier(.22,1,.36,1)'});
 
   while (track.children.length > FEED_MAX_CARDS) {
     const gone = track.lastElementChild;
@@ -8388,7 +6894,8 @@ const FEED_SCENE_OUT_MS = 180;
  * кейс-источник. Порядок важен: сначала предмет (на него нажали), потом
  * откуда он (ради этого открыли), и только потом подписи и кнопка.
  */
-function openFeedDrop(drop, fromEl = null) {
+async function openFeedDrop(drop, fromEl = null) {
+  try { await preloadItemArt([drop]); } catch { toast('Не удалось загрузить рисунок. Попробуйте ещё раз.'); return; }
   const c = state.config.cases.find((x) => x.id === drop.caseId);
   const scene = document.getElementById('feedBackdrop');
   const color = tierColor(drop.tier);
@@ -8414,6 +6921,11 @@ function openFeedDrop(drop, fromEl = null) {
 
   const cover = document.getElementById('feedSheetCover');
   cover.innerHTML = c ? caseCover(c) : '';
+  // Обложка сцены появляется после обхода полок: запускаем её загрузку сразу.
+  cover.querySelectorAll('img[data-src]').forEach(loadNearbyImage);
+  // До первого кадра нужна прозрачность декодированной картинки:
+  // тень незагруженного img повторяет прямоугольник его рамки.
+  await Promise.all([...cover.querySelectorAll('img')].map(img => img.decode().catch(() => {})));
   const [h1, h2] = c?.artGlow || [275, 300];
   scene.style.setProperty('--glow-a', `hsl(${h1} 95% 60%)`);
   scene.style.setProperty('--glow-b', `hsl(${h2} 90% 62%)`);
@@ -8494,12 +7006,13 @@ document.getElementById('feedTrack')?.addEventListener('click', (e) => {
 });
 
 async function pollFeed() {
-  if (document.hidden || state.feedPolling) return;
+  if (document.hidden || state.view !== 'cases' || state.feedPolling) return;
   state.feedPolling = true;
   let drops;
   try {
     const res = await fetch(`/api/feed?limit=${FEED_LIMIT}`);
     ({ drops } = await res.json());
+
   } catch {
     return; // Лента необязательна: молча ждём следующего опроса.
   } finally { state.feedPolling = false; }
@@ -8508,10 +7021,17 @@ async function pollFeed() {
   // Первый заход наполняет ленту сразу, без анимации: пустая полоса,
   // которая заполняется по одной карточке за две секунды, выглядит поломкой.
   if (feedSeen.size === 0) {
-    for (const d of drops.slice(0, FEED_MAX_CARDS).reverse()) {
+    const cards = [];
+    for (const d of drops.slice(0, FEED_MAX_CARDS)) {
       feedSeen.add(d.id);
-      pushFeedCard(d, false);
+      feedDrops.set(String(d.id), d);
+      cards.push(prepareFeedCard(d));
+      if (cards.length % 4 === 0) await new Promise(resolve => setTimeout(resolve, 0));
     }
+    const ready = await Promise.all(cards);
+    ready.forEach(card => card.classList.remove('is-new'));
+    document.getElementById('feedTrack').replaceChildren(...ready);
+    warmShelfCovers();
     for (const d of drops) feedSeen.add(d.id);
     return;
   }
@@ -8520,6 +7040,7 @@ async function pollFeed() {
   for (const d of [...drops].reverse()) {
     if (feedSeen.has(d.id)) continue;
     feedSeen.add(d.id);
+    prepareFeedCard(d);
     feedQueue.push(d);
   }
   // Пока лента стоит (открыт кейс), очередь растёт: держим только свежие,
@@ -8534,19 +7055,29 @@ async function pollFeed() {
 }
 
 function startFeed() {
-  pollFeed();
-  if (state.feedTimers) state.feedTimers.forEach(clearInterval);
-  state.feedTimers = [
-    setInterval(pollFeed, FEED_POLL_MS),
-    setInterval(() => {
-      // Пока открыт кейс, лента стоит: на телефоне она живёт под ним, и
-      // каждая новая плитка - раскладка и перерисовка посреди прокрута, из-за
-      // которых лента кейса подвисала на остановке. Очередь ждёт.
-      if (document.hidden || document.body.classList.contains('case-open')) return;
-      const next = feedQueue.shift();
-      if (next) pushFeedCard(next);
-    }, FEED_STEP_MS),
-  ];
+  watchBackground((paused) => {
+    if (state.feedTimers) state.feedTimers.forEach(clearInterval);
+    state.feedTimers = [];
+    if (paused) return;
+    pollFeed();
+    state.feedTimers = [
+      setInterval(pollFeed, FEED_POLL_MS),
+      setInterval(() => {
+        // Пока открыт кейс, лента стоит: на телефоне она живёт под ним, и
+        // каждая новая плитка - раскладка и перерисовка посреди прокрута, из-за
+        // которых лента кейса подвисала на остановке. Очередь ждёт.
+        if (document.hidden || state.view !== 'cases' || document.body.classList.contains('case-open')
+            || !document.getElementById('feed').getBoundingClientRect().width
+            || document.getElementById('feed').getBoundingClientRect().bottom < 0) return;
+        if (feedInserting) return;
+        const next = feedQueue.shift();
+        if (next) {
+          feedInserting = true;
+          pushFeedCard(next).finally(() => { feedInserting = false; });
+        }
+      }, FEED_STEP_MS),
+    ];
+  });
 }
 
 /* ============================================================
@@ -8852,7 +7383,7 @@ document.getElementById('upgradeBtn').addEventListener('click', async () => {
   state.upgradeAngle = current + UPG_TURNS * 360 + delta;
 
   // Ставка уходит с баланса сразу, итог приходит после остановки стрелки.
-  previewBalance(state.user.balance - stake);
+  previewBalance(spendableMoney() - stake);
   const stage = document.getElementById('upgStage');
   stage.className = 'upg-stage is-charging';
   sndBet();
@@ -9003,8 +7534,22 @@ function buildFooter() {
   });
 }
 
-function openDoc(key) {
-  const doc = DOCS[key];
+let legalDocsRequest, legalDocsAttempts = 0;
+async function openDoc(key) {
+  let docs;
+  try {
+    if (typeof DOCS !== 'undefined') docs = DOCS;
+    else {
+      if (!legalDocsRequest) {
+        const attempt = legalDocsAttempts++;
+        const retrySource = '/legal.js?retry=' + attempt;
+        const request = attempt === 0 ? import('./legal.js') : import(retrySource);
+        legalDocsRequest = request.then(m => m.DOCS).catch(err => {legalDocsRequest = null; throw err;});
+      }
+      docs = await legalDocsRequest;
+    }
+  } catch { toast('Не удалось загрузить документ. Попробуйте ещё раз.'); return; }
+  const doc = docs[key];
   if (!doc) return;
 
   document.getElementById('docTitle').textContent = doc.title;
@@ -9106,7 +7651,7 @@ function renderOnboarding() {
       const cap = rules.max > 0 ? ` до ${money(rules.max)}` : '';
       title = `Первое пополнение +${rules.pct}%${cap}`;
       text = `Бонус приходит сразу вместе с пополнением от ${money(rules.min)}. ` +
-        `Им играют, когда своих не хватает на ставку; после ставок бонусом на ×${rules.wager} от его суммы он переходит в деньги` +
+        `Выберите бонусный счёт стрелкой рядом с балансом; после ставок бонусом на ×${rules.wager} от его суммы он переходит в деньги` +
         (rules.cashoutPct ? `, но не больше ${rules.cashoutPct}% от ваших пополнений. ` : '. ') +
         'Если у вас есть промокод, введите его во Free Money.';
     } else {
@@ -9332,6 +7877,7 @@ async function onTelegramAuth(data, mode) {
 
 function renderAccount() {
   const u = state.user || {};
+  authEl('accId').textContent = `ID: ${u.id}`;
   authEl('accNick').textContent = u.firstName || u.username || '-';
   authEl('accEmail').textContent = u.email || 'не задана';
   authEl('accTelegram').textContent = u.telegram
@@ -9510,16 +8056,6 @@ function takeResetToken() {
   return token;
 }
 
-/** Текущий игрок или null, если не вошёл. Окно входа здесь не открывается. */
-async function loadMe() {
-  try {
-    return (await api('/api/me', null, { quiet: true })).user;
-  } catch (err) {
-    if (err.status === 401) return null;
-    throw err;
-  }
-}
-
 /* ============================================================
    НАВИГАЦИЯ И СТАРТ
    ============================================================ */
@@ -9595,23 +8131,59 @@ function takeReferralPromo() {
  * того, что игрок открывает прямо сейчас. С включённой экономией трафика
  * не подгружаем: там ленивая загрузка и есть то, чего человек хочет.
  */
-const COVER_WARM_DELAY_MS = 1500;
-const COVER_WARM_BATCH = 3;
-const COVER_WARM_STEP_MS = 350;
+// Load only nearby artwork. Native lazy loading alone can fetch several screens ahead.
+let nearbyImages;
+let visibleEffects;
+const nearbyImageTargets = new Set();
+const visibleEffectTargets = new Set();
 function warmShelfCovers() {
-  if (navigator.connection?.saveData) return;
-  const step = () => {
-    const rest = [...document.querySelectorAll('.cover-art[loading="lazy"]')];
-    rest.slice(0, COVER_WARM_BATCH).forEach((img) => { img.loading = 'eager'; });
-    if (rest.length > COVER_WARM_BATCH) setTimeout(step, COVER_WARM_STEP_MS);
-  };
-  setTimeout(step, COVER_WARM_DELAY_MS);
+  if (casinoActivity) return;
+  if (!('IntersectionObserver' in window)) {
+    document.querySelectorAll('img[data-src]').forEach(loadNearbyImage);
+    return;
+  }
+  nearbyImages ||= new IntersectionObserver((entries) => {
+    if (casinoActivity) return;
+    for (const entry of entries) if (entry.isIntersecting || !entry.target.isConnected) {
+      if (entry.target.isConnected) loadNearbyImage(entry.target);
+      nearbyImages.unobserve(entry.target);
+      nearbyImageTargets.delete(entry.target);
+    }
+  }, { rootMargin: '400px 0px' });
+  visibleEffects ||= new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      if (entry.target.isConnected) entry.target.classList.toggle('perf-away', !entry.isIntersecting);
+      else { visibleEffects.unobserve(entry.target); visibleEffectTargets.delete(entry.target); }
+    }
+  }, { rootMargin: '200px 0px' });
+  for (const img of nearbyImageTargets) if (!img.isConnected || !img.dataset.src) {
+    nearbyImages.unobserve(img); nearbyImageTargets.delete(img);
+  }
+  for (const el of visibleEffectTargets) if (!el.isConnected) {
+    visibleEffects.unobserve(el); visibleEffectTargets.delete(el);
+  }
+  document.querySelectorAll('img[data-src]:not(.hero-img)').forEach((img) => {
+    if (!nearbyImageTargets.has(img)) { nearbyImageTargets.add(img); nearbyImages.observe(img); }
+  });
+  document.querySelectorAll('.shelf, .featured, .hero').forEach((el) => {
+    if (!visibleEffectTargets.has(el)) { visibleEffectTargets.add(el); visibleEffects.observe(el); }
+  });
+}
+function loadNearbyImage(img) {
+  if (img.dataset.srcset) { img.srcset = img.dataset.srcset; delete img.dataset.srcset; }
+  if (img.dataset.src) { img.src = img.dataset.src; delete img.dataset.src; }
 }
 
 async function init() {
+  document.addEventListener('visibilitychange', () => {
+    document.documentElement.classList.toggle('perf-hidden', document.hidden);
+  });
   mountIcons();
+  await new Promise(resolve => setTimeout(resolve, 0));
   buildMoneyRain();
+  await new Promise(resolve => setTimeout(resolve, 0));
   buildFooter();
+  await new Promise(resolve => setTimeout(resolve, 0));
   // Баннеры лежат в разметке и от сервера не зависят: крутим их сразу, не
   // дожидаясь конфига. Иначе первые секунды на экране висит неподвижный кадр.
   runHeroSlider();
@@ -9622,10 +8194,7 @@ async function init() {
   wireAuth();
 
   try {
-    const [config, me] = await Promise.all([
-      fetch('/api/config').then((r) => r.json()),
-      loadMe(),
-    ]);
+    const [config, me] = await loadStartupData();
 
     state.config = config;
     state.guest = !me;
@@ -9633,10 +8202,15 @@ async function init() {
     state.user = user;
     document.getElementById('bootStatus')?.remove();
     renderAuthChrome();
-    renderColorPicker();
-    renderRouletteWheel();
-    applyUser(user);
-    renderFair();
+    // Paint between independent startup sections instead of one long blocking task.
+    renderBalance();
+    renderCases();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    renderMenu();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    renderSideNav();
+    warmShelfCovers();
+    await new Promise(resolve => setTimeout(resolve, 0));
 
     wireBetPanel('crashBet', 'data-crash-add', 'data-crash-bet');
     wireBetPanel('rouletteBet', 'data-roul-add', 'data-roul-bet');
@@ -9647,10 +8221,6 @@ async function init() {
     document.getElementById('upgStake').addEventListener('input', () => {
     if (!state.busy) renderUpgradeStage();
   });
-    renderUpgradeTicks();
-    renderUpgradePicker();
-    renderUpgradeStage();
-
     startFeed();
     warmShelfCovers();
     authUi.resetToken = takeResetToken();
@@ -9670,7 +8240,10 @@ async function init() {
     }
     // Гостю тоже: колесо он увидит с кодом, а вход спросят на SPIN.
     openWheelWithCode(takeWheelLink());
+    if (state.pendingView) { const view = state.pendingView; state.pendingView = null; switchView(view); }
+    window.dispatchEvent(new Event('lb:ready'));
   } catch (err) {
+    window.dispatchEvent(new Event('lb:boot-error'));
     document.getElementById('app').innerHTML =
       `<div class="empty">Не удалось загрузить приложение.<br>${esc(err.message)}</div>`;
   }
@@ -9855,17 +8428,21 @@ function fortuneWheelMarkup() {
 
 /** Колесо на сцене и его уменьшенная копия на витрине. */
 function renderFortuneArt() {
-  const wheel = document.getElementById('fortuneWheel');
-  if (wheel && !state.fortune.busy) wheel.innerHTML = fortuneWheelMarkup();
-  for (const id of ['fortuneMini', 'fortuneStepsWheel']) {
-    const el = document.getElementById(id);
-    if (el) el.innerHTML = fortuneWheelMarkup();
-  }
   const p = state.fortune.data?.prizes;
+  const key = JSON.stringify([fortuneWheelSpec(), p]);
+  for (const id of ['fortuneWheel', 'fortuneMini', 'fortuneStepsWheel']) {
+    const el = document.getElementById(id);
+    if (!el || (id === 'fortuneWheel' && state.fortune.busy)) continue;
+    if (el.fortuneArtKey === key && el.firstElementChild) continue;
+    el.innerHTML = fortuneWheelMarkup();
+    el.fortuneArtKey = key;
+  }
   const cash = document.getElementById('fortuneCashChip');
-  if (cash) cash.textContent = money(p?.cash || 2000);
+  const cashText = money(p?.cash || 2000);
+  if (cash && cash.textContent !== cashText) cash.textContent = cashText;
   const voucher = document.getElementById('fortuneVoucherChip');
-  if (voucher) voucher.textContent = `Ваучер до ${money(p?.voucherMax || 1500)}`;
+  const voucherText = `Ваучер до ${money(p?.voucherMax || 1500)}`;
+  if (voucher && voucher.textContent !== voucherText) voucher.textContent = voucherText;
 }
 
 async function loadFortune() {
@@ -10166,7 +8743,7 @@ function showFortuneWin(prize) {
   const note = {
     percent: `Придёт вместе со следующим пополнением от ${money(state.fortune.data.minDeposit)}.`,
     x2: 'Следующий денежный выигрыш в любом кейсе удвоится.',
-    case: 'Лежит в ваших подарках во Free Money, открывается бесплатно.',
+    case: 'Лежит в подарках во Free Money. Выигрыш поступит на бонусный счёт с обычным отыгрышем.',
     voucher: `На бонусном счёте. Отыграть: ${money(prize.amount * wager)} ставками.`,
     cash: `На бонусном счёте. Отыграть: ${money(prize.amount * wager)} ставками.`,
   }[prize.kind] || '';
@@ -10334,12 +8911,25 @@ window.addEventListener('scroll', () => {
  * вырез экрана), и между шапкой и вкладками оставалась щель, в которой
  * проезжал контент.
  */
-function syncTopbarHeight() {
+function syncTopbarHeight(height) {
   const bar = document.querySelector('.topbar');
-  if (bar) document.documentElement.style.setProperty('--topbar-h', `${bar.offsetHeight}px`);
+  if (!bar) return;
+  const value = `${typeof height === 'number' ? height : bar.offsetHeight}px`;
+  // Only these panels use the height. Do not invalidate inherited styles on the entire page.
+  for (const id of ['view-freemoney', 'walletSheet']) {
+    const node = document.getElementById(id);
+    if (node && node.style.getPropertyValue('--topbar-h') !== value) node.style.setProperty('--topbar-h', value);
+  }
 }
-window.addEventListener('resize', syncTopbarHeight);
-syncTopbarHeight();
+if (typeof ResizeObserver !== 'undefined') {
+  new ResizeObserver(entries => {
+    const entry = entries[0];
+    syncTopbarHeight(entry.borderBoxSize?.[0]?.blockSize || entry.target.offsetHeight);
+  }).observe(document.querySelector('.topbar'));
+} else {
+  window.addEventListener('resize', () => requestAnimationFrame(() => syncTopbarHeight()));
+  window.addEventListener('lb:ready', () => syncTopbarHeight(), {once:true});
+}
 
 /*
  * «Ваши подарки» свёрнуты кнопкой: список виден только по нажатию (решение
@@ -10747,7 +9337,7 @@ function showWheelWin(result, sec) {
         ${cover ? `<img class="sg-cover" src="${cover}" alt="">` : `<div class="pw-win-pct">+${result.pct}%</div>`}</div>
       <div class="sg-kicker">Колесо удачи</div>
       <h3 class="sg-title">${c ? `Кейс <b>«${esc(c.name)}»</b><br>в подарок` : `<b>+${result.pct}%</b> к пополнению`}</h3>
-      <p class="sg-sub">${c ? 'Он уже лежит в ваших подарках: откройте его, когда захотите.'
+      <p class="sg-sub">${c ? 'Кейс уже в подарках. Выигрыш поступит на бонусный счёт с обычным отыгрышем.'
         : `Сработает на следующем пополнении от ${money(result.minDeposit)}, бонус до ${money(result.maxBonus)}.`}</p>
       <button class="sg-cta">${c ? 'Открыть сейчас' : 'Пополнить'}</button>
       <button class="sg-later">Позже</button>
@@ -10844,10 +9434,28 @@ function wireFortune() {
     haptic('light');
     switchView('cases');
   });
-  document.getElementById('promoCasino')?.addEventListener('click', () => {
+  const casinoButton = document.getElementById('promoCasino');
+  let casinoTap = null;
+  let casinoTapAt = -Infinity;
+  const enterCasino = () => {
     haptic('light');
+    if (!state.config) { state.pendingView = 'casino'; return; }
     if (viewOpen('casino')) switchView('casino');
     else toast(CASINO_SOON);
+  };
+  // Pointerup не ждёт синтетического click Safari; прокрутка отменяет касание.
+  casinoButton?.addEventListener('pointerdown', e => {
+    if (e.isPrimary && e.button === 0) casinoTap = { id: e.pointerId, x: e.clientX, y: e.clientY };
+  });
+  casinoButton?.addEventListener('pointercancel', () => { casinoTap = null; });
+  casinoButton?.addEventListener('pointerup', e => {
+    const tap = casinoTap; casinoTap = null;
+    if (!tap || tap.id !== e.pointerId || Math.hypot(e.clientX - tap.x, e.clientY - tap.y) > 12) return;
+    casinoTapAt = e.timeStamp; enterCasino();
+  });
+  casinoButton?.addEventListener('click', e => {
+    if (e.detail && e.timeStamp - casinoTapAt < 700) return;
+    enterCasino();
   });
   document.getElementById('brandHome')?.addEventListener('click', () => {
     haptic('light');
@@ -10897,8 +9505,14 @@ function runHeroSlider(heroId = 'hero', dotsId = 'heroDots') {
     .join('');
   const dots = [...dotsBox.children];
 
-  const show = (next) => {
-    at = (next + slides.length) % slides.length;
+  let slideRequest = 0;
+  const show = async (next) => {
+    const request = ++slideRequest;
+    const selected = (next + slides.length) % slides.length;
+    loadNearbyImage(slides[selected]);
+    try { await slides[selected].decode(); } catch { return; }
+    if (request !== slideRequest || backgroundPaused()) return;
+    at = selected;
     slides.forEach((el, i) => el.classList.toggle('active', i === at));
     dots.forEach((el, i) => el.classList.toggle('on', i === at));
   };
@@ -10906,16 +9520,17 @@ function runHeroSlider(heroId = 'hero', dotsId = 'heroDots') {
   // Таймер одноразовый и заводится заново на каждом слайде: у слайдов
   // разная длительность, и setInterval с одним шагом её бы не учёл.
   const start = () => {
-    if (timer !== null) return;
+    if (timer !== null || backgroundPaused()) return;
     // Под открытым кейсом слайд не меняется: смена кадра - перерисовка
     // баннера под лентой, которую игрок в этот момент смотрит.
     timer = setTimeout(() => {
       timer = null;
-      if (!document.body.classList.contains('case-open')) show(at + 1);
+      if (!document.body.classList.contains('case-open') && hero.getBoundingClientRect().bottom > 0
+          && hero.getBoundingClientRect().top < innerHeight && hero.offsetWidth) show(at + 1);
       start();
     }, durationOf(slides[at]));
   };
-  const stop = () => { clearTimeout(timer); timer = null; };
+  const stop = () => { clearTimeout(timer); timer = null; ++slideRequest; };
 
   dots.forEach((dot, i) => {
     dot.addEventListener('click', () => {
@@ -10930,21 +9545,17 @@ function runHeroSlider(heroId = 'hero', dotsId = 'heroDots') {
 
   /* Баннер с data-go ведёт в раздел: джекпот на главной - в казино, в
      самом казино - к «Популярным». */
-  slides.forEach((el) => {
-    if (!el.dataset.go) return;
-    el.style.cursor = 'pointer';
-    el.addEventListener('click', () => {
-      haptic('light');
-      if (el.dataset.go === 'casino') { if (viewOpen('casino')) switchView('casino'); }
-      else casino.focusBlock(el.dataset.go);
-    });
+  hero.addEventListener('click', (e) => {
+    if (e.target.closest('.hero-dots, button')) return;
+    const slide = slides[at];
+    if (!slide?.dataset.go) return;
+    haptic('light');
+    if (slide.dataset.go === 'casino') switchView('casino');
+    else casino.focusBlock(slide.dataset.go);
   });
+  slides.forEach(el => { if (el.dataset.go) el.style.cursor = 'pointer'; });
 
-  document.addEventListener('visibilitychange', () => {
-    if (document.hidden) stop(); else start();
-  });
-
-  start();
+  watchBackground((paused) => { if (paused) stop(); else start(); });
 }
 
 /* ============================================================
@@ -10999,14 +9610,23 @@ function startFooterCounters() {
   };
   paint();
 
-  if (state.counterTimers) state.counterTimers.forEach(clearInterval);
-  state.counterTimers = [
-    setInterval(() => { cases += 1 + Math.floor(Math.random() * 2); paint(); }, 1000),
-    setInterval(() => { players += 1 + Math.floor(Math.random() * 2); paint(); }, 600_000),
-    setInterval(() => {
-      online = Math.max(ONLINE_MIN, Math.min(ONLINE_MAX,
-        online + Math.round((Math.random() - 0.5) * 24)));
-      paint();
-    }, 4000),
-  ];
+  watchBackground((paused) => {
+    if (state.counterTimers) state.counterTimers.forEach(clearInterval);
+    state.counterTimers = [];
+    if (paused) return;
+    state.counterTimers = [
+      setInterval(() => { cases += 1 + Math.floor(Math.random() * 2); paint(); }, 1000),
+      setInterval(() => { players += 1 + Math.floor(Math.random() * 2); paint(); }, 600_000),
+      setInterval(() => {
+        online = Math.max(ONLINE_MIN, Math.min(ONLINE_MAX,
+          online + Math.round((Math.random() - 0.5) * 24)));
+        paint();
+      }, 4000),
+    ];
+  });
 }
+
+// Safari может игнорировать maximum-scale; gesturestart отменяет только масштабирование.
+for (const type of ['gesturestart', 'gesturechange', 'gestureend'])
+  document.addEventListener(type, e => e.preventDefault(), { passive: false });
+document.addEventListener('touchmove', e => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });

@@ -73,6 +73,28 @@ function blip(freq, dur, type = 'sine', vol = 1, slide = 1) {
   osc.connect(gain).connect(master);
   osc.start(t);
   osc.stop(t + dur + 0.02);
+  osc.onended = () => { osc.disconnect(); gain.disconnect(); };
+}
+
+// Не переиспользуем звучащие буферы. Общий запас ограничен одним мегабайтом.
+const noiseBufferPool = new Map();
+let pooledNoiseFrames = 0;
+const NOISE_POOL_FRAMES = 262144;
+function takeNoiseBuffer(c, frames) {
+  const pool = noiseBufferPool.get(frames);
+  if (pool?.length) {
+    pooledNoiseFrames -= frames;
+    const buffer = pool.pop();
+    if (!pool.length) noiseBufferPool.delete(frames);
+    return buffer;
+  }
+  return c.createBuffer(1, frames, c.sampleRate);
+}
+function releaseNoiseBuffer(buffer) {
+  const frames = buffer.length;
+  const pool = noiseBufferPool.get(frames) || [];
+  if (pool.length >= 4 || pooledNoiseFrames + frames > NOISE_POOL_FRAMES) return;
+  pool.push(buffer); noiseBufferPool.set(frames, pool); pooledNoiseFrames += frames;
 }
 
 /** Шумовой всплеск - для щелчков и «воздуха». */
@@ -82,7 +104,7 @@ function noise(dur, vol = 0.3, freq = 1800, q = 1) {
   if (!c) return;
 
   const frames = Math.max(1, Math.floor(c.sampleRate * dur));
-  const buf = c.createBuffer(1, frames, c.sampleRate);
+  const buf = takeNoiseBuffer(c, frames);
   const data = buf.getChannelData(0);
   for (let i = 0; i < frames; i++) {
     data[i] = (Math.random() * 2 - 1) * (1 - i / frames);
@@ -100,6 +122,7 @@ function noise(dur, vol = 0.3, freq = 1800, q = 1) {
   gain.gain.value = vol;
 
   src.connect(filter).connect(gain).connect(master);
+  src.onended = () => { src.disconnect(); filter.disconnect(); gain.disconnect(); releaseNoiseBuffer(buf); };
   src.start();
 }
 

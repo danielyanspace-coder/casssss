@@ -15,8 +15,8 @@
     "test:cashier-ui": "node test/cashier-ui.mjs",
     "test:startup-ui": "node test/startup-ui.mjs",
     "test:x2": "node test/x2.mjs",
-    "test:casino": "node test/casino.mjs && node test/casino-home-cache.mjs",
-    "test": "npm run verify && npm run test:modules && npm run test:ratelimit && npm run test:x2 && npm run test:wager && npm run test:payout-check && npm run test:crypto && npm run test:sicilia && npm run test:auth && npm run test:ops && npm run test:analytics && npm run test:fortune && npm run test:slots && npm run test:casino && npm run test:api && npm run test:ui",
+    "test:casino": "node test/casino-demo.mjs && node test/casino-demo-ui.mjs && node test/casino.mjs && node test/casino-home-cache.mjs && node test/casino-navigation.mjs && node test/casino-lifecycle.mjs && node test/casino-catalog-requests.mjs",
+    "test": "npm run verify && npm run test:modules && npm run test:startup && npm run test:ratelimit && npm run test:x2 && npm run test:accounts && npm run test:wager && npm run test:payout-check && npm run test:crypto && npm run test:sicilia && npm run test:auth && npm run test:ops && npm run test:analytics && npm run test:fortune && npm run test:slots && npm run test:casino && npm run test:api && npm run test:ui",
     "test:ratelimit": "node test/ratelimit.mjs",
     "backup": "node deploy/backup.mjs",
     "test:crypto": "node test/crypto.mjs",
@@ -30,7 +30,7 @@
     "test:payout-check": "node test/payout-check.mjs",
     "test:analytics": "node test/analytics.mjs",
     "test:fortune": "node test/fortune.mjs",
-    "test:modules": "node --experimental-vm-modules test/modules.mjs",
+    "test:modules": "node --experimental-vm-modules test/modules.mjs && node test/client-technical.mjs",
     "test:slots": "node test/slots.mjs",
     "test:cards": "node test/cards.mjs",
     "test:art": "node test/art.mjs && node test/art-cache.mjs",
@@ -39,20 +39,35 @@
     "perf:audit": "node tools/perf-audit.mjs",
     "demo:motion": "node tools/motion-demo.mjs",
     "demo:fs-total": "node tools/series-total-demo.mjs",
-    "demo:admin": "DEMO_ADMIN=1 node build-standalone.mjs && cp dist/luckybox.html dist/luckybox-admin.html && node build-standalone.mjs"
+    "demo:admin": "DEMO_ADMIN=1 node build-standalone.mjs && cp dist/luckybox.html dist/luckybox-admin.html && node build-standalone.mjs",
+    "test:startup": "node --experimental-vm-modules test/startup.mjs",
+    "audit:startup": "node --experimental-vm-modules tools/startup-audit.mjs",
+    "measure:startup": "node tools/measure-startup.mjs",
+    "test:accounts": "node test/accounts-rewards.mjs && node test/case-exit.mjs",
+    "test:accounts-ui": "node test/accounts-ui.mjs",
+    "build:client": "node tools/build-feed-art.mjs && node tools/build-client.mjs",
+    "build:images": "node tools/responsive-images.mjs",
+    "test:case-catalog": "node test/case-catalog.mjs",
+    "test:lazy-ui": "node test/lazy-sections.mjs",
+    "test:catalog-ui": "node test/catalog-ui.mjs",
+    "test:client-technical": "node test/client-technical.mjs"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20.9.0"
   },
   "dependencies": {
     "better-sqlite3": "^11.3.0",
     "dotenv": "^16.4.5",
     "express": "^4.21.0",
     "grammy": "^1.30.0",
-    "nodemailer": "^6.10.1",
-    "sharp": "^0.33.5"
+    "nodemailer": "^10.3.1",
+    "sharp": "^0.35.5"
   },
   "devDependencies": {
-    "playwright": "^1.48.0"
+    "esbuild": "^0.28.2",
+    "playwright": "1.64.1"
+  },
+  "overrides": {
+    "qs": "^6.16.1"
   }
 }

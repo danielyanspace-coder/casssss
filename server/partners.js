@@ -190,7 +190,7 @@ function dailyByPartner({ pids = null, userWhere = '', params = {} } = {}) {
               SUM(CASE WHEN t.method = 'bet' AND t.free_round = 0 THEN t.amount_kop ELSE 0 END) AS stake,
               SUM(CASE WHEN t.method IN ('win', 'cashout') THEN t.amount_kop ELSE 0 END) AS win
          FROM casino_tx t JOIN users u ON u.id = t.user_id
-        WHERE t.rolled_back = 0 AND ${scope} GROUP BY pid, day`,
+        WHERE t.rolled_back = 0 AND t.wallet = 'real' AND ${scope} GROUP BY pid, day`,
   (d, r) => { d.casinoStakeKop += r.stake; d.casinoWinKop += r.win; });
   run(`SELECT u.partner_id AS pid, ${DAY_SQL('e.created_at')} AS day, SUM(e.amount) AS amount
          FROM bonus_events e JOIN users u ON u.id = e.user_id

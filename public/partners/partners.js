@@ -105,6 +105,7 @@ function tabsFor(me) {
   if (me.partner) t.push(['cabinet', 'Кабинет']);
   if (me.staff) {
     if (can('partners.view')) t.push(['overview', 'Обзор'], ['partners', 'Партнёры'], ['requests', 'Заявки']);
+    if (can('players.view')) t.push(['players', 'Игроки']);
     if (can('finance.reports')) t.push(['finance', 'Финансы']);
     if (can('promo.view')) t.push(['wheel', 'Колесо удачи']);
     if (can('settings.manage')) t.push(['settings', 'Настройки']);
@@ -137,6 +138,7 @@ function renderTab() {
     partners: renderPartners,
     requests: renderRequests,
     finance: renderFinance,
+    players: renderPlayers,
     wheel: renderWheel,
     settings: renderSettings,
   }[S.tab] || (() => {}))();
@@ -417,9 +419,10 @@ async function renderCabinet(adminView = null) {
 
       <section class="tile span-7">
         <h3>Игроки</h3>
+        ${adminView && can('players.view') ? '<input class="input" id="partnerPlayerQuery" placeholder="Найти игрока по ID" inputmode="numeric">' : ''}
         <div class="table-wrap"><table>
           <thead><tr><th>Игрок</th><th>Код</th><th>Пришёл</th><th class="n">Депозиты</th><th>Неделя</th></tr></thead>
-          <tbody>${d.referrals.length ? d.referrals.map((r) => `<tr><td>#${r.id}</td><td class="code">${esc(r.code || '')}</td>
+          <tbody>${d.referrals.length ? d.referrals.map((r) => `<tr data-ref-player="${r.id}"><td>#${r.id}</td><td class="code">${esc(r.code || '')}</td>
             <td>${date(r.createdAt)}</td><td class="n">${rub(r.deposits)}</td><td>${r.active ? '<span class="tag ok">играл</span>' : '<span class="tag">нет</span>'}</td></tr>`).join('')
             : '<tr><td colspan="5" class="empty">Пока никто не пришёл</td></tr>'}</tbody>
         </table></div>
@@ -449,6 +452,13 @@ async function renderCabinet(adminView = null) {
   });
   target.querySelectorAll('[data-copy]').forEach((el) => { el.onclick = () => copy(el.dataset.copy); });
   if (adminView) {
+    if ($('partnerPlayerQuery')) $('partnerPlayerQuery').oninput = e => {
+      const q = e.target.value.trim().replace(/^#/, '');
+      target.querySelectorAll('[data-ref-player]').forEach(row => { row.hidden = q && !row.dataset.refPlayer.includes(q); });
+    };
+    if (can('players.view')) target.querySelectorAll('[data-ref-player]').forEach(row => {
+      row.classList.add('click'); row.onclick = () => openPlayer(Number(row.dataset.refPlayer));
+    });
     $('shClose').onclick = closeSheet;
     bindAdminPartnerControls(d);
     return;
@@ -760,13 +770,13 @@ async function renderFinance() {
   let d; let cash;
   try {
     [d, cash] = await Promise.all([
-      api('/api/pc/admin/finance/sicilia', { days: S.fin.days, day: S.fin.day || null }),
+      api('/api/pc/admin/finance/sicilia', { days: S.fin.days, day: S.fin.day || null, from: S.fin.from || null, to: S.fin.to || null }),
       api('/api/pc/admin/finance/cash', { days: S.fin.days }),
     ]);
   } catch (err) { app.innerHTML = `<div class="empty">${esc(err.message)}</div>`; return; }
   const L = d.ledger;
   const gw = gatewayNumber(d.gateway);
-  const diff = gw == null ? null : Math.round((gw - d.owed) * 100) / 100;
+
   const hourly = L.granularity === 'hour';
   const issues = Object.entries(d.issues).filter(([, v]) => v.rows.length);
   const noFees = !L.fees.payinPct && !L.fees.payoutPct && !L.fees.payoutFixed;
@@ -774,17 +784,19 @@ async function renderFinance() {
   app.innerHTML = `
     <div class="bento">
       <section class="tile hero span-5">
-        <h3>Sicilia должна нам</h3>
-        <div class="big ${d.owed < 0 ? 'neg' : 'pos'}">${rub(d.owed)}</div>
-        <p class="note">Наш расчёт за всё время: принято минус комиссия, минус выплаты с комиссией, минус их переводы нам.</p>
-        ${noFees ? '<p class="note warn" style="margin-top:8px">Комиссии Sicilia не вписаны (Настройки), долг посчитан без них.</p>' : ''}
+        <h3>Пополнения Сицилии</h3>
+        <div class="big pos">${rub(S.fin.net ? d.deposits.net : d.deposits.gross)}</div>
+        <p class="note">Успешные платежи и начисления по спору: ${fmt(d.deposits.count)} · по спорам ${rub(d.deposits.disputes)}</p>
+        <label><input type="checkbox" id="depositNet" ${S.fin.net ? 'checked' : ''}> С вычетом комиссий</label>
+        <form id="depositRange"><label>С (МСК)<input class="input" type="datetime-local" id="depositFrom" value="${esc(S.fin.fromText || '')}" required></label>
+          <label>До (МСК, не включая)<input class="input" type="datetime-local" id="depositTo" value="${esc(S.fin.toText || '')}" required></label>
+          <button class="btn sm" type="submit">Применить</button><button class="btn alt sm" id="depositReset" type="button">Сбросить</button></form>
+        <p class="note">СБП / карта: до 5 000 ₽ 20%, до 10 000 ₽ 18%, выше 15%. Мобильная коммерция 26%.</p>
       </section>
       <section class="tile span-4">
         <h3>Баланс по данным Sicilia</h3>
         <div class="mid">${gw == null ? '<span class="note">нет ответа</span>' : rub(gw)}</div>
-        ${gw == null ? `<p class="note">${esc(d.gatewayError || 'Шлюз не прислал число')}</p>`
-          : `<p class="note ${Math.abs(diff) < 1 ? 'pos' : 'warn'}" style="margin-top:8px">${Math.abs(diff) < 1 ? 'Сходится с нашим расчётом'
-            : `Расходится на ${signedRub(diff)}: проверьте расхождения ниже и расчёты`}</p>`}
+        ${gw == null ? `<p class="note">${esc(d.gatewayError || 'Шлюз не прислал число')}</p>` : ''}
       </section>
       <section class="tile span-3">
         <h3>Обязательства перед игроками</h3>
@@ -862,6 +874,15 @@ async function renderFinance() {
       </section>
     </div>`;
 
+  $('depositNet').onchange = (e) => { S.fin.net = e.target.checked; renderFinance(); };
+  $('depositRange').onsubmit = (e) => {
+    e.preventDefault();
+    const from = $('depositFrom').value, to = $('depositTo').value;
+    const a = Date.parse(`${from}:00+03:00`), b = Date.parse(`${to}:00+03:00`);
+    if (!(b > a)) { toast('Конец периода должен быть позже начала'); return; }
+    Object.assign(S.fin, { from: a, to: b, fromText: from, toText: to }); renderFinance();
+  };
+  $('depositReset').onclick = () => { Object.assign(S.fin, { from: null, to: null, fromText: '', toText: '' }); renderFinance(); };
   app.querySelectorAll('[data-fdays]').forEach((el) => { el.onclick = () => { S.fin.days = Number(el.dataset.fdays); renderFinance(); }; });
   app.querySelectorAll('[data-day]').forEach((el) => { el.onclick = () => { S.fin.day = el.dataset.day; renderFinance(); }; });
   if ($('backDays')) $('backDays').onclick = () => { S.fin.day = ''; renderFinance(); };
@@ -1056,3 +1077,25 @@ async function renderWheel() {
 }
 
 boot();
+
+async function renderPlayers(query = '') {
+  let d;
+  try { d = await api('/api/admin/users', { query, limit: 100 }); }
+  catch (err) { app.innerHTML = `<div class="empty">${esc(err.message)}</div>`; return; }
+  app.innerHTML = `<section class="tile"><h3>Игроки</h3><form class="row" id="playerSearch"><input class="input" id="playerQuery" placeholder="ID, ник, почта или Telegram" value="${esc(query)}"><button class="btn" type="submit">Найти</button></form>
+    <div class="list">${d.rows.map(u => `<button class="li" type="button" data-player="${u.id}"><span>#${u.id} · ${esc(u.first_name || u.username || u.email || '')}</span><b>${rub(u.balance)}</b></button>`).join('') || '<p>Игроков не найдено</p>'}</div></section>`;
+  $('playerSearch').onsubmit = e => { e.preventDefault(); renderPlayers($('playerQuery').value.trim()); };
+  app.querySelectorAll('[data-player]').forEach(b => b.onclick = () => openPlayer(Number(b.dataset.player)));
+}
+async function openPlayer(id) {
+  try {
+    const d = await api('/api/admin/user', { userId: id });
+    const rows = [...(d.paymentRequests || []).map(r => ({...r, source: r.terminal === 'mk' ? 'Мобильная коммерция' : `Сицилия ${r.method || ''}`})),
+      ...(d.cryptoRequests || []).map(r => ({...r, source: 'Криптовалюта'}))].sort((a,b) => b.created_at-a.created_at);
+    openSheet(`<div class="sheet-head"><h2>Игрок #${d.user.id}</h2><button class="btn alt" id="shClose">Закрыть</button></div>
+      <p>${esc(d.user.first_name || d.user.username || d.user.email || '')}</p><h3>Запросы на пополнение</h3>
+      <div class="table-wrap"><table><thead><tr><th>ID</th><th>Дата</th><th>Способ</th><th>Сумма</th><th>Статус</th></tr></thead>
+      <tbody>${rows.map(r => `<tr><td>#${r.id}</td><td>${dateTime(r.created_at)}</td><td>${esc(r.source)}</td><td>${rub(r.amount)}</td><td>${esc(r.status)}${r.error ? `<small>${esc(r.error)}</small>` : ''}</td></tr>`).join('') || '<tr><td colspan="5">Запросов нет</td></tr>'}</tbody></table></div>`, true);
+    $('shClose').onclick = closeSheet;
+  } catch (err) { toast(err.message); }
+}

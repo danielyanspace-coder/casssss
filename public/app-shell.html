@@ -1,0 +1,1345 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>LUCKYBOX · кейсы и казино</title>
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <meta name="theme-color" content="#120a1c">
+  <meta name="description" content="Кейсы, казино, краш, рулетка и апгрейд. Исход каждого раунда проверяется через provably fair. 18+.">
+
+  <!--
+    Шрифты семейств карточек.
+
+    Берём ровно четыре начертания и только те веса, что используются: лишний
+    вес это лишние килобайты на мобильной сети, а сайт чаще всего открывают
+    с телефона. display=swap обязателен - без него текст не виден, пока шрифт
+    едет, и на плохой связи карточка несколько секунд стоит пустой.
+
+    Если шрифты не доедут (на плохой мобильной связи такое бывает),
+    всё остаётся читаемым: в каждом стеке стоит системный запасной, и вёрстка
+    на него рассчитана. Проверять это надо именно так - выключив сеть на
+    fonts.gstatic.com, а не глазами на быстром канале.
+  -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" media="print" onload="this.media='all'" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;800;900&amp;family=Manrope:wght@500;700;800&amp;family=Inter:wght@400;500;600;700;800&amp;family=Bodoni+Moda:opsz,wght@6..96,700;6..96,900&amp;family=JetBrains+Mono:wght@400;700&amp;family=Great+Vibes&amp;display=swap">
+
+  <!-- Данные запрашиваются параллельно с кодом; рисунки тем не задерживают старт. -->
+  <script type="module" async src="/release-20261101-launch-guard/boot.js"></script>
+  <link rel="modulepreload" href="/release-20261101-launch-guard/app.js">
+  <link rel="preload" as="image" href="/assets/ui/hero-jackpot.webp" imagesrcset="/assets/responsive/ui/hero-jackpot-640.webp 640w, /assets/responsive/ui/hero-jackpot-960.webp 960w, /assets/ui/hero-jackpot.webp 1600w" imagesizes="(min-width: 1100px) 55vw, 94vw" fetchpriority="high">
+  <link rel="stylesheet" href="/release-20261101-launch-guard/styles.css">
+</head>
+<body>
+
+  <div class="bg-glow bg-glow-1"></div>
+  <div class="bg-glow bg-glow-2"></div>
+  <div class="bg-glow bg-glow-3"></div>
+  <div class="money-rain" id="moneyRain"></div>
+
+  <!-- Боковое меню для компьютера. На телефоне спрятано целиком: там навигация
+       живёт в меню-картинке, и две навигации одновременно только мешали бы.
+       Содержимое собирается в app.js -> renderSideNav(). -->
+  <aside class="side-nav" id="sideNav"></aside>
+
+  <header class="topbar">
+    <!-- Логотип - кнопка: нажатие возвращает на главную. Раньше он был
+         нарисован разметкой, теперь это присланная картинка, и подпись
+         «кейсы и игры» нарисована прямо на ней. -->
+    <button class="brand" id="brandHome" aria-label="На главную">
+      <img data-src="/assets/ui/logo.webp" alt="LUCKYBOX" class="brand-logo">
+    </button>
+    <!-- Показатели в шапке. Видны только на компьютере: на телефоне место
+         занято балансом и кнопкой меню, а здесь слева пустовала половина
+         полосы. Числа те же, что в подвале, - считает их startFooterCounters. -->
+    <div class="top-stats" id="topStats">
+      <span class="top-online">
+        <i class="online-dot" aria-hidden="true"></i>
+        <b id="statOnline">-</b> игроков онлайн
+      </span>
+      <span class="top-stat"><b id="statCasesTop">-</b> открыто кейсов</span>
+      <span class="top-stat"><b id="statPlayersTop">-</b> игроков</span>
+    </div>
+
+    <!-- Надпись каллиграфией между показателями и кассой (решение
+         заказчика): на широком экране здесь пустовала полоса. Только на
+         компьютере. -->
+    <div class="top-motto" aria-hidden="true">World Tennis</div>
+
+    <div class="top-right">
+      <!-- На компьютере рядом с балансом стоит явная кнопка пополнения: место
+           есть, а искать кассу в меню на широком экране незачем. -->
+      <button class="btn btn-primary top-deposit" id="topDeposit">Пополнить</button>
+      <!-- Баланс намеренно без рамки, подложки и значка: это показание, а не
+           кнопка «купить». Нажатие всё так же ведёт в кассу. -->
+      <button class="balance-chip" id="balanceChip" aria-expanded="false" aria-controls="walletSheet">
+        <span class="balance-value" id="balanceValue">-</span><span class="balance-arrow" aria-hidden="true"></span>
+      </button>
+      <!-- Гостю вместо баланса - тот же значок человечка, что у игрока
+           (решение заказчика: две кнопки «Войти» и «Регистрация» теснили
+           шапку). Нажатие открывает регистрацию, вход - строкой внизу окна. -->
+      <div class="top-auth" id="topAuth" hidden>
+        <button class="account-btn top-guest" data-auth-open="register" aria-label="Войти или зарегистрироваться"
+                data-ico="people"></button>
+      </div>
+      <button class="account-btn" id="accountBtn" aria-label="Профиль" data-ico="people" hidden></button>
+      <button class="menu-btn" id="menuBtn" aria-label="Меню" data-ico="grid"></button>
+    </div>
+  </header>
+
+  <!-- Меню-сетка вместо нижней панели -->
+  <div class="menu-backdrop" id="menuBackdrop" hidden>
+    <div class="menu-sheet">
+      <!-- Те же плитки, что в боковой панели компьютера (navTilesHtml). -->
+      <div class="menu-head">
+        <h2 class="menu-head-title">Меню</h2>
+        <button class="menu-close" id="menuClose" aria-label="Закрыть меню"></button>
+      </div>
+      <div class="menu-nav" id="menuNav"></div>
+    </div>
+  </div>
+
+  <main id="app">
+    <div class="boot-status" id="bootStatus" role="status">Загружаем LUCKYBOX…</div>
+
+    <!-- ══════════ КЕЙСЫ ══════════ -->
+    <section class="view active" id="view-cases">
+
+      <!-- ══════════ БАННЕРЫ ПЕРВОГО ЭКРАНА ══════════
+
+           Главный баннер - слайд-шоу из четырёх присланных картинок, под ним
+           пара: широкий слева, квадратный справа.
+
+           Все баннеры показываются ЦЕЛИКОМ, без обрезки и без увеличения: на
+           них есть надписи, прижатые к краям кадра, и любой object-fit: cover
+           съел бы слово. Поэтому высоту задаёт aspect-ratio по настоящим
+           пропорциям файла, а не число в пикселях.
+
+           Слайды лежат друг на друге и переключаются прозрачностью: сдвигом
+           пришлось бы держать полосу шириной в четыре экрана, и она бы ловила
+           горизонтальную прокрутку пальцем. Крутит их runHeroSlider(). -->
+      <div class="banner-stack">
+        <!-- Верхняя строка: слайд-шоу и сезонный кейс. На телефоне это просто
+             столбик, на компьютере - строка, где доли ширины равны пропорциям
+             картинок, поэтому высоты сходятся сами. -->
+        <div class="banner-top">
+          <div class="hero" id="hero">
+            <div class="hero-slides">
+              <!-- Джекпот-баннер стоит дольше остальных (data-ms): это главный
+                   вход в казино, остальные три - фирменные, их хватает мельком. -->
+              <img src="/assets/ui/hero-jackpot.webp" srcset="/assets/responsive/ui/hero-jackpot-640.webp 640w, /assets/responsive/ui/hero-jackpot-960.webp 960w, /assets/ui/hero-jackpot.webp 1600w" sizes="(min-width: 1100px) 55vw, 94vw" width="1600" height="800" alt="Большие джекпоты каждый день" class="hero-img active" fetchpriority="high" data-ms="10000" data-go="casino">
+              <img data-src="/assets/ui/hero-1.webp" data-srcset="/assets/responsive/ui/hero-1-640.webp 640w, /assets/responsive/ui/hero-1-960.webp 960w, /assets/ui/hero-1.webp 1600w" sizes="(min-width: 1100px) 55vw, 94vw" width="1600" height="800" alt="Lucky Energy" class="hero-img" loading="lazy" data-ms="3000">
+              <img data-src="/assets/ui/hero-2.webp" data-srcset="/assets/responsive/ui/hero-2-640.webp 640w, /assets/responsive/ui/hero-2-960.webp 960w, /assets/ui/hero-2.webp 1600w" sizes="(min-width: 1100px) 55vw, 94vw" width="1600" height="800" alt="Официальные спонсоры Формула-1" class="hero-img" loading="lazy" data-ms="3000">
+              <img data-src="/assets/ui/hero-3.webp" data-srcset="/assets/responsive/ui/hero-3-640.webp 640w, /assets/responsive/ui/hero-3-960.webp 960w, /assets/ui/hero-3.webp 1600w" sizes="(min-width: 1100px) 55vw, 94vw" width="1600" height="800" alt="Партнёры международной федерации тенниса" class="hero-img" loading="lazy" data-ms="3000">
+            </div>
+            <div class="hero-dots" id="heroDots"></div>
+          </div>
+
+          <!-- Сезонный кейс. На телефоне он идёт следом за парой баннеров, как
+               и раньше, а на компьютере встаёт справа от слайд-шоу - см.
+               .banner-stack в конце styles.css. Рисует renderCases. -->
+          <div class="featured-slot" id="featuredSlot"></div>
+        </div>
+
+        <!-- Лента выигрышей. Обычные исходы сюда не попадают. -->
+        <div class="feed" id="feed">
+          <div class="feed-head">
+            <span class="feed-ticket" aria-hidden="true"><svg viewBox="0 0 24 18" fill="none"><path d="M2 2h20v4a3 3 0 0 0 0 6v4H2v-4a3 3 0 0 0 0-6V2Z" stroke="currentColor" stroke-width="1.5"/><path d="M16 4v2m0 2v2m0 2v2M7 9h5" stroke="currentColor" stroke-width="1.5"/></svg></span>
+            <span class="feed-title">Выигрывают сейчас</span>
+          </div>
+          <div class="feed-track" id="feedTrack"><span class="skel skel-feed"></span><span class="skel skel-feed"></span><span class="skel skel-feed"></span></div>
+        </div>
+
+        <!-- Пара выровнена по верху и по низу: ширины делятся между картинками
+             в том же отношении, что и их пропорции, поэтому высота у обеих
+             выходит одинаковой сама собой, на любой ширине экрана.
+             Подробности в styles.css -> .promo-pair. -->
+        <div class="promo-pair">
+          <button class="promo-wide" id="promoFortune" aria-label="Lucky Fortune">
+            <img data-src="/assets/ui/promo-wide.webp" data-srcset="/assets/responsive/ui/promo-wide-240.webp 240w, /assets/responsive/ui/promo-wide-480.webp 480w, /assets/ui/promo-wide.webp 1600w" sizes="(min-width:1100px) 300px, 70vw" alt="Free money: разыгрываем Rolls-Royce Wraith">
+          </button>
+          <button class="promo-square" id="promoCasino" aria-label="Казино">
+            <img data-src="/assets/ui/promo-casino.webp" data-srcset="/assets/responsive/ui/promo-casino-240.webp 240w, /assets/responsive/ui/promo-casino-480.webp 480w, /assets/ui/promo-casino.webp 900w" sizes="(min-width:1100px) 300px, 24vw" alt="Казино LUCKYBOX">
+          </button>
+        </div>
+      </div>
+
+      <div class="perk-bar" id="perkBar" hidden></div>
+
+      <!-- Появляется, только когда канал и кейс заданы в настройках. -->
+      <button class="free-case" id="freeCase" hidden>
+        <span class="free-case-ico" data-ico="gift"></span>
+        <span class="free-case-text">
+          <span class="free-case-title">Бесплатный кейс</span>
+          <span class="free-case-sub" id="freeCaseSub">за подписку на канал</span>
+        </span>
+        <span class="free-case-go">Забрать</span>
+      </button>
+
+      <!-- Пока грузится конфиг, на месте полки мерцают силуэты кейсов, а не
+           пустое поле: так видно, что сейчас здесь что-то появится. -->
+      <div class="shelves" id="caseShelves">
+        <div class="skel-shelf"><span class="skel skel-title"></span>
+          <div class="skel-row"><span class="skel skel-case"></span><span class="skel skel-case"></span><span class="skel skel-case"></span><span class="skel skel-case"></span></div>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- ══════════ АПГРЕЙД ══════════ -->
+    <section class="view" id="view-upgrade">
+      <button type="button" class="btn btn-outline own-game-back" data-own-game-back hidden aria-label="Назад к мини-играм">← Назад</button>
+      <div class="game-head">
+        <h1 class="game-title">АПГРЕЙД</h1>
+        <p class="game-sub">Ставка против цели. Указатель встал в ваш сектор - цель ваша.</p>
+      </div>
+
+      <div class="upg-stage" id="upgStage">
+        <svg class="upg-ring" id="upgRing" viewBox="0 0 260 260" aria-hidden="true">
+          <defs>
+            <linearGradient id="upgArcGrad" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stop-color="#00f0ff"/>
+              <stop offset="50%" stop-color="#a020ff"/>
+              <stop offset="100%" stop-color="#ff2e8a"/>
+            </linearGradient>
+            <linearGradient id="upgNeedleGrad" x1="0" y1="1" x2="0" y2="0">
+              <stop offset="0%" stop-color="#ffd60a" stop-opacity="0.2"/>
+              <stop offset="100%" stop-color="#ffd60a"/>
+            </linearGradient>
+            <filter id="upgGlow" x="-60%" y="-60%" width="220%" height="220%">
+              <feGaussianBlur stdDeviation="5" result="b"/>
+              <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+            </filter>
+          </defs>
+
+          <circle class="upg-halo" cx="130" cy="130" r="112"/>
+          <circle class="upg-track" cx="130" cy="130" r="104"/>
+          <circle class="upg-arc" id="upgArc" cx="130" cy="130" r="104"
+                  transform="rotate(-90 130 130)" filter="url(#upgGlow)"/>
+          <g class="upg-ticks" id="upgTicks"></g>
+          <!-- Шлейф за стрелкой: длина дуги - скорость, к остановке он гаснет. -->
+          <path class="upg-trail" id="upgTrail" d=""/>
+          <!-- Трещины на проигрыше: прорисовываются штрихом поверх кольца. -->
+          <g class="upg-crack" id="upgCrack">
+            <path d="M130 22 L138 48 L126 64 L141 86"/>
+            <path d="M232 112 L206 122 L214 140 L190 152"/>
+            <path d="M58 206 L80 190 L74 172 L96 160"/>
+            <path d="M198 214 L184 196 L196 182 L176 170"/>
+          </g>
+
+          <!-- Указатель едет по самому кольцу, а не выходит из центра:
+               стрелка из центра перечёркивала бы сумму цели. -->
+          <g class="upg-needle" id="upgNeedle">
+            <rect x="126.5" y="11" width="7" height="30" rx="3.5" fill="url(#upgNeedleGrad)"/>
+            <path d="M130 50 L123 38 L137 38 Z" class="upg-needle-tip"/>
+          </g>
+        </svg>
+
+        <div class="upg-center">
+          <div class="upg-label">ЦЕЛЬ</div>
+          <div class="upg-target" id="upgTarget">-</div>
+          <div class="upg-mult" id="upgMult">-</div>
+        </div>
+      </div>
+
+      <div class="upg-outcome" id="upgOutcome"></div>
+
+      <div class="upg-picker" id="upgPicker"></div>
+
+      <div class="bet-panel">
+        <div class="bet-row">
+          <input class="bet-input" id="upgStake" type="number" inputmode="numeric" min="1" value="100">
+          <div class="bet-quick">
+            <button class="chip" data-upg-bet="half">½</button>
+            <button class="chip" data-upg-bet="double">×2</button>
+            <button class="chip" data-upg-bet="max">Max</button>
+          </div>
+        </div>
+        <div class="bet-chips">
+          <button class="chip chip-val" data-upg-add="50">+50</button>
+          <button class="chip chip-val" data-upg-add="100">+100</button>
+          <button class="chip chip-val" data-upg-add="500">+500</button>
+          <button class="chip chip-val" data-upg-add="1000">+1000</button>
+        </div>
+        <button class="btn btn-huge btn-upgrade" id="upgradeBtn">АПГРЕЙД</button>
+      </div>
+    </section>
+
+    <!-- ══════════ КРАШ ══════════ -->
+    <section class="view" id="view-crash">
+      <button type="button" class="btn btn-outline own-game-back" data-own-game-back hidden aria-label="Назад к мини-играм">← Назад</button>
+      <div class="game-head">
+        <h1 class="game-title">КРАШ</h1>
+        <p class="game-sub">Забирай до взрыва. Ждёшь дольше - рискуешь больше.</p>
+      </div>
+
+      <div class="crash-stage" id="crashStage">
+        <svg class="crash-graph" id="crashGraph" viewBox="0 0 300 140" preserveAspectRatio="none">
+          <defs>
+            <linearGradient id="crashFill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="var(--pink)" stop-opacity="0.55"/>
+              <stop offset="100%" stop-color="var(--pink)" stop-opacity="0"/>
+            </linearGradient>
+          </defs>
+          <polygon class="crash-area" id="crashArea" points=""/>
+          <polyline class="crash-line" id="crashLine" points=""/>
+        </svg>
+
+        <div class="crash-center">
+          <div class="crash-multiplier" id="crashMultiplier">1.00x</div>
+          <div class="crash-status" id="crashStatus">Сделайте ставку</div>
+        </div>
+
+        <!-- Ракета нарисована здесь, а не значком: у неё пламя, которое
+             дрожит отдельно от корпуса, и она поворачивается по кривой. -->
+        <div class="crash-rocket" id="crashRocket">
+          <svg viewBox="-10 0 74 32" aria-hidden="true">
+            <defs>
+              <linearGradient id="crBody" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" stop-color="#ffffff"/><stop offset=".5" stop-color="#d9c8ff"/><stop offset="1" stop-color="#6c4bb4"/>
+              </linearGradient>
+              <radialGradient id="crFlame" cx="1" cy=".5" r="1">
+                <stop offset="0" stop-color="#fff6cf"/><stop offset=".35" stop-color="#ffd34d"/><stop offset=".75" stop-color="#ff5d2e"/><stop offset="1" stop-color="#ff2e8a" stop-opacity="0"/>
+              </radialGradient>
+            </defs>
+            <path class="cr-flame" d="M15 16C8 9.5 1 13-9 16 1 19 8 22.5 15 16Z" fill="url(#crFlame)"/>
+            <path d="M19 9 12 1.5h9l8 7.5zM19 23l-7 7.5h9l8-7.5z" fill="#ff2e8a"/>
+            <path d="M14 9h26c10 0 17 3.6 22 7-5 3.4-12 7-22 7H14z" fill="url(#crBody)"/>
+            <circle cx="42" cy="16" r="4.2" fill="#24104a" stroke="#ffd34d" stroke-width="1.6"/>
+            <circle cx="40.8" cy="14.6" r="1.3" fill="#fff" opacity=".8"/>
+          </svg>
+        </div>
+        <div class="crash-flash" id="crashFlash" aria-hidden="true"></div>
+      </div>
+
+      <div class="crash-recent" id="crashRecent"></div>
+
+      <div class="bet-panel">
+        <div class="bet-row">
+          <input class="bet-input" id="crashBet" type="number" inputmode="numeric" min="1" value="100">
+          <div class="bet-quick">
+            <button class="chip" data-crash-bet="half">½</button>
+            <button class="chip" data-crash-bet="double">×2</button>
+            <button class="chip" data-crash-bet="max">Max</button>
+          </div>
+        </div>
+        <div class="bet-chips">
+          <button class="chip chip-val" data-crash-add="50">+50</button>
+          <button class="chip chip-val" data-crash-add="100">+100</button>
+          <button class="chip chip-val" data-crash-add="500">+500</button>
+          <button class="chip chip-val" data-crash-add="1000">+1000</button>
+        </div>
+        <button class="btn btn-huge btn-crash" id="crashActionBtn">ПОСТАВИТЬ</button>
+      </div>
+    </section>
+
+    <!-- ══════════ РУЛЕТКА ══════════ -->
+    <section class="view" id="view-roulette">
+      <div class="game-head">
+        <h1 class="game-title">РУЛЕТКА</h1>
+        <p class="game-sub">15 секторов: 7 красных, 7 чёрных, 1 зелёный.</p>
+      </div>
+
+      <!-- Колесо с шаром. Сектора равные: у каждого шанс 1/15, и угол
+           сектора равен его вероятности, как у колеса мини-игр. Шар
+           останавливается в секторе, который решил сервер; колесо
+           приводит этот сектор под самоцвет сверху. -->
+      <div class="rw-stage" id="rouletteStage">
+        <div class="rw-aura" aria-hidden="true"></div>
+        <div class="rw-beam" id="rouletteBeam" aria-hidden="true"></div>
+        <div class="rw-wrap">
+          <div class="rw-rim" id="rouletteRim" aria-hidden="true"></div>
+          <div class="rw-wheel" id="rouletteWheel"></div>
+          <div class="rw-ball" id="rouletteBall" aria-hidden="true"></div>
+          <div class="rw-hub" aria-hidden="true"><span></span></div>
+        </div>
+        <div class="rw-pointer" id="roulettePointer" aria-hidden="true"></div>
+      </div>
+
+      <div class="roulette-result" id="rouletteResult"></div>
+      <div class="crash-recent" id="rouletteRecent"></div>
+
+      <div class="color-picker" id="colorPicker"></div>
+
+      <div class="bet-panel">
+        <div class="bet-row">
+          <input class="bet-input" id="rouletteBet" type="number" inputmode="numeric" min="1" value="100">
+          <div class="bet-quick">
+            <button class="chip" data-roul-bet="half">½</button>
+            <button class="chip" data-roul-bet="double">×2</button>
+            <button class="chip" data-roul-bet="max">Max</button>
+          </div>
+        </div>
+        <div class="bet-chips">
+          <button class="chip chip-val" data-roul-add="50">+50</button>
+          <button class="chip chip-val" data-roul-add="100">+100</button>
+          <button class="chip chip-val" data-roul-add="500">+500</button>
+          <button class="chip chip-val" data-roul-add="1000">+1000</button>
+        </div>
+        <button class="btn btn-huge btn-roulette" id="rouletteSpinBtn">КРУТИТЬ</button>
+      </div>
+    </section>
+
+    <!-- ══════════ ЧЕСТНОСТЬ ══════════
+         Сначала обещание и почему ему можно верить, потом как это устроено,
+         и только потом ключи и формула. Прежний раздел начинался с полей
+         хеша: игрок, не знающий, что такое seed, видел таблицу и уходил. -->
+    <section class="view" id="view-fair">
+      <div class="fair-hero">
+        <div class="fair-seal" aria-hidden="true">
+          <svg viewBox="0 0 120 120">
+            <defs>
+              <linearGradient id="fairSealG" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" stop-color="#fff6cf"/><stop offset=".45" stop-color="#ffd34d"/>
+                <stop offset=".55" stop-color="#c8781a"/><stop offset="1" stop-color="#ffe9a0"/>
+              </linearGradient>
+              <path id="fairSealArc" d="M60 60m-47 0a47 47 0 1 1 94 0a47 47 0 1 1-94 0"/>
+            </defs>
+            <g class="fair-seal-ring">
+              <text font-size="7.4" font-weight="800" letter-spacing="2.6" fill="#ffd34d" opacity=".75">
+                <textPath href="#fairSealArc">PROVABLY FAIR · HMAC SHA-256 · PROVABLY FAIR · HMAC SHA-256 ·</textPath>
+              </text>
+            </g>
+            <path d="M60 26 86 36v20c0 18-11 30-26 37-15-7-26-19-26-37V36z" fill="#1d0b38" stroke="url(#fairSealG)" stroke-width="3"/>
+            <path class="fair-seal-check" d="M47 59l9 9 18-20" fill="none" stroke="url(#fairSealG)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <div class="fair-eyebrow">Provably fair</div>
+        <h2 class="fair-title">Честная игра</h2>
+        <p class="fair-lead">
+          В играх LUCKYBOX исход каждого раунда записан до того, как вы нажали кнопку. Отпечаток
+          этой записи вы видите заранее, а саму запись мы раскрываем потом:
+          подменить её незаметно не может никто, даже мы.
+        </p>
+      </div>
+
+      <div class="fair-partners" id="fairPartners" hidden></div>
+
+      <div class="fair-steps">
+        <div class="fair-step" style="--i:0">
+          <div class="fair-step-ico" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path class="fair-shackle" d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+          </div>
+          <div>
+            <b>Мы загадываем</b>
+            <p>Сервер выбирает секретный ключ и сразу показывает его отпечаток. По
+              отпечатку ключ не восстановить, а поменять ключ, не изменив отпечаток,
+              невозможно.</p>
+          </div>
+        </div>
+        <div class="fair-step" style="--i:1">
+          <div class="fair-step-ico" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h7l-2-2M4 7l5 0"/><path d="M20 17h-7l2 2"/><circle cx="17" cy="7" r="3"/><circle cx="7" cy="17" r="3"/></svg>
+          </div>
+          <div>
+            <b>Вы добавляете своё</b>
+            <p>Ваша строка и номер раунда смешиваются с ключом сервера. Смените
+              строку в любой момент, и заранее исход не будет знать никто.</p>
+          </div>
+        </div>
+        <div class="fair-step" style="--i:2">
+          <div class="fair-step-ico" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="3"/><circle cx="9" cy="9" r="1.3" fill="currentColor"/><circle cx="15" cy="15" r="1.3" fill="currentColor"/><circle cx="15" cy="9" r="1.3" fill="currentColor"/><circle cx="9" cy="15" r="1.3" fill="currentColor"/></svg>
+          </div>
+          <div>
+            <b>Формула решает</b>
+            <p>HMAC-SHA256 превращает всё это в число от нуля до единицы, и число
+              попадает в интервал предмета. Ни ручек, ни исключений.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Казино: что проверяется формулой, а что нет, и какая отдача у
+           слотов провайдеров. Число берётся из той же настройки, что уходит
+           агрегатору при запуске игры (renderFairCasino в app.js). -->
+      <div class="fair-card fair-casino" id="fairCasino" hidden>
+        <h3 class="fair-h3">Казино: игры провайдеров</h3>
+        <p>Проверка по ключам на этой странице относится к играм LUCKYBOX:
+          кейсам, крашу, рулетке, апгрейду и риск-игре. В разделе «Казино»
+          исход определяет генератор провайдера игры, и пересчитать его этой
+          формулой нельзя.</p>
+        <div class="fair-casino-rtp">
+          <span>Отдача слотов и быстрых игр казино</span>
+          <b id="fairCasinoRtp"></b>
+        </div>
+        <p class="fair-casino-note">Отдача одинакова для всех игроков и не
+          настраивается под конкретного человека. Это среднее за большое число
+          ставок: отдельная сессия может закончиться и выше, и ниже.</p>
+      </div>
+
+      <div class="fair-card fair-keys">
+        <h3 class="fair-h3">Ваши ключи</h3>
+        <label class="fair-label">Отпечаток ключа сервера (хеш)</label>
+        <div class="mono-box" id="serverHash">-</div>
+
+        <label class="fair-label">Ваша строка (client seed)</label>
+        <div class="seed-row">
+          <input class="seed-input" id="clientSeedInput" maxlength="64" placeholder="любая строка">
+          <button class="btn btn-sm" id="saveSeedBtn">ОК</button>
+        </div>
+
+        <label class="fair-label">Номер раунда (nonce)</label>
+        <div class="mono-box" id="nonceBox">-</div>
+
+        <button class="take-btn take-wide fair-rotate" id="rotateBtn">
+          Сменить ключ сервера и раскрыть текущий
+        </button>
+      </div>
+
+      <div class="fair-card fair-revealed" id="revealedCard" hidden>
+        <h3 class="fair-h3">Раскрытый ключ</h3>
+        <label class="fair-label">Ключ сервера прошлой серии</label>
+        <div class="mono-box" id="revealedSeed">-</div>
+        <label class="fair-label">Его отпечаток: сверьте с тем, что видели до игры</label>
+        <div class="mono-box" id="revealedHash">-</div>
+      </div>
+
+      <div class="fair-card">
+        <h3 class="fair-h3">Проверьте сами</h3>
+        <pre class="code-block">roll = HMAC_SHA256(serverSeed, "clientSeed:nonce")
+число = первые 8 hex-символов / 2^32</pre>
+        <p class="fair-note">
+          <strong>Кейс:</strong> число попадает в интервал предмета по таблице шансов.<br>
+          <strong>Краш:</strong> точка взрыва = 0.70 / (1 - число), округлённая вниз до сотых, не меньше 1.00 и не больше 1000.<br>
+          <strong>Рулетка:</strong> сектор = ⌊число × 15⌋.
+        </p>
+      </div>
+    </section>
+
+    <!-- ══════════ КАССА ══════════ -->
+    <section class="view" id="view-wallet">
+      <!-- Касса держится на одной шкале: стеклянные поверхности с тонкой
+           границей, розовый только для выбора и действия, золото только для
+           денег. Классы wallet-card / wallet-actions / wallet-pane оставлены:
+           по ним компьютерная вёрстка раскладывает кассу в две колонки. -->
+      <div class="wallet-card cash-hero">
+        <div class="cash-hero-top">
+          <span class="cash-eyebrow">Баланс</span>
+          <span class="cash-secure" data-cash-ico="shield">Защищённая касса</span>
+        </div>
+        <div class="cash-balance" id="walletBalance">-</div>
+        <div class="cash-stats" id="walletRows"></div>
+        <!-- Бонусный счёт: отдельно от своих денег, вывод не запирает. -->
+        <div class="cash-bonus" id="walletBonus" hidden></div>
+      </div>
+
+      <div class="wallet-actions cash-switch" id="cashSwitch" data-mode="" role="tablist" aria-label="Операция">
+        <span class="cash-switch-thumb" aria-hidden="true"></span>
+        <button class="cash-tab" id="walletDeposit" role="tab" aria-selected="false">
+          <span data-cash-ico="in"></span>Пополнить
+        </button>
+        <button class="cash-tab" id="walletWithdraw" role="tab" aria-selected="false">
+          <span data-cash-ico="out"></span>Вывести
+        </button>
+      </div>
+
+      <div class="wallet-pane cash-pane" id="walletDepositPane" hidden>
+        <div class="cash-panel">
+          <div class="deposit-offer" id="depositOffer" hidden></div>
+          <!-- Два способа: СБП и карта через шлюз Sicilia и криптовалюта.
+               Вкладка Sicilia видна, только когда шлюз настроен на сервере
+               (loadSiciliaOptions); какой открыть первым, решает openDefaultDeposit. -->
+          <div class="cash-step">Способ пополнения</div>
+          <div class="deposit-methods">
+            <button class="payment-method" data-payment-method="sicilia" hidden>
+              <span class="cash-method-art" data-cash-art="sbp" aria-hidden="true"></span>
+              <span class="cash-method-text"><b>СБП и карта</b><small>Любой банк России</small></span>
+            </button>
+            <button class="payment-method" data-payment-method="crypto">
+              <span class="cash-method-art" data-cash-art="crypto" aria-hidden="true"></span>
+              <span class="cash-method-text"><b>Криптовалюта</b><small>USDT, BTC, ETH и другие</small></span>
+            </button>
+          </div>
+
+          <!-- Пополнение криптовалютой. Список монет приходит от шлюза, поэтому
+               сетка и выпадающий список сетей собираются в коде. -->
+          <div class="crypto-create" id="cryptoCreate" hidden>
+            <div id="cryptoStatus" role="status" hidden><p>Не удалось загрузить криптокассу.</p><button type="button" class="cash-ghost" id="cryptoRetry">Повторить загрузку</button></div>
+            <div class="cash-step">Монета</div>
+            <div class="coin-grid" id="coinGrid"></div>
+            <div class="coin-network cash-field" id="coinNetwork" hidden>
+              <label class="field-label" for="coinNetworkSelect">Сеть перевода</label>
+              <select class="seed-input" id="coinNetworkSelect"></select>
+              <p class="coin-note">Отправляйте только в выбранной сети. Перевод в
+                другой сети теряется без возврата.</p>
+            </div>
+            <div class="cash-step">Сумма</div>
+            <label class="cash-amount">
+              <input id="cryptoAmount" type="text" inputmode="numeric" autocomplete="off" placeholder="0" aria-label="Сумма пополнения в рублях">
+              <span class="cash-amount-cur">₽</span>
+            </label>
+            <div class="quick-row" id="cryptoQuick"></div>
+            <div class="rate-line" id="cryptoRate"></div>
+            <button class="cash-cta" id="cryptoCreateBtn"><span>Продолжить</span><span data-cash-ico="arrow"></span></button>
+          </div>
+          <div class="payment-checkout" id="cryptoCheckout" hidden></div>
+
+          <!-- СБП и карта через Sicilia. Через API шлюза реквизит, сумма и
+               таймер показываются здесь же (siciliaCheckout); через окно шлюза
+               здесь только сумма и ожидание, способ и банк скрыты. -->
+          <div class="sicilia-create" id="siciliaCreate" hidden>
+            <div class="cash-step" data-sic-h2h>Как переводите</div>
+            <div class="cash-seg is-2" id="siciliaMethod" data-active="sbp" role="group" aria-label="Способ перевода" data-sic-h2h>
+              <button class="cash-seg-btn active" type="button" data-sic-method="sbp"><span class="cash-choice-art" data-cash-art="sbpOnly" aria-hidden="true"></span>СБП</button>
+              <button class="cash-seg-btn" type="button" data-sic-method="card"><span class="cash-choice-art" data-cash-art="card" aria-hidden="true"></span>На карту</button>
+            </div>
+            <div class="cash-step">Сумма</div>
+            <label class="cash-amount">
+              <input id="siciliaAmount" type="text" inputmode="numeric" autocomplete="off" placeholder="0" aria-label="Сумма пополнения в рублях">
+              <span class="cash-amount-cur">₽</span>
+            </label>
+            <div class="quick-row" id="siciliaQuick"></div>
+            <div class="cash-step" data-sic-h2h>Ваш банк <small>откроем перевод в приложении</small></div>
+            <div class="quick-row sic-banks" id="siciliaBank" data-sic-h2h></div>
+            <button class="cash-cta" id="siciliaCreateBtn"><span id="siciliaCreateLabel">Оплатить</span><span data-cash-ico="arrow"></span></button>
+            <p class="cash-fine" id="siciliaFine">Реквизиты для перевода появятся здесь. Переведите точную сумму:
+              деньги зачислятся сами, как только банк подтвердит перевод.</p>
+          </div>
+          <div class="payment-checkout" id="siciliaCheckout" hidden></div>
+        </div>
+
+        <!-- Оплаты СБП, которые ещё не зачислены: отсюда игрок сообщает,
+             что перевёл, а деньги не пришли (public/app.js, renderSiciliaIssues). -->
+        <div id="siciliaIssues" hidden>
+          <h2 class="cash-h2">Оплаты в ожидании</h2>
+          <div class="cash-list" id="siciliaIssueList"></div>
+        </div>
+        <h2 class="cash-h2">История пополнений</h2>
+        <div class="cash-list" id="depositList"></div>
+      </div>
+
+      <div class="wallet-pane cash-pane" id="walletWithdrawPane" hidden>
+        <div class="cash-panel withdraw-form">
+          <div class="cash-step">Сумма</div>
+          <label class="cash-amount">
+            <input id="withdrawAmount" type="text" inputmode="numeric" autocomplete="off" placeholder="0" aria-label="Сумма вывода в рублях">
+            <span class="cash-amount-cur">₽</span>
+            <button class="cash-amount-all" type="button" id="withdrawAll">Всё</button>
+          </label>
+          <div class="withdraw-hint" id="withdrawHint"></div>
+
+          <div class="cash-step">Куда вывести</div>
+          <div class="payout-methods cash-seg" data-active="sbp" role="group" aria-label="Способ вывода">
+            <button class="cash-seg-btn active" type="button" data-withdraw-method="sbp"><span class="cash-choice-art" data-cash-art="sbpOnly" aria-hidden="true"></span>СБП</button>
+            <button class="cash-seg-btn" type="button" data-withdraw-method="card"><span class="cash-choice-art" data-cash-art="card" aria-hidden="true"></span>Карта</button>
+            <button class="cash-seg-btn" type="button" data-withdraw-method="crypto"><span class="cash-choice-art" data-cash-art="usdt" aria-hidden="true"></span>USDT</button>
+          </div>
+          <div class="cash-fields" id="withdrawSbpFields">
+            <label class="cash-field">
+              <span class="field-label">Телефон получателя</span>
+              <input class="seed-input" id="withdrawPhone" type="tel" inputmode="tel"
+                     autocomplete="tel" placeholder="+7 900 000-00-00">
+            </label>
+            <div class="cash-field">
+              <label class="field-label" for="withdrawBank">Банк получателя</label>
+              <select class="seed-input" id="withdrawBank"><option value="">Выберите банк</option></select>
+            </div>
+          </div>
+          <div class="cash-fields" id="withdrawCardFields" hidden>
+            <label class="cash-field">
+              <span class="field-label">Номер карты</span>
+              <input class="seed-input" id="withdrawCard" type="text" inputmode="numeric"
+                     autocomplete="cc-number" maxlength="23" placeholder="0000 0000 0000 0000">
+            </label>
+          </div>
+          <div class="cash-fields" id="withdrawCryptoFields" hidden>
+            <div class="coin-grid compact" id="withdrawCoinGrid"></div>
+            <div class="cash-field">
+              <label class="field-label" for="withdrawNetwork">Сеть перевода</label>
+              <select class="seed-input" id="withdrawNetwork"></select>
+            </div>
+            <label class="cash-field">
+              <span class="field-label">Адрес кошелька</span>
+              <input class="seed-input cash-mono" id="withdrawAddress" type="text"
+                     autocomplete="off" spellcheck="false" placeholder="Вставьте адрес">
+            </label>
+            <p class="coin-note">Проверьте адрес и сеть. Перевод в блокчейне
+              необратим: ошибка в адресе означает потерю средств.</p>
+            <div class="rate-line" id="withdrawRate"></div>
+          </div>
+          <button class="cash-cta" id="withdrawSubmit"><span>Вывести</span><span data-cash-ico="arrow"></span></button>
+          <p class="cash-fine">Сумма резервируется сразу. Пока заявку не взяли в работу, её можно
+            отменить, и деньги вернутся на баланс.</p>
+        </div>
+
+        <h2 class="cash-h2">История выводов</h2>
+        <div class="cash-list" id="payoutList"></div>
+      </div>
+    </section>
+
+    <!-- ══════════ БОНУСЫ ══════════ -->
+    <!-- ══════════ FREE MONEY ══════════
+
+         Всё бесплатное в одном месте: розыгрыш, бесплатный кейс, два колеса,
+         бот, промокод, подарки и медали. Раздела «Бонусы» больше нет - он
+         целиком здесь, и пункт «Бонусы» в меню ведёт сюда (решение
+         заказчика).
+
+         ПОРЯДОК. Сверху то, что можно сделать прямо сейчас: «Ваши подарки»
+         (появляются, только если есть что открыть). Дальше главный приз -
+         розыгрыш автомобиля, затем то, что даётся за игру (кейс «Начало»),
+         затем колёса, бот как источник кодов, поле промокода и медали.
+         Ивенты собирает renderFreeMoney() в app.js, разделитель - заголовок
+         с номером, а не линия: каждый блок читается как отдельное событие.
+
+         Lucky Fortune при заходе ВСЕГДА возвращается к обложке: раздел - это
+         витрина, а не сохранённая игра (openFreeMoney). -->
+    <section class="view" id="view-freemoney">
+
+      <!-- Стрелка назад ведёт на главную (решение заказчика): из раздела,
+           открытого с баннера или из бота, иначе выходили только через меню. -->
+      <div class="fm-head">
+        <button class="opener-close fm-back" id="fmBack" data-ico="back" aria-label="На главную"></button>
+        <h1 class="fm-title">Free money</h1>
+      </div>
+
+      <!-- Вкладки-якоря: быстрый переход к ивенту. Список собирается кодом из
+           тех ивентов, что сейчас на странице; липнут прямо под шапкой. -->
+      <nav class="fm-tabs" id="fmTabs" aria-label="Ивенты"></nav>
+
+      <!-- Бенто: плитки разной ширины в одной сетке. Порядок здесь - порядок
+           на телефоне; «Начало» и бот стоят парой в одном ряду. -->
+      <div class="fm-bento">
+      <section class="fm-tile fm-drive" id="fmDrive" data-tab="Dream Car"></section>
+
+      <section class="fm-tile fm-start" id="fmStart" data-tab="Начало"></section>
+
+      <section class="fm-tile fm-bot" id="fmBot" data-tab="Бот"></section>
+
+      <section class="fm-tile fm-wheel" id="fmWheel" data-tab="Колесо удачи"></section>
+
+      <!-- ---------- Ивент: Lucky Fortune ---------- -->
+      <section class="fm-tile fm-fortune" id="fmFortune" data-tab="Lucky Fortune">
+        <div class="fm-tile-head"><h2 class="fm-tile-title">Lucky Fortune</h2>
+          <span class="fm-tile-note">5 прокрутов за пополнение от 500 ₽</span></div>
+        <div class="fortune-page">
+
+          <!-- Витрина -->
+          <div class="fortune-intro" id="fortuneIntro">
+            <!-- Витрина нарисована разметкой, а не картинкой: колесо на ней -
+                 то же, что крутится на сцене (renderFortuneArt). -->
+            <div class="fortune-card">
+              <div class="fortune-card-img fc-hero" role="img" aria-label="Lucky Fortune">
+                <div class="fc-art">
+                  <svg class="fc-wheel" id="fortuneMini" viewBox="-50 -50 100 100" aria-hidden="true"></svg>
+                  <span class="fc-gloss" aria-hidden="true"></span>
+                  <span class="fc-hub" aria-hidden="true"><span class="fh-core"><i>✦</i><b>SPIN</b></span></span>
+                </div>
+                <div class="fc-text">
+                  <div class="fc-logo">LUCKY<span>FORTUNE</span></div>
+                  <p class="fc-lead">Забирайте крутые бонусы каждый день</p>
+                  <ul class="fc-prizes">
+                    <li>Кейс в подарок</li>
+                    <li>Удвоитель ×2</li>
+                    <li>+% к пополнению</li>
+                    <li id="fortuneVoucherChip">Ваучер до 1 500 ₽</li>
+                    <li class="is-gold" id="fortuneCashChip">2 000 ₽</li>
+                  </ul>
+                </div>
+              </div>
+              <button class="fortune-card-go" id="fortuneGo">Продолжить</button>
+            </div>
+          </div>
+
+          <!-- Колесо -->
+          <div class="fortune-stage" id="fortuneStage" hidden>
+            <div class="fortune-head">
+              <h2 class="fortune-title">LUCKY <span>FORTUNE</span></h2>
+              <p class="fortune-sub">Забирайте крутые бонусы каждый день</p>
+            </div>
+
+            <div class="fortune-wheel-box">
+              <span class="fortune-aura" aria-hidden="true"></span>
+              <svg class="fortune-wheel" id="fortuneWheel" viewBox="-50 -50 100 100" aria-hidden="true"></svg>
+              <!-- Блик-купол и указатель неподвижны: стекло и стрелка не
+                   крутятся вместе с секторами. -->
+              <span class="fortune-gloss" aria-hidden="true"></span>
+              <span class="fortune-pin" aria-hidden="true"><svg viewBox="0 0 36 44">
+                <defs><linearGradient id="fpG" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0" stop-color="#fff6c4"/><stop offset="0.5" stop-color="#ffc83a"/><stop offset="1" stop-color="#9a5a08"/></linearGradient>
+                  <radialGradient id="fpR" cx="0.38" cy="0.32" r="0.7">
+                  <stop offset="0" stop-color="#ffd0dc"/><stop offset="0.45" stop-color="#ff2f6d"/><stop offset="1" stop-color="#7a0428"/></radialGradient></defs>
+                <path d="M2 22 L30 4 Q35 2 35 8 V36 Q35 42 30 40 Z" fill="url(#fpG)" stroke="#5a2a00" stroke-width="1.2"/>
+                <circle cx="25" cy="22" r="6.2" fill="url(#fpR)" stroke="#5a2a00" stroke-width="1"/>
+                <circle cx="23" cy="20" r="1.8" fill="#fff" opacity="0.8"/>
+              </svg></span>
+              <button class="fortune-hub" id="fortuneSpin" aria-label="Крутить">
+                <span class="fh-core"><i aria-hidden="true">✦</i><b>SPIN</b></span>
+              </button>
+            </div>
+
+            <div class="fortune-status" id="fortuneStatus"></div>
+            <div class="fortune-log" id="fortuneLog"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Подарки - в конце и свёрнуты кнопкой (решение заказчика: витрина
+           с десятками плиток портила вид раздела). -->
+      <section class="fm-tile fm-gifts" id="fmGifts" data-tab="Подарки" hidden>
+        <button class="fm-gifts-toggle" id="fmGiftsToggle" type="button" aria-expanded="false" aria-controls="fmGiftsBody">
+          <span class="fm-gifts-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="2" stroke-linejoin="round" stroke-linecap="round"><rect x="3.5" y="8" width="17" height="4" rx="1"/>
+            <path d="M5 12v8h14v-8M12 8v12M12 8C10.5 4.5 7 4.5 7 6.5S10 8 12 8Zm0 0c1.5-3.5 5-3.5 5-1.5S14 8 12 8Z"/></svg></span>
+          <span class="fm-gifts-txt"><b>Ваши подарки</b><small id="fmGiftsSum"></small></span>
+          <span class="fm-gifts-chev" aria-hidden="true"></span>
+        </button>
+        <div class="fm-gifts-body" id="fmGiftsBody" hidden>
+          <div class="perk-bar" id="bonusPerks" hidden></div>
+          <div class="fm-gift-row" id="bonusList"></div>
+        </div>
+      </section>
+
+      </div>
+
+    </section>
+
+    <!-- ══════════ СЛОТЫ ══════════ -->
+    <!--
+      Раздел пустой намеренно: и полку игр, и экран слота собирает
+      public/slots.js при открытии. Держать разметку здесь бессмысленно - она
+      зависит от описания игры, которое приходит с сервера (символы, линии,
+      ставки, джекпоты, пути к картинкам), и половина её всё равно строилась
+      бы кодом. Игр в разделе больше одной, и разметка у них разная.
+    -->
+    <!-- ══════════ КАЗИНО ══════════ -->
+    <!-- Лобби игр провайдеров собирает public/casino.js при открытии раздела. -->
+    <section class="view" id="view-casino">
+      <!-- Меню вкладок по образцу 1Win: Слоты, Live казино, Быстрые игры.
+           Кнопки рисует public/casino.js. -->
+      <div class="cz-seg" id="czSeg" role="tablist"></div>
+
+      <!-- Баннеры казино: то же слайд-шоу, что на главной, и пара под ним.
+           На месте «Казино» здесь «Кейсы»: из казино ведём в кейсы. На
+           внутренних экранах (категория, провайдер) баннеры прячутся. -->
+      <div class="cz-banners" id="czBanners">
+        <div class="hero cz-hero" id="czHero">
+          <div class="hero-slides">
+            <img src="/assets/ui/hero-jackpot.webp" srcset="/assets/responsive/ui/hero-jackpot-640.webp 640w, /assets/responsive/ui/hero-jackpot-960.webp 960w, /assets/ui/hero-jackpot.webp 1600w" sizes="(min-width: 1100px) 55vw, 94vw" width="1600" height="800" alt="Большие джекпоты каждый день" class="hero-img active" data-ms="10000" data-go="popular">
+            <img data-src="/assets/ui/hero-1.webp" data-srcset="/assets/responsive/ui/hero-1-640.webp 640w, /assets/responsive/ui/hero-1-960.webp 960w, /assets/ui/hero-1.webp 1600w" sizes="(min-width: 1100px) 55vw, 94vw" width="1600" height="800" alt="Lucky Energy" class="hero-img" loading="lazy" data-ms="3000">
+            <img data-src="/assets/ui/hero-2.webp" data-srcset="/assets/responsive/ui/hero-2-640.webp 640w, /assets/responsive/ui/hero-2-960.webp 960w, /assets/ui/hero-2.webp 1600w" sizes="(min-width: 1100px) 55vw, 94vw" width="1600" height="800" alt="Официальные спонсоры Формула-1" class="hero-img" loading="lazy" data-ms="3000">
+            <img data-src="/assets/ui/hero-3.webp" data-srcset="/assets/responsive/ui/hero-3-640.webp 640w, /assets/responsive/ui/hero-3-960.webp 960w, /assets/ui/hero-3.webp 1600w" sizes="(min-width: 1100px) 55vw, 94vw" width="1600" height="800" alt="Партнёры международной федерации тенниса" class="hero-img" loading="lazy" data-ms="3000">
+          </div>
+          <div class="hero-dots" id="czHeroDots"></div>
+        </div>
+        <div class="promo-pair cz-promo">
+          <button class="promo-wide" id="czPromoFortune" aria-label="Free Money">
+            <img data-src="/assets/ui/promo-wide.webp" data-srcset="/assets/responsive/ui/promo-wide-240.webp 240w, /assets/responsive/ui/promo-wide-480.webp 480w, /assets/ui/promo-wide.webp 1600w" sizes="(min-width:1100px) 300px, 70vw" alt="Free money: разыгрываем Rolls-Royce Wraith">
+          </button>
+          <button class="promo-square" id="czPromoCases" aria-label="Кейсы">
+            <img data-src="/assets/ui/promo-cases.webp" data-srcset="/assets/responsive/ui/promo-cases-240.webp 240w, /assets/responsive/ui/promo-cases-480.webp 480w, /assets/ui/promo-cases.webp 900w" sizes="(min-width:1100px) 300px, 24vw" alt="Кейсы LUCKYBOX">
+          </button>
+        </div>
+      </div>
+
+      <div class="cz" id="casinoRoot"></div>
+    </section>
+
+    <section class="view" id="view-slots">
+      <div id="slotShelf"></div>
+      <div id="slotRoot" hidden></div>
+    </section>
+
+    <!-- ══════════ ПАРТНЁРУ ══════════ -->
+    <section class="view" id="view-partner">
+      <div class="game-head">
+        <h1 class="game-title">ПАРТНЁРУ</h1>
+        <p class="game-sub">Статистика по игрокам, пришедшим по вашим промокодам.</p>
+      </div>
+      <div id="partnerBody"></div>
+    </section>
+
+    <!-- ══════════ ПАНЕЛЬ УПРАВЛЕНИЯ ══════════ -->
+    <!--
+      Разделы и их видимость решает сервер: /api/admin/me отдаёт список прав,
+      и кнопка раздела, на который права нет, не рисуется вовсе. Это удобство,
+      а не защита - защита стоит на каждой ручке.
+    -->
+    <section class="view" id="view-admin">
+      <header class="bo-head">
+        <div>
+          <h1 class="bo-title">Панель управления</h1>
+          <div class="bo-who" id="boWho"></div>
+        </div>
+        <div class="bo-head-actions">
+          <button class="btn btn-sm" id="boRefresh">Обновить</button>
+        </div>
+      </header>
+
+      <!-- Подтверждение входа в служебном боте. Пока оно не пройдено, панель
+           скрыта: сервер всё равно ответит 403 на любой её запрос. -->
+      <div class="bo-gate" id="boGate" hidden></div>
+
+      <div class="bo-shell" id="boShell">
+        <nav class="bo-nav" id="boNav"></nav>
+        <div class="bo-body">
+          <div class="admin-pane active" id="admin-overview"></div>
+          <div class="admin-pane" id="admin-reports"></div>
+          <div class="admin-pane" id="admin-funnel">
+            <div class="admin-tabs" id="funnelPeriod">
+              <button class="tab" data-funnel-days="1">Сутки</button>
+              <button class="tab active" data-funnel-days="7">Неделя</button>
+              <button class="tab" data-funnel-days="30">Месяц</button>
+            </div>
+            <div id="funnelBody"></div>
+          </div>
+
+          <div class="admin-pane" id="admin-users">
+            <div class="admin-search">
+              <input class="seed-input" id="adminSearch" placeholder="почта, ник, имя или Telegram ID">
+              <button class="btn btn-sm" id="adminSearchBtn">Найти</button>
+            </div>
+            <div id="adminUserList"></div>
+          </div>
+
+          <div class="admin-pane" id="admin-payouts">
+            <div class="admin-tabs" id="payoutFilter">
+              <button class="tab active" data-payout-status="pending">Ожидают</button>
+              <button class="tab" data-payout-status="processing">В работе</button>
+              <button class="tab" data-payout-status="paid">Выплачены</button>
+              <button class="tab" data-payout-status="rejected">Отклонены</button>
+              <button class="tab" data-payout-status="all">Все</button>
+            </div>
+            <div id="payoutAdminList"></div>
+          </div>
+
+          <div class="admin-pane" id="admin-deposits"></div>
+          <div class="admin-pane" id="admin-risk"></div>
+          <div class="admin-pane" id="admin-promos"></div>
+          <div class="admin-pane" id="admin-partners"></div>
+          <div class="admin-pane" id="admin-feed"></div>
+          <div class="admin-pane" id="admin-settings"></div>
+          <div class="admin-pane" id="admin-staff"></div>
+          <div class="admin-pane" id="admin-journal"></div>
+          <div class="admin-pane" id="admin-casino"></div>
+        </div>
+      </div>
+
+      <div class="admin-detail" id="adminDetail" hidden></div>
+    </section>
+
+
+    <!-- Экран кейса.
+         Лежит внутри <main> намеренно. На телефоне это слой во весь экран
+         (position: fixed), и место в разметке ему безразлично. На компьютере
+         он становится обычной частью страницы, чтобы вокруг остались шапка,
+         боковое меню и подвал: страница кейса без них выглядела пустым полем.
+         Снаружи <main> так сделать нельзя - подвал стоит после него. -->
+    <!-- Загрузка между нажатием на кейс и его экраном (openCase). -->
+    <div class="case-loader" id="caseLoader" hidden role="status" aria-live="polite"><div class="case-loader-card"><div class="case-loader-orbit" aria-hidden="true"><i></i><span>✦</span></div><b>Загружаем кейс</b><span id="caseLoaderName"></span></div></div>
+    <div class="opener" id="opener" hidden>
+    <!-- Тематический фон кейса: сюда уезжает его же обложка. -->
+    <div class="opener-theme" id="openerTheme" aria-hidden="true"></div>
+    <!-- Фон бонусной серии: проявляется поверх темы, пока идут фриспины. -->
+    <div class="opener-bonus" aria-hidden="true"></div>
+    <div class="opener-scroll">
+      <div class="opener-inner">
+
+        <div class="opener-top">
+          <!-- Логотип проекта вместо прежней молнии: молния была случайным
+               значком, а логотип здесь и есть подпись экрана. -->
+          <div class="opener-brand">
+            <img data-src="/assets/ui/logo.webp" alt="LUCKYBOX" class="opener-logo">
+            <div class="opener-viewers" id="openerViewers"></div>
+          </div>
+          <button class="opener-close" id="closeOpenerTop" data-ico="back" aria-label="Закрыть"></button>
+        </div>
+
+        <div class="opener-case" id="openerCaseName"></div>
+
+        <div class="opener-balance">
+          <span class="opener-balance-ico" data-ico="coin"></span>
+          <span>Баланс</span>
+          <button id="openerBalance" class="opener-wallet-button" type="button" aria-label="Выбрать счёт">-</button>
+        </div>
+
+        <!-- Обряд открытия: сначала на экране стоит сам кейс, лента
+             появляется только после того, как его тряхнуло. -->
+        <div class="case-stage" id="caseStage" hidden>
+          <div class="case-stage-dust" id="caseStageDust" aria-hidden="true"></div>
+          <!-- Кейсов на сцене столько же, сколько открывают: выбрал ×3 -
+               стоят три. -->
+          <div class="case-stage-row" id="caseStageRow"></div>
+          <div class="case-stage-hint" id="caseStageHint"></div>
+        </div>
+
+        <div class="reels" id="reels"></div>
+
+        <div class="batch-summary" id="batchSummary" hidden></div>
+
+        <!-- Серия автооткрытий: показывается вместо панели кейса, пока идёт
+             прокрут за прокрутом. -->
+        <div class="auto-panel" id="autoPanel" hidden>
+          <div class="auto-head">
+            <span class="auto-left" id="autoLeft"></span>
+            <button class="btn btn-outline btn-sm" id="autoStop">СТОП</button>
+          </div>
+          <!-- Тот же ряд 10 / 25 / 50, что под кнопкой открытия: серия
+               останавливается нажатием на своё же число, а не только «СТОП». -->
+          <div class="auto-row auto-run-row" id="autoRunRow"></div>
+          <div class="auto-total" id="autoTotal">0 ₽</div>
+          <div class="auto-sub">выигрыш за серию</div>
+          <div class="auto-log" id="autoLog"></div>
+        </div>
+
+        <div class="case-panel" id="casePanel">
+          <!-- Управление открытием одной строкой: икс, кнопка с ценой, авто. -->
+          <div class="open-bar">
+            <div class="open-stepper" id="countRow">
+              <button class="step-btn" data-step="-1" aria-label="Меньше кейсов">&minus;</button>
+              <b class="step-val" id="countVal">&times;1</b>
+              <button class="step-btn" data-step="1" aria-label="Больше кейсов">+</button>
+            </div>
+            <button class="open-cta" id="doOpenBtn">
+              <span class="open-act"><span id="openAct">Открыть</span><small id="openSub"></small></span>
+              <span class="open-price" id="openPrice"></span>
+            </button>
+            <button class="open-auto" id="autoToggle" aria-label="Автооткрытие" aria-pressed="false">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12a8 8 0 0 1-14 5.3"/><path d="M4 12a8 8 0 0 1 14-5.3"/><path d="M18 3v4h-4"/><path d="M6 21v-4h4"/></svg>
+              <small id="autoBadge"></small>
+            </button>
+          </div>
+          <div class="auto-row" id="autoRow"></div>
+          <!-- Покупка фриспинов: серия прокрутов сразу. -->
+          <div class="fsbuy" id="fsBuy" aria-label="Купить серию фриспинов" hidden>
+            <div class="fsbuy-row" id="fsBuyRow"></div>
+          </div>
+
+          <div class="drops-head">
+            <span>Содержимое</span>
+            <span id="dropsCount"></span>
+          </div>
+          <div class="drops-grid" id="dropsGrid"></div>
+        </div>
+
+        <div class="freespins" id="freespins" hidden>
+          <div class="fs-emblem" id="fsEmblem" aria-hidden="true"></div>
+          <div class="fs-head">
+            <div class="fs-title">ФРИСПИНЫ</div>
+            <div class="fs-left" id="fsLeft"></div>
+          </div>
+          <div class="fs-total" id="fsTotal">0 ₽</div>
+          <div class="fs-sub">выигрыш с фриспинов</div>
+          <div class="fs-pips" id="fsPips" aria-hidden="true"></div>
+          <div class="reel-wrap fs-reel-wrap">
+            <div class="reel-marker"></div>
+            <div class="reel-fade reel-fade-l"></div>
+            <div class="reel-fade reel-fade-r"></div>
+            <div class="reel" id="fsReel"></div>
+          </div>
+          <div class="fs-log" id="fsLog"></div>
+          <div class="fs-verdict" id="fsVerdict"></div>
+          <button class="open-cta fs-collect" id="fsCollect" hidden>ЗАБРАТЬ</button>
+        </div>
+
+        <div class="result" id="result" hidden>
+          <div class="result-tier" id="resultTier"></div>
+          <div class="result-name" id="resultName"></div>
+          <div class="result-value" id="resultValue"></div>
+          <div class="result-net" id="resultNet"></div>
+          <!-- «Ещё раз» той же золотой кнопкой, что и «Открыть»: это то же
+               действие, и игрок узнаёт его по виду, а не по надписи. -->
+          <div class="result-actions">
+            <button class="take-btn" id="closeOpener">Забрать</button>
+            <button class="open-cta again-cta" id="againBtn">
+              <span class="open-act"><span id="againAct">Ещё раз</span><small id="againSub"></small></span>
+              <span class="open-price" id="againPrice"></span>
+            </button>
+          </div>
+          <!-- Риск - предложение, а не главное действие: кнопка меньше
+               остальных и стоит под ними. -->
+          <button class="gamble-cta" id="gambleStartBtn" hidden></button>
+        </div>
+
+        <div class="gamble" id="gamble" hidden>
+          <div class="gamble-rules" id="gambleRules"></div>
+          <div class="gamble-table">
+            <div class="gamble-cards" id="gambleCards"></div>
+            <div class="gamble-fx" id="gambleFx" aria-hidden="true"></div>
+          </div>
+          <div class="gamble-outcome" id="gambleOutcome"></div>
+          <button class="take-btn take-wide" id="gambleSkipBtn">Забрать без риска</button>
+        </div>
+
+        <div class="opener-history" id="openerHistory"></div>
+
+      </div>
+    </div>
+  </div>
+  </main>
+
+  <footer class="site-footer" id="siteFooter"></footer>
+
+  <!-- Читалка правовых документов -->
+  <div class="doc-backdrop" id="docBackdrop" hidden>
+    <div class="doc-sheet">
+      <div class="doc-head">
+        <h2 class="doc-title" id="docTitle"></h2>
+        <button class="opener-close" id="docClose" data-ico="back" aria-label="Закрыть"></button>
+      </div>
+      <div class="doc-body" id="docBody"></div>
+    </div>
+  </div>
+
+  <!-- Экран открытия кейса -->
+
+  <!-- Покупка фриспинов: сцена, а не окно. Плитка пачки срывается с места
+       и становится крупным жетоном, вокруг кружат жетоны по числу прокрутов,
+       ниже - что покупается и за сколько. -->
+  <div class="buy-scene" id="buyBackdrop" hidden>
+    <div class="bs-dim"></div>
+    <div class="bs-rays" aria-hidden="true"></div>
+    <div class="bs-body">
+      <div class="bs-stage">
+        <div class="bs-orbit" id="buyOrbit" aria-hidden="true"></div>
+        <div class="bs-token" id="buyArt" aria-hidden="true"></div>
+      </div>
+      <div class="bs-info">
+        <div class="bs-eyebrow">серия фриспинов</div>
+        <div class="bs-title" id="buyTitle"></div>
+        <div class="bs-case" id="buyCase"></div>
+        <div class="bs-rows" id="buyRows"></div>
+        <div class="bs-note" id="buyNote"></div>
+      </div>
+      <div class="bs-actions">
+        <button class="take-btn" id="buyCancel">Отмена</button>
+        <button class="open-cta" id="buyConfirm">
+          <span class="open-act"><span>Купить</span><small id="buySub"></small></span>
+          <span class="open-price" id="buyPrice"></span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Первый заход: три экрана, объясняющие правила и первый шаг.
+       Показывается один раз, отметка живёт в localStorage. -->
+  <!-- Вход, регистрация, сброс пароля и профиль: одно окно, разные панели
+       (data-auth-pane). Код - блок «ВХОД НА САЙТ» в app.js. -->
+  <div class="auth-backdrop" id="authBackdrop" hidden>
+    <div class="auth-card" role="dialog" aria-modal="true" aria-labelledby="authTitle">
+      <button class="auth-close" id="authClose" aria-label="Закрыть">&times;</button>
+      <img data-src="/assets/ui/logo.webp" alt="LUCKYBOX" class="auth-logo">
+      <div class="auth-title" id="authTitle">Вход</div>
+
+      <div class="auth-tabs" id="authTabs">
+        <button class="auth-tab" data-auth-tab="login">Вход</button>
+        <button class="auth-tab" data-auth-tab="register">Регистрация</button>
+      </div>
+
+      <form class="auth-form" id="authForm" novalidate>
+        <label class="auth-field" data-auth-field="nick">
+          <span>Ник</span>
+          <input id="authNick" name="nick" autocomplete="nickname" maxlength="24" placeholder="Как вас показывать в ленте">
+        </label>
+        <label class="auth-field" data-auth-field="email">
+          <span>Почта</span>
+          <input id="authEmail" name="email" type="email" autocomplete="email" inputmode="email" placeholder="you@mail.ru">
+        </label>
+        <label class="auth-field" data-auth-field="current">
+          <span>Текущий пароль</span>
+          <input id="authCurrent" name="current" type="password" autocomplete="current-password">
+        </label>
+        <label class="auth-field" data-auth-field="password">
+          <span id="authPasswordLabel">Пароль</span>
+          <span class="auth-pass">
+            <input id="authPassword" name="password" type="password" autocomplete="current-password" placeholder="Не короче 8 символов">
+            <button type="button" class="auth-eye" id="authEye" aria-label="Показать пароль" data-ico="eye"></button>
+          </span>
+        </label>
+        <!-- Промокод вводится только здесь, при регистрации: отдельного поля
+             в разделах нет (решение заказчика). -->
+        <label class="auth-field" data-auth-field="promo">
+          <span>Промокод <small class="auth-opt">если есть</small></span>
+          <input id="authPromo" name="promo" maxlength="32" autocomplete="off" autocapitalize="characters"
+                 spellcheck="false" placeholder="Необязательно">
+        </label>
+        <label class="auth-check" data-auth-field="adult">
+          <input type="checkbox" id="authAdult">
+          <span>Мне есть 18 лет, я принимаю <a href="#" data-doc="terms">пользовательское соглашение</a></span>
+        </label>
+        <div class="auth-error" id="authError" role="alert" hidden></div>
+        <div class="auth-note" id="authNote" hidden></div>
+        <button type="submit" class="btn btn-primary auth-submit" id="authSubmit">Войти</button>
+        <button type="button" class="auth-link" id="authForgot">Забыли пароль?</button>
+      </form>
+
+      <div class="auth-or" id="authOr" hidden><span>или</span></div>
+      <!-- Сюда app.js вставляет официальный виджет Telegram Login. -->
+      <div class="auth-tg" id="authTelegram" hidden></div>
+      <!-- «Уже зарегистрированы? Войти» и обратно: вместо вкладок сверху. -->
+      <div class="auth-switch" id="authSwitch" hidden></div>
+
+      <!-- Профиль: как игрок входит и что ещё можно привязать. -->
+      <div class="auth-account" id="authAccount" hidden><small class="acc-id" id="accId"></small>
+        <div class="acc-row"><span>Ник</span><b id="accNick">-</b></div>
+        <div class="acc-row"><span>Почта</span><b id="accEmail">-</b></div>
+        <div class="acc-row"><span>Telegram</span><b id="accTelegram">-</b></div>
+        <div class="acc-hint" id="accTgHint" hidden>Привяжите Telegram: за подписку на наш канал
+          полагается бесплатный кейс, а бот напомнит о недокрученных фриспинах.</div>
+        <div class="auth-tg" id="accTelegramWidget" hidden></div>
+        <button class="btn btn-outline btn-wide" id="accPassword">Сменить пароль</button>
+        <button class="btn btn-outline btn-wide acc-logout" id="accLogout">Выйти</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="wallet-sheet" id="walletSheet" hidden aria-label="Ваши счета">
+    <div class="wallet-sheet-head"><b>Мои счета</b><button id="walletSheetCashier" class="btn btn-primary btn-sm" type="button">Касса</button></div>
+    <button class="wallet-choice" data-wallet="real" type="button"><span>Основной счёт<small>Доступен для вывода</small></span><b id="walletRealAmount"></b></button>
+    <button class="wallet-choice bonus-choice" data-wallet="bonus" type="button"><span>Бонусный счёт<small id="walletWager"></small></span><b id="walletBonusAmount"></b></button>
+    <button id="walletPending" class="wallet-pending" type="button" hidden></button>
+  </div>
+  <div class="onb-backdrop" id="onbBackdrop" hidden>
+    <div class="onb-card">
+      <div class="onb-art" id="onbArt" aria-hidden="true"></div>
+      <div class="onb-title" id="onbTitle"></div>
+      <div class="onb-text" id="onbText"></div>
+      <div class="onb-dots" id="onbDots"></div>
+      <div class="onb-actions">
+        <button class="btn btn-outline" id="onbSkip">Пропустить</button>
+        <button class="btn btn-primary" id="onbNext">Дальше</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Выигрыш из ленты: что выпало и из какого кейса. Сцена, а не окно:
+       карточка срывается с ленты, переворачивается, и за ней из света
+       поднимается кейс, из которого она выпала. -->
+  <div class="feed-scene" id="feedBackdrop" hidden>
+    <div class="fsc-dim"></div>
+    <div class="fsc-sky" aria-hidden="true"><div class="fsc-rays"></div><div class="fsc-rays is-back"></div></div>
+    <div class="fsc-motes" id="feedSheetMotes" aria-hidden="true"></div>
+    <div class="fsc-body">
+      <div class="fsc-stage">
+        <div class="fsc-cover" id="feedSheetCover"></div>
+        <div class="fsc-beam" aria-hidden="true"></div>
+        <div class="fsc-card" id="feedSheetCard"></div>
+      </div>
+      <div class="fsc-info">
+        <div class="fsc-tier" id="feedSheetTier"></div>
+        <div class="result-name fsc-name" id="feedSheetName"></div>
+        <div class="fsc-value" id="feedSheetValue"></div>
+        <div class="fsc-from"><span>выпал из кейса</span></div>
+        <div class="fsc-case" id="feedSheetCase"></div>
+      </div>
+      <div class="fsc-actions">
+        <button class="take-btn" id="feedSheetClose">Закрыть</button>
+        <button class="open-cta" id="feedSheetOpen">
+          <span class="open-act"><span>Открыть кейс</span><small id="feedSheetSub"></small></span>
+          <span class="open-price" id="feedSheetPrice"></span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ ОКНО «ВЫПОЛНИТЕ 2 ШАГА» ══════════
+
+       Показывается, когда крутить нельзя: не пополнял, или цикл из пяти
+       прокрутов израсходован. Состояния шагов живые, поэтому панель собрана
+       разметкой, а из присланной картинки взята только верхняя иллюстрация -
+       нарисованный на ней крестик стёрт, своя кнопка закрытия стоит поверх. -->
+  <div class="confirm-backdrop fortune-steps-backdrop" id="fortuneStepsBackdrop" hidden>
+    <div class="fortune-steps">
+      <button class="fortune-steps-close" id="fortuneStepsClose" aria-label="Закрыть">×</button>
+      <!-- Шапка окна - верх того же колеса, что на сцене, а не старая картинка. -->
+      <div class="fortune-steps-art" aria-hidden="true">
+        <svg class="fsa-wheel" id="fortuneStepsWheel" viewBox="-50 -50 100 100"></svg>
+        <span class="fsa-gloss"></span>
+        <span class="fc-hub fsa-hub"><span class="fh-core"><i>✦</i><b>SPIN</b></span></span>
+      </div>
+
+      <div class="fortune-steps-panel">
+        <h2 class="fortune-steps-title">Выполните <b>2 шага</b></h2>
+        <p class="fortune-steps-lead">и крутите Колесо фортуны</p>
+
+        <div class="fortune-step" id="fortuneStep1" data-no="1">
+          <span class="fortune-step-mark">1</span>
+          <span class="fortune-step-body">
+            <span class="fortune-step-no">ШАГ 1</span>
+            <span class="fortune-step-name">Зарегистрироваться</span>
+          </span>
+          <span class="fortune-step-flag"></span>
+        </div>
+
+        <!-- Пояснение вынесено из текстового столбца отдельной строкой сетки:
+             внутри столбца оно делило ширину с отметкой «Выполнено», и
+             название переносилось по слову. -->
+        <div class="fortune-step" id="fortuneStep2" data-no="2">
+          <span class="fortune-step-mark">2</span>
+          <span class="fortune-step-body">
+            <span class="fortune-step-no">ШАГ 2</span>
+            <span class="fortune-step-name" id="fortuneStep2Name"></span>
+          </span>
+          <span class="fortune-step-flag"></span>
+          <span class="fortune-step-note" id="fortuneStep2Note"></span>
+        </div>
+
+        <button class="btn btn-primary fortune-steps-go" id="fortuneStepsGo"></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Окно выигрыша Lucky Fortune: сцена, у каждого вида приза своя
+       композиция (showFortuneWin). Закрывается кнопкой, нажатием мимо и сама
+       через FORTUNE_WIN_MS: ничто не ждёт нажатия вечно. -->
+  <div class="confirm-backdrop fortune-win-backdrop" id="fortuneWinBackdrop" hidden>
+    <div class="fortune-win">
+      <div class="fw-stage">
+        <div class="fw-rays"></div>
+        <div class="fw-ring"></div>
+        <div class="fortune-win-art" id="fortuneWinArt"></div>
+      </div>
+      <div class="fortune-win-kind" id="fortuneWinKind"></div>
+      <div class="fortune-win-value" id="fortuneWinValue"></div>
+      <div class="fortune-win-note" id="fortuneWinNote"></div>
+      <button class="fw-take" id="fortuneWinClose">Забрать</button>
+    </div>
+  </div>
+
+  <!-- Слой праздничных эффектов: салют, конфетти, вспышки. -->
+  <div class="fx-layer" id="fxLayer" aria-hidden="true"></div>
+
+  <div class="toast" id="toast" hidden></div>
+
+  <script type="module" data-app-entry src="/release-20261101-launch-guard/app.js"></script>
+  <!-- Казино: окно запуска игры и экран самой игры (public/casino.js). -->
+  <div class="cz-sheet" id="czSheet" hidden>
+    <div class="cz-sheet-dim" data-close></div>
+    <div class="cz-sheet-card" role="dialog" aria-modal="true" aria-labelledby="czSheetName">
+      <div class="cz-sheet-art" id="czSheetArt"></div>
+      <div class="cz-sheet-body">
+        <h4 id="czSheetName"></h4>
+        <p id="czSheetProv"></p>
+        <div class="cz-sheet-actions">
+          <button class="take-btn" id="czDemo">Демо</button>
+          <button class="open-cta" id="czPlay"><span class="open-act"><span>Играть</span></span></button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="cz-frame" id="czFrame" hidden>
+    <div class="cz-frame-bar">
+      <button class="cz-frame-close" id="czFrameClose" aria-label="Закрыть игру">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M15 5l-7 7 7 7"/></svg>
+      </button>
+      <span class="cz-frame-name" id="czFrameName"></span>
+      <button id="czFrameHelp" class="cz-frame-help" type="button">Чёрный экран?</button>
+      <span class="cz-frame-balance" id="czFrameBalance"></span>
+    </div>
+    <div class="cz-frame-host" id="czFrameHost"></div>
+    <section class="cz-launch-status" id="czLaunchStatus" aria-label="Загрузка игры" hidden>
+      <img id="czLaunchCover" class="cz-launch-cover" alt="" hidden>
+      <p id="czLaunchText" role="status" aria-live="polite"></p>
+      <div id="czLaunchActions" class="cz-launch-actions" hidden>
+        <button id="czLaunchRetry" type="button">Повторить</button>
+        <button id="czLaunchOther" type="button">Выбрать другую игру</button>
+      </div>
+      <button id="czLaunchDismiss" type="button" hidden>Скрыть сообщение</button>
+    </section>
+
+  </div>
+</body>
+</html>

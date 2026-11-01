@@ -53,10 +53,13 @@ function gatewayDeposit(userId, amount) {
 }
 
 const CASE = getCase('warmup_100') || getCase('dust_25');
-const openCase = (userId) => playCaseRound(userId, CASE,
+const openCase = (userId) => { const result = playCaseRound(userId, CASE,
   (s, c, n) => { const roll = computeRoll(s, c, n); return { item: pickItem(CASE, roll), roll }; },
   // Серия фриспинов крутит свою таблицу, как на сервере (pickItem(..., true)).
   (s, c, n) => { const roll = computeRoll(s, c, n); return { item: pickItem(CASE, roll, true), roll }; });
+  dbm.claimPendingReward(userId);
+  return result;
+};
 
 const sbp = (phone = '79001234567') => ({ method: 'sbp', phone, bank: 'Сбербанк' });
 const verdictOf = (res) => `${res.verdict}: ${res.reasons.join(', ')}`;
@@ -178,6 +181,7 @@ const beforeWager = getUserById(b.id).wager_required;
 const bonusBefore = getUserById(b.id).bonus_balance;
 check('бонуса хватает на ставку', bonusBefore >= CASE.price, String(bonusBefore));
 if (bonusBefore >= CASE.price) {
+  dbm.selectWallet(b.id, 'bonus');
   openCase(b.id);
   const after = getUserById(b.id);
   // Отыгрыш бонуса считается с весом по отдаче кейса, как и долг пополнения.
@@ -196,7 +200,7 @@ check('отказ от бонуса обнуляет бонусный счёт',
 /* ---------- Потолок перевода не поднять окружением ---------- */
 
 process.env.BONUS_CASHOUT_PCT = '90';
-check('потолок перевода зажат безопасным пределом', bonusRules().cashoutPct <= 28, String(bonusRules().cashoutPct));
+check('отыгранный бонус переводится без потолка', bonusRules().cashoutPct === 0, String(bonusRules().cashoutPct));
 delete process.env.BONUS_CASHOUT_PCT;
 
 /* ---------- Дыра риск-игры закрыта ---------- */

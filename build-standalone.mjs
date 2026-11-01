@@ -339,7 +339,7 @@ const slotSpecs = inlineUi(read('./server/slots.js'));
  * подстановки в автономной сборке слот был бы пустыми рамками.
  */
 const css = inlineUi(read('./public/styles.css'));
-const html = inlineUi(read('./public/index.html'));
+const html = inlineUi(read('./public/app-shell.html').replace(/\/release-[a-zA-Z0-9-]+\//g, '/')); // Standalone already contains the full application.
 const icons = read('./public/icons.js');
 const covers = read('./public/covers.js');
 const sounds = read('./public/sounds.js');
@@ -369,6 +369,8 @@ const slots = inlineUi(read('./public/slots.js'));
 const casinoUi = inlineUi(read('./public/casino.js'));
 // Знаки провайдеров лежат в assets/ui/ и уезжают внутрь файла через inlineUi.
 const providerLogos = inlineUi(read('./public/provider-logos.js'));
+const startupClient = read('./public/boot.js');
+const adminUi = read('./public/admin-ui.js');
 const app = inlineUi(read('./public/app.js'));
 
 // Тело страницы без внешних подключений - всё уедет внутрь файла.
@@ -376,7 +378,7 @@ const body = html
   .replace(/^[\s\S]*?<body>/, '')
   .replace(/<\/body>[\s\S]*$/, '')
   .replace(/<script[^>]*telegram[^>]*><\/script>/g, '')
-  .replace(/<script[^>]*src="\/app\.js"[^>]*><\/script>/g, '');
+  .replace(/<script[^>]*src="\/app\.js(?:\?[^"]*)?"[^>]*><\/script>/g, '');
 // Баннеров первого экрана здесь нет намеренно: они лежат в assets/ui/ и
 // уезжают внутрь файла общим правилом inlineUi, как баннеры полок.
 
@@ -705,6 +707,7 @@ function load() {
 }
 
 function save() {
+  store.user.walletRevision = (store.user.walletRevision || 0) + 1;
   try { localStorage.setItem(STORE_KEY, JSON.stringify(store)); } catch { /* приватный режим */ }
 }
 
@@ -731,6 +734,19 @@ function startCaseDemo(u) {
   };
 }
 
+function demoWalletKey() { return store.user.activeWallet === 'bonus' ? 'bonusBalance' : 'balance'; }
+function demoHold(amount, wallet = store.user.activeWallet || 'real') {
+  const u = store.user;
+  u.pendingReward ||= { real: 0, bonus: 0 };
+  u.pendingReward[wallet] += amount;
+}
+function demoClaim() {
+  const u = store.user, pending = u.pendingReward || {};
+  u.balance += pending.real || 0;
+  u.bonusBalance = (u.bonusBalance || 0) + (pending.bonus || 0);
+  u.pendingReward = { real: 0, bonus: 0 };
+  if (!(u.wagerRequired > 0) && u.bonusBalance > 0) { u.balance += u.bonusBalance; u.bonusBalance = 0; }
+}
 function publicUser() {
   const u = store.user;
   const start = startCaseDemo(u);
@@ -738,6 +754,8 @@ function publicUser() {
     ...start,
     id: u.id, username: u.username, firstName: u.firstName,
     balance: u.balance,
+    activeWallet: u.activeWallet || 'real', bonusBalance: u.bonusBalance || 0,
+    walletRevision: u.walletRevision || 0, pendingReward: u.pendingReward || { real: 0, bonus: 0 },
     // Кнопка «Админ» скрыта: в рабочей версии её видят только владельцы из
     // ADMIN_TG_IDS и ADMIN_EMAILS и заведённые ими сотрудники. Посмотреть панель в демо - demoAdmin() в консоли.
     isAdmin: !!store.showAdmin,
@@ -877,7 +895,7 @@ function partnerCabinetRow(s) {
 function consumeWager(bet) {
   const u = store.user;
   if (bet > 0) {
-    u.wagerRequired = Math.max(0, (u.wagerRequired || 0) - Math.round(bet));
+    if (u.activeWallet === 'bonus') u.wagerRequired = Math.max(0, (u.wagerRequired || 0) - Math.round(bet));
     // Ставка открывает вывод: то же правило, что на сервере.
     u.wagerProgress = (u.wagerProgress || 0) + Math.round(bet);
   }
@@ -937,7 +955,8 @@ function openOnce(table) {
 
     const spent = free ? 0 : table.price;
     const totalPayout = payout + freeSpinsPayout;
-    u.balance += totalPayout - spent;
+    u[demoWalletKey()] = (u[demoWalletKey()] || 0) - spent;
+    demoHold(totalPayout, free ? 'real' : u.activeWallet || 'real');
     u.stats.rounds++;
     u.stats.spent += spent;
     u.stats.won += totalPayout;
@@ -945,7 +964,7 @@ function openOnce(table) {
       u.stats.bestMultiplier = Math.max(u.stats.bestMultiplier, totalPayout / table.price);
     }
 
-    u.gambleStake = payout > 0 ? payout : 0;
+    u.gambleStake = (u.pendingReward.real || 0) + (u.pendingReward.bonus || 0);
 
     pushRound({
       game: 'case', caseId: table.id, title: table.name,
@@ -1055,11 +1074,11 @@ function demoCasinoRows({ kind = '', provider = '', category = '', q = '' }) {
     && (!re || re.test(g[1]))
     && (cat?.type !== 'new' || g[13] === 1)
     && (!needle || g[1].toLowerCase().includes(needle)));
-  return rows.sort(demoPopular);
+  return demoUnique(rows.sort(demoPopular), rows.length);
 }
 function demoUnique(rows, size) {
   const seen = new Set();
-  return rows.filter((r) => { const k = r[1].toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; }).slice(0, size);
+  return rows.filter((r) => { const k = r[4] + ":" + r[1].trim().toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; }).slice(0, size);
 }
 
 
@@ -1161,7 +1180,12 @@ const routes = {
   // интерфейс из-за счётчика нельзя.
   'POST /api/track': () => ({ ok: true }),
 
+  'POST /api/wallet/select': (body) => {
+    if (!['real', 'bonus'].includes(body.wallet)) return { status: 400, body: {error: 'Неизвестный счёт'} };
+    store.user.activeWallet = body.wallet; save(); return { user: publicUser() };
+  },
   'POST /api/open': (body) => {
+    demoClaim();
     const table = DRAW_BY_ID.get(body.caseId);
     if (!table) return { status: 404, body: { error: 'Кейс не найден' } };
 
@@ -1185,9 +1209,9 @@ const routes = {
     // Ваучеры покрывают первые открытия пачки, остальное платное.
     const need = Math.max(0, count - vouchers) * table.price;
 
-    if (u.balance < need) {
+    if ((u[demoWalletKey()] || 0) < need) {
       return { status: 400, body: { error: 'INSUFFICIENT_FUNDS',
-        message: 'Не хватает ' + (need - u.balance) + ' ед.' } };
+        message: 'Не хватает ' + (need - (u[demoWalletKey()] || 0)) + ' ед.' } };
     }
 
     const opened = [];
@@ -1222,6 +1246,7 @@ const routes = {
     };
   },
   'POST /api/freespins/buy': (body) => {
+    demoClaim();
     const table = DRAW_BY_ID.get(body.caseId);
     if (!table) return { status: 404, body: { error: 'Кейс не найден' } };
 
@@ -1238,13 +1263,15 @@ const routes = {
       cost = down;
     }
     const u = store.user;
-    if (u.balance < cost) {
+    if ((u[demoWalletKey()] || 0) < cost) {
       return { status: 400, body: { error: 'INSUFFICIENT_FUNDS',
-        message: 'Не хватает ' + (cost - u.balance) + ' ед.' } };
+        message: 'Не хватает ' + (cost - (u[demoWalletKey()] || 0)) + ' ед.' } };
     }
 
     const series = runFreeSpinSeries(table, pack.count);
-    u.balance += series.total - cost;
+    u[demoWalletKey()] = (u[demoWalletKey()] || 0) - cost;
+    demoHold(series.total);
+    u.gambleStake = series.total;
     u.stats.rounds++;
     u.stats.spent += cost;
     u.stats.won += series.total;
@@ -1976,10 +2003,12 @@ const routes = {
     const roll = computeRoll(u.serverSeed, u.clientSeed, u.nonce);
     const acePosition = Math.min(Math.floor(roll * CONFIG.gamble.cards), CONFIG.gamble.cards - 1);
     const won = index === acePosition;
-    const payout = won ? stake * CONFIG.gamble.payout : 0;
+    const payout = won ? Math.floor(stake * CONFIG.gamble.payout) : 0;
 
     // Ставка уже на балансе: при выигрыше доначисляем, при промахе снимаем.
-    u.balance += payout - stake;
+    const held = u.pendingReward || { real: stake, bonus: 0 };
+    const bonusPart = stake > 0 ? Math.round(payout * held.bonus / stake) : 0;
+    u.pendingReward = { real: payout - bonusPart, bonus: bonusPart };
     u.gambleStake = 0;
     u.stats.rounds++; u.stats.spent += stake; u.stats.won += payout;
     u.stats.bestMultiplier = Math.max(u.stats.bestMultiplier, won ? CONFIG.gamble.payout : 0);
@@ -1995,6 +2024,7 @@ const routes = {
   },
 
   'POST /api/gamble/skip': () => {
+    demoClaim();
     store.user.gambleStake = 0;
     save();
     return { user: publicUser() };
@@ -2392,7 +2422,7 @@ const routes = {
         let bonus = Math.floor((applied * pd.pct) / 100);
         if (pd.max_bonus > 0) bonus = Math.min(bonus, pd.max_bonus);
         if (bonus > 0) {
-          u.balance += bonus;
+          u.bonusBalance = (u.bonusBalance || 0) + bonus;
           u.bonusGranted = (u.bonusGranted || 0) + bonus;
           u.wagerRequired = (u.wagerRequired || 0) + Math.round(bonus * pd.wager_multiplier);
           u.deposits.unshift({ amount: bonus, source: 'promo',
@@ -2602,6 +2632,10 @@ ${strip(itemArt64)}
 ${hdArt.map(strip).join('\n')}
 
 ${strip(itemArtHd)}
+// В одном файле все темы уже встроены, ждать сетевых модулей не нужно.
+function itemArtReady() { return true; }
+async function preloadItemArt() {}
+function warmItemArt() {}
 
 ${strip(coinArt)}
 
@@ -2613,6 +2647,8 @@ ${strip(providerLogos)}
 
 ${strip(casinoUi)}
 
+${strip(startupClient)}
+${strip(adminUi)}
 ${strip(app)}
 
 /*
@@ -2647,7 +2683,7 @@ const scopes = {
   icons: topLevelNames(icons), covers: topLevelNames(covers),
   sounds: topLevelNames(sounds), legal: topLevelNames(legal),
   casino: topLevelNames(casinoUi), providerLogos: topLevelNames(providerLogos),
-  app: topLevelNames(app),
+  startup: topLevelNames(startupClient), app: topLevelNames(app),
 };
 const clashes = [];
 for (const [aName, aSet] of Object.entries(scopes)) {

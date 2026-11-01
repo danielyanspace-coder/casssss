@@ -57,7 +57,15 @@ export function createCasino(deps) {
 
   const ui = {
     active: false,
+    openSeq: 0,
     polling: false,
+    frameSeq: 0,
+    launchSeq: 0,
+    launching: false,
+    launchTimers: [],
+    requestTimer: 0,
+    launchGame: null,
+    frameLoaded: false,
     lobby: null,           // вкладки, счётчики, провайдеры, отдача
     kind: 'slots',
     home: {},              // блоки лобби по вкладкам, кешируются
@@ -258,7 +266,12 @@ export function createCasino(deps) {
       img.dataset.retried = '1';
       const src = img.getAttribute('src');
       setTimeout(() => {
-        if (ui.active && img.isConnected && !img.dataset.pausedSrc) img.src = `${src}${src.includes('?') ? '&' : '?'}retry=1`;
+        if (!ui.active || !img.isConnected || img.dataset.pausedSrc) return;
+        const retry = `${src}${src.includes('?') ? '&' : '?'}retry=1`;
+        if (ui.launching || !$('czFrame').hidden) {
+          img.dataset.pausedSrc = retry;
+          img.removeAttribute('src');
+        } else img.src = retry;
       }, COVER_RETRY_MS);
       return;
     }
@@ -308,7 +321,7 @@ export function createCasino(deps) {
         </span>
       </span>
       <span class="cz-name">${esc(o.name)}</span>
-      <span class="cz-prov">LUCKYBOX</span>
+      ${liveHtml({ id: `own:${o.view}` })}
     </button>`;
   }
 
@@ -318,16 +331,16 @@ export function createCasino(deps) {
     const own = OWN_FAST.filter((o) => !deps.ownOpen || deps.ownOpen(o.view));
     body.innerHTML = `<div class="cz-grid cz-fast" data-block="fast">
         ${own.map(ownTileHtml).join('')}${ui.fast.map((g) => tileHtml(g, remember(g))).join('')}
-      </div>
-      <p class="cz-note">Отдача игр провайдеров <b>${esc(String(ui.lobby.rtp))}%</b>. Краш и Апгрейд - наши игры,
-        их исход проверяется в разделе «Честность игры».</p>`;
+      </div>`;
   }
 
   async function loadFast() {
     if (ui.fast) return ui.fast;
-    const { games } = await api('/api/casino/games', { kind: 'fast', offset: 0, limit: FAST_LIMIT });
-    ui.fast = games;
-    return games;
+    return catalogRequest('fast', async () => {
+      const { games } = await api('/api/casino/games', { kind: 'fast', offset: 0, limit: FAST_LIMIT });
+      ui.fast = games;
+      return games;
+    });
   }
 
   function renderHome() {
@@ -346,7 +359,16 @@ export function createCasino(deps) {
     }
     // Отдачи на экране игр нет (решение заказчика): она объявлена одна на
     // всё казино в разделе «Честность игры», и повторять её здесь незачем.
-    body.innerHTML = blocks.map(blockHtml).join('');
+    // У live-полок разные первые игры, но состав каждой категории сохраняется.
+    const leaders = new Set();
+    body.innerHTML = blocks.map((b) => {
+      if (ui.kind !== 'live') return blockHtml(b);
+      const games = [...b.games];
+      const first = games.findIndex((g) => !leaders.has(g.name.trim().toLowerCase()));
+      if (first > 0) games.unshift(...games.splice(first, 1));
+      if (games.length) leaders.add(games[0].name.trim().toLowerCase());
+      return blockHtml({ ...b, games });
+    }).join('');
   }
 
   function skeletonHome() {
@@ -357,16 +379,29 @@ export function createCasino(deps) {
     </section>`).join('');
   }
 
+  // Объединяем только чтение каталога; запуск игры и кошелёк идут отдельно.
+  const catalogRequests = new Map();
+  function catalogRequest(key, read) {
+    if (!catalogRequests.has(key)) {
+      const request = (async () => read())().finally(() => {
+        if (catalogRequests.get(key) === request) catalogRequests.delete(key);
+      });
+      catalogRequests.set(key, request);
+    }
+    return catalogRequests.get(key);
+  }
+
   async function loadHome(kind) {
     if (kind === 'fast') return loadFast();
     if (ui.home[kind]) return ui.home[kind];
-    const { blocks } = await api('/api/casino/home', { kind });
-    ui.home[kind] = blocks;
-    // Ранг в «Популярных» задаёт, сколько человек «играют» в игру (livePlayers).
-    for (const b of blocks) {
-      if (b.type === 'popular') b.games.forEach((g, i) => { if (!popularRank.has(g.id)) popularRank.set(g.id, i); });
-    }
-    return blocks;
+    return catalogRequest(`home:${kind}`, async () => {
+      const { blocks } = await api('/api/casino/home', { kind });
+      ui.home[kind] = blocks;
+      for (const b of blocks) {
+        if (b.type === 'popular') b.games.forEach((g, i) => { if (!popularRank.has(g.id)) popularRank.set(g.id, i); });
+      }
+      return blocks;
+    });
   }
 
   /* ---------- Списки: категория, провайдер, поиск ---------- */
@@ -431,6 +466,15 @@ export function createCasino(deps) {
     $('czEmpty').hidden = true;
   }
 
+  function renderLoadError() {
+    if (!ui.active) return;
+    $('czBody').innerHTML = `<div class="cz-soon">
+      <b>Не удалось загрузить игры</b>
+      <span>Проверьте соединение и попробуйте ещё раз.</span>
+      <button class="cz-soon-btn" data-retry>Повторить</button>
+    </div>`;
+  }
+
   function fetchPage(offset) {
     const v = ui.view;
     return api('/api/casino/games', {
@@ -450,6 +494,7 @@ export function createCasino(deps) {
    */
   async function reload() {
     const seq = ++ui.seq;
+    refs.clear();
     ui.loading = true;
     skeletonGrid();
     try {
@@ -462,6 +507,7 @@ export function createCasino(deps) {
     } catch (err) {
       if (seq !== ui.seq) return;
       ui.loading = false;
+      renderLoadError();
       toast(err.message);
     }
   }
@@ -481,11 +527,14 @@ export function createCasino(deps) {
       ui.total = data.total;
       renderGrid(from);
     } catch (err) {
+      if (seq !== ui.seq) return;
       toast(err.message);
     } finally {
-      ui.loading = false;
       if (btn.isConnected) btn.disabled = false;
-      resumeCoverRequests();
+      if (seq === ui.seq) {
+        ui.loading = false;
+        resumeCoverRequests();
+      }
     }
   }
 
@@ -512,7 +561,7 @@ export function createCasino(deps) {
   }
 
   function resumeCoverRequests() {
-    if (!ui.active) return;
+    if (!ui.active || ui.launching || !$('czFrame').hidden) return;
     root()?.querySelectorAll('img[data-paused-src]').forEach((img) => {
       const src = img.dataset.pausedSrc;
       delete img.dataset.pausedSrc;
@@ -524,6 +573,10 @@ export function createCasino(deps) {
 
   function render() {
     if (!ui.active) return;
+    // Любой переход отменяет влияние запросов прежнего экрана.
+    ui.seq++;
+    ui.loading = false;
+    refs.clear();
     pauseCoverRequests();
     // Вкладка на корне: по ней стили делают плитки live крупнее (у живых
     // столов обложка - картинка стола, мелкой она не читается). Именно
@@ -541,6 +594,7 @@ export function createCasino(deps) {
 
   /* Переход вперёд: прежний экран уходит в стек. */
   function go(view) {
+    clearTimeout(ui.searchTimer);
     ui.stack.push(ui.view);
     ui.view = view;
     render();
@@ -548,6 +602,7 @@ export function createCasino(deps) {
   }
 
   function back() {
+    clearTimeout(ui.searchTimer);
     ui.view = ui.stack.pop() || { type: 'home' };
     // Из поиска назад - поле очищается, иначе возврат выглядит как поиск.
     if (ui.view.type !== 'search') { ui.q = ''; const q = $('czQ'); if (q) q.value = ''; }
@@ -556,15 +611,22 @@ export function createCasino(deps) {
   }
 
   async function setKind(kind) {
+    clearTimeout(ui.searchTimer);
     if (ui.kind === kind && ui.view.type === 'home') return;
     ui.kind = kind;
     ui.view = { type: 'home' };
     ui.stack = [];
     ui.q = '';
     const q = $('czQ'); if (q) q.value = '';
+    const cached = kind === 'fast' ? ui.fast : ui.home[kind];
     render();
-    try { await loadHome(kind); } catch (err) { toast(err.message); return; }
-    if (ui.kind === kind && ui.view.type === 'home') render();
+    if (cached) return;
+    const seq = ui.seq;
+    try { await loadHome(kind); } catch (err) {
+      if (ui.active && seq === ui.seq && ui.kind === kind && ui.view.type === 'home') { renderLoadError(); toast(err.message); }
+      return;
+    }
+    if (ui.active && seq === ui.seq && ui.kind === kind && ui.view.type === 'home') render();
   }
 
   function openChip(id) {
@@ -589,6 +651,11 @@ export function createCasino(deps) {
     r.dataset.bound = '1';
 
     const onClick = (e) => {
+      if (e.target.closest('[data-retry]')) {
+        if (!ui.lobby || ui.view.type === 'home') open();
+        else render();
+        return;
+      }
       const kindBtn = e.target.closest('[data-kind]');
       if (kindBtn) { haptic('light'); setKind(kindBtn.dataset.kind); return; }
       if (e.target.closest('[data-back]')) { haptic('light'); back(); return; }
@@ -634,6 +701,7 @@ export function createCasino(deps) {
   /* ---------- Вход в раздел ---------- */
 
   async function open() {
+    const openSeq = ++ui.openSeq;
     ui.active = true;
     const r = root();
     if (!r.firstChild) r.innerHTML = shell();
@@ -641,14 +709,24 @@ export function createCasino(deps) {
     if (!ui.lobby) {
       skeletonHome();
       try {
-        ui.lobby = await api('/api/casino/lobby');
+        ui.lobby = await catalogRequest('lobby', () => api('/api/casino/lobby'));
       } catch (err) {
+        if (!ui.active || openSeq !== ui.openSeq) return;
+        renderLoadError();
         toast(err.message);
         return;
       }
     }
+    if (!ui.active || openSeq !== ui.openSeq) return;
+    const cached = ui.kind === 'fast' ? ui.fast : ui.home[ui.kind];
     render();
-    try { await loadHome(ui.kind); } catch (err) { toast(err.message); return; }
+    if (cached) { resumeCoverRequests(); return; }
+    const seq = ui.seq;
+    try { await loadHome(ui.kind); } catch (err) {
+      if (seq === ui.seq && ui.active) { renderLoadError(); toast(err.message); }
+      return;
+    }
+    if (!ui.active || openSeq !== ui.openSeq || seq !== ui.seq) return;
     if (ui.view.type === 'home') render();
     resumeCoverRequests();
   }
@@ -664,13 +742,42 @@ export function createCasino(deps) {
 
   /* ---------- Окно запуска ---------- */
 
+  let sheetArtSeq = 0;
+
   function openSheet(g) {
     if (!g) return;
     haptic('light');
     const sheet = $('czSheet');
-    const sheetArt = g.wide || g.cover;
-    $('czSheetArt').style.backgroundImage = sheetArt ? `url("${sheetArt}")` : 'none';
-    $('czSheetArt').classList.toggle('is-cover', !g.wide);
+    const art = $('czSheetArt');
+    const seq = ++sheetArtSeq;
+    art.replaceChildren();
+    art.classList.remove('is-wide');
+    // Обложка появляется сразу и всегда сохраняет исходные пропорции.
+    const cover = new Image();
+    cover.alt = '';
+    cover.className = 'cz-sheet-cover';
+    cover.decoding = 'async';
+    cover.onerror = () => {
+      if (seq !== sheetArtSeq) return;
+      if (g.alt && cover.getAttribute('src') !== g.alt) cover.src = g.alt;
+      else cover.remove();
+    };
+    if (g.cover) { cover.src = g.cover; art.append(cover); }
+    // Меняем изображение только после загрузки: без пустого кадра и скачка окна.
+    if (g.wide) {
+      const banner = new Image();
+      banner.alt = '';
+      banner.className = 'cz-sheet-banner';
+      banner.decoding = 'async';
+      banner.onload = () => {
+        if (seq !== sheetArtSeq || sheet.hidden) return;
+        // CDN иногда возвращает маленькую обложку вместо баннера.
+        if (banner.naturalWidth < 600 || banner.naturalWidth / banner.naturalHeight < 1.5) return;
+        art.replaceChildren(banner);
+        art.classList.add('is-wide');
+      };
+      banner.src = g.wide + (g.wide.includes('?') ? '&' : '?') + 'preview=2';
+    }
     $('czSheetName').textContent = g.name;
     $('czSheetProv').textContent = g.provider;
     const demo = $('czDemo');
@@ -678,14 +785,12 @@ export function createCasino(deps) {
     demo.onclick = () => launch(g, true);
     $('czPlay').onclick = () => launch(g, false);
     sheet.hidden = false;
-    requestAnimationFrame(() => sheet.classList.add('is-in'));
   }
 
   function closeSheet() {
-    const sheet = $('czSheet');
-    sheet.classList.remove('is-in');
-    sheet.hidden = true;
-    $('czSheetArt').style.backgroundImage = 'none';
+    ++sheetArtSeq;
+    $('czSheet').hidden = true;
+    $('czSheetArt').replaceChildren();
   }
 
   /* ---------- Экран игры ---------- */
@@ -697,49 +802,151 @@ export function createCasino(deps) {
       deps.onAuth?.();
       return;
     }
+    if (ui.launching) return;
     pauseCoverRequests();
+    const launchSeq = ++ui.launchSeq;
+    ui.launching = true;
+    deps.onActivity?.(true);
     const btn = demo ? $('czDemo') : $('czPlay');
     btn.disabled = true;
+    closeSheet();
+    openFrame(g, null, demo);
     try {
-      const data = await api('/api/casino/launch', { gameId: g.id, demo });
-      closeSheet();
-      openFrame(g, data, demo);
+      const deadline = new Promise((_, reject) => {
+        ui.requestTimer = setTimeout(() => reject(new Error('Истекло время ожидания запуска')), 45000);
+      });
+      const data = await Promise.race([api('/api/casino/launch', { gameId: g.id, demo }), deadline]);
+      if (launchSeq !== ui.launchSeq || !ui.active) return;
+      ui.demoBalance = data?.demoBalance;
+      renderFrameBalance();
+      mountGame(data);
+      scheduleBalancePoll();
     } catch (err) {
+      if (launchSeq !== ui.launchSeq || !ui.active) return;
       // Гость: api() уже открыл окно регистрации. Превью игры убираем, иначе
       // оно оставалось поверх окна входа, и регистрация шла «под» слотом.
-      if (err.status === 401) { closeSheet(); return; }
-      toast(err.message);
+      if (err.status === 401) { closeFrame(); return; }
+      showLaunchHelp('Не удалось запустить игру. Попробуйте ещё раз или выберите другую игру.');
       haptic('error');
     } finally {
+      if (launchSeq === ui.launchSeq) { clearTimeout(ui.requestTimer); ui.requestTimer = 0; }
       btn.disabled = false;
-      if ($('czFrame').hidden && ($('authBackdrop')?.hidden ?? true)) resumeCoverRequests();
+      if (launchSeq === ui.launchSeq) $('czLaunchRetry').disabled = false;
+      if (launchSeq === ui.launchSeq) ui.launching = false;
+      if (launchSeq === ui.launchSeq && $('czFrame').hidden) {
+        deps.onActivity?.(false);
+        if ($('authBackdrop')?.hidden ?? true) resumeCoverRequests();
+      }
     }
   }
 
   function renderFrameBalance() {
     const el = $('czFrameBalance');
-    if (el && state.user) el.textContent = money(state.user.balance);
+    const text = ui.demo ? (ui.demoBalance == null ? 'Демо' : `${money(ui.demoBalance)} · демо`) : (state.user ? money(state.user.balance) : '');
+    if (el && el.textContent !== text) el.textContent = text;
+  }
+
+  function scheduleBalancePoll() {
+    clearTimeout(ui.poll);
+    ui.poll = 0;
+    if (document.hidden || $('czFrame').hidden) return;
+    ui.poll = setTimeout(async () => {
+      ui.poll = 0;
+      const seq = ui.frameSeq;
+      await refreshUser();
+      if (seq === ui.frameSeq) scheduleBalancePoll();
+    }, BALANCE_POLL_MS);
   }
 
   async function refreshUser(force = false) {
     if (ui.polling || (!force && (document.hidden || $('czFrame').hidden))) return;
+    const seq = ui.frameSeq;
+    const demo = ui.demo;
     ui.polling = true;
     try {
+      if (demo) {
+        const { balance } = await api('/api/casino/demo-balance');
+        if (seq !== ui.frameSeq) return;
+        ui.demoBalance = balance;
+        renderFrameBalance();
+        return;
+      }
       const { user } = await api('/api/me');
+      if (seq !== ui.frameSeq) return;
       onUser(user);
       renderFrameBalance();
     } catch { /* сеть моргнула - следующий опрос поправит */ }
-    finally { ui.polling = false; }
+    finally { if (seq === ui.frameSeq) ui.polling = false; }
   }
 
   function openFrame(g, data, demo) {
     const frame = $('czFrame');
+    ++ui.frameSeq;
+    ui.polling = false;
+    deps.onActivity?.(true);
+    ui.demo = demo;
+    ui.demoBalance = data?.demoBalance;
     $('czFrameName').textContent = demo ? `${g.name} · демо` : g.name;
     renderFrameBalance();
+    clearLaunchTimers();
+    ui.launchGame = g;
+    ui.frameLoaded = false;
+    $('czFrameHost').innerHTML = '';
+    const status = $('czLaunchStatus');
+    status.className = 'cz-launch-status';
+    status.hidden = false;
+    $('czLaunchText').textContent = 'Запускаем игру…';
+    $('czLaunchActions').hidden = true;
+    $('czLaunchDismiss').hidden = true;
+    const cover = $('czLaunchCover');
+    cover.hidden = !g.cover;
+    if (g.cover) cover.src = g.cover;
+    else cover.removeAttribute?.('src');
+    frame.hidden = false;
+    document.body.classList.add('cz-playing');
+    const seq = ui.frameSeq;
+    ui.launchTimers.push(setTimeout(() => {
+      if (seq !== ui.frameSeq) return;
+      if (!ui.frameLoaded) $('czLaunchText').textContent = 'Загрузка занимает больше времени, чем обычно…';
+    }, 15000));
+    ui.launchTimers.push(setTimeout(() => {
+      if (seq === ui.frameSeq) showLaunchHelp('Игра не появилась? Повторите запуск или выберите другую игру.');
+    }, 30000));
+    if (data) { mountGame(data); scheduleBalancePoll(); }
+  }
+
+  function clearLaunchTimers() {
+    ui.launchTimers.forEach(clearTimeout);
+    ui.launchTimers = [];
+  }
+
+  function showLaunchHelp(message) {
+    clearLaunchTimers();
+    const status = $('czLaunchStatus');
+    status.className = 'cz-launch-status is-help';
+    status.hidden = false;
+    $('czLaunchCover').hidden = true;
+    $('czLaunchText').textContent = message;
+    $('czLaunchActions').hidden = false;
+    $('czLaunchRetry').disabled = ui.launching;
+    $('czLaunchDismiss').hidden = false;
+  }
+
+  function mountGame(data) {
+    if (!data.url && !data.html) throw new Error('Пустой ответ запуска');
     const host = $('czFrameHost');
-    host.innerHTML = '';
+    const seq = ui.frameSeq;
     const iframe = document.createElement('iframe');
     iframe.className = 'cz-iframe';
+    iframe.onload = () => {
+      if (seq !== ui.frameSeq) return;
+      // load подтверждает только документ iframe. Панель помощи остаётся доступной.
+      ui.frameLoaded = true;
+      if ($('czLaunchStatus').className === 'cz-launch-status') $('czLaunchStatus').hidden = true;
+    };
+    iframe.onerror = () => {
+      if (seq === ui.frameSeq) showLaunchHelp('Не удалось загрузить игру. Повторите запуск или выберите другую игру.');
+    };
     iframe.setAttribute('allow', 'autoplay; fullscreen; clipboard-write; encrypted-media');
     iframe.setAttribute('allowfullscreen', '');
     iframe.setAttribute('referrerpolicy', 'no-referrer-when-downgrade');
@@ -753,30 +960,54 @@ export function createCasino(deps) {
       iframe.srcdoc = data.html || '';
     }
     host.append(iframe);
-    frame.hidden = false;
-    document.body.classList.add('cz-playing');
-    clearInterval(ui.poll);
-    if (!demo) ui.poll = setInterval(refreshUser, BALANCE_POLL_MS);
   }
 
   function closeFrame() {
     const frame = $('czFrame');
     if (frame.hidden) return;
-    clearInterval(ui.poll);
+    ++ui.frameSeq;
+    ++ui.launchSeq;
+    ui.launching = false;
+    clearTimeout(ui.requestTimer);
+    ui.requestTimer = 0;
+    clearLaunchTimers();
+    $('czLaunchStatus').hidden = true;
+    ui.launchGame = null;
+    ui.polling = false;
+    clearTimeout(ui.poll);
     ui.poll = 0;
+    ui.demo = false;
+    ui.demoBalance = undefined;
     // Окно игры удаляется целиком, а не прячется: иначе звук игры и её
     // запросы шли бы дальше в невидимом iframe.
     $('czFrameHost').innerHTML = '';
     frame.hidden = true;
     document.body.classList.remove('cz-playing');
-    refreshUser(true).finally(resumeCoverRequests);
+    deps.onActivity?.(false);
+    refreshUser(true).finally(() => { if ($('czFrame').hidden) resumeCoverRequests(); });
   }
 
   function bindOverlays() {
     const sheet = $('czSheet');
     if (sheet.dataset.bound) return;
     sheet.dataset.bound = '1';
+    document.addEventListener('visibilitychange', () => {
+      clearTimeout(ui.poll);
+      ui.poll = 0;
+      if (document.hidden || $('czFrame').hidden || ui.launching) return;
+      const seq = ui.frameSeq;
+      refreshUser().finally(() => { if (seq === ui.frameSeq) scheduleBalancePoll(); });
+    });
     sheet.addEventListener('click', (e) => { if (e.target.closest('[data-close]')) closeSheet(); });
+    $('czFrameHelp').addEventListener('click', () => showLaunchHelp('Чёрный экран или игра зависла? Повторите запуск или выберите другую игру.'));
+    $('czLaunchDismiss').addEventListener('click', () => { $('czLaunchStatus').hidden = true; clearLaunchTimers(); });
+    $('czLaunchOther').addEventListener('click', closeFrame);
+    $('czLaunchRetry').addEventListener('click', () => {
+      if (ui.launching || !ui.launchGame) return;
+      const game = ui.launchGame, demo = ui.demo;
+      closeFrame();
+      launch(game, demo);
+    });
     $('czFrameClose').addEventListener('click', () => { haptic('light'); closeFrame(); });
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && !sheet.hidden) closeSheet();
@@ -786,6 +1017,9 @@ export function createCasino(deps) {
   return {
     open() { bindOverlays(); return open(); },
     close() {
+      ++ui.openSeq;
+      ++ui.launchSeq;
+      ui.launching = false;
       ui.active = false;
       ui.seq++;
       clearTimeout(ui.searchTimer);
@@ -795,6 +1029,7 @@ export function createCasino(deps) {
         if (!img.complete) { img.dataset.pausedSrc = img.getAttribute('src'); img.removeAttribute('src'); }
       });
       closeSheet(); closeFrame();
+      deps.onActivity?.(false);
     },
     focusBlock,
     resumeCovers: resumeCoverRequests,

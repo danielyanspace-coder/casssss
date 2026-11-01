@@ -2263,7 +2263,7 @@ main { position: relative; z-index: 2; padding: 18px; }
 
 /* Монеты фона - теперь SVG, размер задаётся инлайном */
 .money-drop { font-size: 0; }
-.money-drop svg { width: 100%; height: 100%; }
+.money-drop svg, .money-drop img { width: 100%; height: 100%; }
 
 /* Селект в админке выглядит как остальные поля ввода */
 select.seed-input {
@@ -5169,15 +5169,8 @@ div.mini-row { cursor: default; }
 .feed-card.is-new { animation: feedIn 0.55s cubic-bezier(0.22, 1, 0.36, 1); }
 
 @keyframes feedIn {
-  from {
-    max-width: 0; margin-right: 0; padding-left: 0; padding-right: 0;
-    opacity: 0; transform: scale(0.8);
-  }
-  to {
-    max-width: 420px; margin-right: var(--feed-gap);
-    padding-left: 11px; padding-right: 11px;
-    opacity: 1; transform: none;
-  }
+  from { opacity: 0; transform: translateX(-100%) scale(.8); }
+  to { opacity: 1; transform: translateX(0) scale(1); }
 }
 
 .feed-art {
@@ -5187,7 +5180,7 @@ div.mini-row { cursor: default; }
   border-radius: 11px;
   background: color-mix(in srgb, var(--tier-color, #fff) 16%, rgba(0, 0, 0, 0.28));
 }
-.feed-art svg { width: 26px; height: 26px; display: block; }
+.feed-art svg, .feed-art .feed-vector { width: 26px; height: 26px; display: block; }
 
 /* Высота подписи задана жёстко на две строки.
    Иначе длинное название переносится, карточка вырастает, и сумма уезжает
@@ -5274,8 +5267,8 @@ div.mini-row { cursor: default; }
 .fsc-cover {
   position: absolute; left: 50%; top: 0; width: 240px; height: 225px; margin-left: -168px;
   display: flex; align-items: flex-end; justify-content: center;
-  opacity: 0; transform: translateY(60px) scale(0.6); filter: blur(6px) brightness(2);
-  transition: opacity 0.6s 0.35s, transform 0.9s 0.35s cubic-bezier(0.16, 1, 0.3, 1), filter 0.9s 0.35s;
+  opacity: 0; transform: translateY(60px) scale(0.6);
+  transition: opacity 0.6s 0.35s, transform 0.9s 0.35s cubic-bezier(0.16, 1, 0.3, 1);
 }
 .fsc-cover img, .fsc-cover svg {
   max-width: 100%; max-height: 100%; width: auto; height: 100%; object-fit: contain;
@@ -5308,7 +5301,7 @@ div.mini-row { cursor: default; }
 }
 .feed-scene.is-in .fsc-dim { opacity: 1; }
 .feed-scene.is-in .fsc-rays { opacity: 1; transform: scale(1); }
-.feed-scene.is-in .fsc-cover { opacity: 1; transform: none; filter: none; }
+.feed-scene.is-in .fsc-cover { opacity: 1; transform: none; }
 .feed-scene.is-in .fsc-beam { opacity: 0.55; transform: scaleY(1); }
 
 .fsc-info { margin-top: 18px; min-height: 0; }
@@ -5384,7 +5377,7 @@ div.mini-row { cursor: default; }
 .fm-head .fm-back { width: 40px; height: 40px; padding: 9px; border-radius: 13px; }
 .fm-title {
   margin: 0; text-align: left;
-  font: 800 21px/1.2 'Unbounded', 'Manrope', system-ui, sans-serif; color: #fff;
+  font: 800 15px/1.2 'Unbounded', 'Manrope', system-ui, sans-serif; color: #fff;
 }
 
 /* Вкладки закреплены под шапкой; фон сохраняет читаемость при прокрутке. */
@@ -6254,7 +6247,7 @@ div.mini-row { cursor: default; }
    ============================================================ */
 
 /*
- * Касса держится на одной шкале: стеклянные поверхности с тонкой границей,
+ * Касса держится на одной шкале: плотные поверхности с ясной границей,
  * розовый только для выбора и действия, золото только для денег. Раньше
  * каждый блок был в своём стиле: жёлтая рамка со свечением у баланса, две
  * кнопки разных градиентов, жёлтые обводки у способов, пунктир у бонуса,
@@ -6263,11 +6256,11 @@ div.mini-row { cursor: default; }
  * панели, и её трогать незачем.
  */
 #view-wallet {
-  --c-surface: rgba(255, 255, 255, 0.035);
+  --c-surface: #211a2c;
   --c-border: rgba(255, 255, 255, 0.08);
   --c-border-2: rgba(255, 255, 255, 0.15);
-  --c-text-2: rgba(241, 235, 247, 0.66);
-  --c-text-3: rgba(241, 235, 247, 0.44);
+  --c-text-2: #e0d7ec;
+  --c-text-3: #b9adc9;
   --c-accent: var(--pink);
   --c-accent-soft: rgba(224, 81, 140, 0.12);
   --c-accent-line: rgba(224, 81, 140, 0.62);
@@ -6293,7 +6286,7 @@ div.mini-row { cursor: default; }
   background:
     radial-gradient(120% 90% at 100% 0%, rgba(223, 190, 98, 0.12), transparent 55%),
     radial-gradient(90% 80% at 0% 100%, rgba(147, 102, 208, 0.2), transparent 60%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
+    linear-gradient(180deg, #292035, #1b1525);
   border: 1px solid var(--c-border);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 20px 40px -24px rgba(0, 0, 0, 0.8);
 }
@@ -6336,15 +6329,15 @@ div.mini-row { cursor: default; }
    тише своих - он не выводится, пока не отыгран. */
 .cash-bonus {
   margin-top: 14px; padding: 12px 14px; border-radius: 14px;
-  background: rgba(223, 190, 98, 0.08); border: 1px solid rgba(223, 190, 98, 0.25);
+  background: #302719; border: 1px solid #8c7040;
 }
 .cash-bonus-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
 .cash-bonus-head span { font-size: 12px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--gold); }
 .cash-bonus-head b { font: 800 18px/1 'Unbounded', 'Manrope', system-ui, sans-serif; color: #a2edcf; }
 .cash-bonus-details { margin-top: 12px; }
-.cash-bonus-details summary { cursor: pointer; font-size: 12px; color: var(--c-text-2); padding: 6px 0; }
+.cash-bonus-details summary { cursor: pointer; font-size: 14px; color: #fff1cc; padding: 10px 0; }
 .cash-bonus-details summary:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
-.cash-bonus p { margin: 8px 0 10px; font-size: 12px; line-height: 1.5; color: var(--c-text-2); }
+.cash-bonus p { margin: 8px 0 10px; font-size: 13px; line-height: 1.6; color: #efe5cf; }
 .cash-bonus p b { color: var(--text); }
 .cash-bonus-refuse {
   padding: 7px 12px; border-radius: 10px; border: 1px solid var(--c-border-2);
@@ -6359,14 +6352,14 @@ div.mini-row { cursor: default; }
   margin: 14px 0;
   padding: 4px;
   border-radius: 16px;
-  background: rgba(0, 0, 0, 0.28);
+  background: #17111f;
   border: 1px solid var(--c-border);
 }
 .cash-switch-thumb {
   position: absolute; top: 4px; bottom: 4px; left: 4px;
   width: calc(50% - 4px);
   border-radius: 12px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0.06));
+  background: #40304f;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 6px 16px -8px rgba(0, 0, 0, 0.8);
   transition: transform 0.38s var(--ease-out);
 }
@@ -6448,7 +6441,7 @@ div.mini-row { cursor: default; }
 .do-more summary::-webkit-details-marker { display: none; }
 .do-more summary::after { content: ' ›'; display: inline-block; transition: transform 0.2s; }
 .do-more[open] summary::after { transform: rotate(90deg); }
-.do-more p { margin: 0; padding: 0 14px 12px; color: #b9a8c6; font: 500 12px/1.5 'Manrope', system-ui, sans-serif; }
+.do-more p { margin: 0; padding: 0 14px 14px; color: #e2d4eb; font: 500 13px/1.6 'Manrope', system-ui, sans-serif; }
 @media (prefers-reduced-motion: reduce) { #view-wallet .deposit-offer::after { animation: none; } }
 
 /* Способ пополнения */
@@ -7806,7 +7799,7 @@ div.mini-row { cursor: default; }
   .feed-title { font-size: 13px; }
   .feed-card { padding: 11px 13px 12px; }
   .feed-art { width: 44px; height: 44px; }
-  .feed-art svg { width: 30px; height: 30px; }
+  .feed-art svg, .feed-art .feed-vector { width: 30px; height: 30px; }
   .feed-name { font-size: 12.5px; }
   .feed-value { font-size: 17px; }
 
@@ -9953,40 +9946,18 @@ body.mo-receded .opener-scroll { opacity: .42; transform: scale(.94); }
    ЖИВОЙ ГЛАВНЫЙ ЭКРАН И ПОПОЛНЕНИЕ
    ============================================================ */
 
-/* Обложки на полках дышат вразнобой (фаза - от имени кейса, см.
-   caseCardHtml): едва заметный подъём и рост, без поворотов. Доступные по
-   балансу раз в несколько секунд вспыхивают бликом. Анимируются только
-   transform и filter картинки: это не трогает раскладку полки. */
-.shelf-row .case-card.has-art .cover-art {
-  animation: caseBreath 5.5s ease-in-out infinite;
-  animation-delay: var(--breath, 0s);
-  transition: transform 0.25s cubic-bezier(0.2, 1.4, 0.4, 1);
-}
-.shelf-row .case-card.has-art.can-afford .cover-art {
-  animation: caseBreath 5.5s ease-in-out infinite, caseGlint 9s ease-in-out infinite;
-  animation-delay: var(--breath, 0s), var(--glint, 0s);
-}
-@keyframes caseBreath {
-  0%, 100% { transform: translateY(0) scale(1); }
-  50% { transform: translateY(-4px) scale(1.022); }
-}
-@keyframes caseGlint {
-  0%, 90%, 100% { filter: none; }
-  94% { filter: brightness(1.35) saturate(1.25) drop-shadow(0 0 12px var(--art-glow, rgba(255, 210, 90, 0.6))); }
-}
-/* Под пальцем и курсором кейс приподнимается и разгорается ореолом. */
-.shelf-row .case-card.has-art:hover .case-cover::before,
-.shelf-row .case-card.has-art:active .case-cover::before { opacity: 1; transform: scale(1.08); }
-.shelf-row .case-card.has-art .case-cover::before { transition: opacity 0.25s, transform 0.25s; }
-/* Подъём - у слота, а не у картинки: у картинки transform занят дыханием. */
-.shelf-row .case-card.has-art .case-cover { transition: transform 0.3s cubic-bezier(0.2, 1.4, 0.4, 1); }
-.shelf-row .case-card.has-art:active .case-cover { transform: translateY(-6px) scale(1.03); }
+/* Case art responds only to direct interaction. */
+.shelf-row .case-card.has-art .cover-art,
+.shelf-row .case-card.has-art.can-afford .cover-art { animation: none; }
+.shelf-row .case-card.has-art .case-cover::before,
+.shelf-row .case-card.has-art .case-cover::after { display: none; }
+.shelf-row .case-card.has-art .case-cover { transition: transform .22s ease; }
+.shelf-row .case-card.has-art:active .case-cover { transform: scale(1.02); }
 @media (hover: hover) {
-  .shelf-row .case-card.has-art:hover .case-cover { transform: translateY(-8px) scale(1.04); }
+  .shelf-row .case-card.has-art:hover .case-cover { transform: scale(1.035); }
 }
-.case-cover > .fx-burst { z-index: 3; }
 @media (prefers-reduced-motion: reduce) {
-  .shelf-row .case-card.has-art .cover-art { animation: none; }
+  .shelf-row .case-card.has-art .case-cover { transition: none; }
 }
 
 /* Монеты пополнения летят поверх всего. */
@@ -10662,15 +10633,20 @@ body.mo-receded .opener-scroll { opacity: .42; transform: scale(.94); }
 .cz-pword.is-inline, .cz-pword.is-title { font-size: 17px; text-align: left; }
 
 .cz-grid { display: grid; gap: 10px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
-/* Live казино: плитки крупнее, чем у слотов и быстрых игр (просьба
-   заказчика). Обложка стола горизонтальная, поэтому кадр 4:3 и без размытой
-   подложки: картинка стола заполняет кадр целиком. */
-.cz[data-cz-kind="live"] .cz-track { --cz-tile: calc((100vw - 2 * var(--cz-gutter) - 10px) / 1.55); }
+/* Live: вертикальный постер, исходная обложка всегда помещается целиком. */
+.cz[data-cz-kind="live"] .cz-track { --cz-tile: calc((100vw - 2 * var(--cz-gutter) - 10px) / 2.2); }
 .cz[data-cz-kind="live"] .cz-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.cz[data-cz-kind="live"] .cz-art { aspect-ratio: 4 / 3; }
-.cz[data-cz-kind="live"] .cz-art.is-wide .cz-blur { display: none; }
-.cz[data-cz-kind="live"] .cz-art.is-wide .cz-fit { object-fit: cover; }
-.cz[data-cz-kind="live"] .cz-name { font-size: 14px; }
+.cz[data-cz-kind="live"] .cz-art { aspect-ratio: 3 / 4; background: #191322; }
+.cz[data-cz-kind="live"] .cz-art img:not(.cz-blur) { object-fit: contain; }
+.cz[data-cz-kind="live"] .cz-tile .cz-name {
+  display: block; position: static; width: auto; height: auto; clip: auto;
+  margin: 9px 0 0; font-size: 13px; font-weight: 800;
+  white-space: normal; line-height: 1.35;
+}
+.cz-grid.cz-fast { row-gap: 26px; align-items: start; }
+@media (max-width: 599px) {
+  .cz[data-cz-kind="fast"] .cz-body { padding-top: 24px; }
+}
 @media (min-width: 600px) {
   .cz-grid { gap: 14px; grid-template-columns: repeat(auto-fill, minmax(225px, 1fr)); }
 }
@@ -10713,13 +10689,13 @@ body.mo-receded .opener-scroll { opacity: .42; transform: scale(.94); }
    уже нарисовано на самой обложке. Строка остаётся в разметке для экранных
    чтецов и поиска по тексту, но на экране её нет; ряд под обложкой начинается
    сразу с провайдера или «N играют». */
-.cz-tile[data-game] .cz-name, .cz-skel .cz-name {
+.cz-tile[data-game] .cz-name, .cz-own .cz-name, .cz-skel .cz-name {
   /* Внутри плитки (у неё position: relative): иначе скрытая строка
      выпадала из ленты и раздвигала страницу вбок. */
   position: absolute; left: 0; top: 0; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0;
   overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
 }
-.cz-tile[data-game] .cz-prov, .cz-tile[data-game] .cz-live { margin-top: 7px; }
+.cz-tile[data-game] .cz-prov, .cz-tile[data-game] .cz-live, .cz-own .cz-live { margin-top: 7px; }
 /* «N играют»: зелёная точка дышит, число белое, как у образца. Провайдер
    при этом уходит: под обложкой одна строка, а не две. */
 .cz-live {
@@ -10755,14 +10731,21 @@ body.mo-receded .opener-scroll { opacity: .42; transform: scale(.94); }
   border-radius: 22px 22px 0 0; overflow: hidden;
   background: var(--bg-soft); border: 1px solid rgba(255, 255, 255, 0.08);
   padding-bottom: var(--safe-bottom);
-  transform: translateY(40px); opacity: 0;
-  transition: transform .28s cubic-bezier(.2, .8, .3, 1), opacity .2s;
+  /* Окно выбора видно в первый кадр после нажатия. */
 }
-.cz-sheet.is-in .cz-sheet-card { transform: none; opacity: 1; }
-.cz-sheet-art { aspect-ratio: 1004 / 494; background: var(--card) center / cover no-repeat; }
-/* Без широкой картинки окно берёт вертикальную обложку: верх кадра, где
-   обычно название, а не середину. */
-.cz-sheet-art.is-cover { background-position: center 20%; }
+.cz-sheet-art {
+  height: clamp(196px, 49vw, 226px); display: flex; align-items: center;
+  justify-content: center; overflow: hidden; padding: 18px 24px;
+  background: radial-gradient(ellipse at 50% 40%, rgba(147, 102, 208, .13), transparent 72%), #17101f;
+  border-bottom: 1px solid rgba(255, 255, 255, .06);
+}
+.cz-sheet-cover {
+  display: block; width: auto; height: auto; max-width: 100%; max-height: 100%;
+  object-fit: contain; border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .28);
+}
+.cz-sheet-art.is-wide { padding: 0; }
+.cz-sheet-banner { display: block; width: 100%; height: 100%; object-fit: contain; }
 .cz-sheet-body { padding: 16px; }
 .cz-sheet-body h4 { margin: 0; font: 800 18px/1.2 'Unbounded', 'Manrope', system-ui, sans-serif; color: var(--text); }
 .cz-sheet-body p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
@@ -10814,12 +10797,11 @@ body.cz-playing { overflow: hidden; }
   /* В столбике доли пары не нужны: каждая картинка во всю ширину столбика. */
   .cz-promo > button { flex-grow: 0; flex-shrink: 0; flex-basis: auto; width: 100%; }
   .cz-seg { max-width: 560px; }
-  /* Обложки на компьютере в полтора раза крупнее прежних 156 (просьба
-     заказчика): на мониторе мелкие плитки читались значками. Live ещё
-     крупнее - у стола картинка горизонтальная. */
+  /* На компьютере обложки крупнее, чтобы название читалось с полки. */
   .cz-track { --cz-tile: 234px; gap: 16px 14px; margin: 0; padding: 0 0 4px; scroll-padding: 0; }
-  .cz[data-cz-kind="live"] .cz-track { --cz-tile: 340px; }
-  .cz[data-cz-kind="live"] .cz-grid { grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
+  .cz[data-cz-kind="live"] .cz-track { --cz-tile: 234px; }
+  .cz[data-cz-kind="live"] .cz-grid { grid-template-columns: repeat(auto-fill, minmax(225px, 1fr)); }
+  .cz-grid.cz-fast { row-gap: 34px; }
   .cz-chips { margin: 12px 0 0; padding: 0 0 2px; flex-wrap: wrap; overflow: visible; }
   .cz-tools { max-width: 720px; }
   .cz-btitle { font-size: 19px; }
@@ -10954,13 +10936,187 @@ body.case-open #app > .view *::after, body.case-open .money-rain * { animation-p
 
 /* Раскрывающаяся памятка бонусного счёта: те же правила, три коротких шага. */
 .cash-bonus-details summary > span { display: inline-grid; gap: 4px; vertical-align: top; font-weight: 700; }
-.cash-bonus-details summary small { font-size: 10.5px; font-weight: 500; opacity: .75; }
+.cash-bonus-details summary small { font-size: 12px; font-weight: 600; color: #ead6a8; }
 .cash-bonus-steps { list-style: none; padding: 0; margin: 12px 0; display: grid; gap: 8px; }
-.cash-bonus-steps li { display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 9px; padding: 10px; border-radius: 12px; background: #ffffff07; border: 1px solid #ffffff0a; }
+.cash-bonus-steps li { display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 9px; padding: 10px; border-radius: 12px; background: #251e16; border: 1px solid #655136; }
 .cash-bonus-step { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 8px; background: #dfbe621a; color: var(--gold); font: 800 12px/1 system-ui, sans-serif; }
 .cash-bonus-steps .is-done .cash-bonus-step { background: #a2edcf1a; color: #a2edcf; }
-.cash-bonus-steps li > div > b { color: var(--text); font-size: 12px; }
+.cash-bonus-steps li > div > b { color: #fff4d9; font-size: 13px; }
 .cash-bonus .cash-bonus-steps p { margin: 5px 0 0; line-height: 1.55; }
 .cash-bonus-steps strong { color: #a2edcf; font-weight: 800; }
 .cash-bonus-limit { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 5px 10px; margin-top: 9px; padding-top: 9px; border-top: 1px solid #ffffff12; font-size: 11px; color: var(--c-text-2); }
-.cash-bonus .cash-bonus-note { font-size: 10.5px; opacity: .8; }
+.cash-bonus .cash-bonus-note { font-size: 12px; color: #d6c8ad; }
+
+/* Нажатие на игру сразу открывает выбор режима и не ждёт двойного тапа. */
+.cz-tile { touch-action: manipulation; }
+
+/* Mobile effects use a small composited layer instead of full-screen token art. */
+.own-game-back { margin-bottom: 18px; }
+.mo-fs-light { position: fixed; left: 50%; top: 40%; padding: 24px 28px;
+  border: 1px solid #d6aa48; border-radius: 20px; color: #ffe19a;
+  background: #241930; text-align: center; white-space: nowrap;
+  font: 800 clamp(18px, 5vw, 28px)/1.3 'Manrope', sans-serif; }
+@media (max-width: 600px), (pointer: coarse) {
+  body.case-open .money-rain, body.case-open .hero { visibility: hidden; }
+  body.case-open .opener-scroll .fs-emblem { animation: none; }
+}
+
+/* Prepared bitmap layers: no SVG filters, text gradients or masks in flight. */
+.mo-fs-raster .mo-fs-emblem { filter: none; }
+.mo-fs-raster .mo-fs-emblem img { display: block; width: 100%; height: 100%; }
+.mo-fs-raster .mo-fs-title { gap: 0; }
+.mo-fs-raster .mo-fs-title > div { display: flex; align-items: flex-start; }
+.mo-metal-bitmap { display: inline-block; vertical-align: top; max-width: 100%; object-fit: contain; will-change: transform, opacity; }
+.mo-rays.mo-rays-bitmap { width: 640px; height: 640px; margin: -320px; background: none; mask: none; -webkit-mask: none; }
+.mo-tok.mo-tok-raster { background: none; box-shadow: none; }
+.mo-tok-raster img { width: 100%; height: 100%; display: block; }
+
+/* Счета и короткое получение выигрыша: только transform и opacity. */
+html, body { touch-action: pan-x pan-y; }
+button, a, input, select, [role="button"] { touch-action: manipulation; }
+body { padding-bottom: 0; }
+.site-footer { padding-bottom: calc(40px + var(--safe-bottom)); }
+.balance-chip { display: inline-flex; gap: 5px; align-items: center; }
+.balance-chip.is-bonus { color: #c6a1ff; }
+.balance-arrow, .opener-wallet-button::after {
+  content: ''; display: inline-block; box-sizing: border-box;
+  width: 8px; height: 8px; flex: 0 0 8px;
+  border-right: 2.5px solid currentColor; border-bottom: 2.5px solid currentColor;
+  border-radius: 1px; opacity: .9;
+  transform: translateY(-2px) rotate(45deg);
+}
+.balance-arrow { margin: 0 3px 0 2px; }
+.balance-chip[aria-expanded="true"] .balance-arrow { transform: translateY(2px) rotate(225deg); }
+.wallet-sheet {
+  position: fixed; z-index: 1500; top: calc(var(--topbar-h, 64px) + 8px);
+  right: max(12px, env(safe-area-inset-right));
+  width: min(320px, calc(100vw - 24px)); box-sizing: border-box;
+  max-height: calc(100dvh - var(--topbar-h, 64px) - 24px); overflow-y: auto;
+  padding: 6px; border: 1px solid #54425f; border-radius: 16px;
+  background: #211829; box-shadow: 0 12px 32px #08040b80;
+}
+.wallet-sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 8px 11px; margin: 0 4px 2px; border-bottom: 1px solid #ffffff12; }
+.wallet-sheet-head > b { font-size: 14px; font-weight: 650; color: #f5eef9; }
+#walletSheetCashier {
+  min-height: 30px; padding: 6px 12px; border-radius: 8px;
+  background: #d4a24e; color: #21170b; border: 1px solid #e2b767;
+  font-size: 12px; font-weight: 750; box-shadow: none; text-shadow: none;
+}
+#walletSheetCashier::before, #walletSheetCashier::after { display: none; }
+.wallet-choice {
+  width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) auto 12px;
+  align-items: center; column-gap: 10px; text-align: left;
+  padding: 13px 10px; margin: 0; box-sizing: border-box;
+  border: 0; border-radius: 10px; background: transparent;
+  color: #f7f1fb; font-family: inherit; cursor: pointer;
+}
+.wallet-choice + .wallet-choice { margin-top: 2px; }
+.wallet-choice > span { min-width: 0; font-size: 13px; font-weight: 600; line-height: 1.3; }
+.wallet-choice small { display: block; margin-top: 5px; font-size: 11px; line-height: 1.45; font-weight: 400; color: #baacc6; }
+.wallet-choice > b { max-width: 140px; font-size: 18px; line-height: 1.25; font-weight: 750; letter-spacing: -.4px; font-variant-numeric: tabular-nums; text-align: right; overflow-wrap: anywhere; }
+.wallet-choice::after { content: ''; width: 12px; color: #e6bc72; font-size: 13px; font-weight: 800; }
+.wallet-choice.active { background: #ffffff08; }
+.wallet-choice.active::after { content: '✓'; }
+.wallet-choice.bonus-choice > b { color: #d5b5ed; }
+.wallet-choice.bonus-choice.active::after { color: #d5b5ed; }
+.wallet-pending { width: calc(100% - 8px); margin: 4px; padding: 10px; border: 1px solid #b38b464d; border-radius: 9px; background: #b38b4614; color: #f0d298; font-family: inherit; font-size: 12px; line-height: 1.4; cursor: pointer; }
+.wallet-choice:focus-visible, #walletSheetCashier:focus-visible { outline: 2px solid #e6bc72; outline-offset: -2px; }
+@media (hover: hover) {
+  .wallet-choice:hover { background: #ffffff0c; }
+  #walletSheetCashier:hover { background: #e0b35f; filter: none; }
+}
+.acc-id { display: block; text-align: right; color: var(--muted); font-size: 11px; margin-bottom: 10px; }
+.bank-search { width: 100%; margin-bottom: 8px; }
+.reward-coin { position: fixed; z-index: 9999; pointer-events: none; width: 24px; height: 24px; border-radius: 50%; background: #e9bd66; color: #302013; text-align: center; font-weight: 800; }
+
+.opener-wallet-button { border: 0; background: none; color: inherit; font: inherit; font-weight: 800; padding: 4px; }
+.opener-wallet-button::after { margin-left: 8px; vertical-align: middle; }
+.cz-iframe { touch-action: pan-x pan-y; }
+
+@media (pointer: coarse) { .promo-pair button:active { transform: none; } }
+
+/* Restrained home navigation and price typography. */
+@font-face {
+  font-family: 'Loma Prices'; src: url('/assets/fonts/loma-bold.otf') format('opentype');
+  font-style: normal; font-weight: 700; font-display: swap;
+}
+#view-cases .case-price, #view-cases .case-price-tag, #view-cases .featured-price {
+  font-family: 'Loma Prices', sans-serif; font-weight: 900; letter-spacing: .01em; -webkit-text-stroke: .25px currentColor;
+  font-variant-numeric: lining-nums tabular-nums;
+}
+#view-cases .case-price-tag b { font-family: inherit; font-weight: 900; }
+.shelf-row .case-card:hover, .shelf-row .case-card:active { transform: none; box-shadow: none; }
+.feed-ticket { display: inline-flex; width: 24px; height: 18px; flex: 0 0 auto; color: #d5b17c; transform: rotate(-8deg); }
+.feed-ticket svg { display: block; width: 100%; height: 100%; }
+.feed-head::after { background: #ffffff12; }
+.side-item, .side-item.is-sq, .side-item.is-wide, .side-item.is-tall,
+.side-item.active, .side-item.is-sq.active,
+.side-item:hover, .side-item.is-sq:hover {
+  background: #190f25; box-shadow: none; filter: none;
+}
+.side-item::before, .side-item::after { display: none; animation: none; }
+.side-item.active, .side-item.is-sq.active { border-color: #aa85cc; }
+.side-item.is-sq .side-ico[data-ico], .side-item.is-sq .side-art { filter: none; }
+
+.side-prize, .side-prize:hover { background: #190f25; box-shadow: none; }
+
+/* Keep all animation timelines, but do not animate elements outside the viewport. */
+.perf-away, .perf-away *, .perf-away::before, .perf-away::after,
+.perf-away *::before, .perf-away *::after { animation-play-state: paused !important; }
+html.perf-hidden *, html.perf-hidden *::before, html.perf-hidden *::after { animation-play-state: paused !important; }
+#view-admin, #boShell, .bo-panes, .admin-pane { min-width: 0; max-width: 100%; }
+.admin-pane { overflow-x: auto; }
+.cover-art { object-fit: contain; }
+
+.bo-body { min-width: 0; max-width: 100%; }
+@media(min-width:1100px) {
+  .top-motto { flex: 1 1 0; min-width: 0; white-space: normal; font-size: clamp(18px, 2vw, 34px); }
+  .top-right { flex-shrink: 0; }
+}
+@media(max-width:1099px) {
+  .topbar .brand-logo { max-width: 100%; height: auto; max-height: 31px; object-fit: contain; }
+  .top-right { flex-shrink: 0; }
+}
+
+/* Available multipliers: quiet, aligned rows above the catalog. */
+#perkBar { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 8px; margin: 0 0 18px; }
+#perkBar[hidden] { display: none; }
+.perk-ready { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 12px 14px; text-align: left; font: inherit; color: #eee9df; background: #191b1e; border: 1px solid #34332f; border-radius: 12px; cursor: pointer; transition: border-color .18s, background .18s; }
+.perk-ready:hover { background: #20211f; border-color: #736345; }
+.perk-ready:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
+.perk-ready-mark { display: grid; place-items: center; flex: 0 0 42px; height: 42px; border-radius: 9px; background: #302a1e; color: #e8c785; font-size: 22px; font-weight: 800; letter-spacing: -1px; }
+.perk-ready-copy { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 4px; }
+.perk-ready-label { color: #a9a69f; font-size: 11px; line-height: 1.3; font-weight: 500; }
+.perk-ready-name { font-size: 14px; line-height: 1.3; font-weight: 650; overflow-wrap: anywhere; }
+.perk-ready-arrow { flex: 0 0 auto; color: #b7a17a; font-size: 20px; }
+@media (max-width: 600px) {
+  .banner-stack:has(+ #perkBar:not([hidden])) { margin-bottom: 10px; }
+  #perkBar { grid-template-columns: minmax(0, 1fr); gap: 6px; margin-bottom: 14px; }
+  .perk-ready { padding: 10px 12px; gap: 10px; }
+  .perk-ready-mark { flex-basis: 38px; height: 38px; font-size: 21px; }
+}
+
+/* Пауза только для закрытой игрой оболочки; iframe и его панель не затронуты. */
+body.casino-background-paused :is(#app, .topbar, #sideNav, #siteFooter),
+body.casino-background-paused :is(#app, .topbar, #sideNav, #siteFooter) *,
+body.casino-background-paused :is(#app, .topbar, #sideNav, #siteFooter)::before,
+body.casino-background-paused :is(#app, .topbar, #sideNav, #siteFooter)::after,
+body.casino-background-paused :is(#app, .topbar, #sideNav, #siteFooter) *::before,
+body.casino-background-paused :is(#app, .topbar, #sideNav, #siteFooter) *::after {
+  animation-play-state: paused !important;
+}
+
+/* Local launch feedback: no animation loop or background network checks. */
+.cz-frame-host { min-height: 0; }
+.cz-frame-help { flex-shrink: 0; color: var(--gold); background: transparent; border: 0; font-size: 12px; padding: 8px 2px; cursor: pointer; }
+.cz-launch-status { position: absolute; inset: calc(46px + var(--safe-top)) 0 0; z-index: 2; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 14px; padding: 24px; background: #100d19; color: var(--text); text-align: center; }
+.cz-launch-status[hidden], .cz-launch-status [hidden] { display: none; }
+.cz-launch-cover { width: 130px; max-height: 180px; object-fit: contain; border-radius: 12px; }
+.cz-launch-status p { margin: 0; font-size: 14px; }
+.cz-launch-status.is-help { inset: auto 12px calc(12px + var(--safe-bottom, 0px)); border: 1px solid #55432b; border-radius: 14px; padding: 16px; box-shadow: 0 4px 24px #0009; }
+.cz-launch-actions { display: flex; justify-content: center; flex-wrap: wrap; gap: 10px; }
+.cz-launch-status button { border: 1px solid #76603b; border-radius: 9px; padding: 10px 14px; background: #292131; color: var(--text); cursor: pointer; }
+.cz-launch-status button:disabled { opacity: .5; cursor: wait; }
+#czLaunchRetry { background: var(--gold); color: #17101d; font-weight: 700; }
+#czLaunchDismiss { background: transparent; border: 0; padding: 4px; font-size: 12px; text-decoration: underline; }
+@media (max-width: 420px) { .cz-frame-bar { gap: 6px; padding: 0 6px; } .cz-frame-balance { padding: 7px 6px; font-size: 11px; } .cz-frame-name { font-size: 12px; } .cz-frame-help { font-size: 11px; } }

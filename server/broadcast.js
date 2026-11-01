@@ -64,7 +64,7 @@ export function dailyPromoText(code) {
 }
 
 /** Кнопка под сообщением: сразу на колесо с подставленным кодом. */
-function wheelButton(code) {
+export function wheelButton(code) {
   const site = (process.env.SITE_URL || '').replace(/\/+$/, '');
   if (!/^https:\/\//.test(site)) return undefined;
   return { inline_keyboard: [[{ text: '🎡 Крутить колесо', url: `${site}/?wheel=${encodeURIComponent(code)}` }]] };

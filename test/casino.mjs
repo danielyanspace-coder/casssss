@@ -337,7 +337,7 @@ const call = (list) => casinoWallet(list, { currency: 'RUB' });
   // Игры без обложки не показываются нигде: ни в списке, ни в поиске, ни в
   // счётчиках провайдеров.
   const hidden = db.prepare("SELECT * FROM casino_games WHERE active = 1 AND cover_state = 'x'").all();
-  const visible = db.prepare("SELECT COUNT(*) AS n FROM casino_games WHERE active = 1 AND kind = 'slots' AND COALESCE(cover_state, '') <> 'x'").get().n;
+  const visible = db.prepare("SELECT COUNT(DISTINCT lower(trim(name))) AS n FROM casino_games WHERE active = 1 AND kind = 'slots' AND COALESCE(cover_state, '') <> 'x'").get().n;
   check('игры без обложки есть в снимке', hidden.length > 100, String(hidden.length));
   check('игры без обложки не попадают в лобби', cdb.casinoGames({ kind: 'slots', limit: 1 }).total === visible);
   check('игры без обложки не находятся поиском',
@@ -363,6 +363,27 @@ const call = (list) => casinoWallet(list, { currency: 'RUB' });
   check('чужой признак не записывается', cdb.casinoGame(g.id).cover_state === null);
   check('непроверенные игры отдаются на проверку', cdb.gamesWithoutCoverState(5).some((x) => x.id === g.id));
   cdb.saveCatalog(snapAgain.providers, snapAgain.games);
+}
+
+/* Дубли от разных поставщиков не должны занимать соседние страницы. */
+{
+  for (const name of ['40 Super Hot', 'Shining Crown']) {
+    const result = cdb.casinoGames({ kind: 'slots', q: name, limit: 120 });
+    check('дубли: одна карточка ' + name,
+      result.rows.filter((g) => g.name === name).length === 1);
+  }
+  const names = [];
+  let total = Infinity;
+  for (let offset = 0; offset < total; offset += 120) {
+    const page = cdb.casinoGames({ kind: 'slots', offset, limit: 120 });
+    total = page.total;
+    names.push(...page.rows.map((g) => g.name.trim().toLowerCase()));
+  }
+  check('дубли: пагинация без повторов и пропусков', names.length === total && new Set(names).size === total);
+  for (const provider of ['egt', 'amusnet']) {
+    check('дубли: игра доступна у провайдера ' + provider,
+      cdb.casinoGames({ provider, q: 'Shining Crown' }).rows.some((g) => g.name === 'Shining Crown'));
+  }
 }
 
 /* ---------- Блоки лобби ---------- */

@@ -9,7 +9,7 @@ try {
   const page=await browser.newPage({viewport:{width:390,height:844}});
   const errors=[]; page.on('pageerror', e=>errors.push(e.message));
   await page.route('https://**/*',r=>r.abort());
-  await page.route('**/app.js',r=>r.fulfill({body:readFileSync(new URL('../public/app.js', import.meta.url),'utf8')+'\nwindow.__audit={state,applyUser,openCase,switchView,renderWalletBonus};',contentType:'application/javascript'}));
+  await page.route('**/app.js*',r=>r.fulfill({body:readFileSync(new URL('../public/app.js', import.meta.url),'utf8')+'\nwindow.__audit={state,applyUser,openCase,switchView,renderWalletBonus};',contentType:'application/javascript'}));
   await page.addInitScript(()=>{window.__long=[];new PerformanceObserver(l=>window.__long.push(...l.getEntries().map(e=>({start:e.startTime,duration:e.duration})))).observe({type:'longtask',buffered:true});});
   const cdp=await page.context().newCDPSession(page); await cdp.send('Emulation.setCPUThrottlingRate',{rate:4});
   const t=Date.now();await page.goto(process.argv[2] || 'http://localhost:3000',{waitUntil:'domcontentloaded'});await page.waitForSelector('.case-card');
@@ -24,7 +24,11 @@ try {
    const shelfKept=node===shelves.firstElementChild;
    const id=a.state.config.cases.find(c=>c.id==='warmup_100').id;
    const start=performance.now();a.openCase(id);
-   await new Promise(resolve=>{const tick=()=>document.getElementById('opener').hidden?requestAnimationFrame(tick):resolve();requestAnimationFrame(tick)});
+   await new Promise((resolve,reject)=>{
+     const timeout=setTimeout(()=>reject(new Error('Case did not open within 15 seconds')),15000);
+     const tick=()=>{if(document.getElementById('opener').hidden)requestAnimationFrame(tick);else{clearTimeout(timeout);resolve();}};
+     requestAnimationFrame(tick);
+   });
    const openMs=performance.now()-start;
    return {applyUserMs:times,shelfKept,openMs,domNodes:document.querySelectorAll('*').length,longTasks:window.__long.filter(e=>e.duration>50),resources:performance.getEntriesByType('resource').length};
   });

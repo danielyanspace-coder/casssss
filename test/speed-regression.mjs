@@ -1,0 +1,23 @@
+import assert from 'node:assert/strict';import{chromium,webkit}from'playwright';import{readFileSync,writeFileSync}from'node:fs';
+const base=process.argv[2]||'http://127.0.0.1:3101';
+const result=[];
+for(const [name,engine]of[['chromium',chromium],['webkit',webkit]]){
+const b=await engine.launch(name==='webkit'?{executablePath:'/root/.cache/ms-playwright/webkit-2370/pw_run.sh'}:{});const p=await b.newPage({viewport:{width:360,height:800},isMobile:true,hasTouch:true});const errors=[];p.on('pageerror',e=>errors.push(e.message));
+try{await p.goto(base,{waitUntil:'domcontentloaded'});await p.locator('.case-card').first().waitFor();await p.waitForFunction(()=>!document.documentElement.classList.contains('lb-launching'));if(await p.locator('#onbSkip').isVisible())await p.locator('#onbSkip').click();
+await p.waitForTimeout(500);assert.equal(await p.locator('.chest-scene').count(),0);
+const first=p.locator('.case-card .cover-art').first();await first.scrollIntoViewIfNeeded();await p.waitForFunction(()=>{const i=document.querySelector('.case-card .cover-art');return i.complete&&i.naturalWidth>0});
+assert.equal(await p.evaluate(()=>document.documentElement.scrollWidth-innerWidth),0);
+await p.screenshot({path:`/root/luckybox-speed2/${name}-home.png`});
+// Scrolling must load the actual far-away artwork, not leave empty placeholders.
+const last=p.locator('.case-card .cover-art').last();await p.evaluate(()=>scrollTo(0,document.documentElement.scrollHeight));await p.waitForTimeout(300);await last.scrollIntoViewIfNeeded();await p.waitForFunction(()=>{const i=[...document.querySelectorAll('.case-card .cover-art')].at(-1);return i.complete&&i.naturalWidth>0});await last.evaluate(i=>i.decode());assert.ok(await last.evaluate(i=>i.naturalWidth>0));
+// A real case opens with its original HD artwork and animation timelines still enabled.
+await p.locator('.case-card[data-case="warmup_100"]').scrollIntoViewIfNeeded();await p.locator('.case-card[data-case="warmup_100"]').tap();await p.locator('#opener:not([hidden])').waitFor();assert.ok(await p.locator('#opener svg').count()>0);await p.screenshot({path:`/root/luckybox-speed2/${name}-case.png`});
+// No financial actions on live targets: the preview server has a separate test database.
+const close=p.locator('#openerClose');if(await close.count())await close.click();else await p.keyboard.press('Escape');
+await p.goto(`${base}/admin`,{waitUntil:'domcontentloaded'});await p.locator('[data-admin-tab]').first().waitFor();for(const width of[320,390,1440]){await p.setViewportSize({width,height:900});await p.waitForTimeout(200);assert.equal(await p.evaluate(()=>Math.max(0,document.documentElement.scrollWidth-innerWidth)),0,`${name} admin width ${width}`)}
+await p.setViewportSize({width:320,height:844});await p.screenshot({path:`/root/luckybox-speed2/${name}-admin-320.png`,fullPage:true});
+assert.deepEqual(errors,[]);result.push({engine:name,ok:true});console.log(name,'responsive artwork, scroll, HD case, no false chest, admin widths passed');
+}catch(e){result.push({engine:name,error:e.stack});throw e}finally{writeFileSync('/root/luckybox-speed2/regression.json',JSON.stringify(result,null,2));await b.close()}}
+// Test identity changes and genuine deposits on unminified code with test-only inspection.
+const b=await chromium.launch();const p=await b.newPage();try{
+const source=readFileSync(new URL('../public/app.js',import.meta.url),'utf8').replaceAll("from './","from '/").replaceAll("import('./","import('/");await p.route('**/release-20261031-v2/app.js',r=>r.fulfill({contentType:'application/javascript',body:source+'\nwindow.__speed={state,applyUser,guestUser};'}));await p.goto(base,{waitUntil:'domcontentloaded'});await p.waitForFunction(()=>window.__speed?.state.user);await p.evaluate(()=>{const a=window.__speed;a.state.user=a.guestUser();a.applyUser({...a.state.user,id:123,balance:70000,depositsCount:10});});await p.waitForTimeout(1100);assert.equal(await p.locator('.chest-scene').count(),0,'Login must not celebrate an existing balance');await p.evaluate(()=>{const a=window.__speed;a.applyUser({...a.state.user,id:124,depositsCount:20,balance:90000})});await p.waitForTimeout(1100);assert.equal(await p.locator('.chest-scene').count(),0,'Switching identities must not celebrate deposits');await p.evaluate(()=>{const a=window.__speed;a.applyUser({...a.state.user,depositsCount:0});a.applyUser({...a.state.user,depositsCount:1,balance:a.state.user.balance+500})});await p.waitForTimeout(1100);assert.equal(await p.locator('.chest-scene').count(),1,'A genuine first deposit must still animate');console.log('Deposit regression: login and identity switch silent, real first deposit animated');}finally{await b.close()}

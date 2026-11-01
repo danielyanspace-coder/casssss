@@ -87,7 +87,8 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
     // Фриспины есть теперь у каждого кейса, и серия зачисляется тем же
     // ответом - без её учёта ожидание расходится каждый раз, когда она выпала.
     const fs = (data.granted || []).find((g) => g.type === 'freespins');
-    const expected = before.balance - cheap.price + data.item.value + (fs ? fs.total : 0);
+    const expected = before.balance - cheap.price;
+    check('кейсы: выигрыш ожидает получения', data.user.pendingReward.real + data.user.pendingReward.bonus === data.item.value + (fs ? fs.total : 0));
     if (data.balance !== expected) {
       mismatches++;
       if (mismatches === 1) {
@@ -99,6 +100,8 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
     const known = cheap.items.some((it) =>
       it.name === data.item.name || data.item.name.startsWith(it.name));
     if (!known) notInTable++;
+    const collected = (await post('/api/gamble/skip')).data.user;
+    check('кейсы: получение зачисляет выигрыш', collected.balance === expected + data.item.value + (fs ? fs.total : 0));
   }
 
   check('кейсы: баланс сходится на 40 открытиях', mismatches === 0, `расхождений ${mismatches}`);
@@ -143,11 +146,12 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
   const before = opened.balance;
   const g = (await post('/api/gamble/pick', { index: 0 })).data;
 
-  const expected = before + (g.won ? stake * config.gamble.payout - stake : -stake);
+  const expected = before;
+  check('риск: выплата ожидает получения', g.user.pendingReward.real + g.user.pendingReward.bonus === g.payout);
   check('риск: баланс сходится', g.balance === expected,
         `ожидалось ${expected}, получено ${g.balance}`);
   check('риск: выплата соответствует исходу',
-        g.won ? g.payout === stake * config.gamble.payout : g.payout === 0);
+        g.won ? g.payout === Math.floor(stake * config.gamble.payout) : g.payout === 0);
   check('риск: позиция туза в допустимых границах',
         g.acePosition >= 0 && g.acePosition < config.gamble.cards);
 
@@ -158,6 +162,7 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
 
   const bad = await post('/api/gamble/pick', { index: 99 });
   check('риск: некорректный индекс карты отклонён', bad.status === 400);
+  await post('/api/gamble/skip');
 }
 
 /* ---------- 4б. Апгрейд ---------- */
@@ -389,6 +394,7 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
 {
   await post('/api/admin/balance', { userId: me.id, amount: 5_000_000, note: 'пачка', asDeposit: false });
   const c = config.cases.find((x) => x.id === 'neon_500');
+  await post('/api/gamble/skip');
   const before = (await post('/api/me')).data.user;
 
   const r = await post('/api/open', { caseId: c.id, count: 2 });
@@ -410,7 +416,8 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
   const won = r.data.opened.reduce((s, o) => s + o.item.value, 0) + fsTotal;
   check('пачка: сумма выигрышей сходится', r.data.totalWon === won);
 
-  const expectedBalance = before.balance - r.data.totalSpent + r.data.totalWon;
+  const expectedBalance = before.balance - r.data.totalSpent;
+  check('пачка: весь выигрыш ждёт получения', r.data.user.pendingReward.real + r.data.user.pendingReward.bonus === r.data.totalWon);
   check('пачка: баланс сходится', r.data.balance === expectedBalance,
         `${r.data.balance} vs ${expectedBalance}`);
 
@@ -755,6 +762,7 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
       await post('/api/admin/balance', { userId: me.id, amount: target - now, note: 'фриспины', asDeposit: false });
     }
   };
+  await post('/api/gamble/skip');
   await setBalance(20_000_000);
 
   let hit = null;
@@ -768,8 +776,13 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
 
     const data = r.data;
     const fs = (data.granted || []).find((g) => g.type === 'freespins');
-    const expected = before.balance - fsCase.price + data.item.value + (fs ? fs.total : 0);
-    if (data.balance !== expected) balanceOk = false;
+    const payout = data.item.value + (fs ? fs.total : 0);
+    const pending = data.user.pendingReward;
+    if (data.balance !== before.balance - fsCase.price
+        || pending.real + pending.bonus !== payout) balanceOk = false;
+    const collected = (await post('/api/gamble/skip')).data.user;
+    if (collected.balance !== before.balance - fsCase.price + payout
+        || collected.pendingReward.real + collected.pendingReward.bonus !== 0) balanceOk = false;
     if (fs) hit = fs;
   }
 
@@ -838,6 +851,7 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
 /* ---------- Покупка фриспинов ---------- */
 
 {
+  await post('/api/gamble/skip');
   await post('/api/admin/balance', { userId: me.id, amount: 5_000_000, note: 'фриспины', asDeposit: false });
   const c = config.cases.find((x) => x.id === 'warmup_100');
 
@@ -867,7 +881,11 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
     check(`пачка ${pack.count}: прокрутов не меньше купленного`,
           r.data.grant.spins.length >= pack.count);
 
-    const after = (await post('/api/me')).data.user.balance;
+    const held = (await post('/api/me')).data.user;
+    check(`пачка ${pack.count}: выигрыш ждёт получения`,
+          held.balance === before - r.data.cost
+          && held.pendingReward.real + held.pendingReward.bonus === r.data.grant.total);
+    const after = (await post('/api/gamble/skip')).data.user.balance;
     check(`пачка ${pack.count}: баланс сходится`,
           after === before - r.data.cost + r.data.grant.total,
           `${before} - ${r.data.cost} + ${r.data.grant.total} != ${after}`);
@@ -888,6 +906,7 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
   check('изначально незавершённой серии нет',
         (await post('/api/freespins/pending')).data.pending === null);
 
+  await post('/api/gamble/skip');
   const before = (await post('/api/me')).data.user.balance;
   const bought = (await post('/api/freespins/buy', { caseId: 'warmup_100', count: 10 })).data;
   const after = (await post('/api/me')).data.user.balance;
@@ -898,10 +917,11 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
         pending.grant.spins.length === bought.grant.spins.length
         && pending.grant.total === bought.grant.total);
 
-  // Главное: деньги уже начислены, повторный заход их не меняет.
-  check('баланс учтён сразу при покупке',
-        after === before - bought.cost + bought.grant.total,
-        `${before} - ${bought.cost} + ${bought.grant.total} != ${after}`);
+  // Покупка списывает цену, выигрыш остаётся до явного получения.
+  const held = (await post('/api/me')).data.user.pendingReward;
+  check('при покупке списана цена, выигрыш ожидает получения',
+        after === before - bought.cost && held.real + held.bonus === bought.grant.total,
+        `${before} - ${bought.cost} != ${after}; pending=${JSON.stringify(held)}`);
   check('пока серия не досмотрена, баланс не двигается',
         (await post('/api/me')).data.user.balance === after);
 
@@ -910,6 +930,10 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
         (await post('/api/freespins/pending')).data.pending === null);
   check('досмотр не меняет баланс',
         (await post('/api/me')).data.user.balance === after);
+  const collected = (await post('/api/gamble/skip')).data.user;
+  check('получение серии зачисляет выигрыш', collected.balance === after + bought.grant.total);
+  check('повторное получение серии не начисляет повторно',
+        (await post('/api/gamble/skip')).data.user.balance === collected.balance);
 }
 
 /* ---------- Удвоение внутри серии ---------- */
@@ -979,7 +1003,7 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
   const wallet = (await post('/api/wallet')).data;
   check('касса показывает бонусный счёт и правила',
         wallet.bonus && wallet.bonus.balance >= 1000 && wallet.bonus.rules.wager > 0
-        && wallet.bonus.rules.cashoutPct > 0 && wallet.bonus.rules.cashoutPct < 30,
+        && wallet.bonus.rules.cashoutPct === 0,
         JSON.stringify(wallet.bonus?.rules));
 
   // Отказ от бонуса обнуляет бонусный счёт и его отыгрыш, свои не трогает.
@@ -1046,7 +1070,12 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
   const ov = await post('/api/pc/admin/overview');
   check('кабинет: обзор программы отдаётся админу', ov.status === 200 && ov.data.rows.some((r) => r.id === row.id));
   const fin = await post('/api/pc/admin/finance/sicilia', { days: 7 });
-  check('кабинет: сверка с Sicilia отдаётся', fin.status === 200 && fin.data.ledger.rows.length === 7 && typeof fin.data.owed === 'number');
+  check('кабинет: сверка с Sicilia отдаётся',
+        fin.status === 200 && fin.data.ledger.rows.length === 7
+        && Number.isFinite(fin.data.ledger.closing)
+        && Number.isFinite(fin.data.deposits?.gross)
+        && Number.isFinite(fin.data.deposits?.fee)
+        && fin.data.deposits.net === Math.round((fin.data.deposits.gross - fin.data.deposits.fee) * 100) / 100);
   const hourly = await post('/api/pc/admin/finance/sicilia', { day: new Date().toISOString().slice(0, 10) });
   check('кабинет: сверка по часам', hourly.status === 200 && hourly.data.ledger.rows.length === 24);
   const cashRes = await post('/api/pc/admin/finance/cash', { days: 7 });
@@ -1337,7 +1366,10 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
   // Игры без обложки на CDN не показываются (решение заказчика).
   const snapGames = JSON.parse(readFileSync(new URL('../server/casino-catalog.json', import.meta.url), 'utf8')).games;
   const bareGame = snapGames.find((g) => g.kind === 'slots' && g.cover_state === 'x');
-  const visibleSlots = snapGames.filter((g) => g.kind === 'slots' && g.cover_state !== 'x').length;
+  // Общая витрина считает уникальные названия после скрытия обложек,
+  // каталог выбранного провайдера при этом сохраняет его собственные игры.
+  const visibleSlots = new Set(snapGames.filter((g) => g.kind === 'slots' && g.cover_state !== 'x')
+    .map((g) => g.name.trim().toLowerCase())).size;
   check('казино: игр без обложки нет в лобби', page.data.total === visibleSlots, `${page.data.total} / ${visibleSlots}`);
   check('казино: у каждой игры в списке есть обложка', games.every((g) => typeof g.cover === 'string' && g.cover));
   if (bareGame) {
@@ -1383,7 +1415,7 @@ await post('/api/admin/balance', { userId: me.id, amount: 50_000_000, note: 'т�
         mw.data.total > 10 && mw.data.games.every((g) => /megaways/i.test(g.name)), String(mw.data.total));
   const fakeCat = await post('/api/casino/games', { kind: 'slots', category: 'нет-такой', limit: 5 });
   check('казино: неизвестная категория не ломает список',
-        fakeCat.status === 200 && fakeCat.data.total === lobby.data.counts?.slots, String(fakeCat.data.total));
+        fakeCat.status === 200 && fakeCat.data.total === page.data.total, String(fakeCat.data.total));
   const liveHome = await post('/api/casino/home', { kind: 'live' });
   check('казино: вкладка Live отвечает и без столов', liveHome.status === 200 && Array.isArray(liveHome.data.blocks));
 

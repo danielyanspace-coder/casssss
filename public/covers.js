@@ -1,3 +1,4 @@
+import { coverWidths } from './image-sizes.js';
 /**
  * Процедурные обложки кейсов.
  *
@@ -323,7 +324,7 @@ export function porschePhotoSrc() {
  */
 export function porscheCover(caseData) {
   const alt = `Обложка кейса «${caseData.name}»`;
-  return `<img class="cover-photo" src="${porscheBannerSrc()}" alt="${alt}">`;
+  return `<img class="cover-photo" data-src="${porscheBannerSrc()}" data-srcset="/assets/responsive/ui/case-porsche-240.webp 240w, /assets/responsive/ui/case-porsche-480.webp 480w, ${porscheBannerSrc()} 942w" sizes="(min-width:1100px) 190px, 40vw" width="942" height="1100" alt="${alt}">`;
 }
 
 /**
@@ -338,6 +339,11 @@ export function porscheCover(caseData) {
  */
 export function artCover(caseData) {
   const alt = `Обложка кейса «${caseData.name}»`;
-  return `<img class="cover-art" src="${caseArtSrc(caseData)}" alt="${alt}"
-    loading="lazy" decoding="async">`;
+  const src = caseArtSrc(caseData);
+  const originalWidth = (typeof coverWidths !== 'undefined' && coverWidths[caseData.art]) || Math.round(caseData.artAspect * 582);
+  const medium = originalWidth > 480 ? `/assets/responsive/covers/${caseData.art}-480.webp 480w, ` : '';
+  const srcset = typeof window !== 'undefined' && window.__COVER_ART ? ''
+    : `data-srcset="/assets/responsive/covers/${caseData.art}-240.webp 240w, ${medium}${src} ${originalWidth}w" sizes="(min-width: 1100px) 220px, (min-width: 700px) 200px, 46vw"`;
+  return `<img class="cover-art" data-src="${src}" ${srcset} alt="${alt}"
+    width="${Math.round(caseData.artAspect * 582)}" height="582" decoding="async">`;
 }

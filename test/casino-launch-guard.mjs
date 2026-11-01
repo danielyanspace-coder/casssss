@@ -1,0 +1,32 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+const elements=new Map(),timers=new Map();let timerId=0;
+const el=()=>({hidden:false,dataset:{},style:{},children:[],textContent:'',setAttribute(){},removeAttribute(){},append(x){this.children.push(x)},replaceChildren(){},querySelectorAll:()=>[],addEventListener(n,fn){this[n]=fn}});
+globalThis.document={hidden:false,getElementById(id){if(!elements.has(id))elements.set(id,el());return elements.get(id)},createElement:el,addEventListener(){},body:{classList:{add(){},remove(){}}}};
+const nativeSet=setTimeout,nativeClear=clearTimeout;
+globalThis.setTimeout=(fn,ms)=>{const id=++timerId;timers.set(id,{fn,ms});return id};globalThis.clearTimeout=id=>timers.delete(id);
+let inspect,handler,calls=[];
+const src=readFileSync(new URL('../public/casino.js',import.meta.url),'utf8').replace(/^import .*;$/m,'const PROVIDER_LOGOS={};').replace('export function createCasino','function createCasino').replace('  return {\n    open()', '  deps.inspect({ui,launch,closeFrame,bindOverlays});\n  return {\n    open()');
+const create=new Function(src+';return createCasino;')();
+create({state:{guest:false,user:{balance:1000},config:{}},esc:String,money:String,haptic(){},onUser(){},api:(path,...args)=>{calls.push(path);return path==='/api/casino/launch'?handler(...args):Promise.resolve({user:{balance:1000}})},inspect:i=>inspect=i});
+const {ui,launch,closeFrame,bindOverlays}=inspect;ui.active=true;bindOverlays();const $=id=>document.getElementById(id);const g={id:'chica',name:'Chica Alegre 10 Buy Bonus'};
+const fire=async ms=>{for(const [id,t] of [...timers])if(t.ms===ms){timers.delete(id);await t.fn()}};
+const tick=async()=>{for(let i=0;i<8;i++)await Promise.resolve()};
+try{
+ let resolve;handler=()=>new Promise(r=>resolve=r);const pending=launch(g,true);
+ assert.equal($('czFrame').hidden,false);assert.equal($('czLaunchText').textContent,'Запускаем игру…');assert.equal(ui.poll,0);
+ await launch(g,true);assert.equal(calls.filter(x=>x==='/api/casino/launch').length,1);
+ await fire(15000);assert.match($('czLaunchText').textContent,/больше времени/);
+ await fire(30000);assert.match($('czLaunchStatus').className,/is-help/);assert.equal($('czLaunchRetry').disabled,true);
+ await fire(45000);await pending;assert.equal(ui.launching,false);assert.equal($('czLaunchRetry').disabled,false);assert.match($('czLaunchText').textContent,/Не удалось/);assert.equal(timers.size,0);
+ resolve({url:'about:blank'});await tick();assert.equal($('czFrameHost').children.length,0);
+ handler=async()=>({url:'about:blank',demoBalance:30000});$('czLaunchRetry').click();await tick();assert.equal(ui.demo,true);assert.equal(calls.filter(x=>x==='/api/casino/launch').length,2);
+ const iframe=$('czFrameHost').children.at(-1);iframe.onload();assert.equal($('czLaunchStatus').hidden,true);
+ await fire(30000);assert.equal($('czLaunchStatus').hidden,false);assert.match($('czLaunchStatus').className,/is-help/);
+ $('czLaunchDismiss').click();assert.equal($('czLaunchStatus').hidden,true);
+ $('czFrameHelp').click();assert.equal($('czLaunchStatus').hidden,false);
+ closeFrame();await tick();assert.equal(timers.size,0);
+ let lateResolve;handler=()=>new Promise(r=>lateResolve=r);const late=launch(g,true);closeFrame();lateResolve({url:'about:blank'});await late;assert.equal($('czFrame').hidden,true);assert.equal(timers.size,0);
+ handler=async()=>{throw new Error('offline')};await launch(g,true);assert.match($('czLaunchText').textContent,/Не удалось/);assert.equal(ui.launching,false);assert.equal(timers.size,0);closeFrame();await tick();
+ console.log('PASS: immediate loading, slow launch, 45s deadline, single launch, manual retry, iframe load, compact fallback, dismiss/help, close cleanup, late reply, API error');
+}finally{globalThis.setTimeout=nativeSet;globalThis.clearTimeout=nativeClear;delete globalThis.document}

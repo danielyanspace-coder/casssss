@@ -8,6 +8,7 @@
  */
 
 import 'dotenv/config';
+import { caseSummary } from './case-catalog.js';
 import express from 'express';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
@@ -42,6 +43,7 @@ import {
   casinoGames, casinoGame, casinoProviders, casinoHistory, casinoSummary, kopToRub, casinoHome,
   setCoverState, casinoRtp, CASINO_RTP_MIN, CASINO_RTP_MAX,
 } from './casino-db.js';
+import { demoPlayerId, demoBalance } from './casino-demo.js';
 import { CASINO_TABS, categoryById } from './casino-categories.js';
 import { checkPayout, payoutCheck, overridePayoutCheck, payoutCleared } from './payout-check.js';
 import {
@@ -65,7 +67,7 @@ import {
   getHistory,
   getOrCreateUser,
   getUserById,
-  playCaseRound,
+  playCaseRound, claimPendingReward, pendingReward, selectWallet,
   playCaseBatch,
   buyFreeSpins,
   playInstantRound,
@@ -225,6 +227,13 @@ for (const method of ['get', 'post', 'put', 'patch', 'delete']) {
  * всей цепочке (`true`) нельзя, заголовок подделывается кем угодно.
  */
 app.set('trust proxy', Number(process.env.TRUST_PROXY_HOPS || 1));
+app.disable('x-powered-by');
+app.use('/api', (req, res, next) => {
+  // Ответы с балансом, сессией и данными сотрудников не сохраняются в кеше.
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  next();
+});
 
 app.use(express.json({ limit: '8mb', verify: (req, res, buffer) => { req.rawBody = buffer.toString('utf8'); } }));
 /*
@@ -409,6 +418,7 @@ function adminOnly(req, res, next) {
 function publicUser(user) {
   return {
     id: user.id,
+    walletRevision: db.prepare('SELECT COALESCE(MAX(id),0) AS n FROM ledger WHERE user_id = ?').get(user.id).n,
     username: user.username,
     firstName: user.first_name,
     // Целые рубли плюс копейки казино (users.balance_kop, см. casino-db.js).
@@ -425,9 +435,11 @@ function publicUser(user) {
      * шапка, ими играет казино, их выводят), bonusBalance - подарки, которыми
      * играют в наших играх, когда своих не хватает на ставку.
      */
-    bonusBalance: user.bonus_balance || 0,
+    activeWallet: user.active_wallet || 'real',
+    pendingReward: pendingReward(user.id),
+    bonusBalance: (user.bonus_balance || 0) + (user.bonus_kop || 0) / 100,
     // Сколько ещё поставить бонусными деньгами, чтобы бонус перешёл в деньги.
-    wagerRequired: (user.bonus_balance || 0) > 0 ? (user.wager_required || 0) : 0,
+    wagerRequired: ((user.bonus_balance || 0) > 0 || (user.bonus_kop || 0) > 0 || pendingReward(user.id).bonus > 0) ? (user.wager_required || 0) : 0,
     // Сколько бонусов ещё может перейти в деньги: доля от пополнений.
     bonusCashoutLeft: bonusAllowance(user),
     // По нему клиент решает, показывать ли предложение первого пополнения.
@@ -487,9 +499,19 @@ app.get('/api/health', (req, res) => {
   }
 });
 
-const PUBLIC_CASE_CONFIG_JSON = JSON.stringify(CASES.map(publicCase));
+const PUBLIC_CASES = CASES.map(publicCase);
+const PUBLIC_CASE_CONFIG_JSON = JSON.stringify(PUBLIC_CASES);
+const PUBLIC_CASE_SUMMARY_JSON = JSON.stringify(PUBLIC_CASES.map(caseSummary));
+const PUBLIC_CASE_INDEX = new Map(PUBLIC_CASES.map(c => [c.id,c]));
 let lastConfigSettings = '';
 let lastPublicConfig = '';
+let lastPublicSummary = '';
+
+app.get('/api/cases/:id', (req, res) => {
+  const c = PUBLIC_CASE_INDEX.get(req.params.id);
+  if (!c) return res.status(404).json({error:'Кейс не найден'});
+  res.json({case:c});
+});
 
 app.get('/api/config', (req, res) => {
   const config = {
@@ -568,10 +590,11 @@ app.get('/api/config', (req, res) => {
   if (settingsJson !== lastConfigSettings) {
     lastConfigSettings = settingsJson;
     lastPublicConfig = `{"cases":${PUBLIC_CASE_CONFIG_JSON},${settingsJson.slice(1)}`;
+    lastPublicSummary = `{"cases":${PUBLIC_CASE_SUMMARY_JSON},${settingsJson.slice(1)}`;
   }
   // В кеше только публичная конфигурация, не данные игрока. Настройки
   // сверяются на каждом запросе, переключатели панели действуют сразу.
-  res.type('application/json').send(lastPublicConfig);
+  res.vary('X-Case-Catalog').type('application/json').send(req.get('X-Case-Catalog') === 'summary' ? lastPublicSummary : lastPublicConfig);
 });
 
 /* ============================================================
@@ -1425,7 +1448,7 @@ app.post('/api/pc/admin/finance/sicilia', auth, need('finance.reports'), async (
   try {
     res.json({
       ledger: finance.siciliaLedger({ days: req.body?.days, day: req.body?.day }),
-      owed: finance.siciliaOwed(),
+      deposits: finance.siciliaDeposits(req.body || {}),
       issues: finance.siciliaIssues(),
       gateway, gatewayError,
       canSettle: req.perms.has('finance.settle'),
@@ -1597,7 +1620,7 @@ app.post('/api/wallet', auth, limits.read, (req, res) => {
     deposits: getDeposits(req.player.id),
     payouts: getPayouts(req.player.id),
     bonus: {
-      balance: req.player.bonus_balance || 0,
+      balance: (req.player.bonus_balance || 0) + (req.player.bonus_kop || 0) / 100,
       wagerLeft: (req.player.bonus_balance || 0) > 0 ? (req.player.wager_required || 0) : 0,
       cashoutLeft: bonusAllowance(req.player),
       rules: bonusRules(),
@@ -1688,6 +1711,12 @@ app.post('/api/payout/cancel', auth, limits.cashier, (req, res) => {
    РИСК-ИГРА
    ============================================================ */
 
+app.post('/api/wallet/select', auth, limits.play, (req, res) => {
+  try { selectWallet(req.player.id, req.body?.wallet); }
+  catch (err) { return res.status(400).json({ error: err.message }); }
+  res.json({ user: publicUser(getUserById(req.player.id)) });
+});
+
 app.post('/api/gamble/pick', auth, limits.play, (req, res) => {
   const index = Math.trunc(Number(req.body?.index));
   if (!Number.isInteger(index) || index < 0 || index >= GAMBLE_CONFIG.cards) {
@@ -1717,6 +1746,7 @@ app.post('/api/gamble/pick', auth, limits.play, (req, res) => {
 });
 
 app.post('/api/gamble/skip', auth, limits.play, (req, res) => {
+  claimPendingReward(req.player.id);
   clearGamble(req.player.id);
   res.json({ user: publicUser(getUserById(req.player.id)) });
 });
@@ -1875,6 +1905,9 @@ app.post('/api/casino/games', browse, limits.read, gameGate('casino'), (req, res
 app.post('/api/casino/launch', auth, limits.play, gameGate('casino'), async (req, res) => {
   const game = casinoGame(req.body?.gameId);
   if (!game) return res.status(404).json({ error: 'Игра не найдена' });
+  if (req.body?.demo !== undefined && typeof req.body.demo !== 'boolean') {
+    return res.status(400).json({ error: 'Некорректный режим игры' });
+  }
   const demo = req.body?.demo === true;
   if (demo && !game.demo) return res.status(400).json({ error: 'У этой игры нет демо' });
   if (!casinoConfigured()) return res.status(503).json({ error: 'Казино ещё не подключено' });
@@ -1885,7 +1918,7 @@ app.post('/api/casino/launch', auth, limits.play, gameGate('casino'), async (req
   try {
     const result = await launchGame({
       game,
-      playerId: casinoPlayerId(req.player.id),
+      playerId: demo ? demoPlayerId(req.player.id) : casinoPlayerId(req.player.id, req.player.active_wallet),
       demo,
       ip: req.ip?.replace(/^::ffff:/, '') || '',
       // Страна из CASINO_COUNTRY (launchGame), а не из заголовка cf-ipcountry:
@@ -1907,12 +1940,17 @@ app.post('/api/casino/launch', auth, limits.play, gameGate('casino'), async (req
       return res.status(503).json({ error: 'Игра временно недоступна. Попробуйте позже' });
     }
     trackEvent(req.player.id, 'casino_launch', { gameId: game.id, demo });
-    res.json({ url: result.url, html: result.html, game: publicCasinoGame(game), demo });
+    res.json({ url: result.url, html: result.html, game: publicCasinoGame(game), demo, ...(demo ? { demoBalance: demoBalance(req.player.id) } : {}) });
   } catch (err) {
     console.error('[casino] запуск', game.id, err.message);
     countError('casino:launch-net', `Казино: агрегатор не отвечает на запуск (${err.message})`, { threshold: 5 });
     res.status(503).json({ error: 'Игра временно недоступна. Попробуйте позже' });
   }
+});
+
+// Демо баланс доступен только экрану демоигры, не входит в publicUser.
+app.post('/api/casino/demo-balance', auth, limits.read, (req, res) => {
+  res.json({ balance: demoBalance(req.player.id) });
 });
 
 app.post('/api/casino/history', auth, limits.read, (req, res) => {
@@ -1938,7 +1976,7 @@ const COVER_MAX_AGE = 7 * 24 * 3600;
  * надежда на горизонтальную ('w'); нет горизонтальной - обложки нет ('x').
  * По нему лобби уводит игру в конец списка.
  */
-async function sendCover(req, res, choose) {
+async function sendCover(req, res, choose, options) {
   const game = casinoGame(req.params.id);
   if (!game) return res.status(404).end();
   const { src, missing } = choose(game);
@@ -1946,7 +1984,7 @@ async function sendCover(req, res, choose) {
     if (missing) setCoverState(game.id, missing);
     return res.status(404).end();
   }
-  const cover = await coverFile(src);
+  const cover = await coverFile(src, options);
   // Временная ошибка сети не означает, что файл отсутствует на CDN.
   if (!cover) return res.status(503).set('Cache-Control', 'no-store').end();
   if (cover.missing) {
@@ -1971,7 +2009,7 @@ app.get('/casino/cover/:id', (req, res, next) => sendCover(req, res, (g) => {
 }).catch(next));
 // Широкая - для окна запуска. Её отсутствие обложку плитки не отменяет.
 app.get('/casino/wide/:id', (req, res, next) =>
-  sendCover(req, res, (g) => ({ src: { ...g, img_vertical: g.img_wide || g.img_vertical }, missing: null }))
+  sendCover(req, res, (g) => ({ src: { ...g, img_vertical: g.img_wide || g.img_vertical }, missing: null }), { preview: true })
     .catch(next));
 
 app.post('/api/admin/casino', auth, need('games.manage'), (req, res) => {
@@ -2056,7 +2094,7 @@ app.post('/api/slot/spin', auth, limits.play, gameGate('slots'), (req, res) => {
   if (!bet) return res.status(400).json({ error: 'Такой ставки нет' });
 
   const user = req.player;
-  if (user.balance < bet.total) return sendInsufficient(res, bet.total - user.balance);
+  if (spendable(user) < bet.total) return sendInsufficient(res, bet.total - spendable(user));
 
   let result;
   try {
@@ -2092,7 +2130,7 @@ app.post('/api/slot/spin', auth, limits.play, gameGate('slots'), (req, res) => {
       };
     });
   } catch (err) {
-    if (err.code === 'INSUFFICIENT_FUNDS') return sendInsufficient(res, bet.total - user.balance);
+    if (err.code === 'INSUFFICIENT_FUNDS') return sendInsufficient(res, bet.total - spendable(user));
     if (err.code === 'BAD') return res.status(400).json({ error: err.message });
     throw err;
   }
@@ -2195,13 +2233,13 @@ app.post('/api/slot/buy', auth, limits.play, gameGate('slots'), (req, res) => {
 
   const price = slot.buyBonusPrice * bet.total;
   const user = req.player;
-  if (user.balance < price) return sendInsufficient(res, price - user.balance);
+  if (spendable(user) < price) return sendInsufficient(res, price - spendable(user));
 
   let result;
   try {
     result = buySlotBonus(user.id, slot.id, price, bet.line, slot.freeSpins, slot.name);
   } catch (err) {
-    if (err.code === 'INSUFFICIENT_FUNDS') return sendInsufficient(res, price - user.balance);
+    if (err.code === 'INSUFFICIENT_FUNDS') return sendInsufficient(res, price - spendable(user));
     if (err.code === 'BAD') return res.status(400).json({ error: err.message });
     throw err;
   }
@@ -2363,6 +2401,10 @@ app.post('/api/admin/users', auth, need('players.view'), (req, res) => {
 app.post('/api/admin/user', auth, need('players.view'), (req, res) => {
   const detail = adminUserDetail(Number(req.body?.userId));
   if (!detail) return res.status(404).json({ error: 'Игрок не найден' });
+  detail.paymentRequests = db.prepare(`SELECT id, amount_rub AS amount, status, method, terminal, created_at, paid_at, credited_rub, error
+    FROM sicilia_orders WHERE user_id = ? AND kind = 'payin' ORDER BY id DESC LIMIT 200`).all(detail.user.id);
+  detail.cryptoRequests = db.prepare(`SELECT id, amount_rub AS amount, status, created_at, paid_at
+    FROM crypto_payments WHERE user_id = ? ORDER BY id DESC LIMIT 200`).all(detail.user.id);
   res.json(detail);
 });
 
@@ -2395,7 +2437,7 @@ app.post('/api/admin/balance', auth, need('players.balance'), (req, res) => {
     // По умолчанию начисление считается пополнением и требует отыгрыша.
     const result = adminAdjustBalance(
       req.player.id, targetId, amount, String(req.body?.note || '').slice(0, 200),
-      { asDeposit: req.body?.asDeposit !== false }
+      { asDeposit: req.body?.asDeposit !== false, dispute: req.body?.dispute === true, disputeMethod: req.body?.disputeMethod || 'sbp' }
     );
     res.json(result);
   } catch (err) {
@@ -3179,11 +3221,7 @@ app.post('/api/admin/export', auth, need('reports.view'), (req, res) => {
       r.deposits, r.payouts, r.net, r.signups]);
   }
 
-  const escape = (v) => {
-    const text = String(v ?? '');
-    return /[";\n]/.test(text) ? '"' + text.replace(/"/g, '""') + '"' : text;
-  };
-  const csv = '\ufeff' + [head, ...rows].map((r) => r.map(escape).join(';')).join('\r\n');
+  const csv = toCsv(head, rows);
   logAdmin(req.player.id, 0, 'export', { note: kind, meta: { days, rows: rows.length } });
   res.type('text/csv; charset=utf-8').send(csv);
 });

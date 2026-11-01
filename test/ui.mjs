@@ -46,7 +46,8 @@ const SLOT_SPIN_RETRY_MS = 1000;
 
 const failures = [];
 const check = (name, ok, detail = '') => {
-  if (ok) { passed++; return true; }
+  if (ok) { passed++; if (passed % 25 === 0) console.log(`UI: ${passed} проверок, ${name}`); return true; }
+  console.error(`UI: ОШИБКА ${name}${detail ? ' - ' + detail : ''}`);
   failures.push(`${name}${detail ? ' - ' + detail : ''}`);
   return false;
 };
@@ -779,17 +780,14 @@ async function openCaseAndVerify(caseId) {
     throw e;
   });
 
-  /*
-   * Забирать серию приходится в цикле: фриспин может выдать новые фриспины, и
-   * после «Забрать» начинается следующая серия. Одного нажатия хватает не
-   * всегда, а ждать после него сразу результата - значит упереться в таймаут
-   * на ровном месте.
-   */
   await waitForEnd();
-  let collected = 0;
-  while (await seriesWaiting() && collected++ < 10) {
+  if (await seriesWaiting()) {
     await page.click('#fsCollect');
-    await waitForEnd();
+    await page.waitForSelector('#doOpenBtn', { state: 'visible', timeout: 10000 });
+    check('фриспины: одного получения достаточно', await page.evaluate(() =>
+      document.getElementById('result').hidden && document.getElementById('batchSummary').hidden));
+    // Серию уже получили: отдельное обычное открытие проверяет совпадение ленты и результата.
+    return openCaseAndVerify(caseId);
   }
 
   // Ждём окончания прокрутки: результат появляется после неё.
@@ -1351,6 +1349,11 @@ check('показ выигрыша убирает за собой', stuckAfter.l
     await page.click('#fsCollect');
     await page.waitForTimeout(800);
   }
+  if (await page.locator('#result').isHidden()) {
+    await page.locator('#doOpenBtn').waitFor({ state: 'visible', timeout: 10000 });
+    // Выпавшая серия вернула к кейсу одним получением; для «Ещё раз» нужен обычный итог.
+    await openCaseAndVerify('warmup_100');
+  }
   await page.waitForSelector('#result:not([hidden])', { timeout: 30000 });
   await page.waitForTimeout(600);
   check('«Ещё раз»: кнопка той же золотой разметки, что «Открыть»',
@@ -1632,7 +1635,8 @@ for (let attempt = 0; attempt < 6 && !gambleTested; attempt++) {
     check('риск: кнопка меняется на «Продолжить»', st.btn === 'Продолжить', st.btn);
 
     await page.click('#gambleSkipBtn');
-    await page.waitForTimeout(300);
+    await page.waitForFunction(() => document.getElementById('gamble').hidden);
+    check('риск: продолжение возвращает к барабану сверху', await page.evaluate(() => document.querySelector('.opener-scroll').scrollTop < 5));
     gambleTested = true;
   }
   await ensureOpenerClosed();

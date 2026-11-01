@@ -36,6 +36,17 @@ try {
   assert.equal(cached.file, first.file);
   assert.equal(calls, 1, 'A disk cache hit must not download again');
   assert.equal((await sharp(first.file).metadata()).format, 'webp');
+  const large = await sharp({ create: { width: 1400, height: 700, channels: 3, background: '#554477' } }).png().toBuffer();
+  globalThis.fetch = async () => new Response(large);
+  const banner = { id: 'banner', img_vertical: 'https://covers.invalid/banner.png' };
+  const tile = await coverFile(banner);
+  const preview = await coverFile(banner, { preview: true });
+  assert.notEqual(tile.file, preview.file, 'Preview must have its own cache');
+  assert.equal((await sharp(tile.file).metadata()).width, 330);
+  assert.equal((await sharp(preview.file).metadata()).width, 1004);
+  globalThis.fetch = async () => new Response(png);
+  const small = await coverFile(game, { preview: true });
+  assert.equal((await sharp(small.file).metadata()).width, 8, 'Preview must never enlarge small originals');
   console.log('Casino covers: transient/missing errors, timeout budget, shared downloads and disk cache passed');
 } finally {
   globalThis.fetch = originalFetch;

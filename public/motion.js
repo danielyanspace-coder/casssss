@@ -40,7 +40,9 @@ export const MOTION_LEVELS = [
  */
 export function createMotion({ money, artFor, tierColor, snd, haptic = () => {} }) {
   const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const QTY = REDUCED ? 0.35 : 1;
+  const LIGHT = REDUCED || matchMedia('(pointer: coarse)').matches || innerWidth <= 600;
+  const QTY = REDUCED ? 0 : LIGHT ? 0.3 : 1;
+  const PARTICLE_LIMIT = LIGHT ? 90 : 260;
   const NB = ' ';
   const rand = (a, b) => a + Math.random() * (b - a);
   const pick = (list) => list[Math.floor(Math.random() * list.length)];
@@ -74,6 +76,8 @@ export function createMotion({ money, artFor, tierColor, snd, haptic = () => {} 
     phoenix: { petals: true },
   };
   let accent = {};
+  let generation = 0;
+  const hiddenEmblems = new Set();
 
   /* ---------- Слои ---------- */
 
@@ -95,9 +99,11 @@ export function createMotion({ money, artFor, tierColor, snd, haptic = () => {} 
     addEventListener('resize', fit);
   }
   function fit() {
-    const dpr = Math.min(2, devicePixelRatio || 1);
+    const dpr = Math.min(LIGHT ? 1 : 1.5, devicePixelRatio || 1);
+    const width = Math.round(innerWidth * dpr), height = Math.round(innerHeight * dpr);
+    if (W === innerWidth && H === innerHeight && cv.width === width && cv.height === height) return;
     W = innerWidth; H = innerHeight;
-    cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+    cv.width = width; cv.height = height;
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
   function el(tag, cls, parent) {
@@ -181,11 +187,22 @@ export function createMotion({ money, artFor, tierColor, snd, haptic = () => {} 
 
   const P = [];
   const EM = [];
+  const glows = [];
   let raf = 0, lastT = 0;
   const kick = () => { if (!raf) { lastT = performance.now(); raf = requestAnimationFrame(loop); } };
-  const add = (p) => { mount(); sprites(); P.push(Object.assign({ age: 0, life: 2, x: 0, y: 0, vx: 0, vy: 0, g: 0, drag: 0 }, p)); kick(); };
+  const add = (p) => { if (document.hidden || P.length >= PARTICLE_LIMIT) return; mount(); sprites(); P.push(Object.assign({ age: 0, life: 2, x: 0, y: 0, vx: 0, vy: 0, g: 0, drag: 0 }, p)); kick(); };
   const emit = (ms, every, fn) => { const e = { left: ms, every, acc: every, fn }; EM.push(e); kick(); return e; };
   const stopEmit = (e) => { const i = EM.indexOf(e); if (i >= 0) EM.splice(i, 1); };
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      cancelAnimationFrame(raf);
+      raf = 0;
+      P.length = 0;
+      EM.length = 0;
+      g?.clearRect(0, 0, W, H);
+    }
+  });
 
   function loop(now) {
     const dt = Math.min(0.034, (now - lastT) / 1000);
@@ -197,7 +214,7 @@ export function createMotion({ money, artFor, tierColor, snd, haptic = () => {} 
       if (e.left <= 0) EM.splice(i, 1);
     }
     g.clearRect(0, 0, W, H);
-    const glows = [];
+    glows.length = 0;
     for (let i = P.length - 1; i >= 0; i--) {
       const p = P[i];
       p.age += dt;
@@ -211,6 +228,7 @@ export function createMotion({ money, artFor, tierColor, snd, haptic = () => {} 
     }
     g.globalCompositeOperation = 'lighter';
     for (const p of glows) draw(p);
+    glows.length = 0;
     g.globalCompositeOperation = 'source-over';
     if (P.length || EM.length) raf = requestAnimationFrame(loop);
     else { raf = 0; g.clearRect(0, 0, W, H); }
@@ -690,193 +708,325 @@ export function createMotion({ money, artFor, tierColor, snd, haptic = () => {} 
    * @param {() => {pips: Element[], emblem: Element, onToken: (i:number)=>void}} o.prepare
    *        открывает бонусный режим и отдаёт, куда садятся жетоны
    */
+  // Raster assets are made once, outside the animated part of the scene.
+  // Canvas text uses the loaded display font and bakes the metallic depth.
+  const rasterCache = new Map();
+  function cachedRaster(key, build) {
+    if (!rasterCache.has(key)) {
+      if (rasterCache.size >= 48) rasterCache.delete(rasterCache.keys().next().value);
+      rasterCache.set(key, build());
+    }
+    return rasterCache.get(key);
+  }
+  function metalBitmap(text, size) {
+    const key = `text:${size}:${text}:${document.fonts?.check('800 34px Unbounded')}`;
+    const source = cachedRaster(key, () => {
+      const c = document.createElement('canvas'), x = c.getContext('2d');
+      const font = `800 ${size * 2}px Unbounded, "Arial Black", sans-serif`;
+      x.font = font;
+      c.width = Math.ceil(x.measureText(text).width + 48); c.height = size * 3;
+      x.font = font; x.textBaseline = 'top';
+      const fill = x.createLinearGradient(0, 12, 0, size * 2);
+      for (const [at, color] of [[0, '#fff6cf'], [.42, '#ffd34d'], [.52, '#c8781a'], [1, '#ffe9a0']]) fill.addColorStop(at, color);
+      x.shadowColor = 'rgba(0,0,0,.6)'; x.shadowBlur = 12; x.shadowOffsetY = 8;
+      x.fillStyle = '#6e3c06'; x.fillText(text, 24, 18);
+      x.shadowBlur = 0; x.shadowOffsetY = 0; x.fillStyle = fill; x.fillText(text, 24, 12);
+      return c;
+    });
+    const c = document.createElement('canvas'); c.width = source.width; c.height = source.height;
+    c.getContext('2d').drawImage(source, 0, 0);
+    c.className = 'mo-metal-bitmap'; c.style.width = `${source.width / 2}px`; c.style.height = `${source.height / 2}px`;
+    return c;
+  }
+  function rasterSvg(markup, size, token = false) {
+    return cachedRaster(`svg:${size}:${token}:${markup}`, async () => {
+      const parsed = new DOMParser().parseFromString(markup, 'image/svg+xml').documentElement;
+      parsed.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+      parsed.setAttribute('width', String(size)); parsed.setAttribute('height', String(size));
+      const svg = new Image();
+      svg.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(new XMLSerializer().serializeToString(parsed));
+      const c = document.createElement('canvas'); c.width = c.height = size;
+      try {
+        await svg.decode();
+        const x = c.getContext('2d');
+        if (token) {
+          const gradient = x.createRadialGradient(size * .36, size * .3, 0, size / 2, size / 2, size / 2);
+          for (const [at, color] of [[0, '#fffbe0'], [.34, '#ffd85a'], [.72, '#d89420'], [1, '#7a4508']]) gradient.addColorStop(at, color);
+          x.fillStyle = gradient; x.beginPath(); x.arc(size / 2, size / 2, size * .48, 0, Math.PI * 2); x.fill();
+          x.drawImage(svg, size * .19, size * .19, size * .62, size * .62);
+        } else x.drawImage(svg, 0, 0, size, size);
+      } catch {
+        // A failed decorative SVG must never interrupt an already paid series.
+        const x = c.getContext('2d');
+        x.fillStyle = '#ffd34d'; x.beginPath(); x.arc(size / 2, size / 2, size * .44, 0, Math.PI * 2); x.fill();
+        x.fillStyle = '#60300a'; x.font = `800 ${size * .3}px sans-serif`; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText('FS', size / 2, size / 2);
+      }
+      const image = new Image(); image.src = c.toDataURL('image/png'); await image.decode();
+      return image;
+    });
+  }
+  function bitmapRays() {
+    const source = cachedRaster('rays', () => sprite(640, (x, size) => {
+      const r = size / 2;
+      const gradient = x.createRadialGradient(r, r, 0, r, r, r);
+      gradient.addColorStop(0, 'rgba(255,211,77,.35)'); gradient.addColorStop(.5, 'rgba(255,211,77,.12)'); gradient.addColorStop(1, 'rgba(255,211,77,0)');
+      x.fillStyle = gradient;
+      for (let i = 0; i < 24; i++) {
+        const a = i * Math.PI / 12;
+        x.beginPath(); x.moveTo(r, r); x.arc(r, r, r, a, a + .09); x.closePath(); x.fill();
+      }
+    }));
+    const c = document.createElement('canvas'); c.width = c.height = 640;
+    c.getContext('2d').drawImage(source, 0, 0); c.className = 'mo-rays mo-rays-bitmap'; return c;
+  }
+
   async function purchase(o) {
+    const run = generation;
     mount();
     accent = ACCENTS[o.theme] || {};
     const count = o.count;
-    const cx = colX(), cy = H * 0.34;
-    // Откуда летит сгусток: элемент или заранее снятые координаты. Кнопку
-    // покупки прячут вместе с панелью кейса раньше, чем начнётся пролог, и
-    // у спрятанной прямоугольник нулевой - сгусток вылетел бы из угла.
-    const where = (src) => {
-      if (src?.getBoundingClientRect) { const b = box(src); return b.w ? b : null; }
-      return src && src.cx != null ? src : null;
+    if (REDUCED) {
+      // Honour the explicit accessibility setting; touch input alone never
+      // disables the full purchase scene.
+      const scene = el('div', 'mo-fs-light', top);
+      const number = el('strong', '', scene);
+      number.textContent = `${count} FREE SPINS`;
+      play('sndChime');
+      haptic('success');
+      const target = o.prepare();
+      target.pips.forEach((_, i) => target.onToken?.(i));
+      const effect = anim(scene, [
+        { opacity: 0, transform: 'translate(-50%, -40%) scale(.92)' },
+        { opacity: 1, transform: 'translate(-50%, -50%) scale(1)', offset: .3 },
+        { opacity: 0, transform: 'translate(-50%, -60%) scale(1)' },
+      ], { duration: REDUCED ? 120 : 850 });
+      await effect.finished.catch(() => {});
+      effect.cancel();
+      scene.remove();
+      return;
+    }
+    // Prepare bitmap layers before movement starts. The cache holds only a
+    // bounded set of decoded images; no SVG filters run during the flight.
+    const [emblemBitmap, tokenBitmap] = await Promise.all([
+      rasterSvg(o.emblem || FS_ICON, 300), rasterSvg(FS_ICON, 80, true),
+    ]);
+    if (run !== generation) return;
+    // Text and rays are prepared before the first moving frame as well.
+    const titleBitmaps = [metalBitmap('FREE', 34), metalBitmap('SPINS', 34)];
+    const countBitmap = metalBitmap(String(count), 92);
+    const raysBitmap = bitmapRays();
+    const sceneNodes = [];
+    const sceneEl = (tag, cls, parent) => {
+      const node = el(tag, cls, parent); sceneNodes.push(node); return node;
     };
-    /*
-     * В пачке серия может выпасть сразу на нескольких лентах. Тогда сгустков
-     * несколько, по одному с каждой плитки, и в центре они сливаются в один:
-     * игрок видит, что серия общая и откуда в ней взялось каждое слагаемое.
-     */
-    const origins = (o.origins || [o.origin]).map(where).filter(Boolean);
-    if (!origins.length) origins.push({ cx, cy: H * 0.8 });
-    const ob = origins[0];
+    let targetEmblem = null;
+    try {
+      const cx = colX(), cy = H * 0.34;
+      // Откуда летит сгусток: элемент или заранее снятые координаты. Кнопку
+      // покупки прячут вместе с панелью кейса раньше, чем начнётся пролог, и
+      // у спрятанной прямоугольник нулевой - сгусток вылетел бы из угла.
+      const where = (src) => {
+        if (src?.getBoundingClientRect) { const b = box(src); return b.w ? b : null; }
+        return src && src.cx != null ? src : null;
+      };
+      /*
+       * В пачке серия может выпасть сразу на нескольких лентах. Тогда сгустков
+       * несколько, по одному с каждой плитки, и в центре они сливаются в один:
+       * игрок видит, что серия общая и откуда в ней взялось каждое слагаемое.
+       */
+      const origins = (o.origins || [o.origin]).map(where).filter(Boolean);
+      if (!origins.length) origins.push({ cx, cy: H * 0.8 });
+      const ob = origins[0];
 
-    // 1. Сгусток летит в центр по дуге.
-    const dim = el('div', 'mo-dim');
-    anim(dim, [{ opacity: 0 }, { opacity: 1 }], { duration: 700, easing: E.out });
-    recede(true);
-    const to = (k) => `translate(${(cx - ob.cx) * k}px, ${(cy - ob.cy) * k}px)`;
-    const orbs = origins.map((p, i) => {
-      const it = el('div', 'mo-orb', top);
-      it.style.left = `${p.cx}px`; it.style.top = `${p.cy}px`;
-      // Дуги разведены в разные стороны: три сгустка по одной дуге летели бы
-      // гуськом и читались как один.
-      const bend = origins.length > 1 ? (i - (origins.length - 1) / 2) * 120 : 60;
-      anim(it, [
-        { transform: 'translate(0,0) scale(.6)' },
-        { transform: `translate(${(cx - p.cx) * 0.4 + bend}px, ${(cy - p.cy) * 0.55}px) scale(1.4)`, offset: 0.5 },
-        { transform: `translate(${cx - p.cx}px, ${cy - p.cy}px) scale(2.2)` },
-      ], { duration: 560 + i * 90, easing: E.inout });
-      return it;
-    });
-    const orb = orbs[0];
-    play('sndWhoosh');
-    emit(540, 16, () => orbs.forEach((it) => { const b = box(it); sparks(b.cx, b.cy, 3, ['#fff6cf', '#ffd34d', '#ff8a1f'], 140, { g: 60 }); }));
-    await sleep(560 + (orbs.length - 1) * 90);
-    // Слияние: лишние сгустки гаснут в первом, вспышка отмечает момент.
-    if (orbs.length > 1) {
-      orbs.slice(1).forEach((it) => it.remove());
-      ring(cx, cy, '#ffd34d', 2.4, 500);
-      play('sndBoom');
-      haptic('heavy');
-    }
-
-    // 2. Заряд: искры стягиваются к сгустку.
-    play('sndRiser', 0.7);
-    emit(620, 40, () => pull(cx, cy, 6, ['#fff6cf', '#ffd34d', '#c79cff']));
-    anim(orb, [
-      { transform: `${to(1)} scale(2.2)` },
-      { transform: `${to(1)} scale(3.6)`, offset: 0.4 },
-      { transform: `${to(1)} scale(2.8)`, offset: 0.6 },
-      { transform: `${to(1)} scale(5)` },
-    ], { duration: 700, easing: E.in });
-    haptic('medium');
-    await sleep(700);
-
-    // 3. Взрыв.
-    orb.remove();
-    impact(cx, cy, '#ffd34d', 1.2);
-    slash(cy + 10, '#ffd34d');
-    ring(cx, cy, '#c79cff', 6, 900, 120);
-    coins(cx, cy, 34, { speed: 900, spread: Math.PI });
-    burst(cx, cy, 30, ['#ffd34d', '#c79cff', '#7df9ff']);
-    bokeh(16, ['#ffd34d', '#c79cff', '#7df9ff']);
-
-    // 4. Эмблема, надпись, число.
-    const show = el('div', 'mo-fs-show');
-    show.innerHTML = `
-      <div class="mo-sky" style="top:29%"><div class="mo-bloom" style="background:radial-gradient(circle, rgba(255,190,70,.5), transparent 64%)"></div><div class="mo-rays" style="--c2:#ffd34d"></div><div class="mo-rays b" style="--c1:#fff6cf"></div></div>
-      <div class="mo-fs-emblem">${o.emblem || ''}</div>
-      <div class="mo-fs-title"><div></div><div></div></div>
-      <div class="mo-fs-count" style="opacity:0"><span class="mo-metal">${count}</span></div>
-      <div class="mo-fs-sub">${o.sub || 'бесплатных прокрутов'}</div>`;
-    const sky = show.querySelector('.mo-sky');
-    anim(sky, [{ opacity: 0, transform: 'scale(.4)' }, { opacity: 1, transform: 'scale(1)' }], { duration: 900, easing: E.out });
-    [...show.querySelectorAll('.mo-rays')].forEach((r, i) => r.animate([{ rotate: '0deg' }, { rotate: `${i ? -360 : 360}deg` }], { duration: i ? 40000 : 24000, iterations: Infinity }));
-    const emb = show.querySelector('.mo-fs-emblem');
-    anim(emb, [
-      { transform: 'perspective(600px) rotateY(90deg) scale(.4)', opacity: 0 },
-      { transform: 'perspective(600px) rotateY(-12deg) scale(1.08)', opacity: 1, offset: 0.6 },
-      { transform: 'perspective(600px) rotateY(0deg) scale(1)', opacity: 1 },
-    ], { duration: 800, easing: E.out });
-
-    const title = show.querySelector('.mo-fs-title');
-    [['FREE', -1], ['SPINS', 1]].forEach(([word, dir], wi) => {
-      const holder = title.children[wi];
-      holder.innerHTML = [...word].map((ch) => `<span class="mo-metal">${ch}</span>`).join('');
-      [...holder.children].forEach((sp, i) => {
-        const order = dir < 0 ? word.length - 1 - i : i;
-        anim(sp, [
-          { transform: `translateX(${dir * 160}px) skewX(${-dir * 24}deg) scale(1.3)`, opacity: 0 },
-          { transform: 'none', opacity: 1 },
-        ], { duration: 620, delay: 120 + order * 45, easing: E.out, fill: 'backwards' });
+      // 1. Сгусток летит в центр по дуге.
+      const dim = sceneEl('div', 'mo-dim');
+      anim(dim, [{ opacity: 0 }, { opacity: 1 }], { duration: 700, easing: E.out });
+      recede(true);
+      const to = (k) => `translate(${(cx - ob.cx) * k}px, ${(cy - ob.cy) * k}px)`;
+      const orbs = origins.map((p, i) => {
+        const it = sceneEl('div', 'mo-orb', top);
+        it.style.left = `${p.cx}px`; it.style.top = `${p.cy}px`;
+        // Дуги разведены в разные стороны: три сгустка по одной дуге летели бы
+        // гуськом и читались как один.
+        const bend = origins.length > 1 ? (i - (origins.length - 1) / 2) * 120 : 60;
+        anim(it, [
+          { transform: 'translate(0,0) scale(.6)' },
+          { transform: `translate(${(cx - p.cx) * 0.4 + bend}px, ${(cy - p.cy) * 0.55}px) scale(1.4)`, offset: 0.5 },
+          { transform: `translate(${cx - p.cx}px, ${cy - p.cy}px) scale(2.2)` },
+        ], { duration: 560 + i * 90, easing: E.inout });
+        return it;
       });
-    });
-    // Бегущего блика по буквам больше нет: его гоняли background-position,
-    // а это перерисовка буквы с пятью тенями на каждом кадре, около пятисот
-    // перерисовок за пролог, и на телефоне пролог шёл рывками. Блик
-    // отдельным слоем поверх ложился серой полосой на тёмный фон.
-    play('sndWhoosh');
-    await sleep(420);
+      const orb = orbs[0];
+      play('sndWhoosh');
+      // Particle positions come from the timeline, without synchronous DOM reads.
+      const flightStart = performance.now();
+      emit(540, 40, () => origins.forEach((p) => {
+        const k = Math.min(1, (performance.now() - flightStart) / 560);
+        sparks(p.cx + (cx - p.cx) * k, p.cy + (cy - p.cy) * k, 3, ['#fff6cf', '#ffd34d', '#ff8a1f'], 140, { g: 60 });
+      }));
+      await sleep(560 + (orbs.length - 1) * 90);
+      if (run !== generation) return;
+      // Слияние: лишние сгустки гаснут в первом, вспышка отмечает момент.
+      if (orbs.length > 1) {
+        orbs.slice(1).forEach((it) => it.remove());
+        ring(cx, cy, '#ffd34d', 2.4, 500);
+        play('sndBoom');
+        haptic('heavy');
+      }
 
-    const num = show.querySelector('.mo-fs-count');
-    anim(num, [
-      { transform: 'translateY(-40px) scale(3)', opacity: 0 },
-      { transform: 'translateY(4px) scale(.94)', opacity: 1, offset: 0.7 },
-      { transform: 'none', opacity: 1 },
-      // Без размытия по той же причине, что у букв: под обёрткой число с
-      // тенями металла, и blur перерисовывал бы его каждый кадр.
-    ], { duration: 520, easing: E.out });
-    await sleep(360);
-    const nb = box(num);
-    ring(nb.cx, nb.cy, '#ffd34d', 3.2, 600);
-    sparks(nb.cx, nb.cy + 30, 50, ['#ffffff', '#ffd34d'], 520, { angle: -Math.PI / 2, spread: 1.4 });
-    shake(9, 420);
-    play('sndBoom');
-    play('sndHit', count >= 20 ? 1.26 : 1);
-    anim(show.querySelector('.mo-fs-sub'), [{ opacity: 0, transform: 'translateY(10px)', letterSpacing: '.5em' }, { opacity: 1, transform: 'none', letterSpacing: '.16em' }], { duration: 700, easing: E.out });
-    await sleep(420);
+      // 2. Заряд: искры стягиваются к сгустку.
+      play('sndRiser', 0.7);
+      emit(620, 40, () => pull(cx, cy, 6, ['#fff6cf', '#ffd34d', '#c79cff']));
+      anim(orb, [
+        { transform: `${to(1)} scale(2.2)` },
+        { transform: `${to(1)} scale(3.6)`, offset: 0.4 },
+        { transform: `${to(1)} scale(2.8)`, offset: 0.6 },
+        { transform: `${to(1)} scale(5)` },
+      ], { duration: 700, easing: E.in });
+      haptic('medium');
+      await sleep(700);
+      if (run !== generation) return;
 
-    // 5. Жетоны раздаются веером: по одному на прокрут. Видно поштучно, а не
-    // только цифрой.
-    const many = count > 20;
-    const perRow = Math.min(10, count);
-    const size = many ? 22 : 26;
-    const gap = many ? 4 : 6;
-    const rowsTop = H * 0.76;
-    const toks = [];
-    const step = many ? 28 : 46;
-    for (let i = 0; i < count; i++) {
-      const row = Math.floor(i / perRow), col = i % perRow;
-      const inRow = Math.min(perRow, count - row * perRow);
-      const x = cx + (col - (inRow - 1) / 2) * (size + gap);
-      const y = rowsTop + row * (size + gap) + Math.abs(col - (inRow - 1) / 2) * 1.6;
-      const t = el('div', 'mo-tok', top);
-      t.style.setProperty('--s', `${size}px`);
-      t.style.left = `${x}px`; t.style.top = `${y}px`;
-      t.innerHTML = FS_ICON;
-      anim(t, [
-        { transform: `translate(${cx - x}px, ${nb.cy - y}px) scale(.2) rotate(-180deg)`, opacity: 0 },
-        { transform: 'translate(0, -8px) scale(1.15) rotate(0deg)', opacity: 1, offset: 0.75 },
+      // 3. Взрыв.
+      orb.remove();
+      impact(cx, cy, '#ffd34d', 1.2);
+      slash(cy + 10, '#ffd34d');
+      ring(cx, cy, '#c79cff', 6, 900, 120);
+      coins(cx, cy, 34, { speed: 900, spread: Math.PI });
+      burst(cx, cy, 30, ['#ffd34d', '#c79cff', '#7df9ff']);
+      bokeh(16, ['#ffd34d', '#c79cff', '#7df9ff']);
+
+      // 4. Эмблема, надпись, число.
+      const show = sceneEl('div', 'mo-fs-show mo-fs-raster');
+      show.innerHTML = `
+        <div class="mo-sky" style="top:29%"><div class="mo-bloom" style="background:radial-gradient(circle, rgba(255,190,70,.5), transparent 64%)"></div><div class="mo-rays" style="--c2:#ffd34d"></div><div class="mo-rays b" style="--c1:#fff6cf"></div></div>
+        <div class="mo-fs-emblem"></div>
+        <div class="mo-fs-title"><div></div><div></div></div>
+        <div class="mo-fs-count" style="opacity:0"></div>
+        <div class="mo-fs-sub">${o.sub || 'бесплатных прокрутов'}</div>`;
+      show.querySelector('.mo-fs-count').append(countBitmap);
+      const sky = show.querySelector('.mo-sky');
+      sky.replaceChildren(raysBitmap);
+      anim(sky, [{ opacity: 0, transform: 'scale(.4)' }, { opacity: 1, transform: 'scale(1)' }], { duration: 900, easing: E.out });
+      [...show.querySelectorAll('.mo-rays')].forEach((r, i) => r.animate([{ rotate: '0deg' }, { rotate: `${i ? -360 : 360}deg` }], { duration: i ? 40000 : 24000, iterations: Infinity }));
+      const emb = show.querySelector('.mo-fs-emblem');
+      emb.append(emblemBitmap.cloneNode());
+      anim(emb, [
+        { transform: 'perspective(600px) rotateY(90deg) scale(.4)', opacity: 0 },
+        { transform: 'perspective(600px) rotateY(-12deg) scale(1.08)', opacity: 1, offset: 0.6 },
+        { transform: 'perspective(600px) rotateY(0deg) scale(1)', opacity: 1 },
+      ], { duration: 800, easing: E.out });
+
+      const title = show.querySelector('.mo-fs-title');
+      [['FREE', -1], ['SPINS', 1]].forEach(([word, dir], wi) => {
+        const holder = title.children[wi];
+        holder.append(titleBitmaps[wi]);
+        [...holder.children].forEach((sp, i) => {
+          const order = dir < 0 ? word.length - 1 - i : i;
+          anim(sp, [
+            { transform: `translateX(${dir * 160}px) skewX(${-dir * 24}deg) scale(1.3)`, opacity: 0 },
+            { transform: 'none', opacity: 1 },
+          ], { duration: 620, delay: 120 + order * 45, easing: E.out, fill: 'backwards' });
+        });
+      });
+      // Бегущего блика по буквам больше нет: его гоняли background-position,
+      // а это перерисовка буквы с пятью тенями на каждом кадре, около пятисот
+      // перерисовок за пролог, и на телефоне пролог шёл рывками. Блик
+      // отдельным слоем поверх ложился серой полосой на тёмный фон.
+      play('sndWhoosh');
+      await sleep(420);
+      if (run !== generation) return;
+
+      const num = show.querySelector('.mo-fs-count');
+      anim(num, [
+        { transform: 'translateY(-40px) scale(3)', opacity: 0 },
+        { transform: 'translateY(4px) scale(.94)', opacity: 1, offset: 0.7 },
         { transform: 'none', opacity: 1 },
-      ], { duration: 520, delay: i * step, easing: E.out });
-      setTimeout(() => play('sndDeal', i), i * step + 300);
-      toks.push(t);
-    }
-    await sleep(count * step + 900);
+        // Без размытия по той же причине, что у букв: под обёрткой число с
+        // тенями металла, и blur перерисовывал бы его каждый кадр.
+      ], { duration: 520, easing: E.out });
+      await sleep(360);
+      if (run !== generation) return;
+      const nb = box(num);
+      ring(nb.cx, nb.cy, '#ffd34d', 3.2, 600);
+      sparks(nb.cx, nb.cy + 30, 50, ['#ffffff', '#ffd34d'], 520, { angle: -Math.PI / 2, spread: 1.4 });
+      shake(9, 420);
+      play('sndBoom');
+      play('sndHit', count >= 20 ? 1.26 : 1);
+      anim(show.querySelector('.mo-fs-sub'), [{ opacity: 0, transform: 'translateY(10px)' }, { opacity: 1, transform: 'none' }], { duration: 700, easing: E.out });
+      await sleep(420);
+      if (run !== generation) return;
 
-    // 6. Бонусный режим: показ уезжает вверх, эмблема перелетает в шапку
-    // серии, жетоны садятся в свои ячейки.
-    const target = o.prepare();
-    const eb = box(emb);
-    const tb = target.emblem ? box(target.emblem) : null;
-    if (target.emblem) target.emblem.style.visibility = 'hidden';
-    if (tb && tb.w) {
-      anim(emb, [{ transform: 'none' }, { transform: `translate(${tb.cx - eb.cx}px, ${tb.cy - eb.cy}px) scale(${tb.w / eb.w})` }], { duration: 700, easing: E.inout });
-    } else {
-      anim(emb, [{ opacity: 1 }, { opacity: 0 }], 400);
+      // 5. Жетоны раздаются веером: по одному на прокрут. Видно поштучно, а не
+      // только цифрой.
+      const many = count > 20;
+      const perRow = Math.min(10, count);
+      const size = many ? 22 : 26;
+      const gap = many ? 4 : 6;
+      const rowsTop = H * 0.76;
+      const toks = [];
+      const step = many ? 28 : 46;
+      for (let i = 0; i < count; i++) {
+        const row = Math.floor(i / perRow), col = i % perRow;
+        const inRow = Math.min(perRow, count - row * perRow);
+        const x = cx + (col - (inRow - 1) / 2) * (size + gap);
+        const y = rowsTop + row * (size + gap) + Math.abs(col - (inRow - 1) / 2) * 1.6;
+        const t = sceneEl('div', 'mo-tok', top);
+        t.style.setProperty('--s', `${size}px`);
+        t.style.left = `${x}px`; t.style.top = `${y}px`;
+        t.classList.add('mo-tok-raster');
+        t.append(tokenBitmap.cloneNode());
+        anim(t, [
+          { transform: `translate(${cx - x}px, ${nb.cy - y}px) scale(.2) rotate(-180deg)`, opacity: 0 },
+          { transform: 'translate(0, -8px) scale(1.15) rotate(0deg)', opacity: 1, offset: 0.75 },
+          { transform: 'none', opacity: 1 },
+        ], { duration: 520, delay: i * step, easing: E.out });
+        setTimeout(() => { if (run === generation) play('sndDeal', i); }, i * step + 300);
+        toks.push(t);
+      }
+      await sleep(count * step + 900);
+      if (run !== generation) return;
+
+      // 6. Бонусный режим: показ уезжает вверх, эмблема перелетает в шапку
+      // серии, жетоны садятся в свои ячейки.
+      const target = o.prepare();
+      const eb = box(emb);
+      const tb = target.emblem ? box(target.emblem) : null;
+      targetEmblem = target.emblem;
+      if (targetEmblem) { hiddenEmblems.add(targetEmblem); targetEmblem.style.visibility = 'hidden'; }
+      if (tb && tb.w) {
+        anim(emb, [{ transform: 'none' }, { transform: `translate(${tb.cx - eb.cx}px, ${tb.cy - eb.cy}px) scale(${tb.w / eb.w})` }], { duration: 700, easing: E.inout });
+      } else {
+        anim(emb, [{ opacity: 1 }, { opacity: 0 }], 400);
+      }
+      [...show.children].filter((c) => c !== emb).forEach((c) => anim(c, [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateY(-50px) scale(.85)' }], { duration: 520, easing: E.in }));
+      anim(dim, [{ opacity: 1 }, { opacity: 0 }], { duration: 900, delay: 200, easing: E.inout });
+      recede(false);
+      play('sndWhoosh', false);
+      await sleep(350);
+      if (run !== generation) return;
+      const tstep = many ? 22 : 38;
+      // Read all destinations together before starting any flight animation.
+      const flights = toks.map((t, i) => ({ t, b: box(t),
+        hb: target.pips[i] ? box(target.pips[i]) : (tb || { cx, cy: 80 }) }));
+      flights.forEach(({ t, b, hb }, i) => {
+        anim(t, [
+          { transform: 'none', opacity: 1 },
+          { transform: `translate(${(hb.cx - b.cx) * 0.4 + rand(-40, 40)}px, ${(hb.cy - b.cy) * 0.5 - 40}px) scale(1.1)`, opacity: 1, offset: 0.45 },
+          { transform: `translate(${hb.cx - b.cx}px, ${hb.cy - b.cy}px) scale(.3)`, opacity: 0.2 },
+        ], { duration: 560, delay: i * tstep, easing: E.inout });
+        setTimeout(() => { if (run === generation) target.onToken?.(i); t.remove(); }, i * tstep + 540);
+      });
+      await sleep(count * tstep + 700);
+      if (run !== generation) return;
+    } finally {
+      if (targetEmblem && hiddenEmblems.delete(targetEmblem)) targetEmblem.style.visibility = '';
+      for (const node of sceneNodes) {
+        node.getAnimations({ subtree: true }).forEach((a) => a.cancel());
+        node.remove();
+      }
+      if (run === generation) recede(false);
     }
-    [...show.children].filter((c) => c !== emb).forEach((c) => anim(c, [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateY(-50px) scale(.85)' }], { duration: 520, easing: E.in }));
-    anim(dim, [{ opacity: 1 }, { opacity: 0 }], { duration: 900, delay: 200, easing: E.inout });
-    recede(false);
-    play('sndWhoosh', false);
-    await sleep(350);
-    const tstep = many ? 22 : 38;
-    toks.forEach((t, i) => {
-      const pip = target.pips[i];
-      const b = box(t);
-      const hb = pip ? box(pip) : (tb || { cx, cy: 80 });
-      anim(t, [
-        { transform: 'none', opacity: 1 },
-        { transform: `translate(${(hb.cx - b.cx) * 0.4 + rand(-40, 40)}px, ${(hb.cy - b.cy) * 0.5 - 40}px) scale(1.1)`, opacity: 1, offset: 0.45 },
-        { transform: `translate(${hb.cx - b.cx}px, ${hb.cy - b.cy}px) scale(.3)`, opacity: 0.2 },
-      ], { duration: 560, delay: i * tstep, easing: E.inout });
-      setTimeout(() => { target.onToken?.(i); t.remove(); }, i * tstep + 540);
-    });
-    await sleep(count * tstep + 700);
-    if (target.emblem) target.emblem.style.visibility = '';
-    show.remove();
-    dim.remove();
   }
 
   /** Ретриггер: новые жетоны вылетают из плитки в новые ячейки серии. */
@@ -1017,6 +1167,18 @@ export function createMotion({ money, artFor, tierColor, snd, haptic = () => {} 
   async function seriesTotal(totalEl, { total, cost = 0, text, button = null }) {
     if (!(total > 0) || !totalEl) return;
     mount();
+    if (LIGHT) {
+      const scene = el('div', 'mo-fs-light', top);
+      scene.textContent = text;
+      const effect = anim(scene, [{ opacity: 0 }, { opacity: 1, offset: .2 }, { opacity: 0 }], { duration: REDUCED ? 120 : 1000 });
+      scene.style.transform = 'translate(-50%, -50%)';
+      scene.style.pointerEvents = 'auto';
+      scene.onclick = () => effect.cancel();
+      await effect.finished.catch(() => {});
+      effect.cancel();
+      scene.remove();
+      return;
+    }
     const ratio = cost > 0 ? total / cost : 0;
     const paid = ratio >= 1;
     const big = ratio >= 2.5;
@@ -1255,10 +1417,16 @@ export function createMotion({ money, artFor, tierColor, snd, haptic = () => {} 
 
   /** Снять всё: игрок закрыл окно кейса посреди показа. */
   function reset() {
+    generation++;
+    hiddenEmblems.forEach((node) => { node.style.visibility = ''; });
+    hiddenEmblems.clear();
     inspecting?.();
     inspecting = null;
     recede(false);
+    cancelAnimationFrame(raf);
+    raf = 0;
     if (!root) return;
+    root.getAnimations({ subtree: true }).forEach((animation) => animation.cancel());
     layer.innerHTML = '';
     top.innerHTML = '';
     P.length = 0;

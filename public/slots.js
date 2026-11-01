@@ -326,7 +326,7 @@ export function createSlot(deps) {
           <div class="sl-panel">
             <div class="sl-balance">
               <span class="sl-label">БАЛАНС</span>
-              <span class="sl-value" id="slotBalance">${money(state.user?.balance || 0)}</span>
+              <span class="sl-value" id="slotBalance">${money((state.user?.activeWallet === 'bonus' ? state.user?.bonusBalance : state.user?.balance) || 0)}</span>
             </div>
 
             <div class="sl-bet">
@@ -791,7 +791,7 @@ export function createSlot(deps) {
   function applyUser(res) {
     if (res.user) deps.onUser?.(res.user);
     const box = document.getElementById('slotBalance');
-    if (box) box.textContent = money(res.user?.balance ?? res.balance ?? 0);
+    if (box) box.textContent = money((res.user?.activeWallet === 'bonus' ? res.user?.bonusBalance : res.user?.balance) ?? res.balance ?? 0);
   }
 
   /**
@@ -854,7 +854,7 @@ export function createSlot(deps) {
     if (ui.busy || !ui.slot) return;
     if (ui.free) { toast('Идут бесплатные вращения'); return; }
 
-    if ((state.user?.balance ?? 0) < ui.bet) {
+    if (((state.user?.activeWallet === 'bonus' ? state.user?.bonusBalance : state.user?.balance) ?? 0) < ui.bet) {
       ui.auto = 0;
       updateAuto();
       noFundsModal();
@@ -962,7 +962,7 @@ export function createSlot(deps) {
    * обещала обратное.
    */
   function maxBet() {
-    const balance = state.user?.balance ?? 0;
+    const balance = (state.user?.activeWallet === 'bonus' ? state.user?.bonusBalance : state.user?.balance) ?? 0;
     const affordable = ui.slot.bets.filter((b) => b <= balance);
     setBet(affordable.length ? affordable[affordable.length - 1] : ui.slot.bets[0]);
     snd('buttonClick');
@@ -1088,7 +1088,7 @@ export function createSlot(deps) {
   }
 
   function betPickHtml() {
-    const balance = state.user?.balance ?? 0;
+    const balance = (state.user?.activeWallet === 'bonus' ? state.user?.bonusBalance : state.user?.balance) ?? 0;
     return `
       <h2 class="sl-modal-title">ВЫБЕРИТЕ СТАВКУ</h2>
       <div class="sl-bet-grid">
@@ -1129,7 +1129,7 @@ export function createSlot(deps) {
   async function buyBonus() {
     if (ui.busy || ui.free) return;
     const price = ui.slot.buyBonusPrice * ui.bet;
-    if ((state.user?.balance ?? 0) < price) { closeModal(); noFundsModal(); return; }
+    if (((state.user?.activeWallet === 'bonus' ? state.user?.bonusBalance : state.user?.balance) ?? 0) < price) { closeModal(); noFundsModal(); return; }
 
     ui.busy = true;
     let res;
@@ -1314,7 +1314,7 @@ export function createSlot(deps) {
 
   function refreshBalance() {
     const box = document.getElementById('slotBalance');
-    if (box) box.textContent = money(state.user?.balance || 0);
+    if (box) box.textContent = money((state.user?.activeWallet === 'bonus' ? state.user?.bonusBalance : state.user?.balance) || 0);
   }
 
   return { openShelf, open, close, refreshBalance };

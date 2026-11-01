@@ -218,6 +218,7 @@ if (xid) {
 const cid = playerForPrize('case', 'case');
 check('игрок на кейс найден', cid !== null);
 if (cid) {
+  const beforeVouchers = new Map(getVouchers(cid).map(v => [v.case_id, v.count]));
   const { prize } = playFortuneSpin(cid, CASES);
   check('выпал кейс', prize.kind === 'case', prize.kind);
   check('кейс не дороже потолка', prize.amount <= GIFT_CASE_MAX_PRICE, String(prize.amount));
@@ -225,8 +226,8 @@ if (cid) {
   // Кроме приза у игрока лежит «Начало» за первое пополнение от 100 ₽:
   // проверяется именно ваучер колеса.
   check('ваучер на этот кейс выдан',
-    v.filter((x) => x.case_id !== 'start_free').length === 1
-      && v.some((x) => x.case_id === prize.caseId && x.count === 1), JSON.stringify(v));
+    v.some((x) => x.case_id === prize.caseId && x.count === (beforeVouchers.get(prize.caseId) || 0) + 1)
+      && v.reduce((n,x) => n+x.count,0) === [...beforeVouchers.values()].reduce((n,x) => n+x,0) + 1, JSON.stringify(v));
   check('кейс баланс не трогает', getUserById(cid).balance === 0);
 }
 

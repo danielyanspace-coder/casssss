@@ -15,7 +15,7 @@
 import { getCase } from '../server/cases.js';
 import {
   getOrCreateUser, adminAdjustBalance, playCaseRound, playCaseBatch,
-  buyFreeSpins, getX2Perks, getUserById, db,
+  buyFreeSpins, getX2Perks, getUserById, db, claimPendingReward,
 } from '../server/db.js';
 
 const c = getCase('double_500');
@@ -110,12 +110,15 @@ check('чужой кейс удвоитель не тратит', perks(), mine)
 check('чужой кейс не удвоен', r.payout, otherCash.value);
 
 /* 10. Баланс сходится: списание, выплата, ничего не потеряно. */
+claimPendingReward(user.id);
 const b0 = getUserById(user.id).balance;
 playCaseRound(user.id, c, scripted([x2Item]), scripted([zero]));
 const afterX2 = getUserById(user.id).balance;
 check('выпавший удвоитель денег не приносит', afterX2, b0 - c.price);
 r = playCaseRound(user.id, c, scripted([cash]), scripted([zero]));
-check('баланс после удвоенного выигрыша', getUserById(user.id).balance,
+check('до получения списана только цена открытия', getUserById(user.id).balance, afterX2 - c.price);
+claimPendingReward(user.id);
+check('баланс после получения удвоенного выигрыша', getUserById(user.id).balance,
   afterX2 - c.price + cash.value * 2);
 
 /*

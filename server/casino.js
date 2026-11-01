@@ -14,6 +14,7 @@ import { dirname, join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import { saveCatalog, catalogStats, setCoverState, gamesWithoutCoverState, gamesWithoutCover } from './casino-db.js';
 import { alert } from './ops.js';
+import { isDemoPlayerId } from './casino-demo.js';
 
 /* ---------- Настройки ---------- */
 
@@ -401,6 +402,8 @@ export function startCatalogSync() {
  * что она там что-то значит.
  */
 export async function launchGame({ game, playerId, demo, ip, country, rtp, lobbyUrl, language = 'ru' }) {
+  // Fail closed: a demo launch must never carry a money-wallet ID, or vice versa.
+  if (Boolean(demo) !== isDemoPlayerId(playerId)) throw new Error('Casino wallet mode mismatch');
   const env = casinoEnv();
   const body = {
     userId: playerId,
@@ -457,13 +460,13 @@ const inflight = new Map();
  * Имя файла - хеш адреса картинки, а не id игры: агрегатор меняет обложку,
  * не меняя id, и кеш по id показывал бы старую вечно.
  */
-export async function coverFile(game) {
+export async function coverFile(game, { preview = false } = {}) {
   const src = game.img_vertical || game.img;
   if (!src) return null;
   const vertical = Boolean(game.img_vertical);
   // Без sharp пережимать нечем: отдаём исходный адрес, браузер возьмёт с CDN.
   if (!(await sharp())) return { redirect: src, vertical };
-  const hash = createHash('sha1').update(src).digest('hex').slice(0, 20);
+  const hash = createHash('sha1').update(preview ? `${src}|preview-1004-q88-v2` : src).digest('hex').slice(0, 20);
   const dir = coverDir();
   const file = join(dir, `${hash}.webp`);
   if (existsSync(file)) return { file, vertical };
@@ -480,8 +483,8 @@ export async function coverFile(game) {
         if (!res.ok) throw new Error(`обложка ${res.status}`);
         const buf = Buffer.from(await res.arrayBuffer());
         const out = await (await sharp())(buf)
-          .resize({ width: COVER_WIDTH, withoutEnlargement: true })
-          .webp({ quality: COVER_QUALITY })
+          .resize({ width: preview ? 1004 : COVER_WIDTH, withoutEnlargement: true })
+          .webp({ quality: preview ? 88 : COVER_QUALITY })
           .toBuffer();
         mkdirSync(dir, { recursive: true });
         // Через временный файл: оборванная запись не должна стать кешем.

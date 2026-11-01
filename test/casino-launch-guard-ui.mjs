@@ -1,0 +1,31 @@
+import assert from 'node:assert/strict';
+import {readFileSync,writeFileSync} from 'node:fs';
+import {chromium} from 'playwright';
+const base=process.env.TEST_URL||'http://127.0.0.1:3127',root=new URL('../',import.meta.url).pathname;
+const user=(await(await fetch('http://127.0.0.1:3127/api/me',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).json()).user;
+const browser=await chromium.launch({headless:true,args:process.env.LIVE_LOCAL?['--host-resolver-rules=MAP lucky-box.duckdns.org 127.0.0.1']:[]});const results=[];
+try{for(const width of [390,1280]){
+ const page=await browser.newPage({viewport:{width,height:844},isMobile:width<500,hasTouch:width<500});let launches=0,release;const errors=[];
+ page.on('pageerror',e=>errors.push(e.message));
+ await page.route('https://fonts.googleapis.com/**',r=>r.abort());await page.route('https://fonts.gstatic.com/**',r=>r.abort());
+ await page.route('**/api/me',r=>r.fulfill({json:{user}}));
+ await page.route('**/api/casino/demo-balance',r=>r.fulfill({json:{balance:30000}}));
+ await page.route('**/api/casino/launch',async r=>{launches++;assert.equal(r.request().postDataJSON().demo,true);if(launches===1)await new Promise(resolve=>release=resolve);await r.fulfill({json:{html:'<body style="margin:0;background:#000"></body>',demoBalance:30000}})});
+ await page.route('**/casino/cover/**',r=>r.fulfill({contentType:'image/webp',body:readFileSync(root+'public/assets/ui/nav-casino.webp')}));await page.route('**/casino/banner/**',r=>r.abort());
+ await page.goto(base,{waitUntil:'domcontentloaded'});await page.waitForSelector('.case-card');if(await page.locator('#onbSkip').isVisible())await page.click('#onbSkip');
+ if(width<500){await page.click('#menuBtn');await page.click('#menuNav [data-view="casino"]')}else await page.click('#sideNav [data-view="casino"]');
+ await page.locator('#casinoRoot .cz-tile[data-ref]').first().click();await page.waitForSelector('#czDemo:not([hidden])');
+ await page.clock.install();await page.click('#czDemo');await page.waitForSelector('#czLaunchStatus:not([hidden])');
+ assert.match(await page.textContent('#czLaunchText'),/Запускаем/);await page.screenshot({path:root+`loading-${width}.png`});
+ await page.clock.fastForward(15000);assert.match(await page.textContent('#czLaunchText'),/больше времени/);
+ release();await page.waitForSelector('#czFrameHost iframe');await page.waitForFunction(()=>document.getElementById('czLaunchStatus').hidden);
+ await page.clock.fastForward(15000);await page.waitForSelector('#czLaunchStatus.is-help:not([hidden])');
+ assert.equal(launches,1);assert.equal(await page.locator('#czLaunchRetry').isEnabled(),true);
+ const panel=await page.locator('#czLaunchStatus').boundingBox();assert.ok(panel.y>46);assert.ok(panel.x>=0&&panel.x+panel.width<=width);
+ await page.screenshot({path:root+`help-${width}.png`});
+ await page.click('#czLaunchDismiss');assert.equal(await page.locator('#czLaunchStatus').isVisible(),false);
+ await page.click('#czFrameHelp');await page.click('#czLaunchRetry');await page.waitForFunction(()=>!!document.querySelector('#czFrameHost iframe'));assert.equal(launches,2);
+ await page.click('#czFrameHelp');await page.click('#czLaunchOther');assert.equal(await page.locator('#czFrame').isVisible(),false);assert.equal(await page.locator('#czFrameHost iframe').count(),0);
+ await page.clock.fastForward(60000);assert.equal(await page.locator('#czLaunchStatus').isVisible(),false);assert.deepEqual(errors,[]);
+ results.push({width,launches,errors:errors.length,panel});await page.close();
+}writeFileSync(root+'launch-guard-ui-results.json',JSON.stringify({base,results},null,2));console.log(JSON.stringify({base,results},null,2));}finally{await browser.close()}

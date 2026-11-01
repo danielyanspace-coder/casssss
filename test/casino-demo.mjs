@@ -1,0 +1,63 @@
+import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+const dir = mkdtempSync(join(tmpdir(), 'casino-demo-'));
+process.env.DB_PATH = join(dir, 'app.db');
+const { db, getOrCreateUser, getUserById } = await import('../server/db.js');
+const { casinoWallet, casinoPlayerId } = await import('../server/casino-db.js');
+const { demoBalance, demoPlayerId } = await import('../server/casino-demo.js');
+const { launchGame } = await import('../server/casino.js');
+const realNow = Date.now;
+let clock = Date.UTC(2026, 10, 1, 12);
+Date.now = () => clock;
+let seq = 0;
+const u = getOrCreateUser({ id: 88776655, username: 'demo_test', first_name: 'Demo' });
+const v = getOrCreateUser({ id: 88776656, username: 'demo_test2', first_name: 'Demo' });
+const before = getUserById(u.id);
+const count = table => db.prepare(`SELECT COUNT(*) n FROM ${table}`).get().n;
+const txCount = count('casino_tx');
+const ledgerCount = count('ledger');
+const event = (method, extra={}) => ({ userId: demoPlayerId(u.id), method, transactionId: `d${++seq}`,
+  originalTransId: `o${seq}`, roundId: 'A', gameId: 'g', currency: 'RUB', amount: 0, ...extra });
+const call = (...list) => casinoWallet(list);
+try {
+  assert.equal(demoBalance(u.id), 30000);
+  assert.equal(call(event('get_balance')).balance, 30000);
+  const bet = event('bet', { amount: 123.45 });
+  assert.deepEqual(call(bet), {statusCode:0,balance:29876.55});
+  assert.equal(demoBalance(v.id), 30000);
+  assert.equal(call({...bet,transactionId:'retry'}).statusCode, 9);
+  assert.equal(call(event('win',{amount:200})).balance, 30076.55);
+  assert.equal(call(event('rollback')).balance, 30000);
+  assert.equal(call(event('rollback')).statusCode, 5);
+  assert.equal(call(event('win',{roundId:'none',amount:100})).statusCode, 5);
+  assert.equal(call(event('bet',{amount:30001})).statusCode, 8);
+  assert.equal(call(event('bet',{amount:-1})).statusCode, 3);
+  assert.equal(call(event('bet',{amount:1,currency:'USD'})).statusCode, 3);
+  assert.equal(call(event('bet',{amount:1}),event('bet',{amount:40000})).statusCode,8);
+  assert.equal(demoBalance(u.id),30000,'batch rolls back entirely');
+  assert.equal(call(event('get_balance'),event('bet',{userId:casinoPlayerId(u.id),amount:1})).statusCode,3);
+  assert.equal(call(event('bet',{userId:casinoPlayerId(u.id),demo:true,amount:1})).statusCode,3);
+  assert.equal(call(event('bet',{amount:1})).balance,29999);
+  const oldId = demoPlayerId(u.id);
+  clock += 86400000;
+  assert.equal(demoBalance(u.id),30000,'new UTC day restores balance');
+  assert.equal(call(event('win',{userId:oldId,amount:500})).statusCode,3,'old session cannot credit new day');
+  assert.equal(call(event('win',{amount:500})).statusCode,5,'yesterday bets cannot back wins today');
+  assert.equal(demoBalance(u.id),30000);
+  assert.equal(call(event('get_balance',{userId:'ldbroken'})).statusCode,1);
+  assert.deepEqual(getUserById(u.id),before,'all user monetary/statistical fields unchanged');
+  assert.equal(count('casino_tx'),txCount,'no real casino history');
+  assert.equal(count('ledger'),ledgerCount,'no monetary ledger entries');
+  await assert.rejects(launchGame({game:{id:'g'},playerId:casinoPlayerId(u.id),demo:true}),/mode mismatch/);
+  await assert.rejects(launchGame({game:{id:'g'},playerId:demoPlayerId(u.id),demo:false}),/mode mismatch/);
+  let request;
+  const originalFetch=globalThis.fetch;
+  globalThis.fetch=async (url,opts)=> {request=JSON.parse(opts.body); return {status:200,text:async()=>JSON.stringify({statusCode:0,url:'https://demo.example/game'})};};
+  try {
+    const launched=await launchGame({game:{id:'g'},playerId:demoPlayerId(u.id),demo:true});
+    assert.equal(launched.ok,true);assert.equal(request.demo,true);assert.equal(request.userId,demoPlayerId(u.id));
+  } finally {globalThis.fetch=originalFetch;}
+  console.log('PASS: demo isolation, cents, atomic batches, duplicates, refunds, daily reset, stale sessions and provider launch mode');
+} finally { Date.now=realNow;db.close();rmSync(dir,{recursive:true,force:true}); }

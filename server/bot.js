@@ -41,7 +41,7 @@ if (!webAppUrl || !webAppUrl.startsWith('https://')) {
 
 const bot = new Bot(token);
 
-const keyboard = new InlineKeyboard().url('Открыть LUCKYBOX', webAppUrl);
+const keyboard = new InlineKeyboard().url('🎰 Открыть LUCKYBOX', webAppUrl);
 
 /*
  * Каждый, кто пишет боту в личке, попадает в список рассылки дневного кода

@@ -20,7 +20,7 @@ for (const t of ['', '-wal', '-shm']) rmSync(process.env.DB_PATH + t, { force: t
 
 const {
   getOrCreateUser, getUserById, consumeWager, adminAdjustBalance, startCaseState,
-  playCaseRound, getVouchers,
+  playCaseRound, getVouchers, pendingReward, claimPendingReward, withdrawable,
 } = await import('../server/db.js');
 const { getCase, pickItem, START_CASE_ID, validateCases } = await import('../server/cases.js');
 const { computeRoll } = await import('../server/fair.js');
@@ -86,8 +86,10 @@ check('3 200 ₽ одной ставкой - три кейса и 200 на шк�
   check('открытие тратит подарок', ready(a.id) === 4);
   check('баланс своими не списан', after.balance >= before.balance && after.balance - before.balance === 0,
     `${before.balance} -> ${after.balance}`);
-  check('выигрыш пришёл на бонусный счёт', after.bonus_balance - before.bonus_balance === r.payout,
-    `${after.bonus_balance - before.bonus_balance} vs ${r.payout}`);
+  check('выигрыш ждёт получения на основном счёте', pendingReward(a.id).real === r.totalPayout && pendingReward(a.id).bonus === 0);
+  claimPendingReward(a.id);
+  check('полученный подарок зачислен на основной', getUserById(a.id).balance === before.balance + r.totalPayout);
+  check('подарок доступен для вывода', withdrawable(getUserById(a.id)) >= r.totalPayout);
 }
 
 /* ---------- Билеты ---------- */

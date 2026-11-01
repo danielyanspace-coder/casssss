@@ -1,3 +1,4 @@
+import { siciliaPayinFeePct } from './sicilia-fees.js';
 /**
  * Финансовый отдел: сверка с Sicilia и касса проекта.
  *
@@ -318,7 +319,7 @@ export function cashSummary({ days = 30, now = Date.now() } = {}) {
   each(`SELECT ${D('created_at')} AS day,
                SUM(CASE WHEN method = 'bet' AND free_round = 0 THEN amount_kop ELSE 0 END)
              - SUM(CASE WHEN method IN ('win', 'cashout') THEN amount_kop ELSE 0 END) AS s
-          FROM casino_tx WHERE rolled_back = 0 AND created_at >= ? GROUP BY day`,
+          FROM casino_tx WHERE rolled_back = 0 AND wallet = 'real' AND created_at >= ? GROUP BY day`,
     (b, r) => { b.ggrCasino += Math.round(r.s / 100); });
   each(`SELECT ${D('created_at')} AS day, SUM(amount) AS s FROM bonus_events
          WHERE kind = 'convert' AND created_at >= ? GROUP BY day`, (b, r) => { b.bonusConverted += r.s; });
@@ -339,13 +340,40 @@ export function cashSummary({ days = 30, now = Date.now() } = {}) {
   // Обязательства перед игроками: всё, что они могут потребовать прямо сейчас.
   const liab = db.prepare(`SELECT COALESCE(SUM(balance), 0) AS bal, COALESCE(SUM(balance_kop), 0) AS kop,
                                   COALESCE(SUM(bonus_balance), 0) AS bonus FROM users`).get();
+  const held = db.prepare('SELECT COALESCE(SUM(real),0) AS real, COALESCE(SUM(bonus),0) AS bonus FROM pending_rewards WHERE claimed_at IS NULL').get();
   const pendingPayouts = db.prepare(`SELECT COALESCE(SUM(amount), 0) AS s, COUNT(*) AS n FROM payouts
                                       WHERE status IN ('pending', 'processing')`).get();
   return {
     days: span, rows, total,
     liabilities: {
-      playersBalance: liab.bal + Math.floor(liab.kop / 100), bonusBalance: liab.bonus,
+      playersBalance: liab.bal + liab.kop / 100 + held.real, bonusBalance: liab.bonus + held.bonus,
+      pendingRewards: held.real + held.bonus,
       pendingPayouts: pendingPayouts.s, pendingPayoutsCount: pendingPayouts.n,
     },
   };
+}
+
+/** Пополнения отдельно от расчётов с шлюзом: полуоткрытое окно [from,to). */
+export function siciliaDeposits({ from = null, to = null, days = 30, day = null } = {}) {
+  let start = from == null || from === '' ? null : Number(from);
+  let end = to == null || to === '' ? null : Number(to);
+  if (start == null && day) {
+    const d = Math.floor(Date.parse(`${day}T00:00:00Z`) / DAY_MS);
+    start = dayStart(d); end = start + DAY_MS;
+  }
+  if (start == null) start = dayStart(dayOf(Date.now()) - Math.min(366, Math.max(1, Number(days) || 30)) + 1);
+  if (end == null) end = Date.now() + 1;
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end <= start) throw fail('Неверный промежуток');
+  const orders = db.prepare(`SELECT credited_rub AS amount, terminal, method FROM sicilia_orders
+    WHERE kind = 'payin' AND paid_at IS NOT NULL AND paid_at >= ? AND paid_at < ? AND credited_rub > 0`).all(start, end);
+  const disputes = db.prepare(`SELECT amount, method FROM admin_sicilia_disputes WHERE created_at >= ? AND created_at < ?`).all(start, end);
+  const result = { from: start, to: end, gross: 0, fee: 0, net: 0, count: orders.length + disputes.length, disputes: 0 };
+  for (const row of [...orders, ...disputes]) {
+    result.gross += row.amount;
+    result.fee += Math.round(row.amount * siciliaPayinFeePct(row.amount, row.terminal === 'mk' ? 'mk' : row.method));
+  }
+  result.fee /= 100;
+  result.net = Math.round((result.gross - result.fee) * 100) / 100;
+  result.disputes = disputes.reduce((n,r) => n+r.amount,0);
+  return result;
 }

@@ -415,12 +415,19 @@ export function art64For(name) {
  * Возвращает null на незнакомом названии - вызывающий код откатится на
  * item-art.js, а оттуда на значок уровня редкости.
  */
+const templates64 = new Map();
 export function itemArt64(name) {
   const key = art64For(name);
   if (!key) return null;
   const id = `a${(seq64++).toString(36)}`;
-  return `<svg viewBox="0 0 64 64" fill="none" aria-hidden="true">${defs64(id)}` +
-         `${ART64[key](`url(#${id})`, `url(#${id}d)`)}</svg>`;
+  let template = templates64.get(key);
+  if (!template) {
+    const token = '__art64_gradient__';
+    template = `<svg viewBox="0 0 64 64" fill="none" aria-hidden="true">${defs64(token)}` +
+      `${ART64[key](`url(#${token})`, `url(#${token}d)`)}</svg>`;
+    templates64.set(key, template);
+  }
+  return template.replace(/__art64_gradient__/g, id);
 }
 
 /** Сколько мотивов в наборе - для проверок. */
