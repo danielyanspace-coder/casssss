@@ -1,0 +1,20 @@
+{
+  "created_utc": "2026-11-01T23:16:08Z",
+  "source": "/srv/luckybox",
+  "sqlite_integrity": "ok",
+  "private_file_count": 13386,
+  "node": "v20.20.2",
+  "excluded": [
+    "node_modules and caches (reinstall from lockfile)",
+    ".git directories (repository history remains on GitHub)",
+    "running SQLite WAL/SHM (replaced with consistent SQLite snapshot)",
+    "unrelated operating-system and agent files"
+  ],
+  "archive_parts": 41,
+  "archive_encrypted_bytes": 682364754,
+  "encrypted_sha256": "70345da3d24bd48affd202d9188ca58dd074564365a733be9b9d3bea00932ac0",
+  "source_files_verified": 2882,
+  "source_commit": "3bb7c8fec766c0a16c5117cd18a95466bb629d52",
+  "encryption": "AES-256-GCM",
+  "historical_gzip_archives_losslessly_repacked": 5
+}

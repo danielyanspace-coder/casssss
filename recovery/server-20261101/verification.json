@@ -1,0 +1,8 @@
+{
+  "private_snapshot_files_verified": 13388,
+  "file_or_permission_mismatches": [],
+  "historical_gzip_archives_sha256_verified": 5,
+  "sqlite_integrity_check": "ok",
+  "gcm_tamper_rejection_test": "passed",
+  "source_files_verified_against_github": 2882
+}
