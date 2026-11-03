@@ -37,8 +37,9 @@ const SWEEP_MS = 60_000;
  * @param {number} opts.windowMs за какое окно, миллисекунд
  * @param {string} opts.name    имя корзины: у каждой свой счётчик
  */
-export function rateLimit({ limit, windowMs, name }) {
+export function rateLimit({ limit, windowMs, name, maxKeys = 10000 }) {
   const hits = new Map();
+  let capacitySweepAt = 0;
 
   const sweep = setInterval(() => {
     const edge = Date.now() - windowMs;
@@ -58,6 +59,19 @@ export function rateLimit({ limit, windowMs, name }) {
 
     const now = Date.now();
     const edge = now - windowMs;
+    // Bound memory even when callers rotate addresses/accounts faster than sweep.
+    if (!hits.has(key) && hits.size >= maxKeys) {
+      if (now >= capacitySweepAt) {
+        capacitySweepAt = now + 1000;
+        for (const [oldKey, oldTimes] of hits) {
+          if (!oldTimes.length || oldTimes[oldTimes.length - 1] <= edge) hits.delete(oldKey);
+        }
+      }
+      if (hits.size >= maxKeys) {
+        res.set('Retry-After', String(Math.ceil(windowMs / 1000)));
+        return res.status(429).json({ error: 'RATE_LIMITED', retryAfter: Math.ceil(windowMs / 1000) });
+      }
+    }
     const times = (hits.get(key) || []).filter((t) => t > edge);
 
     if (times.length >= limit) {

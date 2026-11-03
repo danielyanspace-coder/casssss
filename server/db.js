@@ -29,6 +29,10 @@ mkdirSync(dirname(DB_PATH), { recursive: true });
 
 export const db = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
+// Financial commits must survive an OS/power failure, not only process restarts.
+db.pragma('synchronous = FULL');
+// A competing writer must not block the HTTP event loop for the default 5 seconds.
+db.pragma('busy_timeout = 250');
 
 function payoutKey() {
   const raw = String(process.env.PAYOUT_DATA_KEY || '');
@@ -1051,7 +1055,7 @@ export function withLedger(kind, fn) {
  */
 export function moneyTx(kind, fn) {
   return db.transaction((...args) =>
-    withLedger(typeof kind === 'function' ? kind(...args) : kind, () => fn(...args)));
+    withLedger(typeof kind === 'function' ? kind(...args) : kind, () => fn(...args))).immediate;
 }
 
 /*

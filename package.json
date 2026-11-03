@@ -50,7 +50,8 @@
     "test:case-catalog": "node test/case-catalog.mjs",
     "test:lazy-ui": "node test/lazy-sections.mjs",
     "test:catalog-ui": "node test/catalog-ui.mjs",
-    "test:client-technical": "node test/client-technical.mjs"
+    "test:client-technical": "node test/client-technical.mjs",
+    "test:resilience": "node test/resilience.mjs && node test/lifecycle-resilience.mjs"
   },
   "engines": {
     "node": ">=20.9.0"

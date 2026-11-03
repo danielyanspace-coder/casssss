@@ -1,3 +1,4 @@
+import { createWorkLimit, positiveInt } from './resilience.js';
 /**
  * Вход на сайт: почта с паролем, Telegram и сессии.
  *
@@ -21,7 +22,9 @@ import {
   getOrCreateUser,
 } from './db.js';
 
-const scryptAsync = promisify(scrypt);
+const rawScrypt = promisify(scrypt);
+const passwordWork = createWorkLimit(positiveInt(process.env.PASSWORD_CONCURRENCY, 4));
+const scryptAsync = (...args) => passwordWork(() => rawScrypt(...args));
 
 export const SESSION_COOKIE = 'lb_session';
 

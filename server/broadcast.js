@@ -80,7 +80,7 @@ async function sendOne(chatId, b, photoId) {
   let res;
   if (photoId) {
     res = await fetch(`${apiBase()}/bot${token()}/sendPhoto`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      method: 'POST', signal: AbortSignal.timeout(20_000), headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ chat_id: chatId, photo: photoId, caption, parse_mode: 'HTML', reply_markup: markup }),
     });
   } else {
@@ -90,7 +90,7 @@ async function sendOne(chatId, b, photoId) {
     form.set('parse_mode', 'HTML');
     if (markup) form.set('reply_markup', JSON.stringify(markup));
     form.set('photo', new Blob([readFileSync(DAILY_PROMO_IMAGE)], { type: 'image/jpeg' }), 'promo.jpg');
-    res = await fetch(`${apiBase()}/bot${token()}/sendPhoto`, { method: 'POST', body: form });
+    res = await fetch(`${apiBase()}/bot${token()}/sendPhoto`, { method: 'POST', body: form, signal: AbortSignal.timeout(20_000) });
   }
   const data = await res.json().catch(() => ({}));
   const sizes = data.result?.photo || [];
