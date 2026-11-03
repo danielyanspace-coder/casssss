@@ -211,6 +211,8 @@ grep -nE "^app\.(get|post)\(" server/app.js                  # все ручки
 
 ### server/sicilia.js - СБП и карта, шлюз Sicilia
 
+- Подбор суммы: `searchDeposit` (10 секунд исходная, затем 10 шагов +100 ₽), `acceptDepositProposal`, `expireDepositProposals` (резерв 60 секунд).
+
 - Мобильная коммерция (запасной терминал, до 15 000 ₽): `MK`, `siciliaEnv('mk')`, `mkReady`, `envFor(row)`, `placeOrder`, `probeSignature` (проверка логина для `setup.sh`), `gatewayBalance` (оба терминала). Клиент: `MOBILE_OPERATORS`, `mobileOperator` в `public/app.js`.
 - Окружение и подписи: `siciliaEnv`, `isConfigured`, `payinReady`, `signPayin`, `signInvid`, `signPayout`, `verifyCallback`, `isAppealCallback`, `callbackIpAllowed`, `DEEPLINK_BANKS`.
 - Пополнение: `createDeposit` (подписанная ссылка окна), `applyPayinStatus`, `confirmPayin` (зачисление через `check-status`), `refreshDeposit`, `reopenDeposit`, `cancelDeposit`, `staffCancelDeposit`, `listDeposits`, `recheckDeposit`.
@@ -460,7 +462,8 @@ grep -nE "^app\.(get|post)\(" server/app.js                  # все ручки
 | Маршрут | Что зовёт |
 |---|---|
 | `/api/sicilia/options` | `sicilia.siciliaEnv`, `payinReady` |
-| `/api/sicilia/create` | `sicilia.createDeposit` |
+| `/api/sicilia/create` | `sicilia.searchDeposit` (повторы и шаги +100 ₽) |
+| `/api/sicilia/accept` | `sicilia.acceptDepositProposal` (подтверждение новой суммы) |
 | `/api/sicilia/cancel` / `reopen` | `cancelDeposit` / `reopenDeposit` |
 | `/api/sicilia/list` / `refresh` | `listDeposits` / `refreshDeposit` |
 | `/api/sicilia/report` | `reportDeposit` (спор «деньги не пришли» с чеком) |

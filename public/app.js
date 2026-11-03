@@ -124,12 +124,13 @@ const CASE_REWARD_PATHS = new Set(['/api/open', '/api/freespins/buy', '/api/gamb
 let caseExitVersion = 0;
 let caseExitCollection = null;
 
-async function api(path, body, { quiet = false } = {}) {
+async function api(path, body, { quiet = false, signal } = {}) {
   const exitVersion = caseExitVersion;
   const res = await fetch(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body || {}),
+    signal,
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -5939,6 +5940,7 @@ function showCryptoCheckout(p) {
 /* Способы пополнения: у каждого свой экран, открыт ровно один. */
 const DEPOSIT_PANES = ['cryptoCreate', 'cryptoCheckout', 'siciliaCreate', 'siciliaCheckout'];
 function showDepositPane(...ids) {
+  if (!ids.includes('siciliaCheckout')) dismissSiciliaProposal();
   for (const id of DEPOSIT_PANES) {
     const el = document.getElementById(id);
     if (el) el.hidden = !ids.includes(id);
@@ -6080,7 +6082,7 @@ function openSiciliaDeposit({ resume = true } = {}) {
   // не форму, иначе он заведёт второй и переведёт не на тот реквизит.
   if (h2h && resume) {
     api('/api/sicilia/list', {}, { quiet: true }).then((d) => {
-      const open = (d.rows || []).find((r) => r.requisite);
+      const open = (d.rows || []).find((r) => r.requisite || (r.proposal && r.proposalUntil > Date.now()));
       const pane = document.getElementById('siciliaCreate');
       if (open && !pane.hidden) showSiciliaRequisite(open);
     }).catch(() => {});
@@ -6127,6 +6129,92 @@ document.getElementById('siciliaAmount')?.addEventListener('input', syncSiciliaA
 
 document.querySelector('[data-payment-method="sicilia"]')?.addEventListener('click', () => openSiciliaDeposit());
 
+let siciliaProposal = null;
+let siciliaProposalTimer = null;
+let siciliaSearchGeneration = 0;
+let siciliaSearchController = null;
+
+function dismissSiciliaProposal() {
+  siciliaSearchGeneration++;
+  siciliaSearchController?.abort();
+  siciliaSearchController = null;
+  const proposal = siciliaProposal;
+  siciliaProposal = null;
+  clearInterval(siciliaProposalTimer);
+  if (!proposal) return;
+  // keepalive даёт браузеру отправить отказ даже при закрытии страницы.
+  fetch('/api/sicilia/cancel', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: proposal.id }), keepalive: true,
+  }).catch(() => {});
+}
+window.addEventListener('pagehide', dismissSiciliaProposal);
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    const hadProposal = Boolean(siciliaProposal);
+    dismissSiciliaProposal();
+    if (hadProposal) openSiciliaDeposit({ resume: false });
+  }
+});
+new MutationObserver(() => {
+  if (state.view !== 'wallet') dismissSiciliaProposal();
+}).observe(document.getElementById('view-wallet'), { attributes: true, attributeFilter: ['class'] });
+
+function showSiciliaProposal(order) {
+  showDepositPane('siciliaCheckout');
+  stopSiciliaTimers();
+  siciliaProposal = order;
+  const box = document.getElementById('siciliaCheckout');
+  box.innerHTML = `<div class="sicilia-offer" role="region" aria-labelledby="siciliaOfferTitle">
+    <div class="sicilia-offer-badge">Реквизиты найдены</div>
+    <h3 id="siciliaOfferTitle">Доступна другая сумма</h3>
+    <p>${order.requestedAmount ? `На ${money(order.requestedAmount)} сейчас нет свободных реквизитов. ` : ''}Можем предложить пополнение на</p>
+    <div class="sicilia-offer-amount">${money(order.amount)}</div>
+    <p>Продолжить пополнение на эту сумму?</p>
+    <button class="cash-cta" id="siciliaOfferYes">Да, пополнить на ${money(order.amount)}</button>
+    <button class="sicilia-offer-no" id="siciliaOfferNo">Нет, отменить</button>
+    <p class="sicilia-offer-time" id="siciliaOfferTime" role="status"></p>
+  </div>`;
+  box.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const expire = () => {
+    const remaining = Math.max(0, Math.ceil((order.proposalUntil - Date.now()) / 1000));
+    if (!remaining || siciliaProposal !== order) {
+      clearInterval(siciliaProposalTimer);
+      if (siciliaProposal === order) {
+        dismissSiciliaProposal();
+        openSiciliaDeposit({ resume: false });
+        toast('Предложение истекло. Подберите реквизиты заново');
+      }
+      return;
+    }
+    document.getElementById('siciliaOfferTime').textContent = `Реквизиты закреплены за вами ещё ${remaining} сек.`;
+  };
+  siciliaProposalTimer = setInterval(expire, 1000);
+  expire();
+  if (siciliaProposal !== order) return;
+  document.getElementById('siciliaOfferNo').onclick = () => {
+    dismissSiciliaProposal();
+    openSiciliaDeposit({ resume: false });
+  };
+  document.getElementById('siciliaOfferYes').onclick = async () => {
+    const btn = document.getElementById('siciliaOfferYes');
+    await withCashBusy(btn, async () => {
+      try {
+        const accepted = await api('/api/sicilia/accept', { id: order.id });
+        if (siciliaProposal !== order) return;
+        siciliaProposal = null;
+        clearInterval(siciliaProposalTimer);
+        showSiciliaRequisite(accepted);
+        haptic('success');
+      } catch (err) {
+        toast(err.message);
+        dismissSiciliaProposal();
+        openSiciliaDeposit({ resume: false });
+      }
+    });
+  };
+}
+
 document.getElementById('siciliaCreateBtn')?.addEventListener('click', async () => {
   const amount = amountOf(document.getElementById('siciliaAmount'));
   if (!amount || amount < siciliaState.min) return toast(`Минимум ${money(siciliaState.min)}`);
@@ -6134,12 +6222,25 @@ document.getElementById('siciliaCreateBtn')?.addEventListener('click', async () 
   const btn = document.getElementById('siciliaCreateBtn');
 
   if (siciliaState.mode === 'h2h') {
+    if (btn.classList.contains('is-busy')) return;
+    const generation = ++siciliaSearchGeneration;
+    const controller = new AbortController();
+    siciliaSearchController = controller;
+    const label = document.getElementById('siciliaCreateLabel');
+    label.textContent = 'Подбираем реквизиты…';
     await withCashBusy(btn, async () => {
       try {
-        const order = await api('/api/sicilia/create', { amount, method: siciliaState.method, senderBank: siciliaState.bank });
-        showSiciliaRequisite(order);
+        const order = await api('/api/sicilia/create', { amount, method: siciliaState.method, senderBank: siciliaState.bank }, { signal: controller.signal });
+        siciliaSearchController = null;
+        if (generation !== siciliaSearchGeneration || document.hidden || state.view !== 'wallet') {
+          fetch('/api/sicilia/cancel', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: order.id }), keepalive: true }).catch(() => {});
+          return;
+        }
+        if (order.proposal) showSiciliaProposal(order);
+        else showSiciliaRequisite(order);
         haptic('success');
       } catch (err) {
+        if (generation !== siciliaSearchGeneration || state.view !== 'wallet') return;
         if (err.code === 'OPEN_ORDER' && err.data?.order) {
           showSiciliaRequisite(err.data.order);
           toast('Сначала завершите этот перевод или отмените его');
@@ -6147,6 +6248,9 @@ document.getElementById('siciliaCreateBtn')?.addEventListener('click', async () 
           toast(err.message);
         }
         haptic('error');
+      } finally {
+        if (siciliaSearchController === controller) siciliaSearchController = null;
+        syncSiciliaAmount();
       }
     });
     return;
@@ -6265,6 +6369,7 @@ const SIC_WAVES = `<svg class="sic-waves" viewBox="0 0 24 24" aria-hidden="true"
  * ссылка внизу, а не кнопка рядом с главной: её нажимают по ошибке.
  */
 function showSiciliaRequisite(order) {
+  if (order.proposal) { showSiciliaProposal(order); return; }
   const r = order.requisite;
   if (!r) { openSiciliaDeposit({ resume: false }); return; }
   stopSiciliaTimers();
