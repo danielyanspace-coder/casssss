@@ -2684,12 +2684,21 @@ app.post('/api/sicilia/create', auth, limits.cashier, async (req, res) => {
   if (!setting('deposits_open')) return res.status(503).json({ error: 'Приём пополнений временно закрыт' });
   try {
     const b = req.body || {};
-    res.status(201).json(await sicilia.createDeposit(req.player.id, b.amount, { method: b.method, senderBank: b.senderBank }));
+    let disconnected = false;
+    res.once('close', () => { if (!res.writableEnded) disconnected = true; });
+    res.status(201).json(await sicilia.searchDeposit(req.player.id, b.amount,
+      { method: b.method, senderBank: b.senderBank }, { abandoned: () => disconnected }));
   } catch (err) {
     const status = err.code === 'NOT_CONFIGURED' || err.code === 'GATEWAY_UNREACHABLE' || err.code === 'NO_REQUISITE' ? 503
-      : err.code === 'OPEN_ORDER' ? 409 : 400;
+      : err.code === 'OPEN_ORDER' || err.code === 'SEARCH_BUSY' ? 409 : 400;
     res.status(status).json({ error: err.message, code: err.code, order: err.order });
   }
+});
+
+app.post('/api/sicilia/accept', auth, limits.cashier, (req, res) => {
+  if (!setting('deposits_open')) return res.status(503).json({ error: 'Приём пополнений временно закрыт' });
+  try { res.json(sicilia.acceptDepositProposal(req.body?.id, req.player.id)); }
+  catch (err) { res.status(err.code === 'NOT_FOUND' ? 404 : 409).json({ error: err.message, code: err.code }); }
 });
 
 /* Отмена перевода игроком: реквизит освобождается сразу, а не по сроку. */

@@ -11120,3 +11120,13 @@ body.casino-background-paused :is(#app, .topbar, #sideNav, #siteFooter) *::after
 #czLaunchRetry { background: var(--gold); color: #17101d; font-weight: 700; }
 #czLaunchDismiss { background: transparent; border: 0; padding: 4px; font-size: 12px; text-decoration: underline; }
 @media (max-width: 420px) { .cz-frame-bar { gap: 6px; padding: 0 6px; } .cz-frame-balance { padding: 7px 6px; font-size: 11px; } .cz-frame-name { font-size: 12px; } .cz-frame-help { font-size: 11px; } }
+
+/* Подтверждение суммы до показа платёжных реквизитов. */
+.sicilia-offer { max-width: 440px; margin: auto; padding: 32px 24px; text-align: center; border: 1px solid rgba(255,255,255,.1); border-radius: 24px; background: linear-gradient(145deg,rgba(255,190,70,.08),rgba(255,255,255,.02)); }
+.sicilia-offer-badge { display: inline-block; padding: 7px 13px; border-radius: 30px; background: rgba(105,214,151,.12); color: #86e5ae; font-size: 12px; }
+.sicilia-offer h3 { margin: 20px 0 12px; font-size: 24px; }
+.sicilia-offer p { line-height: 1.6; color: #b9b5c9; }
+.sicilia-offer-amount { margin: 18px 0; font-size: clamp(36px,8vw,52px); font-weight: 800; color: #ffd278; }
+.sicilia-offer .cash-cta { width: 100%; margin-top: 12px; }
+.sicilia-offer-no { width: 100%; margin-top: 12px; padding: 14px; border: 1px solid rgba(255,255,255,.14); border-radius: 12px; color: inherit; background: transparent; cursor: pointer; }
+.sicilia-offer .sicilia-offer-time { margin: 18px 0 0; font-size: 12px; }

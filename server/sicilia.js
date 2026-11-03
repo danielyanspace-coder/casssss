@@ -37,6 +37,7 @@ import { siciliaPayinFeePct } from './sicilia-fees.js';
  * ограничение базы, а не в проверку в коде.
  */
 
+import { setTimeout as delay } from 'node:timers/promises';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -196,6 +197,8 @@ if (!orderCols.includes('fee_fixed')) db.exec('ALTER TABLE sicilia_orders ADD CO
  */
 if (!orderCols.includes('terminal')) db.exec('ALTER TABLE sicilia_orders ADD COLUMN terminal TEXT');
 
+if (!orderCols.includes('proposal_until')) db.exec('ALTER TABLE sicilia_orders ADD COLUMN proposal_until INTEGER');
+
 const txCols = db.prepare('PRAGMA table_info(balance_transactions)').all().map((c) => c.name);
 if (!txCols.includes('sicilia_order_id')) {
   db.exec('ALTER TABLE balance_transactions ADD COLUMN sicilia_order_id INTEGER REFERENCES sicilia_orders(id)');
@@ -322,11 +325,13 @@ function publicOrder(r) {
   if (!r) return null;
   const d = lastDispute(r.id);
   let requisite = null;
-  if (r.requisite && payable(r)) {
+  if (r.requisite && payable(r) && !r.proposal_until) {
     try { requisite = JSON.parse(r.requisite); } catch { requisite = null; }
   }
   return {
     id: r.id,
+    proposal: Boolean(r.proposal_until),
+    proposalUntil: r.proposal_until || null,
     // Номер платежа для поддержки: тот же, что видит шлюз, по нему сотрудник
     // находит оплату у себя и у Sicilia одним поиском.
     number: r.invid,
@@ -447,7 +452,7 @@ function requisiteFrom(info, method, env = siciliaEnv()) {
  * Через API: ордер у шлюза создаётся здесь же, и игрок получает реквизит.
  * Через окно: сеть не нужна, ордер заведёт окно, когда игрок его откроет.
  */
-export async function createDeposit(userId, amountRub, { method = 'sbp', senderBank = '' } = {}) {
+export async function createDeposit(userId, amountRub, { method = 'sbp', senderBank = '', proposal = false } = {}) {
   const env = siciliaEnv();
   if (!payinReady(env)) throw Object.assign(new Error('Способ оплаты временно недоступен'), { code: 'NOT_CONFIGURED' });
   const amount = validAmount(amountRub, env);
@@ -464,22 +469,23 @@ export async function createDeposit(userId, amountRub, { method = 'sbp', senderB
    * а если первый к тому времени оплачен, отменять его нельзя: деньги ушли.
    * Поэтому новый не заводится, пока старый не закрыт, и игрок видит старый.
    */
-  const open = db.prepare(`SELECT * FROM sicilia_orders WHERE kind = 'payin' AND user_id = ? AND requisite IS NOT NULL
-                            ORDER BY id DESC LIMIT 5`).all(userId).find((r) => payable(r));
+  const open = db.prepare(`SELECT * FROM sicilia_orders WHERE kind = 'payin' AND user_id = ? AND status NOT IN ('cancelled', 'error', 'unclaimed', 'expired')
+                            ORDER BY id DESC`).all(userId).find((r) => payable(r));
   if (open) {
     throw Object.assign(new Error('У вас уже есть неоплаченный перевод. Оплатите его или отмените.'),
       { code: 'OPEN_ORDER', order: publicOrder(open) });
   }
 
   try {
-    return await placeOrder(userId, amount, method, env, { bank: PAYIN_METHODS[method], senderBank });
+    return await placeOrder(userId, amount, method, env, { bank: PAYIN_METHODS[method], senderBank, proposal });
   } catch (err) {
     // Запасной путь - только когда у основного терминала нет реквизита. Другие
     // отказы (шлюз лёг, ключ не принят) мобильная коммерция не лечит.
     if (err.code !== 'NO_REQUISITE' || amount > env.mkMax || !mkReady()) throw err;
     try {
-      return await placeOrder(userId, amount, method, siciliaEnv(MK), { bank: env.mkBank });
-    } catch {
+      return await placeOrder(userId, amount, method, siciliaEnv(MK), { bank: env.mkBank, proposal });
+    } catch (fallbackError) {
+      if (fallbackError.code !== 'NO_REQUISITE') throw fallbackError;
       // Игроку важно одно: реквизита сейчас нет. Почему его не дала мобильная
       // коммерция, видно в строке ордера и в оповещениях служебного бота.
       throw err;
@@ -488,8 +494,9 @@ export async function createDeposit(userId, amountRub, { method = 'sbp', senderB
 }
 
 /** Заводит ордер в одном терминале и отдаёт игроку реквизит. */
-async function placeOrder(userId, amount, method, env, { bank, senderBank = '' }) {
+async function placeOrder(userId, amount, method, env, { bank, senderBank = '', proposal = false }) {
   const row = insertPayin(userId, amount, method, env);
+  if (proposal) db.prepare('UPDATE sicilia_orders SET proposal_until = ? WHERE id = ?').run(Date.now() + PROPOSAL_TTL_MS, row.id);
   const sum = String(amount);
   const body = {
     currency: 'RUB',
@@ -535,8 +542,88 @@ async function placeOrder(userId, amount, method, env, { bank, senderBank = '' }
                WHERE id = ?`)
     .run(String(info.status || 'processing'), info.id ?? null, requisite.bankCode, JSON.stringify(requisite),
       Number.isFinite(paySum) && paySum > 0 ? String(paySum) : sum, Date.now(), row.id);
+  if (proposal) db.prepare('UPDATE sicilia_orders SET proposal_until = ? WHERE id = ?').run(Date.now() + PROPOSAL_TTL_MS, row.id);
   trackEvent(userId, 'deposit_created', { amount, method: env.terminal === MK ? 'mobcom' : 'sicilia' });
   return publicOrder(db.prepare('SELECT * FROM sicilia_orders WHERE id = ?').get(row.id));
+}
+
+// Шаги идут последовательно: одновременно держать несколько реквизитов нельзя.
+export const SEARCH_RETRY_MS = 1500;
+export const SEARCH_EXACT_MS = 10_000;
+export const SEARCH_STEP_RUB = 100;
+export const SEARCH_STEPS = 10;
+export const PROPOSAL_TTL_MS = 60_000;
+const PROPOSAL_SWEEP_MS = 1000;
+const PROPOSAL_RELEASED_AT = -1;
+const depositSearches = new Set();
+
+export async function searchDeposit(userId, amountRub, options = {}, {
+  now = Date.now, sleep = delay, abandoned = () => false,
+} = {}) {
+  if (depositSearches.has(userId)) {
+    throw Object.assign(new Error('Реквизиты уже подбираются. Подождите.'), { code: 'SEARCH_BUSY' });
+  }
+  depositSearches.add(userId);
+  try {
+    const env = siciliaEnv();
+    const amount = validAmount(amountRub, env);
+    const deadline = now() + SEARCH_EXACT_MS;
+    const attempt = async (sum, proposal) => {
+      if (abandoned()) throw Object.assign(new Error('Поиск отменён'), { code: 'SEARCH_CANCELLED' });
+      const order = await createDeposit(userId, sum, { ...options, proposal });
+      if (abandoned()) {
+        await cancelDeposit(order.id, userId);
+        throw Object.assign(new Error('Поиск отменён'), { code: 'SEARCH_CANCELLED' });
+      }
+      return order;
+    };
+    for (;;) {
+      try { return await attempt(amount, false); } catch (err) {
+        // При таймауте ордер мог создаться. Следующие суммы тогда не пробуем.
+        if (err.code !== 'NO_REQUISITE') throw err;
+      }
+      if (now() >= deadline) break;
+      await sleep(Math.min(SEARCH_RETRY_MS, deadline - now()));
+    }
+    for (let step = 1; step <= SEARCH_STEPS; step++) {
+      const candidate = amount + step * SEARCH_STEP_RUB;
+      if (candidate > env.max) break;
+      try {
+        const order = await attempt(candidate, true);
+        return { ...order, requestedAmount: amount };
+      } catch (err) { if (err.code !== 'NO_REQUISITE') throw err; }
+    }
+    throw Object.assign(new Error('Свободных реквизитов пока нет. Попробуйте позже или выберите другой способ оплаты.'), { code: 'NO_REQUISITE' });
+  } finally { depositSearches.delete(userId); }
+}
+
+export function acceptDepositProposal(id, userId) {
+  const row = db.prepare("SELECT * FROM sicilia_orders WHERE id = ? AND user_id = ? AND kind = 'payin'").get(Number(id), userId);
+  if (!row) throw Object.assign(new Error('Предложение не найдено'), { code: 'NOT_FOUND' });
+  if (!payable(row) || (row.proposal_until && row.proposal_until <= Date.now())) {
+    throw Object.assign(new Error('Время предложения истекло. Подберите реквизиты заново.'), { code: 'CLOSED' });
+  }
+  assertDepositAllowed(userId, row.amount_rub);
+  db.prepare('UPDATE sicilia_orders SET proposal_until = NULL, updated_at = ? WHERE id = ?').run(Date.now(), row.id);
+  return publicOrder(db.prepare('SELECT * FROM sicilia_orders WHERE id = ?').get(row.id));
+}
+
+export async function expireDepositProposals() {
+  const rows = db.prepare("SELECT * FROM sicilia_orders WHERE proposal_until > 0 AND proposal_until <= ? AND paid_at IS NULL AND status NOT IN ('unclaimed', 'cancelled', 'error')").all(Date.now());
+  for (const row of rows) {
+    // Сначала закрываем локально, чтобы подтверждение не обогнало сетевой отзыв.
+    const changed = db.prepare("UPDATE sicilia_orders SET status = 'expired', updated_at = ? WHERE id = ? AND proposal_until <= ? AND paid_at IS NULL")
+      .run(Date.now(), row.id, Date.now());
+    if (!changed.changes) continue;
+    try {
+      await unclaimPayin(row);
+      // Отрицательный срок сохраняет запрет показа даже при позднем статусе processing.
+      db.prepare('UPDATE sicilia_orders SET proposal_until = ? WHERE id = ? AND paid_at IS NULL').run(PROPOSAL_RELEASED_AT, row.id);
+    } catch {
+      // Повторим отзыв на следующем проходе, даже после перезапуска процесса.
+      // Истёкшее предложение остаётся закрытым; запрос повторится по сохранённому сроку.
+    }
+  }
 }
 
 /** Статусы шлюза, после которых ордер уже не оплатят. */
@@ -707,6 +794,7 @@ export async function cancelDeposit(id, userId) {
   if (!row) throw Object.assign(new Error('Платёж не найден'), { code: 'NOT_FOUND' });
   if (row.paid_at) return { payment: publicOrder(row), credited: false };
   if (!payable(row)) return { payment: publicOrder(row), credited: false };
+  if (row.proposal_until) db.prepare('UPDATE sicilia_orders SET proposal_until = ? WHERE id = ?').run(Date.now() - 1, row.id);
   try {
     const r = await confirmPayin(row);
     if (r.credited || r.status === 'completed') {
@@ -716,7 +804,13 @@ export async function cancelDeposit(id, userId) {
     // Шлюз недоступен - не отменяем вслепую: перевод мог уже уйти.
     if (err.code === 'GATEWAY_UNREACHABLE' || err.status >= 500) throw err;
   }
-  try { await unclaimPayin(row); } catch { /* ордер шлюз уже закрыл сам или не заводил */ }
+  try { await unclaimPayin(row); } catch (err) {
+    if (row.proposal_until) {
+      db.prepare("UPDATE sicilia_orders SET status = 'expired' WHERE id = ? AND paid_at IS NULL").run(row.id);
+      throw err;
+    }
+    // Обычный перевод шлюз мог уже закрыть сам или не завести.
+  }
   db.prepare("UPDATE sicilia_orders SET status = 'unclaimed', updated_at = ? WHERE id = ? AND paid_at IS NULL")
     .run(Date.now(), row.id);
   return { payment: publicOrder(db.prepare('SELECT * FROM sicilia_orders WHERE id = ?').get(row.id)), credited: false };
@@ -1108,6 +1202,13 @@ export async function reconcile(now = Date.now()) {
 
 export function startReconcile(onCredited) {
   if (!isConfigured()) return;
+  let expiringProposals = false;
+  setInterval(async () => {
+    if (expiringProposals) return;
+    expiringProposals = true;
+    try { await expireDepositProposals(); } catch (err) { console.error('[sicilia] предложения:', err.message); }
+    finally { expiringProposals = false; }
+  }, PROPOSAL_SWEEP_MS).unref();
   setInterval(async () => {
     try {
       const before = new Set(db.prepare("SELECT id FROM sicilia_orders WHERE kind = 'payin' AND paid_at IS NOT NULL").all().map((r) => r.id));

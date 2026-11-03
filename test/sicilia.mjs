@@ -809,6 +809,118 @@ function lastMk(userId) {
   }
 }
 
+/* ---------- Подбор суммы и подтверждение предложения ---------- */
+{
+  process.env.SICILIA_PAYIN = 'h2h';
+  const created = (body) => ({ id: 400, invid: body.invid, status: 'processing', sum: body.sum,
+    card: { number: '2200123456789010', telefon: '79991234567' }, bank_data: { name: 'Банк', code: 'sberbank' } });
+  let available = () => false;
+  const sums = [];
+  reply = (url, method, body) => {
+    if (url.endsWith('/orders/create')) {
+      sums.push(body.sum);
+      return available(body.sum) ? { status: 201, body: created(body) }
+        : { status: 422, body: { message: 'No available calls' } };
+    }
+    if (url.endsWith('/orders/check-status')) return { status: 200, body: { invid: body.invid, status: 'processing' } };
+    return { status: 200, body: {} };
+  };
+  const clock = () => {
+    let time = 0;
+    return { now: () => time, sleep: async (ms) => { time += ms; } };
+  };
+  const u = player();
+  available = (sum) => sum === 700;
+  const proposal = await s.searchDeposit(u.id, 500, { method: 'card', senderBank: 'sberbank' }, clock());
+  const alternatives = sums.filter((sum) => sum !== 500);
+  check('подбор: исходную сумму повторяем 10 секунд', sums.filter((sum) => sum === 500).length === 8);
+  check('подбор: шаг 100 вверх, остановка на первом успехе', JSON.stringify(alternatives) === '[600,700]');
+  check('предложение: сумма и срок, реквизит скрыт', proposal.proposal && proposal.amount === 700
+    && proposal.requestedAmount === 500 && proposal.proposalUntil > Date.now() && !proposal.requisite);
+  check('предложение: реквизит скрыт и в истории', !s.listDeposits(u.id)[0].requisite);
+  let error;
+  try { s.acceptDepositProposal(proposal.id, player().id); } catch (err) { error = err; }
+  check('предложение: чужой игрок не может подтвердить', error?.code === 'NOT_FOUND');
+  const before = sums.length;
+  const accepted = s.acceptDepositProposal(proposal.id, u.id);
+  check('подтверждение: тот же ордер и сумма, реквизиты открыты', accepted.id === proposal.id && accepted.amount === 700 && accepted.requisite);
+  check('подтверждение: повторного создания сделки нет', sums.length === before);
+  check('подтверждение: повторное нажатие безопасно', s.acceptDepositProposal(proposal.id, u.id).id === proposal.id);
+  await s.cancelDeposit(proposal.id, u.id);
+
+  sums.length = 0;
+  available = (sum) => sum === 1500;
+  const last = await s.searchDeposit(player().id, 500, {}, clock());
+  check('подбор: доступны все 10 шагов до +1000', last.amount === 1500
+    && JSON.stringify(sums.filter((sum) => sum !== 500)) === '[600,700,800,900,1000,1100,1200,1300,1400,1500]');
+  db.prepare('UPDATE sicilia_orders SET proposal_until = ? WHERE id = ?').run(Date.now() - 1, last.id);
+  error = null;
+  try { s.acceptDepositProposal(last.id, db.prepare('SELECT user_id FROM sicilia_orders WHERE id = ?').get(last.id).user_id); } catch (err) { error = err; }
+  check('предложение: просроченное подтвердить нельзя', error?.code === 'CLOSED');
+  await s.expireDepositProposals();
+  check('предложение: сервер отзывает истёкшее без браузера', db.prepare('SELECT status FROM sicilia_orders WHERE id = ?').get(last.id).status === 'expired');
+
+  const storedLast = db.prepare('SELECT * FROM sicilia_orders WHERE id = ?').get(last.id);
+  s.applyPayinStatus(last.id, { status: 'processing' });
+  check('предложение: поздний processing не раскрывает реквизиты после отказа', !s.listDeposits(storedLast.user_id)[0].requisite);
+  error = null;
+  try { s.acceptDepositProposal(last.id, storedLast.user_id); } catch (err) { error = err; }
+  check('предложение: поздний processing не разрешает подтверждение', error?.code === 'CLOSED');
+
+  available = (sum) => sum === 600;
+  const abandonedUser = player();
+  const abandonedOrder = await s.searchDeposit(abandonedUser.id, 500, {}, clock());
+  db.prepare('UPDATE sicilia_orders SET proposal_until = ? WHERE id = ?').run(Date.now() - 1, abandonedOrder.id);
+  const normalReply = reply;
+  reply = (url, method, body) => url.endsWith('/orders/unclaimed')
+    ? { status: 503, body: { message: 'Unavailable' } } : normalReply(url, method, body);
+  await s.expireDepositProposals();
+  check('предложение: сбой отмены сохраняет срок для повтора', db.prepare('SELECT proposal_until FROM sicilia_orders WHERE id = ?').get(abandonedOrder.id).proposal_until > 0);
+  reply = normalReply;
+  await s.expireDepositProposals();
+  check('предложение: повтор отмены освобождает реквизит', db.prepare('SELECT proposal_until FROM sicilia_orders WHERE id = ?').get(abandonedOrder.id).proposal_until === -1);
+
+  sums.length = 0;
+  available = () => false;
+  error = null;
+  try { await s.searchDeposit(player().id, 500, {}, clock()); } catch (err) { error = err; }
+  check('подбор: исчерпание десяти шагов даёт отказ', error?.code === 'NO_REQUISITE' && sums.at(-1) === 1500);
+  sums.length = 0;
+  try { await s.searchDeposit(player().id, 99950, {}, clock()); } catch { /* все суммы заняты */ }
+  check('подбор: максимум шлюза не превышаем', sums.every((sum) => sum === 99950));
+
+  sums.length = 0;
+  available = () => sums.length === 3;
+  const exact = await s.searchDeposit(player().id, 500, {}, clock());
+  check('подбор: исходная сумма появилась, альтернативы не нужны', exact.amount === 500 && exact.requisite && !exact.proposal && sums.length === 3);
+
+  const savedFetch = globalThis.fetch;
+  let requests = 0;
+  globalThis.fetch = async () => { requests++; throw new Error('timeout'); };
+  error = null;
+  const uncertain = player();
+  try { await s.searchDeposit(uncertain.id, 500, {}, clock()); } catch (err) { error = err; }
+  check('подбор: при таймауте не создаём новые ордера', error?.code === 'GATEWAY_UNREACHABLE' && requests === 1);
+  globalThis.fetch = savedFetch;
+  error = null;
+  try { await s.searchDeposit(uncertain.id, 500, {}, clock()); } catch (err) { error = err; }
+  check('подбор: неизвестный результат блокирует повторное создание', error?.code === 'OPEN_ORDER');
+
+  available = () => false;
+  let release;
+  const sleeping = new Promise((resolve) => { release = resolve; });
+  const concurrent = player();
+  let abandoned = false;
+  const running = s.searchDeposit(concurrent.id, 500, {}, { now: () => 0, sleep: () => sleeping, abandoned: () => abandoned }).catch((err) => err);
+  await new Promise((resolve) => setImmediate(resolve));
+  error = null;
+  try { await s.searchDeposit(concurrent.id, 500, {}, clock()); } catch (err) { error = err; }
+  check('подбор: параллельный поиск игрока заблокирован', error?.code === 'SEARCH_BUSY');
+  abandoned = true;
+  release();
+  check('подбор: уход пользователя останавливает поиск', (await running).code === 'SEARCH_CANCELLED');
+}
+
 /* ---------- итог ---------- */
 
 db.close();
