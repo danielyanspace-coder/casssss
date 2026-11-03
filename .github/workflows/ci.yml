@@ -68,6 +68,9 @@ jobs:
       - name: Ограничитель частоты
         run: npm run test:ratelimit
 
+      - name: Перегрузка и корректная остановка
+        run: npm run test:resilience
+
       - name: Вход на сайт
         run: npm run test:auth
 

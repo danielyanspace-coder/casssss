@@ -8,6 +8,7 @@
  */
 
 import 'dotenv/config';
+import { createAdmission, positiveInt } from './resilience.js';
 import { caseSummary } from './case-catalog.js';
 import express from 'express';
 import { fileURLToPath } from 'node:url';
@@ -228,6 +229,12 @@ for (const method of ['get', 'post', 'put', 'patch', 'delete']) {
  */
 app.set('trust proxy', Number(process.env.TRUST_PROXY_HOPS || 1));
 app.disable('x-powered-by');
+const admission = createAdmission({
+  normal: positiveInt(process.env.HTTP_CONCURRENCY, 128),
+  callbacks: positiveInt(process.env.CALLBACK_CONCURRENCY, 32),
+  streams: positiveInt(process.env.STREAM_CONCURRENCY, 512),
+});
+app.use(admission.middleware);
 app.use('/api', (req, res, next) => {
   // Ответы с балансом, сессией и данными сотрудников не сохраняются в кеше.
   res.setHeader('Cache-Control', 'no-store');
@@ -235,7 +242,11 @@ app.use('/api', (req, res, next) => {
   next();
 });
 
-app.use(express.json({ limit: '8mb', verify: (req, res, buffer) => { req.rawBody = buffer.toString('utf8'); } }));
+const jsonVerify = (req, res, buffer) => { req.rawBody = buffer.toString('utf8'); };
+const standardJson = express.json({ limit: '1mb', verify: jsonVerify });
+const uploadJson = express.json({ limit: '8mb', verify: jsonVerify });
+app.use((req, res, next) => (['/api/sicilia/report', '/api/admin/dispute/open'].includes(req.path)
+  ? uploadJson : standardJson)(req, res, next));
 /*
  * Картинки (/assets) браузер держит неделю и ещё месяц может показывать из
  * кеша, проверяя свежесть в фоне: обложки кейсов весят мегабайты, и
@@ -492,6 +503,7 @@ function sendInsufficient(res, need) {
  */
 app.get('/api/health', (req, res) => {
   try {
+    if (admission.snapshot().draining) return res.status(503).json({ ok: false, draining: true });
     db.prepare('SELECT 1').get();
     res.json({ ok: true, uptime: Math.round(process.uptime()) });
   } catch (err) {
@@ -659,7 +671,8 @@ const authGate = (req, res, next) => (isSameOrigin(req)
   ? next() : res.status(403).json({ error: 'Запрос с чужой страницы' }));
 
 function authError(res, err) {
-  const status = err.code === 'EMAIL_TAKEN' || err.code === 'TG_TAKEN' ? 409 : 400;
+  if (err.status === 503) res.set('Retry-After', '2');
+  const status = err.status === 503 ? 503 : err.code === 'EMAIL_TAKEN' || err.code === 'TG_TAKEN' ? 409 : 400;
   res.status(status).json({ error: err.message, code: err.code });
 }
 
@@ -1309,7 +1322,7 @@ function partnerOnly(req, res, next) {
 
 function pcError(res, err) {
   const status = err.code === 'NOT_FOUND' ? 404 : err.code === 'EMAIL_TAKEN' || err.code === 'TAKEN' ? 409
-    : err.code === 'BLOCKED' || err.code === 'CLOSED' ? 403 : 400;
+    : err.status === 503 ? 503 : err.code === 'BLOCKED' || err.code === 'CLOSED' ? 403 : 400;
   if (!err.code) throw err;
   res.status(status).json({ error: err.message, code: err.code });
 }
@@ -2961,7 +2974,7 @@ app.post('/api/casino/wallet', (req, res) => {
 const paymentStreams = new Map();
 function emitPayment(userId, event, data) {
   for (const res of paymentStreams.get(userId) || []) {
-    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    if (!res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)) res.end();
   }
 }
 
@@ -2979,7 +2992,7 @@ app.get('/api/payments/events', auth, (req, res) => {
     try { oldest.end(); } catch { /* уже закрыт */ }
   }
   set.add(res); paymentStreams.set(req.player.id, set);
-  const keepalive = setInterval(() => res.write(': keepalive\n\n'), 25000);
+  const keepalive = setInterval(() => { if (!res.write(': keepalive\n\n')) res.end(); }, 25000);
   req.on('close', () => { clearInterval(keepalive); set.delete(res); if (!set.size) paymentStreams.delete(req.player.id); });
 });
 
@@ -3227,6 +3240,11 @@ app.post('/api/admin/export', auth, need('reports.view'), (req, res) => {
 });
 
 app.use((err, req, res, next) => {
+  if (res.headersSent) return next(err);
+  if (err.code === 'SQLITE_BUSY' || err.code === 'SQLITE_LOCKED') {
+    res.set('Retry-After', '2');
+    return res.status(503).json({ error: 'DATABASE_BUSY', retryAfter: 2 });
+  }
   console.error('Ошибка запроса:', err);
   if (!err.status || err.status >= 500) {
     countError('http:500', `Сервер отвечает ошибками 500. Последняя: ${req.method} ${req.path}: ${err.message}`);
@@ -3243,6 +3261,7 @@ const PORT = Number(process.env.PORT || 3000);
  */
 const CRASH_EXIT_DELAY_MS = 3000;
 process.on('uncaughtException', (err) => {
+  admission.drain();
   console.error('Необработанная ошибка:', err);
   alert('process:crash', `Сервер упал: ${err.message}. systemd перезапустит его.`);
   setTimeout(() => process.exit(1), CRASH_EXIT_DELAY_MS);
@@ -3261,17 +3280,29 @@ process.on('unhandledRejection', (err) => {
 const RUN_MARK = join(dirname(resolve(process.env.DB_PATH || './data/app.db')), '.running');
 const crashedBefore = existsSync(RUN_MARK);
 try { writeFileSync(RUN_MARK, String(process.pid)); } catch { /* только для разбора */ }
-for (const sig of ['SIGTERM', 'SIGINT']) {
-  process.on(sig, () => {
-    try { rmSync(RUN_MARK, { force: true }); } catch { /* пусть */ }
-    process.exit(0);
+let stopping = false;
+function shutdown(exitCode = 0) {
+  if (stopping) return;
+  stopping = true;
+  admission.drain();
+  // SSE is intentionally long lived; close it so it cannot delay shutdown.
+  for (const streams of paymentStreams.values()) for (const res of streams) res.end();
+  const deadline = setTimeout(() => process.exit(1), 90_000);
+  deadline.unref();
+  server.close(() => {
+    clearTimeout(deadline);
+    try { db.close(); } catch (err) { console.error('Закрытие БД:', err.message); }
+    try { rmSync(RUN_MARK, { force: true }); } catch { /* diagnostic marker */ }
+    process.exit(exitCode);
   });
+  server.closeIdleConnections?.();
 }
+for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, () => shutdown());
 
 // HOST задаёт служба (deploy/luckybox.service): на сервере только 127.0.0.1,
 // снаружи вход один - через nginx. Без HOST слушаем все адреса, как раньше:
 // так работают разработка и тесты.
-app.listen(PORT, process.env.HOST || undefined, () => {
+const server = app.listen(PORT, process.env.HOST || undefined, () => {
   startOpsBot();
   if (crashedBefore) inform('Сервер перезапустился после сбоя: прошлый процесс не остановился штатно. Причина - в journalctl -u luckybox.');
   startFeed();
@@ -3298,3 +3329,7 @@ app.listen(PORT, process.env.HOST || undefined, () => {
   console.log(`  Бесплатный кейс за подписку: ${subscriptionConfigured() ? 'настроен' : 'выключен (нет канала/кейса)'}\n`);
   console.table(caseReport);
 });
+
+server.requestTimeout = 30_000;
+server.headersTimeout = 15_000;
+server.keepAliveTimeout = 5_000;

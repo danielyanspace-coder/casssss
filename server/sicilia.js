@@ -1,3 +1,4 @@
+import { serialInterval } from './resilience.js';
 import { siciliaPayinFeePct } from './sicilia-fees.js';
 /**
  * Приём платежей и выплаты через Sicilia (api.sicilia.ink).
@@ -137,6 +138,7 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_sicilia_user ON sicilia_orders(user_id, id DESC);
   CREATE INDEX IF NOT EXISTS idx_sicilia_status ON sicilia_orders(kind, status);
   CREATE INDEX IF NOT EXISTS idx_sicilia_payout ON sicilia_orders(payout_id);
+  CREATE INDEX IF NOT EXISTS idx_sicilia_paid ON sicilia_orders(paid_at) WHERE kind = 'payin' AND paid_at IS NOT NULL;
 
   /*
    * Споры по пополнениям: игрок перевёл, а деньги не пришли. Запись живёт у
@@ -1108,18 +1110,17 @@ export async function reconcile(now = Date.now()) {
 
 export function startReconcile(onCredited) {
   if (!isConfigured()) return;
-  setInterval(async () => {
+  serialInterval(async () => {
     try {
-      const before = new Set(db.prepare("SELECT id FROM sicilia_orders WHERE kind = 'payin' AND paid_at IS NOT NULL").all().map((r) => r.id));
+      const before = db.prepare("SELECT MAX(paid_at) AS at FROM sicilia_orders WHERE kind = 'payin' AND paid_at IS NOT NULL").get().at || Date.now();
       await reconcile();
-      const fresh = db.prepare("SELECT id, user_id FROM sicilia_orders WHERE kind = 'payin' AND paid_at IS NOT NULL").all()
-        .filter((r) => !before.has(r.id));
+      const fresh = db.prepare("SELECT id, user_id FROM sicilia_orders WHERE kind = 'payin' AND paid_at >= ?").all(before);
       for (const r of fresh) onCredited?.(r.user_id);
     } catch (err) {
       console.error('[sicilia] сверка:', err.message);
       alert('sicilia:reconcile', `Sicilia: сверка платежей не прошла (${err.message}). Потерянные колбэки не досчитываются.`);
     }
-  }, RECONCILE_MS).unref();
+  }, RECONCILE_MS);
 }
 
 /* ============================================================

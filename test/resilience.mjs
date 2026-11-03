@@ -1,0 +1,45 @@
+import assert from 'node:assert/strict';
+import express from 'express';
+import { once } from 'node:events';
+import { createAdmission, createWorkLimit, serialInterval } from '../server/resilience.js';
+const app = express();
+const admission = createAdmission({ normal: 2, callbacks: 1, streams: 1 });
+app.use(admission.middleware);
+const pending = [];
+app.get('/api/slow', (req, res) => pending.push(res));
+app.get('/api/health', (req, res) => res.json({ ok: true }));
+app.post('/api/casino/wallet', (req, res) => res.json({ ok: true }));
+const server = app.listen(0, '127.0.0.1');
+await once(server, 'listening');
+const base = `http://127.0.0.1:${server.address().port}`;
+try {
+  const first = fetch(base + '/api/slow');
+  const second = fetch(base + '/api/slow');
+  while (pending.length < 2) await new Promise(r => setTimeout(r, 5));
+  const overload = await fetch(base + '/api/slow', { headers: { accept: 'text/event-stream' } });
+  assert.equal(overload.status, 503);
+  assert.equal(overload.headers.get('retry-after'), '2');
+  assert.equal((await fetch(base + '/api/health')).status, 200);
+  assert.equal((await fetch(base + '/api/casino/wallet', { method: 'POST' })).status, 200);
+  pending.forEach(res => res.json({ ok: true }));
+  await Promise.all([first, second]);
+  await new Promise(r => setTimeout(r, 5));
+  assert.equal(admission.snapshot().normal, 0);
+  admission.drain();
+  assert.equal((await fetch(base + '/api/casino/wallet', { method: 'POST' })).status, 503);
+} finally { server.closeAllConnections(); await new Promise(r => server.close(r)); }
+const run = createWorkLimit(1);
+let release;
+const held = run(() => new Promise(r => { release = r; }));
+await assert.rejects(run(() => {}), { code: 'SERVER_BUSY' });
+release(); await held;
+await assert.rejects(run(() => { throw new Error('failed'); }), /failed/);
+assert.equal(await run(() => 42), 42);
+let active = 0, peak = 0, calls = 0;
+const stop = serialInterval(async () => {
+  active++; calls++; peak = Math.max(peak, active);
+  await new Promise(r => setTimeout(r, 25)); active--;
+}, 5);
+await new Promise(r => setTimeout(r, 100)); stop();
+assert.equal(peak, 1); assert.ok(calls >= 2);
+console.log('PASS: HTTP overload, callback reserve, drain, KDF bound, serial background jobs');
