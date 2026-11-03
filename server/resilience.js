@@ -4,7 +4,7 @@ export function positiveInt(value, fallback) {
   return Number.isSafeInteger(n) && n > 0 ? n : fallback;
 }
 
-export function createAdmission({ normal = 128, callbacks = 32, streams = 256, uploads = 4 } = {}) {
+export function createAdmission({ normal = 128, callbacks = 32, streams = 512, uploads = 4 } = {}) {
   const active = { normal: 0, callbacks: 0, streams: 0, uploads: 0 };
   const caps = { normal, callbacks, streams, uploads };
   let draining = false;

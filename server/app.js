@@ -232,7 +232,7 @@ app.disable('x-powered-by');
 const admission = createAdmission({
   normal: positiveInt(process.env.HTTP_CONCURRENCY, 128),
   callbacks: positiveInt(process.env.CALLBACK_CONCURRENCY, 32),
-  streams: positiveInt(process.env.STREAM_CONCURRENCY, 256),
+  streams: positiveInt(process.env.STREAM_CONCURRENCY, 512),
 });
 app.use(admission.middleware);
 app.use('/api', (req, res, next) => {
