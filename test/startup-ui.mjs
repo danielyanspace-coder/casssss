@@ -67,6 +67,20 @@ try {
   await page.click('#brandHome');
   const card = page.locator('.case-card').first();
   await card.scrollIntoViewIfNeeded();
+  // После смены раздела и прокрутки ждём доступной точки касания,
+  // как это делает Playwright для обычного tap, но не для dispatchEvent.
+  await page.waitForFunction(() => {
+    const el = document.querySelector('.case-card');
+    const r = el.getBoundingClientRect();
+    return el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2));
+  }, null, {timeout:5000}).catch(async () => {
+    const detail = await card.evaluate(el => {
+      const r = el.getBoundingClientRect();
+      const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+      return {card:el.dataset.case, bounds:r.toJSON(), scrollY, viewport:[innerWidth, innerHeight], hit:hit?.outerHTML.slice(0,500)};
+    });
+    throw new Error('Touch target never became available: ' + JSON.stringify(detail));
+  });
   // pointerdown + pointerup без синтетического click (сценарий Safari).
   // Пересоздаём карточку между ними: старый индивидуальный listener теряется.
   // Одна JS-задача не смешивает этот сценарий с прокруткой между CDP-командами.
